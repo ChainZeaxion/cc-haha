@@ -31,8 +31,12 @@ export type SessionUsageMetrics = {
   /** `null` when the session has sent no prompt tokens yet. */
   cacheHitRate: number | null
   /**
-   * Output tokens over API wall-clock. `null` when no API duration was reported.
-   * Decode-only spans exclude TTFT and read as a peak the user never felt.
+   * Output tokens per second of actual generation. Prefers the decode-only span
+   * (time the model spent emitting tokens, TTFT/prefill excluded) — dividing by
+   * API wall-clock instead folds the first-token wait into "generation speed"
+   * and reads ~20-30% low. Falls back to the API span when only that was
+   * reported (e.g. a transcript that has a span but no decode breakdown).
+   * `null` when neither duration was reported.
    */
   tokensPerSecond: number | null
 }
@@ -44,16 +48,20 @@ function finite(value: number | undefined): number {
 /**
  * Derives the panel's headline numbers.
  *
- * `tokensPerSecond` divides output tokens by the time the API was actually running, including
- * prefill. A caller that only has a transcript (no API duration) gets `null` rather than a rate
- * computed against wall clock that includes `Bash`.
+ * `tokensPerSecond` is generation speed: output tokens over the time the model
+ * actually spent emitting them (`totalDecodeDuration`, TTFT/prefill excluded).
+ * It falls back to the API span when a transcript only reports that, and is
+ * `null` when neither duration is known rather than computing a rate against
+ * wall clock that includes tool execution.
  */
 export function deriveSessionUsageMetrics(usage: SessionUsageLike): SessionUsageMetrics {
   const input = finite(usage.totalInputTokens)
   const output = finite(usage.totalOutputTokens)
   const cacheRead = finite(usage.totalCacheReadInputTokens)
   const cacheWrite = finite(usage.totalCacheCreationInputTokens)
+  const decodeMs = finite(usage.totalDecodeDuration)
   const apiMs = finite(usage.totalAPIDuration)
+  const generationMs = decodeMs > 0 ? decodeMs : apiMs
 
   const promptTokens = input + cacheRead + cacheWrite
   return {
@@ -61,7 +69,7 @@ export function deriveSessionUsageMetrics(usage: SessionUsageLike): SessionUsage
     promptTokens,
     cachedTokens: cacheRead,
     cacheHitRate: promptTokens > 0 ? cacheRead / promptTokens : null,
-    tokensPerSecond: apiMs > 0 && output > 0 ? output / (apiMs / 1000) : null,
+    tokensPerSecond: generationMs > 0 && output > 0 ? output / (generationMs / 1000) : null,
   }
 }
 

@@ -891,8 +891,9 @@ describe('ContextUsageIndicator session usage', () => {
 
     // Cache reads stay in the hit-rate row; they are not a separate headline.
     expect(await screen.findByTestId('session-cache-hit')).toHaveTextContent('90.0%')
-    // 2400 output / 42s API time, including prefill — not the 12s decode span (200 tok/s).
-    expect(screen.getByTestId('session-speed')).toHaveTextContent('57')
+    // Generation speed divides by the decode-only span (12s), not the 42s API
+    // wall-clock that includes 3s of first-token wait.
+    expect(screen.getByTestId('session-speed')).toHaveTextContent('200')
     expect(screen.getByTestId('session-speed')).toHaveTextContent('tok/s')
     expect(screen.getByTestId('session-cost')).toHaveTextContent('$1.23')
     expect(sessionsApiMock.getSessionUsage).toHaveBeenCalledWith('session-1', expect.anything())
