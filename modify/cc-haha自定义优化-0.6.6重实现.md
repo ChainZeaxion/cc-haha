@@ -132,6 +132,11 @@
 - 修复：绕过 node-pty 的 UnixTerminal，直接调原生 `pty.fork`（签名 `pty.fork(file,args,env[](k=v),cwd,cols,rows,uid,gid,utf8,helperPath,onexit)→{fd,pid,pty}`），master fd 用异步 `fs.read` 非阻塞读（EAGAIN/EWOULDBLOCK 时 `setTimeout` 15-20ms 退避重挂、有数据立即再读排空、EIO=child 退出）；write=`fs.writeSync(fd,data)`，resize=`pty.resize(fd,cols,rows)`，kill=`process.kill(pid,'SIGHUP')`，onExit 用 pty.fork 的 onexit 回调。保持 `TerminalPtyProcess` 接口不变（TerminalService 逻辑不动）。CPU：15-20ms 轮询空闲约 24-28%，可接受为 v1。死路（勿重试）：Bun 下 `net.Socket({fd,writable:true})` 写即关、readable-only 0 字节；`process.binding('fs')` 无 fcntl 无法 JS 侧改阻塞。
 - 另修 `stopSession` 竞态：原实现先 `sessions.delete` 再 `pty.kill()` 导致退出事件找不到会话不发 exit 帧；改为置 `session.exited=true` 不删 map，让 pty 真实退出事件走 `removeSession` 发 `terminal_exited` 帧并清理，加 500ms unref timer 兜底。
 
+**Bug 2（H5 LAN 访问）：`crypto.randomUUID` 非安全上下文抛错**（`TerminalSettings.tsx`）：
+- 症状：H5 通过 LAN IP（`http://192.168.x.x:port`）访问点开终端直接报错；loopback（127.0.0.1）一切正常，故最初 live 验证全绿掩盖了它。
+- 根因：`crypto.randomUUID` 仅在**安全上下文**（HTTPS 或 localhost/127.0.0.1）可用；LAN IP 走普通 http 是非安全上下文，`crypto.randomUUID` 为 `undefined`，`startTerminal` 里 `crypto.randomUUID()` 抛 `TypeError: crypto.randomUUID is not a function`，被 `catch` 捕获后显示在终端面板错误条。
+- 修复：照抄 `McpSettings.tsx` 的 `createId` 范式，加 `createTerminalRequestId()` 回退（`typeof crypto !== 'undefined' && 'randomUUID' in crypto ? crypto.randomUUID() : 't-'+Date.now()+'-'+Math.random().toString(36).slice(2)`）。独立 commit `71ac3073`。LAN live 复现：终端正常打开、`echo` 回显、console 无报错。
+
 **验证**：
 - 服务端单测：`src/server/__tests__/terminal-service.test.ts` 11/11（FakePty 注入）；WS 通道 `websocket-handler.test.ts` 103/103。
 - 前端：`desktop tsc -b` exit 0；vitest `terminal.test.ts`(2)+`contract.test.ts`(10)=12/12；`vite build` 新 bundle。
