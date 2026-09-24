@@ -19,6 +19,7 @@ import { randomSpinnerVerb } from '../config/spinnerVerbs'
 import { notifyDesktop } from '../lib/desktopNotifications'
 import { createAsyncRefreshCoalescer } from '../lib/asyncRefreshCoalescer'
 import { deriveSessionTitle, isPlaceholderSessionTitle } from '../lib/sessionTitle'
+import { TpsMeter, isTpsEnabled } from '../lib/tpsMeter'
 import { t } from '../i18n'
 import {
   VISUAL_SELECTION_BATCH_PROMPT_HEADER,
@@ -1005,6 +1006,19 @@ function markPendingToolUseMessagesStopped(messages: UIMessage[]): UIMessage[] {
   return changed ? stoppedMessages : messages
 }
 
+// Real-time decode-speed (TPS) meters, one per session so parallel sessions
+// each track their own output throughput without cross-talk.
+const tpsMeterBySession = new Map<string, TpsMeter>()
+
+export function getSessionTpsMeter(sessionId: string): TpsMeter {
+  let meter = tpsMeterBySession.get(sessionId)
+  if (!meter) {
+    meter = new TpsMeter()
+    tpsMeterBySession.set(sessionId, meter)
+  }
+  return meter
+}
+
 // Streaming throttle for content_delta. Buffers must be per-session because
 // multiple desktop tabs can stream at the same time.
 const pendingDeltaBySession = new Map<string, string>()
@@ -1028,7 +1042,11 @@ function appendPendingDelta(sessionId: string, text: string): void {
     sessionId,
     `${pendingDeltaBySession.get(sessionId) ?? ''}${text}`,
   )
+  if (isTpsEnabled()) {
+    getSessionTpsMeter(sessionId).push(text)
+  }
 }
+
 
 function clearPendingDelta(sessionId: string): void {
   const flushTimer = flushTimerBySession.get(sessionId)
@@ -1055,6 +1073,11 @@ function appendPendingToolInputDelta(sessionId: string, text: string): void {
     sessionId,
     `${pendingToolInputDeltaBySession.get(sessionId) ?? ''}${text}`,
   )
+  // Feed streaming tool inputs (Write/Edit/… argument JSON) into the TPS meter
+  // so the decode-speed reflects all output tokens, not just assistant text.
+  if (isTpsEnabled()) {
+    getSessionTpsMeter(sessionId).push(text)
+  }
 }
 
 function clearPendingToolInputDelta(sessionId: string): void {
@@ -3187,6 +3210,7 @@ export const useChatStore = create<ChatStore>((setState, get) => {
     clearPendingToolInputDelta(sessionId)
     clearPendingTaskToolUseIds(sessionId)
     clearPendingToolParentUseIds(sessionId)
+    tpsMeterBySession.delete(sessionId)
     advanceHistoryLifecycle(sessionId)
     wsManager.disconnect(sessionId)
     set((s) => {

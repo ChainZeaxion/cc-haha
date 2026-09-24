@@ -27,7 +27,9 @@ import {
 } from '../../stores/projectDisplayNameStore'
 import { openDesktopNotificationTarget } from '../../lib/desktopNotificationNavigation'
 import { TabBar } from './TabBar'
+import { TpsIndicator } from '../chat/TpsIndicator'
 import { WorkspaceHeaderProvider } from './WorkspaceHeaderContext'
+
 import { StartupErrorView } from './StartupErrorView'
 import { useTabStore, SETTINGS_TAB_ID } from '../../stores/tabStore'
 import { useChatStore } from '../../stores/chatStore'
@@ -420,15 +422,18 @@ export function AppShell() {
               </div>
             ) : null}
             {isActiveChatTab ? (
-              <IconButton
-                data-testid="session-manual-refresh-mobile"
-                icon={refreshingSession ? 'progress_activity' : 'refresh'}
-                label={t('chat.refreshSession')}
-                onClick={() => void handleManualRefresh()}
-                disabled={refreshingSession}
-                size="2xl"
-                aria-controls="content-area"
-              />
+              <div className="flex shrink-0 items-center gap-1">
+                {activeTabId ? <TpsIndicator sessionId={activeTabId} vertical /> : null}
+                <IconButton
+                  data-testid="session-manual-refresh-mobile"
+                  icon={refreshingSession ? 'progress_activity' : 'refresh'}
+                  label={t('chat.refreshSession')}
+                  onClick={() => void handleManualRefresh()}
+                  disabled={refreshingSession}
+                  size="2xl"
+                  aria-controls="content-area"
+                />
+              </div>
             ) : null}
           </div>
         ) : null}

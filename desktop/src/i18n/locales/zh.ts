@@ -479,6 +479,8 @@ export const zh: Record<TranslationKey, string> = {
   'chat.capabilities.managePlugins': '管理插件',
   'chat.capabilities.moreTools': '更多工具',
   'chat.refreshSession': '刷新会话',
+  'chat.tpsLabel': '速率',
+  'chat.tpsSpeedTitle': '实时解码速度（token/秒）',
   'chat.referenceSearchHint': "输入以查找会话、技能、插件和项目文件",
   'chat.slashFrequent': '常用命令',
   'chat.slashSearchHint': '输入名称搜索命令、技能和插件',

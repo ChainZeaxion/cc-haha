@@ -1,0 +1,636 @@
+diff --git a/desktop/src/components/chat/TpsIndicator.tsx b/desktop/src/components/chat/TpsIndicator.tsx
+new file mode 100644
+index 00000000..15897a99
+--- /dev/null
++++ b/desktop/src/components/chat/TpsIndicator.tsx
+@@ -0,0 +1,117 @@
++import { useEffect, useState } from 'react'
++import { getSessionTpsMeter } from '../../stores/chatStore'
++import { isTpsEnabled } from '../../lib/tpsMeter'
++import { useTranslation } from '../../i18n'
++
++/**
++ * Real-time decode-speed (TPS) indicator.
++ *
++ * Lifecycle:
++ *  - Before this session has ever streamed (no input/decoded tokens yet) →
++ *    hidden.
++ *  - After the first streamed chunk it stays visible for the rest of the
++ *    session. While decoding, value() is the live window speed and updates
++ *    every poll; when decoding pauses it holds the last speed.
++ *  - If no new data arrives for HIDE_AFTER_IDLE_MS (5 min) it hides again.
++ *
++ * Coloring: <27 red, <70 orange, >=70 green. Polled at POLL_MS (≈5-6 Hz).
++ * Meter is per-session (see getSessionTpsMeter), so parallel sessions each
++ * show their own decode speed.
++ */
++
++const POLL_MS = 180
++const LOW_TIER = 27
++const MED_TIER = 53
++const HIGH_TIER = 80
++const HIDE_AFTER_IDLE_MS = 5 * 60 * 1000
++
++type TpsTier = 'red' | 'orange' | 'green' | 'purple'
++
++function tierFor(tps: number): TpsTier {
++  if (tps < LOW_TIER) return 'red'
++  if (tps < MED_TIER) return 'orange'
++  if (tps < HIGH_TIER) return 'green'
++  return 'purple'
++}
++
++const TIER_STYLE: Record<TpsTier, { color: string; bg: string }> = {
++  red: { color: 'var(--color-error)', bg: 'var(--color-error-container)' },
++  orange: { color: '#f59e0b', bg: 'rgba(245,158,11,0.14)' },
++  green: { color: 'var(--color-success)', bg: 'var(--color-success-container)' },
++  purple: { color: '#a855f7', bg: 'rgba(168,85,247,0.16)' },
++}
++
++export function TpsIndicator({ sessionId, vertical = false }: { sessionId: string; vertical?: boolean }) {
++  const t = useTranslation()
++  const [tps, setTps] = useState(0)
++  const [visible, setVisible] = useState(false)
++
++  // Master switch: when disabled the indicator renders nothing and never polls
++  // the meter (the meter itself is also not fed in the content_delta path).
++  if (!isTpsEnabled()) return null
++
++  useEffect(() => {
++    const meter = getSessionTpsMeter(sessionId)
++    const tick = () => {
++      const streamed = meter.hasStreamed()
++      if (!streamed) {
++        setVisible(false)
++        return
++      }
++      const lastData = meter.lastDataTime()
++      const idleMs = lastData > 0 ? performance.now() - lastData : Number.POSITIVE_INFINITY
++      if (idleMs > HIDE_AFTER_IDLE_MS) {
++        setVisible(false)
++        return
++      }
++      const value = meter.value()
++      // A near-zero read at a stream boundary (text↔thinking↔tool) is not a
++      // real decode speed — hold the previous reading instead of flashing 0.
++      setTps((prev) => {
++        if (value < 0.5) return prev > 0.5 ? prev : value
++        // opt23 §11.27: 指数平滑（新值 30% + 上次 70%）抑制移动端突发导致
++        // 的 TPS 忽高忽低；首次读取直接采用。
++        return prev > 0.5 ? prev * 0.7 + value * 0.3 : value
++      })
++      setVisible(true)
++    }
++    tick()
++    const timer = setInterval(tick, POLL_MS)
++    return () => clearInterval(timer)
++  }, [sessionId])
++
++  if (!visible) return null
++  const tier = tierFor(tps)
++  const style = TIER_STYLE[tier]
++
++  if (vertical) {
++    return (
++      <span
++        data-testid="tps-indicator"
++        className="inline-flex shrink-0 flex-col items-center justify-center rounded-full px-2 py-0.5 font-mono text-[10px] font-semibold leading-none tabular-nums"
++        style={{ color: style.color, background: style.bg }}
++        title={t('chat.tpsSpeedTitle')}
++      >
++        <span className="font-bold leading-none">TPS</span>
++        <span className="mt-0.5 inline-block min-w-[7ch] text-right leading-none">
++          {tps.toFixed(0)}t/s
++        </span>
++      </span>
++    )
++  }
++
++  return (
++    <span
++      data-testid="tps-indicator"
++      className="inline-flex shrink-0 items-center gap-1 rounded-full px-2 py-0.5 font-mono text-[11px] font-semibold tabular-nums"
++      style={{ color: style.color, background: style.bg }}
++      title={t('chat.tpsSpeedTitle')}
++    >
++      <span className="font-bold">TPS</span>
++      {t('chat.tpsLabel')}:{' '}
++      <span className="inline-block min-w-[7ch] text-right">
++        {tps.toFixed(0)}t/s
++      </span>
++    </span>
++  )
++}
+diff --git a/desktop/src/components/layout/AppShell.test.tsx b/desktop/src/components/layout/AppShell.test.tsx
+index a4699c9e..669dea6b 100644
+--- a/desktop/src/components/layout/AppShell.test.tsx
++++ b/desktop/src/components/layout/AppShell.test.tsx
+@@ -84,6 +84,11 @@ vi.mock('../../stores/chatStore', () => ({
+       connectToSession: mocks.connectToSession,
+     }),
+   },
++  getSessionTpsMeter: () => ({
++    hasStreamed: () => false,
++    lastDataTime: () => 0,
++    value: () => 0,
++  }),
+ }))
+ 
+ vi.mock('../../hooks/useKeyboardShortcuts', () => ({
+diff --git a/desktop/src/components/layout/AppShell.tsx b/desktop/src/components/layout/AppShell.tsx
+index bd4a3e27..6f08a93b 100644
+--- a/desktop/src/components/layout/AppShell.tsx
++++ b/desktop/src/components/layout/AppShell.tsx
+@@ -27,7 +27,9 @@ import {
+ } from '../../stores/projectDisplayNameStore'
+ import { openDesktopNotificationTarget } from '../../lib/desktopNotificationNavigation'
+ import { TabBar } from './TabBar'
++import { TpsIndicator } from '../chat/TpsIndicator'
+ import { WorkspaceHeaderProvider } from './WorkspaceHeaderContext'
++
+ import { StartupErrorView } from './StartupErrorView'
+ import { useTabStore, SETTINGS_TAB_ID } from '../../stores/tabStore'
+ import { useChatStore } from '../../stores/chatStore'
+@@ -420,15 +422,18 @@ export function AppShell() {
+               </div>
+             ) : null}
+             {isActiveChatTab ? (
+-              <IconButton
+-                data-testid="session-manual-refresh-mobile"
+-                icon={refreshingSession ? 'progress_activity' : 'refresh'}
+-                label={t('chat.refreshSession')}
+-                onClick={() => void handleManualRefresh()}
+-                disabled={refreshingSession}
+-                size="2xl"
+-                aria-controls="content-area"
+-              />
++              <div className="flex shrink-0 items-center gap-1">
++                {activeTabId ? <TpsIndicator sessionId={activeTabId} vertical /> : null}
++                <IconButton
++                  data-testid="session-manual-refresh-mobile"
++                  icon={refreshingSession ? 'progress_activity' : 'refresh'}
++                  label={t('chat.refreshSession')}
++                  onClick={() => void handleManualRefresh()}
++                  disabled={refreshingSession}
++                  size="2xl"
++                  aria-controls="content-area"
++                />
++              </div>
+             ) : null}
+           </div>
+         ) : null}
+diff --git a/desktop/src/i18n/locales/en.ts b/desktop/src/i18n/locales/en.ts
+index 114eb19b..7782a21b 100644
+--- a/desktop/src/i18n/locales/en.ts
++++ b/desktop/src/i18n/locales/en.ts
+@@ -478,6 +478,8 @@ export const en = {
+   'chat.capabilities.managePlugins': 'Manage plugins',
+   'chat.capabilities.moreTools': 'More tools',
+   'chat.refreshSession': 'Refresh session',
++  'chat.tpsLabel': 'rate',
++  'chat.tpsSpeedTitle': 'Real-time decode speed (tokens/second)',
+   'chat.referenceSearchHint': "Type to find sessions, skills, plugins and project files",
+   'chat.slashFrequent': 'Frequent commands',
+   'chat.slashSearchHint': 'Type to search commands, skills and plugins',
+diff --git a/desktop/src/i18n/locales/jp.ts b/desktop/src/i18n/locales/jp.ts
+index 1c06b89f..3b08fe03 100644
+--- a/desktop/src/i18n/locales/jp.ts
++++ b/desktop/src/i18n/locales/jp.ts
+@@ -480,6 +480,8 @@ export const jp: Record<TranslationKey, string> = {
+   'chat.capabilities.managePlugins': 'プラグインを管理',
+   'chat.capabilities.moreTools': 'その他のツール',
+   'chat.refreshSession': 'セッションを更新',
++  'chat.tpsLabel': '速度',
++  'chat.tpsSpeedTitle': 'リアルタイムデコード速度（トークン/秒）',
+   'chat.referenceSearchHint': "入力してセッション、スキル、プラグイン、プロジェクトファイルを検索",
+   'chat.slashFrequent': 'よく使うコマンド',
+   'chat.slashSearchHint': '名前を入力してコマンド、スキル、プラグインを検索',
+diff --git a/desktop/src/i18n/locales/kr.ts b/desktop/src/i18n/locales/kr.ts
+index e22ba157..63ca83af 100644
+--- a/desktop/src/i18n/locales/kr.ts
++++ b/desktop/src/i18n/locales/kr.ts
+@@ -482,6 +482,8 @@ export const kr: Record<TranslationKey, string> = {
+   'chat.capabilities.managePlugins': '플러그인 관리',
+   'chat.capabilities.moreTools': '더 많은 도구',
+   'chat.refreshSession': '세션 새로고침',
++  'chat.tpsLabel': '속도',
++  'chat.tpsSpeedTitle': '실시간 디코드 속도(토큰/초)',
+   'chat.referenceSearchHint': "입력하여 세션, 스킬, 플러그인 및 프로젝트 파일 검색",
+   'chat.slashFrequent': '자주 쓰는 명령',
+   'chat.slashSearchHint': '이름을 입력하여 명령, 스킬 및 플러그인 검색',
+diff --git a/desktop/src/i18n/locales/zh-TW.ts b/desktop/src/i18n/locales/zh-TW.ts
+index 36bfa944..d67b5dab 100644
+--- a/desktop/src/i18n/locales/zh-TW.ts
++++ b/desktop/src/i18n/locales/zh-TW.ts
+@@ -480,6 +480,8 @@ export const zh: Record<TranslationKey, string> = {
+   'chat.capabilities.managePlugins': '管理外掛',
+   'chat.capabilities.moreTools': '更多工具',
+   'chat.refreshSession': '重新整理對話',
++  'chat.tpsLabel': '速率',
++  'chat.tpsSpeedTitle': '即時解碼速度（token/秒）',
+   'chat.referenceSearchHint': "輸入以尋找對話、技能、外掛程式及專案檔案",
+   'chat.slashFrequent': '常用指令',
+   'chat.slashSearchHint': '輸入名稱搜尋指令、技能和外掛',
+diff --git a/desktop/src/i18n/locales/zh.ts b/desktop/src/i18n/locales/zh.ts
+index 21cf4227..f1d2c655 100644
+--- a/desktop/src/i18n/locales/zh.ts
++++ b/desktop/src/i18n/locales/zh.ts
+@@ -479,6 +479,8 @@ export const zh: Record<TranslationKey, string> = {
+   'chat.capabilities.managePlugins': '管理插件',
+   'chat.capabilities.moreTools': '更多工具',
+   'chat.refreshSession': '刷新会话',
++  'chat.tpsLabel': '速率',
++  'chat.tpsSpeedTitle': '实时解码速度（token/秒）',
+   'chat.referenceSearchHint': "输入以查找会话、技能、插件和项目文件",
+   'chat.slashFrequent': '常用命令',
+   'chat.slashSearchHint': '输入名称搜索命令、技能和插件',
+diff --git a/desktop/src/lib/tpsMeter.test.ts b/desktop/src/lib/tpsMeter.test.ts
+new file mode 100644
+index 00000000..00c845f6
+--- /dev/null
++++ b/desktop/src/lib/tpsMeter.test.ts
+@@ -0,0 +1,88 @@
++import { describe, expect, it, vi, afterEach } from 'vitest'
++import { TpsMeter, estimateTokens } from './tpsMeter'
++
++describe('TpsMeter fallback', () => {
++  afterEach(() => vi.restoreAllMocks())
++
++  it('holds the turn-ending speed after the stream pauses', () => {
++    let now = 1_000_000
++    vi.spyOn(performance, 'now').mockImplementation(() => now)
++
++    const meter = new TpsMeter(1500, 2000)
++    expect(meter.hasStreamed()).toBe(false)
++    expect(meter.value()).toBe(0)
++
++    // Stream ~60 tokens over ~1 second.
++    for (let i = 0; i < 10; i++) {
++      now += 100
++      meter.push('x'.repeat(6))
++    }
++    expect(estimateTokens('x'.repeat(6))).toBeGreaterThan(0)
++    expect(meter.hasStreamed()).toBe(true)
++
++    const live = meter.value()
++    expect(live).toBeGreaterThan(0)
++
++    // Simulate turn end: no more pushes, window drains (advance 10s).
++    now += 10_000
++    const held = meter.value()
++    // Fallback should still be > 0 (not dropped to 0).
++    expect(held).toBeGreaterThan(0)
++  })
++
++  it('does not collapse to 0 on a sparse boundary sample', () => {
++    let now = 1_000_000
++    vi.spyOn(performance, 'now').mockImplementation(() => now)
++
++    const meter = new TpsMeter(1500, 2000)
++    // Steady stream first so the fallback has a meaningful speed.
++    for (let i = 0; i < 20; i++) {
++      now += 50
++      meter.push('x'.repeat(6))
++    }
++    const baseline = meter.value()
++    expect(baseline).toBeGreaterThan(0)
++
++    // Stream boundary: a single tiny fragment lands (e.g. tool-input start),
++    // then the window prunes the old bulk samples.
++    now += 1600 // evict previous samples from the 1500ms window
++    meter.push('{')
++    // Only one ~1-token sample in the window now.
++    const boundary = meter.value()
++    // Must NOT read ~0: hold the smoothed fallback instead.
++    expect(boundary).toBeGreaterThan(0.5)
++  })
++
++  it('skips the last 0.35s when computing the fallback average', () => {
++    let now = 1_000_000
++    vi.spyOn(performance, 'now').mockImplementation(() => now)
++
++    const meter = new TpsMeter(1500, 2000)
++    // Steady decode: 6 chars (≈1.7 tokens) every 100ms over 2s.
++    for (let i = 0; i < 20; i++) {
++      now += 100
++      meter.push('x'.repeat(6))
++    }
++    const steady = meter.value()
++    expect(steady).toBeGreaterThan(0)
++
++    // Simulate a stream-switch burn: a long silent gap (0.6s) with no samples.
++    now += 600
++    // value() with an empty live window must fall back to a non-zero average
++    // rather than 0 — the switch overhead is absorbed by the skip window.
++    const heldAfterGap = meter.value()
++    expect(heldAfterGap).toBeGreaterThan(0)
++  })
++
++  it('estimates tokens: CJK 1:1, full-width punctuation counted, ASCII 1:3.5, whitespace free', () => {
++    // 4 CJK chars + 1 full-width comma → 5 tokens.
++    expect(estimateTokens('你好世界，')).toBeCloseTo(5, 5)
++    // 7 ASCII chars → 2 tokens (7 / 3.5).
++    expect(estimateTokens('abcdefg')).toBeCloseTo(2, 5)
++    // Whitespace and newlines carry no tokens of their own.
++    expect(estimateTokens('a b\nc')).toBeCloseTo(3 / 3.5, 5)
++    // Empty / whitespace-only input never over-counts.
++    expect(estimateTokens('')).toBe(0)
++    expect(estimateTokens('   \n\t')).toBe(0)
++  })
++})
+diff --git a/desktop/src/lib/tpsMeter.ts b/desktop/src/lib/tpsMeter.ts
+new file mode 100644
+index 00000000..be30aa71
+--- /dev/null
++++ b/desktop/src/lib/tpsMeter.ts
+@@ -0,0 +1,173 @@
++/**
++ * Real-time decode-speed (TPS) meter.
++ *
++ * Tracks output token throughput from the assistant's live text stream. The
++ * frontend receives content_delta chunks (arbitrary sizes — the engine may
++ * emit 1, 3, 5 or N tokens per chunk), so the meter accumulates characters
++ * into a sliding window and derives characters/second, which is displayed as
++ * an approximate token/s. Window smoothing adapts to any emission granularity.
++ *
++ * Session lifecycle:
++ *  - hasStreamed() is true once any chunk arrived; the UI stays visible.
++ *  - While decoding, value() returns the live window speed.
++ *  - When decoding pauses / a turn ends, value() falls back to the average
++ *    speed over the last FALLBACK_WINDOW_MS (2s) of streamed data, so the
++ *    indicator keeps showing the turn-ending speed instead of dropping to 0
++ *    (or disappearing) the moment the engine stops emitting.
++ *
++ * Char→token heuristic calibrated for the local vLLM engines (Qwen / DeepSeek
++ * tokenizers): CJK chars and full-width punctuation ≈ 1 token each, ASCII ≈ 1
++ * token per 3.5 chars. Whitespace is not counted — tokenizers fold it into
++ * neighbouring tokens, so counting it inflates the estimate.
++ */
++
++const WINDOW_MS = 1500
++const FALLBACK_WINDOW_MS = 2000
++const CJK_RE = /[\u3400-\u9fff\u3040-\u30ff\uac00-\ud7af\u3000-\u303f\uff00-\uffef]/
++const WHITESPACE_RE = /\s/
++const NON_CJK_TOKEN_WEIGHT = 1 / 3.5
++// A live-window speed below this many tokens/second is treated as a stream
++// boundary (text ↔ thinking ↔ tool-input switch), not real slow decoding: the
++// just-flushed window holds only a couple of sparse samples whose rate would
++// otherwise collapse toward 0. We hold the smoothed fallback instead.
++const SPARSE_SPEED_THRESHOLD = 5
++// The most recent slice of a stream is where message-type switching burns time
++// (buffering, block handoff). When computing the fallback average we skip the
++// last 0.3s of samples so the average reflects steady decoding, not the
++// switch overhead.
++const FALLBACK_SKIP_MS = 300
++
++/**
++ * Master switch for the TPS indicator. Set to false to disable the meter
++ * (no sampling in the content_delta path and no UI) while keeping the code in
++ * place — used to isolate whether the indicator interacts with tool calls.
++ */
++const TPS_ENABLED = true
++
++export function isTpsEnabled(): boolean {
++  return TPS_ENABLED
++}
++
++export class TpsMeter {
++  private samples: Array<{ t: number; chars: number }> = []
++  private windowMs: number
++  private fallbackWindowMs: number
++  private everStreamed = false
++  private lastPushAt = 0
++  private fallbackTps = 0
++
++  constructor(windowMs = WINDOW_MS, fallbackWindowMs = FALLBACK_WINDOW_MS) {
++    this.windowMs = windowMs
++    this.fallbackWindowMs = fallbackWindowMs
++  }
++
++  /** Feed a streamed text chunk. */
++  push(text: string): void {
++    if (!text) return
++    const now = performance.now()
++    this.samples.push({ t: now, chars: estimateTokens(text) })
++    this.everStreamed = true
++    this.lastPushAt = now
++    this.fallbackTps = this.computeFallbackTps(now)
++  }
++
++  /** True once this session has ever received streamed text. */
++  hasStreamed(): boolean {
++    return this.everStreamed
++  }
++
++  /** Epoch ms of the most recent streamed chunk (0 if never). */
++  lastDataTime(): number {
++    return this.lastPushAt
++  }
++
++  /**
++   * Tokens/second within the sliding window. While decoding steadily this is
++   * the live window speed; when the engine pauses or switches streams
++   * (text → thinking → tool input) the just-flushed window can hold only a
++   * couple of sparse samples whose instantaneous rate would collapse toward 0.
++   * In that case fall back to the average over the last FALLBACK_WINDOW_MS so
++   * the indicator holds a sensible speed instead of flashing 0 between turns.
++   */
++  value(): number {
++    this.prune()
++    if (this.samples.length === 0) return this.fallbackTps
++    const total = this.samples.reduce((sum, s) => sum + s.chars, 0)
++    const first = this.samples[0]!
++    const last = this.samples[this.samples.length - 1]!
++    const span = (last.t - first.t) / 1000
++    // opt23 §11.27: 移动端 ws/事件循环可能把多个 content_delta 批量到达，
++    // 窗口内样本首尾差 (span) 极小导致 TPS 虚高（几百上千）。用「样本跨度
++    // 与窗口时长的较大值」作时间基准——突发样本按整个窗口时长平均，防虚高。
++    const elapsed = Math.max(span, this.windowMs / 1000)
++    let result: number
++    if (elapsed < 0.05) {
++      // Single chunk / burst: extrapolate from the window length.
++      result = total / (this.windowMs / 1000)
++    } else {
++      result = total / elapsed
++    }
++    // Boundary guard: a window whose live speed is below the sparse threshold
++    // is a stream switch, not slow decoding — hold the smoothed fallback and
++    // do NOT let the sparse rate overwrite it.
++    if (result < SPARSE_SPEED_THRESHOLD) return this.fallbackTps
++    // Keep the fallback fresh with the most recent live speed while decoding.
++    if (result > 0) this.fallbackTps = result
++    return result
++  }
++
++  /** Raw character count in the window (for diagnostics). */
++  chars(): number {
++    this.prune()
++    return this.samples.reduce((sum, s) => sum + s.chars, 0)
++  }
++
++  reset(): void {
++    this.samples = []
++    this.everStreamed = false
++    this.lastPushAt = 0
++    this.fallbackTps = 0
++  }
++
++  private computeFallbackTps(now: number): number {
++    // Average token rate over the last fallbackWindowMs of streamed data, but
++    // skip the most recent FALLBACK_SKIP_MS — that slice is where a stream
++    // switch (text ↔ thinking ↔ tool-input) burns time, so excluding it keeps
++    // the average reflecting steady decode speed.
++    const windowEnd = now - FALLBACK_SKIP_MS
++    const windowStart = windowEnd - this.fallbackWindowMs
++    let total = 0
++    let firstT: number | null = null
++    let lastT: number | null = null
++    for (let i = this.samples.length - 1; i >= 0; i--) {
++      const s = this.samples[i]!
++      if (s.t < windowStart) break
++      if (s.t > windowEnd) continue
++      total += s.chars
++      if (lastT === null) lastT = s.t
++      firstT = s.t
++    }
++    if (firstT === null || lastT === null) return 0
++    const span = (lastT - firstT) / 1000
++    if (span < 0.05) return total / (this.fallbackWindowMs / 1000)
++    return total / span
++  }
++
++  private prune(): void {
++    const cutoff = performance.now() - this.windowMs
++    while (this.samples.length > 0 && this.samples[0]!.t < cutoff) {
++      this.samples.shift()
++    }
++  }
++}
++
++export function estimateTokens(text: string): number {
++  let cjk = 0
++  let nonCjk = 0
++  for (const ch of text) {
++    if (WHITESPACE_RE.test(ch)) continue
++    if (CJK_RE.test(ch)) cjk += 1
++    else nonCjk += 1
++  }
++  return cjk + nonCjk * NON_CJK_TOKEN_WEIGHT
++}
+diff --git a/desktop/src/pages/ActiveSession.tsx b/desktop/src/pages/ActiveSession.tsx
+index 84246e79..c18a21e2 100644
+--- a/desktop/src/pages/ActiveSession.tsx
++++ b/desktop/src/pages/ActiveSession.tsx
+@@ -24,6 +24,7 @@ import {
+ import { useWorkspaceContentStore } from '../stores/workspaceContentStore'
+ import { useTranslation } from '../i18n'
+ import { Button } from '@/components/ui/Button'
++import { TpsIndicator } from '../components/chat/TpsIndicator'
+ import { LoadingState } from '@/components/ui/LoadingState'
+ import { Tooltip } from '@/components/ui/Tooltip'
+ import { BrandSeal } from '@/components/composite/BrandSeal'
+@@ -855,21 +856,24 @@ export function ActiveSession() {
+                   compact={showRightPanel}
+                   metadata={headerMetadata}
+                   actions={
+-                    <Button
+-                      variant="ghost"
+-                      size="sm"
+-                      className="shrink-0"
+-                      onClick={() => void handleManualRefresh()}
+-                      disabled={refreshingSession}
+-                      icon={
+-                        <span className={`material-symbols-outlined text-[16px] ${refreshingSession ? 'animate-spin' : ''}`}>
+-                          refresh
+-                        </span>
+-                      }
+-                      data-testid="session-manual-refresh"
+-                    >
+-                      {t('chat.refreshSession')}
+-                    </Button>
++                    <>
++                      {activeTabId ? <TpsIndicator sessionId={activeTabId} /> : null}
++                      <Button
++                        variant="ghost"
++                        size="sm"
++                        className="shrink-0"
++                        onClick={() => void handleManualRefresh()}
++                        disabled={refreshingSession}
++                        icon={
++                          <span className={`material-symbols-outlined text-[16px] ${refreshingSession ? 'animate-spin' : ''}`}>
++                            refresh
++                          </span>
++                        }
++                        data-testid="session-manual-refresh"
++                      >
++                        {t('chat.refreshSession')}
++                      </Button>
++                    </>
+                   }
+                 >
+                   {session && getSessionWorkspaceState(session) !== 'available' && (
+diff --git a/desktop/src/stores/chatStore.ts b/desktop/src/stores/chatStore.ts
+index 8f2d3d8c..acab5942 100644
+--- a/desktop/src/stores/chatStore.ts
++++ b/desktop/src/stores/chatStore.ts
+@@ -19,6 +19,7 @@ import { randomSpinnerVerb } from '../config/spinnerVerbs'
+ import { notifyDesktop } from '../lib/desktopNotifications'
+ import { createAsyncRefreshCoalescer } from '../lib/asyncRefreshCoalescer'
+ import { deriveSessionTitle, isPlaceholderSessionTitle } from '../lib/sessionTitle'
++import { TpsMeter, isTpsEnabled } from '../lib/tpsMeter'
+ import { t } from '../i18n'
+ import {
+   VISUAL_SELECTION_BATCH_PROMPT_HEADER,
+@@ -1005,6 +1006,19 @@ function markPendingToolUseMessagesStopped(messages: UIMessage[]): UIMessage[] {
+   return changed ? stoppedMessages : messages
+ }
+ 
++// Real-time decode-speed (TPS) meters, one per session so parallel sessions
++// each track their own output throughput without cross-talk.
++const tpsMeterBySession = new Map<string, TpsMeter>()
++
++export function getSessionTpsMeter(sessionId: string): TpsMeter {
++  let meter = tpsMeterBySession.get(sessionId)
++  if (!meter) {
++    meter = new TpsMeter()
++    tpsMeterBySession.set(sessionId, meter)
++  }
++  return meter
++}
++
+ // Streaming throttle for content_delta. Buffers must be per-session because
+ // multiple desktop tabs can stream at the same time.
+ const pendingDeltaBySession = new Map<string, string>()
+@@ -1028,8 +1042,12 @@ function appendPendingDelta(sessionId: string, text: string): void {
+     sessionId,
+     `${pendingDeltaBySession.get(sessionId) ?? ''}${text}`,
+   )
++  if (isTpsEnabled()) {
++    getSessionTpsMeter(sessionId).push(text)
++  }
+ }
+ 
++
+ function clearPendingDelta(sessionId: string): void {
+   const flushTimer = flushTimerBySession.get(sessionId)
+   if (flushTimer) {
+@@ -1055,6 +1073,11 @@ function appendPendingToolInputDelta(sessionId: string, text: string): void {
+     sessionId,
+     `${pendingToolInputDeltaBySession.get(sessionId) ?? ''}${text}`,
+   )
++  // Feed streaming tool inputs (Write/Edit/… argument JSON) into the TPS meter
++  // so the decode-speed reflects all output tokens, not just assistant text.
++  if (isTpsEnabled()) {
++    getSessionTpsMeter(sessionId).push(text)
++  }
+ }
+ 
+ function clearPendingToolInputDelta(sessionId: string): void {
+@@ -3187,6 +3210,7 @@ export const useChatStore = create<ChatStore>((setState, get) => {
+     clearPendingToolInputDelta(sessionId)
+     clearPendingTaskToolUseIds(sessionId)
+     clearPendingToolParentUseIds(sessionId)
++    tpsMeterBySession.delete(sessionId)
+     advanceHistoryLifecycle(sessionId)
+     wsManager.disconnect(sessionId)
+     set((s) => {

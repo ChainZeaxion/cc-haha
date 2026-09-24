@@ -480,6 +480,8 @@ export const zh: Record<TranslationKey, string> = {
   'chat.capabilities.managePlugins': '管理外掛',
   'chat.capabilities.moreTools': '更多工具',
   'chat.refreshSession': '重新整理對話',
+  'chat.tpsLabel': '速率',
+  'chat.tpsSpeedTitle': '即時解碼速度（token/秒）',
   'chat.referenceSearchHint': "輸入以尋找對話、技能、外掛程式及專案檔案",
   'chat.slashFrequent': '常用指令',
   'chat.slashSearchHint': '輸入名稱搜尋指令、技能和外掛',

@@ -84,6 +84,11 @@ vi.mock('../../stores/chatStore', () => ({
       connectToSession: mocks.connectToSession,
     }),
   },
+  getSessionTpsMeter: () => ({
+    hasStreamed: () => false,
+    lastDataTime: () => 0,
+    value: () => 0,
+  }),
 }))
 
 vi.mock('../../hooks/useKeyboardShortcuts', () => ({

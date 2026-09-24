@@ -4,6 +4,7 @@
 > 需求权威源：`CC-HAHA-Scode/cc-haha自定义优化.md`（下文「源章节」均指该文件）。
 > 状态图例：⬜待实施 · 🕓待实施/规划 · 🔍调研 · ✅已实施
 > 当前为**骨架版**：仅保留章节结构与标题，实施时逐节填充（问题背景 / 0.6.6 现状核对 / 实施方案 / 验证）。
+> **备注：旧优化文档的内容、逻辑、实现原理仅作为参考，具体在新代码（0.6.6 基座）上落地需量身定制**——组件名、挂载点、store/API、i18n key 等一律以 0.6.6 实际代码现状为准，逐章先核对再实施，不做整块照搬。
 
 ## 📇 分类目录（按优化项归类）
 
@@ -12,7 +13,7 @@
 | 功能特性 | 一 H5 访问「需要访问令牌」开关 + 免令牌豁免 | 旧§二 | ✅ |
 | 功能特性 | 二 会话导出（md/html/txt + 压缩边界范围） | 旧§三 | ✅ |
 | 工具调用/协议 | 三 会话刷新按钮（卡住软刷新规避） | 旧§八 | ✅ |
-| 功能特性 | 四 实时解码速度（TPS）指示器 + 手机端两行 | 旧§九/§十六 | ⬜ |
+| 功能特性 | 四 实时解码速度（TPS）指示器 + 手机端两行 | 旧§九/§十六 | ✅ |
 | 功能特性 | 五 文件下载桥接 | 旧§十二 | ⬜ |
 | 功能特性 | 六 设置-关于-更新：禁止更新开关 | 旧§十三 | 🕓 |
 | 计费/上下文 | 七 上下文缓存与计费显示（cache 命中率修正） | 旧§十四 | ⬜ |
@@ -39,7 +40,7 @@
 | `patches/h5-terminal-bridge.patch` | 一 H5 终端桥接（1.2） | 2f8d819d (v0.6.6) | ✅ |
 | `patches/session-export.patch` | 二 会话导出 | 2f8d819d (v0.6.6) | ✅ |
 | `patches/session-refresh.patch` | 三 会话刷新按钮 | 2f8d819d (v0.6.6) | ✅ |
-| `patches/tps-indicator.patch` | 四 TPS 指示器 + 两行 | — | ⬜ |
+| `patches/tps-indicator.patch` | 四 TPS 指示器 + 两行 | 2f8d819d (v0.6.6) | ✅ |
 | `patches/file-download.patch` | 五 文件下载桥接 | — | ⬜ |
 | `patches/disable-updates.patch` | 六 禁止更新开关 | — | ⬜ |
 | `patches/cache-billing.patch` | 七 上下文缓存与计费显示 | — | ⬜ |
@@ -204,15 +205,32 @@
 
 ---
 
-## 四、实时解码速度（TPS）指示器（源§九）+ 手机端顶栏两行显示（源§十六）
+## 四、实时解码速度（TPS）指示器（源§九）+ 手机端顶栏两行显示（源§十六，✅ 2026-09-24）
 
 ### 需求背景
 
+会话流式输出时显示实时解码速度（token/秒），帮助用户感知模型吞吐；移动端顶栏空间有限，指示器改为两行竖排（TPS 标签 + 数值）。
+
 ### 0.6.6 现状核对
 
-### 实施方案
+- 0.6.6 无任何 TPS 相关代码；chatStore 已有 `appendPendingDelta`（content_delta 缓冲，:1026 区）与 `appendPendingToolInputDelta`（工具入参流式 JSON 缓冲）——两处都是「新 token 到达」的准确喂入点。
+- 无 `subagent_tps` 消息类型（老 fork 有，0.6.6 无）→ 该项省掉。
+- 桌面挂载选 `SessionChatHeader actions` 簇（与刷新按钮同侧），而非 metadata 行——metadata 行有「分隔符数量」契约测试（ActiveSession.test.tsx:2486），塞入会破坏「空闲会话恰 3 项 2 分隔符」断言。
+
+### 实施方案（12 文件，3 新文件）
+
+- **`desktop/src/lib/tpsMeter.ts`（新增，移植自老 fork）**：1.5s 滑动窗口字符增量→token/s；CJK≈1 token/字、ASCII≈1/3.5 字（`estimateTokens`）；会话结束瞬间 2s 平均 fallback 保持速度不骤降 0（`computeFallbackTps`，跳过最近 300ms 流切换）；`SPARSE_SPEED_THRESHOLD=5` 流边界（text↔thinking↔tool）稀疏读数回退 fallback。
+- **`desktop/src/components/chat/TpsIndicator.tsx`（新增，移植+量身定制）**：180ms 轮询；四档着色 <27红/<53橙/<80绿/≥80紫；5 分钟空闲隐藏；组件内 30%+70% 指数平滑；**`vertical` prop 两行竖排**（移动端用）；opt23 §11.27 `Math.max(span, windowMs/1000)` 防移动端突发批量 content_delta 虚高；**硬编码中文改 i18n**（`useTranslation` + `chat.tpsSpeedTitle`/`chat.tpsLabel` 5 语言）。
+- **chatStore 接入**：`tpsMeterBySession: Map<string,TpsMeter>` + 导出 `getSessionTpsMeter(sessionId)`（懒创建）；`appendPendingDelta`/`appendPendingToolInputDelta` 末尾 `if (isTpsEnabled()) meter.push(text)`（工具入参 JSON 也算解码速度）；`disconnectSession` 清理 `tpsMeterBySession.delete(sessionId)`。
+- **挂载**：桌面 `ActiveSession.tsx` 挂 `SessionChatHeader actions`（TPS 在刷新按钮左侧，横排）；移动 `AppShell.tsx` mobile-session-header 刷新按钮左侧 `vertical` 两行。
+- AppShell.test.tsx 的 chatStore mock 补 `getSessionTpsMeter` stub（hasStreamed: false → 指示器隐藏，不影响既有断言）。
 
 ### 验证
+
+- `desktop tsc -b` exit 0；vitest `tpsMeter.test.ts` 4/4（fallback 保速/稀疏边界/350ms 跳过/token 估算校准）+ AppShell 22/22 + ActiveSession 32/32；全量前端 vitest **6141 pass / 2 fail**（2=基线既有 providerModels、MessagePayloadRetention，零回归）。
+- `vite build` 成功，新 bundle `App-BTQt5ZiK.js`。
+- 坑：TpsIndicator 早期 `if (!isTpsEnabled()) return null` 在 hooks 之后 → `useTranslation` 须声明在早退之前。
+- Patch：`modify/patches/tps-indicator.patch`（12 文件 636 行，3 新文件 mode 100644）。**7 patch 全链（+session-refresh+tps-indicator）`git apply` 干净且逐字节等于工作树（53 文件 0 差异）**。
 
 ---
 

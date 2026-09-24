@@ -24,6 +24,7 @@ import {
 import { useWorkspaceContentStore } from '../stores/workspaceContentStore'
 import { useTranslation } from '../i18n'
 import { Button } from '@/components/ui/Button'
+import { TpsIndicator } from '../components/chat/TpsIndicator'
 import { LoadingState } from '@/components/ui/LoadingState'
 import { Tooltip } from '@/components/ui/Tooltip'
 import { BrandSeal } from '@/components/composite/BrandSeal'
@@ -855,21 +856,24 @@ export function ActiveSession() {
                   compact={showRightPanel}
                   metadata={headerMetadata}
                   actions={
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="shrink-0"
-                      onClick={() => void handleManualRefresh()}
-                      disabled={refreshingSession}
-                      icon={
-                        <span className={`material-symbols-outlined text-[16px] ${refreshingSession ? 'animate-spin' : ''}`}>
-                          refresh
-                        </span>
-                      }
-                      data-testid="session-manual-refresh"
-                    >
-                      {t('chat.refreshSession')}
-                    </Button>
+                    <>
+                      {activeTabId ? <TpsIndicator sessionId={activeTabId} /> : null}
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="shrink-0"
+                        onClick={() => void handleManualRefresh()}
+                        disabled={refreshingSession}
+                        icon={
+                          <span className={`material-symbols-outlined text-[16px] ${refreshingSession ? 'animate-spin' : ''}`}>
+                            refresh
+                          </span>
+                        }
+                        data-testid="session-manual-refresh"
+                      >
+                        {t('chat.refreshSession')}
+                      </Button>
+                    </>
                   }
                 >
                   {session && getSessionWorkspaceState(session) !== 'available' && (
