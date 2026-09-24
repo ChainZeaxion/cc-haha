@@ -14,7 +14,7 @@
 | 功能特性 | 二 会话导出（md/html/txt + 压缩边界范围） | 旧§三 | ✅ |
 | 工具调用/协议 | 三 会话刷新按钮（卡住软刷新规避） | 旧§八 | ✅ |
 | 功能特性 | 四 实时解码速度（TPS）指示器 + 手机端两行 | 旧§九/§十六 | ✅ |
-| 功能特性 | 五 文件下载桥接 | 旧§十二 | ⬜ |
+| 功能特性 | 五 文件下载桥接 | 旧§十二 | ✅ |
 | 功能特性 | 六 设置-关于-更新：禁止更新开关 | 旧§十三 | 🕓 |
 | 计费/上下文 | 七 上下文缓存与计费显示（cache 命中率修正） | 旧§十四 | ⬜ |
 | 功能特性 | 八 思考模式二级开关（think 是否回传后端） | 旧§二十五 | ⬜ |
@@ -41,7 +41,7 @@
 | `patches/session-export.patch` | 二 会话导出 | 2f8d819d (v0.6.6) | ✅ |
 | `patches/session-refresh.patch` | 三 会话刷新按钮 | 2f8d819d (v0.6.6) | ✅ |
 | `patches/tps-indicator.patch` | 四 TPS 指示器 + 两行 | 2f8d819d (v0.6.6) | ✅ |
-| `patches/file-download.patch` | 五 文件下载桥接 | — | ⬜ |
+| `patches/file-download.patch` | 五 文件下载桥接 | — | ✅ |
 | `patches/disable-updates.patch` | 六 禁止更新开关 | — | ⬜ |
 | `patches/cache-billing.patch` | 七 上下文缓存与计费显示 | — | ⬜ |
 | `patches/thinking-switch.patch` | 八 思考模式二级开关 | — | ⬜ |
@@ -234,15 +234,34 @@
 
 ---
 
-## 五、文件下载桥接功能（源§十二）
+## 五、文件下载桥接功能（源§十二，✅ 2026-09-24）
 
 ### 需求背景
 
+H5 浏览器端打开文件链接时，`/local-file/<absPath>` 直接内联显示而非触发下载，需要 `Content-Disposition: attachment` 头让 H5 真正下载文件；会话导出的文件列表卡（DownloadReferencesCard）需要展示文件名/大小/下载按钮，大小走批量 `/local-file/info` 端点一次拿全。
+
 ### 0.6.6 现状核对
 
-### 实施方案
+- 服务端 `localFile.ts` 只有 `?download=1`/`?info=1` 未实现，`/local-file/` 走 `serveFileWithRange` 内联返回；`previewFs.ts` 有 `downloadHeadersFor()`（RFC5987 attachment 头）与 `servePreviewFsFile(download=false)` 参数预留，但路由没读 query 没传参。
+- 前端无 `DownloadReferencesCard` / `fileSizeCache` / `downloadFileMeta`（三者均老 fork 独有，0.6.6 全缺）；`localFileUrl` 已在 `handlePreviewLink.ts:44-51`。
+- 老 fork 完整实现=4 块：①localFile.ts `?info=1`/`?download=1` 分支 + `handleBatchLocalFileInfo`（POST `/local-file/info`）；②previewFs.ts 路由读 `?download=1` 传 `servePreviewFsFile`；③`DownloadReferencesCard.tsx`（收集 turn 内 Read 调用，`localFileUrl+?download=1`）；④`fileSizeCache.ts`（hot 50/120s→cold 150/30min，localStorage 持久化）+ `downloadFileMeta.ts`（fileTypeIcon/formatFileSize）。
+
+### 实施方案（12 文件，3 新文件）
+
+- **`src/server/api/localFile.ts`**：`?info=1`→JSON `{name,size,mime}`（`Bun.file().stat()`，不读内容）；`?download=1`→`serveFileWithRange(...,downloadHeadersFor())` 加 RFC5987 attachment 头（unicode/空格文件名正确）；`handleBatchLocalFileInfo(body)`：批量 stat，逐 path 走 `$HOME` sandbox，失败的静默跳过，返回 `{files:{path:{name,size,mime}}}`。
+- **`src/server/index.ts`**：`POST /local-file/info` 路由插在 `/local-file/` 前缀分支**之前**（`/local-file/info` 也匹配该前缀，顺序敏感）。
+- **`src/server/api/previewFs.ts`**：`handlePreviewFs` 读 `?download=1` 传 `servePreviewFsFile`；`servePreviewFsFile` 加 `download` 参数——download 时跳过 HTML base-rewrite 变换直接流式 + attachment 头（浏览器要原始字节非预览变换版）。
+- **前端 3 新文件**：`fileSizeCache.ts`（两级 LRU，hot 50/120s + cold 150/30min，LRU 淘汰，localStorage `cc-haha:file-sizes` 持久化，`__clearFileSizeCache` 测试用）；`downloadFileMeta.ts`（fileTypeIcon 按扩展名映射 Material Symbols 图标 + formatFileSize 自适应单位）；`DownloadReferencesCard.tsx`（`TurnDownloadCard` 收集 turn 内 Read 调用的 `file_path`，去重；默认折叠不请求，展开时批量 `POST /local-file/info` 拿缺失大小并写入两级缓存；20 条分页 + "显示更多" + "显示全部"；下载链接=`localFileUrl+?download=1`）。
+- **`ToolCallGroup.tsx` 接入**：import `TurnDownloadCard`；memory 分支（`MemoryToolActivityGroup` 后）与常规 return（`ToolCallGroupContent` 后）各插一处 `<TurnDownloadCard toolCalls={...} />`。
+- i18n：`chat.downloadableFiles`/`chat.downloadableMore`/`chat.downloadableAll`/`workspace.download` 5 语言，插在 `chat.tpsSpeedTitle` 行后。
 
 ### 验证
+
+- `desktop tsc -b` exit 0；`bun test src/server/api/__tests__/{localFile,previewFs}.test.ts` 45/45；`vitest chatBlocks.test.tsx` 44/44（含 ToolCallGroup）；全量前端 vitest **6141 pass / 2 fail**（2=基线既有 providerModels、MessagePayloadRetention，零回归）。
+- `vite build` 成功，新 bundle `App-mQlq5B0F.js`。
+- **权威零回归**：全量 `src/server` bun test junit 比对基线 worktree（2f8d819d）——新增 1 条 `diagnostics API`，单独跑 3 次（当前树+基线各 37/37 全绿）确认负载 flaky，非引入。
+- 坑：`previewFs.ts` 0.6.6 缺 `downloadHeadersFor` 定义（仅老 fork 有）→ import 时报 `Export named 'downloadHeadersFor' not found`，需从老 fork 移植到 `serveFileWithRange` 后。
+- Patch：`modify/patches/file-download.patch`（12 文件 698 行，3 新文件 mode 100644）。**8 patch 全链 `git apply` 干净且逐字节等于工作树（56 文件 0 差异）**。
 
 ---
 

@@ -1,0 +1,698 @@
+diff --git a/desktop/src/components/chat/DownloadReferencesCard.tsx b/desktop/src/components/chat/DownloadReferencesCard.tsx
+new file mode 100644
+index 00000000..1a38fec5
+--- /dev/null
++++ b/desktop/src/components/chat/DownloadReferencesCard.tsx
+@@ -0,0 +1,175 @@
++import { useEffect, useMemo, useState } from 'react'
++import { getFileSize, setFileSize } from '../../lib/fileSizeCache'
++import { fileTypeIcon, formatFileSize } from '../../lib/downloadFileMeta'
++import { localFileUrl } from '../../lib/handlePreviewLink'
++import { getServerBaseUrl } from '../../lib/desktopRuntime'
++import { useTranslation } from '../../i18n'
++
++const PAGE_STEP = 20
++const INITIAL_VISIBLE = 20
++
++/**
++ * References-style download card for ONE tool-execution turn. It collects
++ * every Read tool call in the turn (plain or downloadOnly — both offer a
++ * download) into a single list, rendered after the turn's tool group, NOT
++ * nested inside the collapsed tool execution. The card is fixed-width
++ * (references-style), visible by default, and paginated (20 + "show more" +
++ * "show all").
++ *
++ * File sizes come from the two-tier fileSizeCache (hot 50/120s → cold
++ * 150/30min); missing sizes are fetched once from /local-file?info=1.
++ */
++export function TurnDownloadCard({
++  toolCalls,
++}: {
++  toolCalls: Array<{
++    toolName: string
++    input?: unknown
++    toolUseId: string
++  }>
++}) {
++  const t = useTranslation()
++  const [visibleCount, setVisibleCount] = useState(INITIAL_VISIBLE)
++  const [collapsed, setCollapsed] = useState(true)
++  const [sizes, setSizes] = useState<Record<string, number>>({})
++
++  const files = useMemo(() => {
++    const seen = new Set<string>()
++    const result: Array<{ path: string; name: string }> = []
++    for (const toolCall of toolCalls) {
++      if (toolCall.toolName !== 'Read') continue
++      const input = toolCall.input as { file_path?: unknown } | null | undefined
++      const filePath = input && typeof input.file_path === 'string' ? input.file_path : undefined
++      if (!filePath || seen.has(filePath)) continue
++      seen.add(filePath)
++      const name = filePath.replace(/\\/g, '/').split('/').pop() || filePath
++      result.push({ path: filePath, name })
++    }
++    return result
++  }, [toolCalls])
++
++  // Resolve sizes lazily: a collapsed card makes zero requests; expanding
++  // the card fetches all missing sizes in ONE batch request (POST
++  // /local-file/info) and fills the two-tier size cache.
++  useEffect(() => {
++    if (collapsed) return
++    if (files.length === 0) return
++    const base = getServerBaseUrl()
++    let cancelled = false
++    const pending: Array<{ path: string }> = []
++    const next: Record<string, number> = {}
++    for (const file of files) {
++      const cached = getFileSize(file.path)
++      if (cached !== undefined) {
++        next[file.path] = cached
++      } else {
++        pending.push({ path: file.path })
++      }
++    }
++    if (!cancelled && Object.keys(next).length > 0) setSizes(next)
++    if (pending.length === 0) return
++    const request = (url: string) =>
++      fetch(url, {
++        method: 'POST',
++        headers: { 'Content-Type': 'application/json' },
++        body: JSON.stringify({ paths: pending.map((p) => p.path) }),
++      })
++    request(`${base}/local-file/info`)
++      .catch(() => request('/local-file/info'))
++      .then((res) => (res.ok ? (res.json() as Promise<{ files?: Record<string, { size?: number }> }>) : null))
++      .then((data) => {
++        if (cancelled || !data?.files) return
++        for (const file of pending) {
++          const info = data.files[file.path]
++          if (info && typeof info.size === 'number') {
++            setFileSize(file.path, info.size)
++            setSizes((s) => ({ ...s, [file.path]: info.size! }))
++          }
++        }
++      })
++      .catch(() => {
++        // sizes stay unknown; rows show '--'
++      })
++    return () => {
++      cancelled = true
++    }
++  }, [files, collapsed])
++
++  if (files.length === 0) return null
++
++  const base = getServerBaseUrl()
++  const total = files.length
++  const visibleFiles = files.slice(0, visibleCount)
++
++  return (
++    <div className="mt-3 w-full max-w-[384px] overflow-hidden rounded-[var(--radius-lg)] border border-[var(--color-border)] bg-[var(--color-surface-container-low)]">
++      <button
++        type="button"
++        onClick={() => setCollapsed((v) => !v)}
++        aria-expanded={!collapsed}
++        className="flex w-full items-center gap-1.5 px-3 py-2 text-left text-[10px] font-semibold uppercase tracking-wider text-[#ea580c] transition-colors hover:bg-[var(--color-surface-hover)]"
++      >
++        <span className="material-symbols-outlined text-[13px]">download</span>
++        {t('chat.downloadableFiles')}
++        <span className="ml-1 rounded-full bg-[var(--color-surface-container-high)] px-1.5 py-px text-[10px] font-bold tabular-nums">
++          {total}
++        </span>
++        <span className={`ml-auto material-symbols-outlined text-[14px] transition-transform ${collapsed ? '' : 'rotate-180'}`}>
++          expand_more
++        </span>
++      </button>
++
++      {!collapsed && (
++        <div className="space-y-1 border-t border-[var(--color-border)] p-2">
++          {visibleFiles.map((file, index) => {
++            const url = `${localFileUrl(base, file.path)}?download=1`
++            return (
++              <div
++                key={file.path}
++                className="flex items-center gap-2 rounded-[var(--radius-md)] px-2 py-1.5 hover:bg-[var(--color-surface-hover)]"
++              >
++                <span className="w-5 shrink-0 text-right font-mono text-[10px] text-[var(--color-text-tertiary)]">
++                  {index + 1}
++                </span>
++                <span className="material-symbols-outlined shrink-0 text-[16px] text-[var(--color-text-tertiary)]">
++                  {fileTypeIcon(file.path)}
++                </span>
++                <span className="min-w-0 flex-1 truncate font-mono text-[12px] text-[#2563eb]" title={file.path}>
++                  {file.name}
++                </span>
++                <span className="shrink-0 text-[11px] tabular-nums text-[var(--color-text-tertiary)]">
++                  {sizes[file.path] !== undefined ? formatFileSize(sizes[file.path]!) : '--'}
++                </span>
++                <a
++                  href={url}
++                  download={file.name}
++                  className="shrink-0 rounded-[var(--radius-sm)] bg-[var(--color-brand)] px-2.5 py-1 text-[11px] font-medium text-[var(--color-on-primary)] no-underline transition-opacity hover:opacity-90"
++                >
++                  {t('workspace.download')}
++                </a>
++              </div>
++            )
++          })}
++          {visibleCount < total && (
++            <div className="space-y-1 pt-1">
++              <button
++                type="button"
++                onClick={() => setVisibleCount((c) => Math.min(c + PAGE_STEP, total))}
++                className="w-full rounded-[var(--radius-md)] px-2 py-1.5 text-center text-[11px] font-medium text-[var(--color-text-secondary)] transition-colors hover:bg-[var(--color-surface-hover)]"
++              >
++                {t('chat.downloadableMore', { count: total - visibleCount })}
++              </button>
++              <button
++                type="button"
++                onClick={() => setVisibleCount(total)}
++                className="w-full rounded-[var(--radius-md)] px-2 py-1.5 text-center text-[11px] font-medium text-[var(--color-text-secondary)] transition-colors hover:bg-[var(--color-surface-hover)]"
++              >
++                {t('chat.downloadableAll')}
++              </button>
++            </div>
++          )}
++        </div>
++      )}
++    </div>
++  )
++}
+diff --git a/desktop/src/components/chat/ToolCallGroup.tsx b/desktop/src/components/chat/ToolCallGroup.tsx
+index 7b5db470..78749636 100644
+--- a/desktop/src/components/chat/ToolCallGroup.tsx
++++ b/desktop/src/components/chat/ToolCallGroup.tsx
+@@ -1,6 +1,7 @@
+ import { memo, useCallback, useMemo, useState } from 'react'
+ import { BookMarked, ChevronDown, ChevronRight, CircleCheck, Settings } from 'lucide-react'
+ import { ToolCallBlock, type ToolCallChrome } from './ToolCallBlock'
++import { TurnDownloadCard } from './DownloadReferencesCard'
+ import { ActivityGroup } from './ActivityGroup'
+ import { ThinkingBlock } from './ThinkingBlock'
+ import {
+@@ -151,41 +152,49 @@ export const ToolCallGroup = memo(function ToolCallGroup({
+           isStreaming={isStreaming}
+         />
+         {regularSteps.length > 0 ? (
+-          <ToolCallGroupContent
+-            sessionId={sessionId}
+-            onOpenAgentRun={onOpenAgentRun}
+-            resolveAgentActivityTarget={resolveAgentActivityTarget}
+-            steps={regularSteps}
+-            resultMap={resultMap}
+-            childToolCallsByParent={childToolCallsByParent}
+-            agentTaskNotifications={agentTaskNotifications}
+-            agentTaskStatuses={agentTaskStatuses}
+-            activeThinkingId={activeThinkingId}
+-            showOpenRun={showOpenRun}
+-            isStreaming={isStreaming}
+-            disclosureKey={disclosureKey}
+-          />
++          <>
++            <ToolCallGroupContent
++              sessionId={sessionId}
++              onOpenAgentRun={onOpenAgentRun}
++              resolveAgentActivityTarget={resolveAgentActivityTarget}
++              steps={regularSteps}
++              resultMap={resultMap}
++              childToolCallsByParent={childToolCallsByParent}
++              agentTaskNotifications={agentTaskNotifications}
++              agentTaskStatuses={agentTaskStatuses}
++              activeThinkingId={activeThinkingId}
++              showOpenRun={showOpenRun}
++              isStreaming={isStreaming}
++              disclosureKey={disclosureKey}
++            />
++            <TurnDownloadCard
++              toolCalls={toolCalls.filter((toolCall) => !isMemoryToolCall(toolCall))}
++            />
++          </>
+         ) : null}
+       </div>
+     )
+   }
+ 
+   return (
+-    <ToolCallGroupContent
+-      sessionId={sessionId}
+-      onOpenAgentRun={onOpenAgentRun}
+-      resolveAgentActivityTarget={resolveAgentActivityTarget}
+-      steps={resolvedSteps}
+-      resultMap={resultMap}
+-      childToolCallsByParent={childToolCallsByParent}
+-      agentTaskNotifications={agentTaskNotifications}
+-      agentTaskStatuses={agentTaskStatuses}
+-      activeThinkingId={activeThinkingId}
+-      showOpenRun={showOpenRun}
+-      isStreaming={isStreaming}
+-      isLive={isLive}
+-      disclosureKey={disclosureKey}
+-    />
++    <>
++      <ToolCallGroupContent
++        sessionId={sessionId}
++        onOpenAgentRun={onOpenAgentRun}
++        resolveAgentActivityTarget={resolveAgentActivityTarget}
++        steps={resolvedSteps}
++        resultMap={resultMap}
++        childToolCallsByParent={childToolCallsByParent}
++        agentTaskNotifications={agentTaskNotifications}
++        agentTaskStatuses={agentTaskStatuses}
++        activeThinkingId={activeThinkingId}
++        showOpenRun={showOpenRun}
++        isStreaming={isStreaming}
++        isLive={isLive}
++        disclosureKey={disclosureKey}
++      />
++      <TurnDownloadCard toolCalls={toolCalls} />
++    </>
+   )
+ })
+ 
+diff --git a/desktop/src/i18n/locales/en.ts b/desktop/src/i18n/locales/en.ts
+index 7782a21b..a7a13add 100644
+--- a/desktop/src/i18n/locales/en.ts
++++ b/desktop/src/i18n/locales/en.ts
+@@ -480,6 +480,11 @@ export const en = {
+   'chat.refreshSession': 'Refresh session',
+   'chat.tpsLabel': 'rate',
+   'chat.tpsSpeedTitle': 'Real-time decode speed (tokens/second)',
++  'chat.downloadableFiles': 'Downloadable files',
++  'chat.downloadableMore': 'Show {count} more',
++  'chat.downloadableAll': 'Show all',
++  'workspace.download': 'Download',
++
+   'chat.referenceSearchHint': "Type to find sessions, skills, plugins and project files",
+   'chat.slashFrequent': 'Frequent commands',
+   'chat.slashSearchHint': 'Type to search commands, skills and plugins',
+diff --git a/desktop/src/i18n/locales/jp.ts b/desktop/src/i18n/locales/jp.ts
+index 3b08fe03..5a50d468 100644
+--- a/desktop/src/i18n/locales/jp.ts
++++ b/desktop/src/i18n/locales/jp.ts
+@@ -482,6 +482,10 @@ export const jp: Record<TranslationKey, string> = {
+   'chat.refreshSession': 'セッションを更新',
+   'chat.tpsLabel': '速度',
+   'chat.tpsSpeedTitle': 'リアルタイムデコード速度（トークン/秒）',
++  'chat.downloadableFiles': 'ダウンロード可能なファイル',
++  'chat.downloadableMore': 'さらに {count} 件表示',
++  'chat.downloadableAll': 'すべて表示',
++  'workspace.download': 'ダウンロード',
+   'chat.referenceSearchHint': "入力してセッション、スキル、プラグイン、プロジェクトファイルを検索",
+   'chat.slashFrequent': 'よく使うコマンド',
+   'chat.slashSearchHint': '名前を入力してコマンド、スキル、プラグインを検索',
+diff --git a/desktop/src/i18n/locales/kr.ts b/desktop/src/i18n/locales/kr.ts
+index 63ca83af..5e2ae2b3 100644
+--- a/desktop/src/i18n/locales/kr.ts
++++ b/desktop/src/i18n/locales/kr.ts
+@@ -484,6 +484,10 @@ export const kr: Record<TranslationKey, string> = {
+   'chat.refreshSession': '세션 새로고침',
+   'chat.tpsLabel': '속도',
+   'chat.tpsSpeedTitle': '실시간 디코드 속도(토큰/초)',
++  'chat.downloadableFiles': '다운로드 가능한 파일',
++  'chat.downloadableMore': '더 {count}개 보기',
++  'chat.downloadableAll': '모두 보기',
++  'workspace.download': '다운로드',
+   'chat.referenceSearchHint': "입력하여 세션, 스킬, 플러그인 및 프로젝트 파일 검색",
+   'chat.slashFrequent': '자주 쓰는 명령',
+   'chat.slashSearchHint': '이름을 입력하여 명령, 스킬 및 플러그인 검색',
+diff --git a/desktop/src/i18n/locales/zh-TW.ts b/desktop/src/i18n/locales/zh-TW.ts
+index d67b5dab..72e00d1d 100644
+--- a/desktop/src/i18n/locales/zh-TW.ts
++++ b/desktop/src/i18n/locales/zh-TW.ts
+@@ -482,6 +482,10 @@ export const zh: Record<TranslationKey, string> = {
+   'chat.refreshSession': '重新整理對話',
+   'chat.tpsLabel': '速率',
+   'chat.tpsSpeedTitle': '即時解碼速度（token/秒）',
++  'chat.downloadableFiles': '可下載檔案',
++  'chat.downloadableMore': '查看更多 ({count})',
++  'chat.downloadableAll': '顯示全部',
++  'workspace.download': '下載',
+   'chat.referenceSearchHint': "輸入以尋找對話、技能、外掛程式及專案檔案",
+   'chat.slashFrequent': '常用指令',
+   'chat.slashSearchHint': '輸入名稱搜尋指令、技能和外掛',
+diff --git a/desktop/src/i18n/locales/zh.ts b/desktop/src/i18n/locales/zh.ts
+index f1d2c655..3e0edb40 100644
+--- a/desktop/src/i18n/locales/zh.ts
++++ b/desktop/src/i18n/locales/zh.ts
+@@ -481,6 +481,10 @@ export const zh: Record<TranslationKey, string> = {
+   'chat.refreshSession': '刷新会话',
+   'chat.tpsLabel': '速率',
+   'chat.tpsSpeedTitle': '实时解码速度（token/秒）',
++  'chat.downloadableFiles': '可下载文件',
++  'chat.downloadableMore': '查看更多 ({count})',
++  'chat.downloadableAll': '显示全部',
++  'workspace.download': '下载',
+   'chat.referenceSearchHint': "输入以查找会话、技能、插件和项目文件",
+   'chat.slashFrequent': '常用命令',
+   'chat.slashSearchHint': '输入名称搜索命令、技能和插件',
+diff --git a/desktop/src/lib/downloadFileMeta.ts b/desktop/src/lib/downloadFileMeta.ts
+new file mode 100644
+index 00000000..5221772f
+--- /dev/null
++++ b/desktop/src/lib/downloadFileMeta.ts
+@@ -0,0 +1,36 @@
++/** File type icon (Material Symbols) + size formatting for the references
++ *  download card. */
++
++const IMAGE_EXT = /\.(png|jpe?g|gif|webp|svg|bmp|avif|ico)$/i
++const CODE_EXT = /\.(ts|tsx|js|jsx|py|go|rs|java|c|cc|cpp|h|hpp|json|sh|bash|yaml|yml|toml|sql)$/i
++const ARCHIVE_EXT = /\.(zip|tar|gz|7z|rar|bz2)$/i
++const TABLE_EXT = /\.(csv|tsv|xlsx|xls)$/i
++const DOC_EXT = /\.(docx?|rtf|odt)$/i
++const AUDIO_EXT = /\.(mp3|wav|ogg|flac|m4a|aac)$/i
++const VIDEO_EXT = /\.(mp4|mkv|webm|mov|avi)$/i
++
++export function fileTypeIcon(filePath: string): string {
++  const lower = filePath.toLowerCase()
++  if (/\.pdf$/i.test(lower)) return 'picture_as_pdf'
++  if (IMAGE_EXT.test(lower)) return 'image'
++  if (ARCHIVE_EXT.test(lower)) return 'folder_zip'
++  if (TABLE_EXT.test(lower)) return 'table'
++  if (AUDIO_EXT.test(lower)) return 'audio_file'
++  if (VIDEO_EXT.test(lower)) return 'movie'
++  if (CODE_EXT.test(lower)) return 'code'
++  if (DOC_EXT.test(lower)) return 'description'
++  if (/\.md$/i.test(lower) || /\.txt$/i.test(lower)) return 'description'
++  return 'insert_drive_file'
++}
++
++export function formatFileSize(size: number): string {
++  if (size < 1024) return `${size} B`
++  const units = ['KB', 'MB', 'GB', 'TB']
++  let value = size / 1024
++  let unit = 0
++  while (value >= 1024 && unit < units.length - 1) {
++    value /= 1024
++    unit += 1
++  }
++  return `${value >= 100 ? Math.round(value) : value.toFixed(1)} ${units[unit]}`
++}
+diff --git a/desktop/src/lib/fileSizeCache.ts b/desktop/src/lib/fileSizeCache.ts
+new file mode 100644
+index 00000000..a057fed0
+--- /dev/null
++++ b/desktop/src/lib/fileSizeCache.ts
+@@ -0,0 +1,130 @@
++/**
++ * Global file-size cache with a two-tier structure, mirroring the download
++ * card's hot/cold pattern:
++ *
++ *  - hot:  the 50 most recently accessed files — TTL 120s, LRU. Any read
++ *    (set) or hit (get) refreshes the entry so actively-browsed files stay
++ *    hot.
++ *  - cold: the next 150 files — TTL 30min. A hot entry with no access for
++ *    120s is demoted to cold (kept for history browsing); a cold entry older
++ *    than 30min is dropped and must be re-queried.
++ *
++ * Total cap 200 entries, newest-in / oldest-out (LRU), so there is no growth
++ * path: every write either refreshes an existing entry or evicts the oldest.
++ * Persisted to localStorage (`cc-haha:file-sizes`) so re-opening the app
++ * shows sizes instantly without re-querying `/local-file?info=1`.
++ */
++
++const STORAGE_KEY = 'cc-haha:file-sizes'
++const MAX_HOT = 50
++const MAX_COLD = 150
++const HOT_TTL_MS = 120_000
++const COLD_TTL_MS = 30 * 60 * 1000
++
++export type SizeEntry = { path: string; size: number; at: number }
++
++type TierShape = { entries: SizeEntry[] }
++type StoredShape = { hot: TierShape; cold: TierShape }
++
++const memory = new Map<string, SizeEntry>()
++
++function emptyShape(): StoredShape {
++  return { hot: { entries: [] }, cold: { entries: [] } }
++}
++
++function safeRead(): StoredShape {
++  try {
++    const raw = localStorage.getItem(STORAGE_KEY)
++    if (!raw) return emptyShape()
++    const parsed = JSON.parse(raw) as StoredShape
++    if (!Array.isArray(parsed?.hot?.entries) || !Array.isArray(parsed?.cold?.entries)) {
++      return emptyShape()
++    }
++    return parsed
++  } catch {
++    return emptyShape()
++  }
++}
++
++function safeWrite(shape: StoredShape): void {
++  try {
++    localStorage.setItem(STORAGE_KEY, JSON.stringify(shape))
++  } catch {
++    // Quota / private mode — best effort; memory still works.
++  }
++}
++
++/** Demote a hot entry to cold (kept for 30min), or overwrite an existing one. */
++function demoteToCold(shape: StoredShape, path: string, size: number, at: number): void {
++  const others = shape.cold.entries.filter((e) => e.path !== path)
++  shape.cold.entries = [...others, { path, size, at }].slice(-MAX_COLD)
++}
++
++/** Lazy maintenance: expire cold entries, demote stale hot, cap totals. */
++function maintain(shape: StoredShape, now: number): void {
++  const coldCutoff = now - COLD_TTL_MS
++  shape.cold.entries = shape.cold.entries.filter((e) => e.at >= coldCutoff).slice(-MAX_COLD)
++  const hotCutoff = now - HOT_TTL_MS
++  for (const entry of shape.hot.entries) {
++    if (entry.at >= hotCutoff) continue
++    demoteToCold(shape, entry.path, entry.size, entry.at)
++  }
++  shape.hot.entries = shape.hot.entries.filter((e) => e.at >= hotCutoff).slice(-MAX_HOT)
++  if (shape.cold.entries.length > MAX_COLD) {
++    shape.cold.entries = shape.cold.entries.slice(-MAX_COLD)
++  }
++}
++
++export function getFileSize(path: string): number | undefined {
++  const now = Date.now()
++  const shape = safeRead()
++  maintain(shape, now)
++  let entry = shape.hot.entries.find((e) => e.path === path)
++  if (entry) {
++    entry.at = now
++    safeWrite(shape)
++    memory.set(path, entry)
++    return entry.size
++  }
++  entry = shape.cold.entries.find((e) => e.path === path)
++  if (entry) {
++    const withoutCold = shape.cold.entries.filter((e) => e.path !== path)
++    shape.cold.entries = withoutCold
++    shape.hot.entries = [...shape.hot.entries.filter((e) => e.path !== path), { ...entry, at: now }].slice(-MAX_HOT)
++    safeWrite(shape)
++    memory.set(path, { ...entry, at: now })
++    return entry.size
++  }
++  const mem = memory.get(path)
++  if (mem && now - mem.at < COLD_TTL_MS) return mem.size
++  if (mem) memory.delete(path)
++  return undefined
++}
++
++export function setFileSize(path: string, size: number): void {
++  const now = Date.now()
++  const shape = safeRead()
++  maintain(shape, now)
++  const others = shape.hot.entries.filter((e) => e.path !== path)
++  shape.hot.entries = [...others, { path, size, at: now }]
++  while (shape.hot.entries.length > MAX_HOT) {
++    const removed = shape.hot.entries.shift()!
++    demoteToCold(shape, removed.path, removed.size, removed.at)
++  }
++  safeWrite(shape)
++  memory.set(path, { path, size, at: now })
++  while (memory.size > MAX_HOT + MAX_COLD) {
++    const oldest = memory.keys().next().value
++    if (oldest === undefined) break
++    memory.delete(oldest)
++  }
++}
++
++export function __clearFileSizeCache(): void {
++  memory.clear()
++  try {
++    localStorage.removeItem(STORAGE_KEY)
++  } catch {
++    // ignore
++  }
++}
+diff --git a/src/server/api/localFile.ts b/src/server/api/localFile.ts
+index c24e66fa..df0fa3c2 100644
+--- a/src/server/api/localFile.ts
++++ b/src/server/api/localFile.ts
+@@ -1,7 +1,7 @@
+ import * as path from 'node:path'
+ import { expandTilde } from '../../utils/permissions/pathValidation.js'
+ import { isAllowedFilesystemPath } from './filesystem.js'
+-import { serveFileWithRange } from './previewFs.js'
++import { serveFileWithRange, downloadHeadersFor, contentTypeForPath } from './previewFs.js'
+ import { canonicalizeExistingFilesystemPath } from '../services/filesystemPathSecurity.js'
+ import { normalizeDriveRootPathForPlatform } from '../services/windowsDrivePath.js'
+ 
+@@ -102,5 +102,56 @@ export async function handleLocalFile(
+     return new Response('forbidden', { status: 403 })
+   }
+ 
++  // `?info=1` returns lightweight file metadata (no content read) so the
++  // download card can show the file name + size without streaming the body.
++  if (url.searchParams.get('info') === '1') {
++    try {
++      const stat = await Bun.file(canonicalPath).stat()
++      return Response.json({
++        name: path.basename(canonicalPath),
++        size: stat.size,
++        mime: contentTypeForPath(canonicalPath),
++      })
++    } catch {
++      return new Response('not found', { status: 404 })
++    }
++  }
++
++  // `?download=1` turns the in-app preview into a real download: add
++  // Content-Disposition: attachment with an RFC5987-encoded filename so
++  // unicode/space names survive browsers.
++  if (url.searchParams.get('download') === '1') {
++    return serveFileWithRange(canonicalPath, reqHeaders, downloadHeadersFor(canonicalPath))
++  }
++
+   return serveFileWithRange(canonicalPath, reqHeaders)
+ }
++
++/**
++ * Batch size metadata for many absolute paths at once (download cards fetch
++ * all missing sizes in one request instead of one request per file). Each
++ * path is gated by the same $HOME sandbox as the single-file route; paths
++ * that fail canonicalization or the allow-list are silently skipped.
++ */
++export async function handleBatchLocalFileInfo(body: unknown): Promise<Response> {
++  const rawPaths = (body as { paths?: unknown } | null)?.paths
++  const paths = Array.isArray(rawPaths) ? rawPaths.filter((p): p is string => typeof p === 'string') : []
++  const files: Record<string, { name: string; size: number; mime: string }> = {}
++  for (const filePath of paths) {
++    const resolved = path.resolve(normalizeDriveRootPathForPlatform(filePath))
++    const canonicalPath = await canonicalizeExistingFilesystemPath(resolved)
++    if (!canonicalPath) continue
++    if (!isAllowedFilesystemPath(canonicalPath)) continue
++    try {
++      const stat = await Bun.file(canonicalPath).stat()
++      files[filePath] = {
++        name: path.basename(canonicalPath),
++        size: stat.size,
++        mime: contentTypeForPath(canonicalPath),
++      }
++    } catch {
++      // unreadable file — skip, the card shows '--'
++    }
++  }
++  return Response.json({ files })
++}
+diff --git a/src/server/api/previewFs.ts b/src/server/api/previewFs.ts
+index 3c1576dc..c362618b 100644
+--- a/src/server/api/previewFs.ts
++++ b/src/server/api/previewFs.ts
+@@ -179,10 +179,12 @@ export async function handlePreviewFs(
+     return new Response('forbidden', { status: 403 })
+   }
+ 
+-  return servePreviewFsFile(canonicalTarget, url.pathname, reqHeaders)
++  const download = url.searchParams.get('download') === '1'
++  return servePreviewFsFile(canonicalTarget, url.pathname, reqHeaders, download)
+ }
+ 
+ function previewHtmlBasePath(pathname: string): string {
++
+   const slash = pathname.lastIndexOf('/')
+   if (slash < 0) return '/'
+   return pathname.slice(0, slash + 1)
+@@ -218,11 +220,15 @@ async function servePreviewFsFile(
+   target: string,
+   requestPathname: string,
+   reqHeaders?: Headers,
++  download = false,
+ ): Promise<Response> {
+   const ext = path.extname(target).toLowerCase()
+   const isHtml = ext === '.html' || ext === '.htm'
+-  if (!isHtml) {
+-    return serveFileWithRange(target, reqHeaders)
++  const downloadHeaders = download ? downloadHeadersFor(target) : undefined
++  if (!isHtml || download) {
++    // For downloads we skip the HTML base-rewrite transform entirely — the
++    // browser wants the raw file bytes, not the preview-transformed version.
++    return serveFileWithRange(target, reqHeaders, downloadHeaders)
+   }
+   if (reqHeaders?.has('range')) {
+     return serveFileWithRange(target, reqHeaders, {
+@@ -337,3 +343,18 @@ export async function serveFileWithRange(
+     },
+   })
+ }
++
++/**
++ * Build the `Content-Disposition: attachment` headers for a download response.
++ * The RFC5987 `filename*` form carries unicode/space names (browsers use it
++ * over the ASCII `filename` fallback); the fallback strips non-ASCII so the
++ * plain header never breaks on raw unicode.
++ */
++export function downloadHeadersFor(target: string): Record<string, string> {
++  const fileName = path.basename(target)
++  const fallback = fileName.replace(/[^\x20-\x7E]/g, '_')
++  const encoded = encodeURIComponent(fileName).replace(/'/g, '%27')
++  return {
++    'Content-Disposition': `attachment; filename="${fallback}"; filename*=UTF-8''${encoded}`,
++  }
++}
+diff --git a/src/server/index.ts b/src/server/index.ts
+index 73d91b1d..feda0686 100644
+--- a/src/server/index.ts
++++ b/src/server/index.ts
+@@ -20,7 +20,7 @@ import { ProviderService } from './services/providerService.js'
+ import { handleHahaOAuthCallback } from './api/haha-oauth.js'
+ import { handleHahaOpenAIOAuthCallback } from './api/haha-openai-oauth.js'
+ import { handlePreviewFs } from './api/previewFs.js'
+-import { handleLocalFile } from './api/localFile.js'
++import { handleLocalFile, handleBatchLocalFileInfo } from './api/localFile.js'
+ import { sessionService } from './services/sessionService.js'
+ import { localIndexCoordinator } from './services/localIndex/coordinator.js'
+ import { searchContentCoordinator } from './services/localIndex/searchContentCoordinator.js'
+@@ -547,6 +547,33 @@ export function startServer(port = PORT, host = HOST) {
+           return withCors(response, cors)
+         }
+ 
++        // Batch file-metadata endpoint for download cards (one request for all
++        // sizes). Must sit BEFORE the `/local-file/` prefix branch since the
++        // path also starts with that prefix.
++        if (url.pathname === '/local-file/info' && req.method === 'POST') {
++          if (cors.rejected) {
++            return corsRejectedResponse(cors)
++          }
++          if (authRequired) {
++            const authError = await requireH5Token(req)
++            if (authError) {
++              return withCors(authError, cors)
++            }
++          } else if (forceAuth) {
++            const authError = await requireAuth(req)
++            if (authError) {
++              return withCors(authError, cors)
++            }
++          }
++          try {
++            const body = await req.json()
++            const response = await handleBatchLocalFileInfo(body)
++            return withCors(response, cors)
++          } catch {
++            return withCors(new Response('bad request', { status: 400 }), cors)
++          }
++        }
++
+         // Local filesystem — serve an ABSOLUTE local file ($HOME/tmp/registered
+         // roots sandbox) so `file://` links / AI-emitted absolute paths open in
+         // the in-app browser. Gated identically to /preview-fs above.

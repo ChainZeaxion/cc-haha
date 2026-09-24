@@ -480,6 +480,11 @@ export const en = {
   'chat.refreshSession': 'Refresh session',
   'chat.tpsLabel': 'rate',
   'chat.tpsSpeedTitle': 'Real-time decode speed (tokens/second)',
+  'chat.downloadableFiles': 'Downloadable files',
+  'chat.downloadableMore': 'Show {count} more',
+  'chat.downloadableAll': 'Show all',
+  'workspace.download': 'Download',
+
   'chat.referenceSearchHint': "Type to find sessions, skills, plugins and project files",
   'chat.slashFrequent': 'Frequent commands',
   'chat.slashSearchHint': 'Type to search commands, skills and plugins',

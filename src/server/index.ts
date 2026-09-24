@@ -20,7 +20,7 @@ import { ProviderService } from './services/providerService.js'
 import { handleHahaOAuthCallback } from './api/haha-oauth.js'
 import { handleHahaOpenAIOAuthCallback } from './api/haha-openai-oauth.js'
 import { handlePreviewFs } from './api/previewFs.js'
-import { handleLocalFile } from './api/localFile.js'
+import { handleLocalFile, handleBatchLocalFileInfo } from './api/localFile.js'
 import { sessionService } from './services/sessionService.js'
 import { localIndexCoordinator } from './services/localIndex/coordinator.js'
 import { searchContentCoordinator } from './services/localIndex/searchContentCoordinator.js'
@@ -545,6 +545,33 @@ export function startServer(port = PORT, host = HOST) {
             req.headers,
           )
           return withCors(response, cors)
+        }
+
+        // Batch file-metadata endpoint for download cards (one request for all
+        // sizes). Must sit BEFORE the `/local-file/` prefix branch since the
+        // path also starts with that prefix.
+        if (url.pathname === '/local-file/info' && req.method === 'POST') {
+          if (cors.rejected) {
+            return corsRejectedResponse(cors)
+          }
+          if (authRequired) {
+            const authError = await requireH5Token(req)
+            if (authError) {
+              return withCors(authError, cors)
+            }
+          } else if (forceAuth) {
+            const authError = await requireAuth(req)
+            if (authError) {
+              return withCors(authError, cors)
+            }
+          }
+          try {
+            const body = await req.json()
+            const response = await handleBatchLocalFileInfo(body)
+            return withCors(response, cors)
+          } catch {
+            return withCors(new Response('bad request', { status: 400 }), cors)
+          }
         }
 
         // Local filesystem — serve an ABSOLUTE local file ($HOME/tmp/registered
