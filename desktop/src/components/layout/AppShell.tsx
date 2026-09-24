@@ -28,6 +28,7 @@ import {
 import { openDesktopNotificationTarget } from '../../lib/desktopNotificationNavigation'
 import { TabBar } from './TabBar'
 import { TpsIndicator } from '../chat/TpsIndicator'
+import { SessionCostBadge } from '../chat/SessionCostBadge'
 import { WorkspaceHeaderProvider } from './WorkspaceHeaderContext'
 
 import { StartupErrorView } from './StartupErrorView'
@@ -424,6 +425,9 @@ export function AppShell() {
             {isActiveChatTab ? (
               <div className="flex shrink-0 items-center gap-1">
                 {activeTabId ? <TpsIndicator sessionId={activeTabId} vertical /> : null}
+                {activeTabId ? (
+                  <SessionCostBadge sessionId={activeTabId} active={activeTab?.status === 'running'} compact />
+                ) : null}
                 <IconButton
                   data-testid="session-manual-refresh-mobile"
                   icon={refreshingSession ? 'progress_activity' : 'refresh'}

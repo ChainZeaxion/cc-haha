@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { ChevronRight } from 'lucide-react'
 import {
   formatCacheHitRate,
+  formatCnyCost,
   formatCompactTokens,
   formatTokensPerSecond,
 } from '../../lib/sessionUsageMetrics'
@@ -19,11 +20,21 @@ type ContextCategory = {
  * rounding a cache hit up to 100%, withholding a speed with no API duration) stay in one place.
  */
 export type ContextUsageSessionStats = {
+  /**
+   * Request-level (latest-turn) hit rate — the headline, because it reflects how the cache
+   * actually performs turn-over-turn rather than a cumulative ratio diluted by replayed prompts.
+   * `null` when the session has never streamed a turn.
+   */
   cacheHitRate: number | null
+  /** Latest-turn cache-read token count, shown next to the rate as the absolute figure. */
+  cacheReadTokens: number
   tokensPerSecond: number | null
   /** Pre-formatted by the server (unknown-model sessions included), displayed verbatim. */
   costDisplay: string
+  /** Raw USD total for the CNY readout beside `costDisplay` (`null` when unknown). */
+  totalCostUSD: number | null
 }
+
 
 export type ContextUsageDetailsStatus = 'ready' | 'pending' | 'loading' | 'unavailable'
 
@@ -128,14 +139,30 @@ function SessionStatGrid({
       </div>
       <div>
         <div className={labelClass}>{labels.sessionCacheHit}</div>
-        <div className={valueClass} data-testid="session-cache-hit">
+        <div
+          className={`${valueClass} ${stats.cacheHitRate !== null ? 'text-[#ea580c]' : ''}`}
+          data-testid="session-cache-hit"
+          title={stats.cacheHitRate !== null && stats.cacheReadTokens > 0
+            ? `${formatCacheHitRate(stats.cacheHitRate!)} · ${formatCompactTokens(stats.cacheReadTokens)}`
+            : undefined}
+        >
           {stats.cacheHitRate === null ? '--' : formatCacheHitRate(stats.cacheHitRate)}
+          {stats.cacheHitRate !== null && stats.cacheReadTokens > 0 && (
+            <span className="ml-1 text-[11px] text-[var(--color-text-tertiary)]">{formatCompactTokens(stats.cacheReadTokens)}</span>
+          )}
         </div>
       </div>
       <div>
         <div className={labelClass}>{labels.sessionCost}</div>
-        <div className={`${valueClass} truncate`} data-testid="session-cost" title={stats.costDisplay}>
+        <div
+          className={`${valueClass} truncate`}
+          data-testid="session-cost"
+          title={stats.totalCostUSD !== null ? `${stats.costDisplay} · ${formatCnyCost(stats.totalCostUSD)}` : stats.costDisplay}
+        >
           {stats.costDisplay}
+          {stats.totalCostUSD !== null && stats.totalCostUSD > 0 && (
+            <span className="ml-1 text-[11px] text-[var(--color-text-tertiary)]">{formatCnyCost(stats.totalCostUSD)}</span>
+          )}
         </div>
       </div>
     </div>

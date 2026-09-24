@@ -10,7 +10,7 @@ import type { ChatState } from '../../types/chat'
 import { useMobileViewport } from '../../hooks/useMobileViewport'
 import { useDismissable } from '../../hooks/useDismissable'
 import { isDesktopRuntime } from '../../lib/desktopRuntime'
-import { deriveSessionUsageMetrics } from '../../lib/sessionUsageMetrics'
+import { deriveSessionUsageMetrics, formatCacheHitRate, formatCompactTokens, latestTurnCacheHitRate } from '../../lib/sessionUsageMetrics'
 import { MobileBottomSheet } from '@/components/ui/MobileBottomSheet'
 import {
   ContextUsageDetails,
@@ -439,18 +439,32 @@ export function ContextUsageIndicator({
   // Derived per render rather than memoized on `usage` alone: the session it belongs to lives in
   // a ref, so the guard has to run against the current sessionId every time.
   const displayUsage = usageSessionIdRef.current === sessionId ? usage : null
+  // Latest-turn usage (the most recent assistant request) rides on the context snapshot, not the
+  // lifetime usage poll. The cache hit rate is computed against it — the ratio the cache achieves
+  // on the *current* turn, not a cumulative average diluted by replayed prompts.
+  const latestTurnUsage = displayContext?.apiUsage ?? null
+  // Latest-turn hit rate and absolute cache-read figure, shared by the composer tail and the
+  // detail panel so both read from the same number.
+  const latestCacheRate = latestTurnUsage ? latestTurnCacheHitRate(latestTurnUsage) : null
+  const latestCacheReadTokens = latestTurnUsage ? Math.max(0, latestTurnUsage.cache_read_input_tokens) : 0
   const sessionStats = useMemo<ContextUsageSessionStats | null>(() => {
     if (!displayUsage) return null
     const metrics = deriveSessionUsageMetrics(displayUsage)
     // A session with nothing produced yet has no honest answer for any of these rows; showing an
     // empty block (or a 0 tok/s) would read as a measurement rather than an absence.
     if (metrics.totalTokens === 0) return null
+    // Lead the cache row with the latest turn's hit rate; fall back to the session-cumulative
+    // ratio only when the context snapshot carries no per-turn usage.
     return {
-      cacheHitRate: metrics.cacheHitRate,
+      cacheHitRate: latestCacheRate ?? metrics.cacheHitRate,
+      cacheReadTokens: latestCacheReadTokens > 0
+        ? latestCacheReadTokens
+        : Math.max(0, displayUsage.totalCacheReadInputTokens),
       tokensPerSecond: metrics.tokensPerSecond,
       costDisplay: displayUsage.costDisplay,
+      totalCostUSD: displayUsage.totalCostUSD ?? null,
     }
-  }, [displayUsage])
+  }, [displayUsage, latestCacheRate, latestCacheReadTokens])
 
   const detailsBody = (
     <ContextUsageDetails
@@ -532,8 +546,15 @@ export function ContextUsageIndicator({
   }
 
   return (
-    <div className="relative pointer-events-auto">
+    <div
+      className="relative flex items-center gap-0 pointer-events-auto"
+      // Cumulative right nudge requested for the ring + cache % group. transform (not
+      // margin) because the composer toolbar right-aligns this item: margin-left on the
+      // leading child only widens the empty flex-1 gap and never moves the element.
+      style={{ transform: 'translateX(15px)' }}
+    >
       <button
+
         ref={triggerRef}
         type="button"
         aria-label={ariaLabel}
@@ -568,6 +589,25 @@ export function ContextUsageIndicator({
         </span>
         <span className="sr-only">{displayPercent}</span>
       </button>
+      {latestCacheRate !== null && latestCacheReadTokens > 0 && (
+        <span
+          data-testid="context-cache-hit-tail"
+          className="shrink-0 font-mono text-[8px] font-semibold tabular-nums leading-none"
+          style={{
+            // The tail is positioned against the 32px (desktop) / 44px (mobile) trigger button,
+            // but the visible ring is only 20px / 22px — the button's touch padding eats the
+            // same translate on both, so the mobile shift must compensate its extra 5px.
+            color: '#ea580c',
+            transform: isMobileBrowser ? 'translate(-9px, 3px)' : 'translate(-4px, 3px)',
+          }}
+          title={t('contextIndicator.cacheHint', {
+            percent: formatCacheHitRate(latestCacheRate),
+            tokens: formatCompactTokens(latestCacheReadTokens),
+          })}
+        >
+          {formatCacheHitRate(latestCacheRate)}
+        </span>
+      )}
 
       {!preferSheet && detailsOpen && popoverPosition && createPortal(
         <div

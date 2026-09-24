@@ -90,8 +90,43 @@ export function formatTokensPerSecond(value: number): string {
   return value >= 10 ? `${Math.round(value)}` : `${value.toFixed(1)}`
 }
 
+/**
+ * Request-level (latest-turn) cache hit rate, from the newest assistant usage.
+ *
+ * Unlike the session-cumulative `cacheHitRate` (which dilutes the ratio across a long agent
+ * loop as earlier prompts are replayed), this reads the *most recent* turn only: cache reads as a
+ * fraction of that turn's total prompt (fresh input + cache write + cache read). A long-running
+ * session therefore reads as the cache actually performs turn-over-turn (~99%), not ~0.5%.
+ *
+ * Returns `null` when the turn produced no prompt tokens (no honest answer).
+ */
+export function latestTurnCacheHitRate(usage: {
+  input_tokens: number
+  cache_creation_input_tokens: number
+  cache_read_input_tokens: number
+}): number | null {
+  const input = finite(usage.input_tokens)
+  const cacheRead = finite(usage.cache_read_input_tokens)
+  const cacheWrite = finite(usage.cache_creation_input_tokens)
+  const promptTokens = input + cacheRead + cacheWrite
+  return promptTokens > 0 ? cacheRead / promptTokens : null
+}
+
+/** Fixed display-only FX rate for the USD/CNY dual cost readout (not a billing conversion). */
+export const CNY_PER_USD = 7.2
+
+/**
+ * `¥8.86` / `¥0.0036` — mirrors the server's USD formatting rules (2dp above ¥0.5, else 4dp) so
+ * the two currencies read at the same precision next to each other.
+ */
+export function formatCnyCost(usd: number): string {
+  const cny = usd * CNY_PER_USD
+  return `¥${cny > 0.5 ? (Math.round(cny * 100) / 100).toFixed(2) : cny.toFixed(4)}`
+}
+
 /** `1.2M`, `375K`, `812` — compact enough for a stat row, never a lie about magnitude. */
 export function formatCompactTokens(value: number): string {
+
   if (!Number.isFinite(value) || value <= 0) return '0'
   if (value < 1_000) return `${Math.round(value)}`
   const thousands = value / 1_000

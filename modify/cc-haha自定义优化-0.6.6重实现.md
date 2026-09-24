@@ -16,7 +16,7 @@
 | 功能特性 | 四 实时解码速度（TPS）指示器 + 手机端两行 | 旧§九/§十六 | ✅ |
 | 功能特性 | 五 文件下载桥接 | 旧§十二 | ✅ |
 | 功能特性 | 六 设置-关于-更新：禁止更新开关 | 旧§十三 | ✅ |
-| 计费/上下文 | 七 上下文缓存与计费显示（cache 命中率修正） | 旧§十四 | ⬜ |
+| 计费/上下文 | 七 上下文缓存与计费显示（cache 命中率修正） | 旧§十四 | ✅ |
 | 功能特性 | 八 思考模式二级开关（think 是否回传后端） | 旧§二十五 | ⬜ |
 | 功能特性 | 九 H5 设置页与桌面端全 tab 对齐（放开浏览器「两 pill」围栏） | —（新增） | ✅ |
 | 工程/开发 | 十 本地开发模式注意事项（sidecar 开发模式跑通记录） | — | ✅ |
@@ -43,7 +43,7 @@
 | `patches/tps-indicator.patch` | 四 TPS 指示器 + 两行 | 2f8d819d (v0.6.6) | ✅ |
 | `patches/file-download.patch` | 五 文件下载桥接 | — | ✅ |
 | `patches/disable-updates.patch` | 六 禁止更新开关 | 4aaf425a | ✅ |
-| `patches/cache-billing.patch` | 七 上下文缓存与计费显示 | — | ⬜ |
+| `patches/cache-billing.patch` | 七 上下文缓存与计费显示 | e49e0b7d | ✅ |
 | `patches/thinking-switch.patch` | 八 思考模式二级开关 | — | ⬜ |
 | `patches/h5-settings-parity.patch` | 九 H5 设置全 tab 对齐 | 2f8d819d (v0.6.6) | ✅ |
 | `patches/h5-mobile-quick-actions.patch` | 十一 H5 悬浮快捷入口（任务/文件/审查） | — | ⬜ |
@@ -303,15 +303,43 @@ H5 浏览器端打开文件链接时，`/local-file/<absPath>` 直接内联显�
 
 ---
 
-## 七、上下文缓存与计费显示（源§十四）
+## 七、上下文缓存与计费显示（源§十四，✅ 2026-09-25）
 
 ### 需求背景
 
+旧 fork 的「缓存命中率」读数用的是**全会话累计口径**（`cacheRead / 全会话 prompt`）。长 agent 会话里每轮都会重放前文 prompt，累计比值被历史轮稀释到 ~0.5%，用户看到的命中率与当前缓存实际表现严重不符。本项要做两件事：
+
+1. **缓存命中率口径修正**：从「会话累计」改为**请求级最新轮** `cacheRead / (input + cacheRead + cacheWrite)`——即「本轮提示词里有多少来自缓存」，实测 99.798%，才反映缓存的真实逐轮表现。
+2. **会话总费用显示**：在会话 header 上展示会话累计费用，USD + CNY 双显示。
+
+用户拍板（AskUserQuestion）：显示位置「三处全做（header 费用徽标 + 上下文指示器缓存尾巴 + 上下文面板详情行），但根据当前新源码重新制定更优雅的融合效果，老优化项的显示方式不需要完全遵守」；货币口径「USD/CNY 双显示，CNY = USD × 7.2 固定汇率（仅展示，非计费换算）」。
+
 ### 0.6.6 现状核对
+
+- **数据全部现成，无需新端点**：
+  - `desktop/src/api/sessions.ts:187-222` `SessionUsageSnapshot` 已带 `totalCostUSD` / `costDisplay`（会话累计，服务端预格式化）。
+  - `desktop/src/api/sessions.ts:270-275` `SessionContextSnapshot.apiUsage = {input_tokens, output_tokens, cache_creation_input_tokens, cache_read_input_tokens} | null`（最新一轮请求级用量，live 路径也回填；`input_tokens` 已是纯 fresh 语义）。
+  - `getSessionUsage(sessionId, signal)` → `GET /api/sessions/{id}/inspection?includeContext=0&usageOnly=1`（单 CLI control，廉价，可轮询）。
+- `desktop/src/lib/sessionUsageMetrics.ts` 已有 `deriveSessionUsageMetrics`（含会话累计 `cacheHitRate`）/ `formatCacheHitRate`，但无请求级命中率、无 CNY 格式化。
+- 三处展示位：上下文指示器 `ContextUsageIndicator.tsx`（含详情 `ContextUsageDetails.tsx`）、上下文概览 `LocalSlashCommandPanel.tsx` 的 `ContextOverview`、会话 header（桌面 `pages/ActiveSession.tsx` + 移动 `components/layout/AppShell.tsx`）。
 
 ### 实施方案
 
+1. **`sessionUsageMetrics.ts`**：新增 `latestTurnCacheHitRate({input_tokens, cache_creation_input_tokens, cache_read_input_tokens}): number|null`（`promptTokens = input+cacheRead+cacheWrite`，`=0` 返回 null）——请求级命中率的核心；新增 `CNY_PER_USD = 7.2` 与 `formatCnyCost(usd)`（`¥`，>0.5 两位小数、否则四位，与 USD 同精度对齐）、`formatCompactTokens`（`1.2M/375K/812`）。
+2. **`ContextUsageDetails.tsx`**：`ContextUsageSessionStats` 增 `cacheReadTokens` + `totalCostUSD`；`SessionStatGrid` 缓存命中行 rate 非 null 时橙色 `#ea580c` + 行内 compact tokens；费用行旁增 `· ¥…` CNY span。
+3. **`ContextUsageIndicator.tsx`**：`latestTurnUsage = displayContext?.apiUsage ?? null`，派生 `latestCacheRate` / `latestCacheReadTokens`；触发容器改 `relative flex`，环形按钮旁增兄弟节点缓存命中尾巴 `data-testid="context-cache-hit-tail"`（`#ea580c` 10px，无数据不显示，title 走 `contextIndicator.cacheHint`）；详情面板 `sessionStats` 以最新轮命中率为首、回退会话累计。
+4. **`LocalSlashCommandPanel.tsx`**：`ContextOverview` 头部用量行增 `98% cached`（`#ea580c`）；第 4 个 pill 在有 cache 时换为 cache 命中行（`formatCacheHitRate` + compact tokens 明细），否则保留原 context pill。
+5. **`SessionCostBadge.tsx`（新增）**：会话 header 费用徽标。挂载读一次 `getSessionUsage`（`usageOnly` 廉价路径），`produced=0`（无 input+output+cache tokens）不显示（避免首轮前 `$0.0000` 读成测量值）；`active` 时 `setInterval` 10s 轮询（cost 只在 turn 完成时变，但 turn 可跑数分钟），`inFlight` 防堆叠；pill 双币（compact 移动端仅 USD），`data-testid="session-cost-badge"`。
+6. **挂载**：桌面 `pages/ActiveSession.tsx` 会话 header actions 区（TpsIndicator 与刷新按钮之间，`active={chatState!=='idle'}`）；移动 `components/layout/AppShell.tsx` 移动 header（TpsIndicator vertical 后，`active={activeTab?.status==='running'}` + `compact`）。
+7. **i18n（5 语言）**：各增 `slash.inspector.context.cache` / `.cached`、`contextIndicator.cacheHint`（`{percent}` `{tokens}`）、`session.totalCost` 共 4 key。
+
 ### 验证
+
+- 桌面 `tsc -b` exit 0；受影响 4 测试文件 **84/84**（ContextUsageIndicator 27 / LocalSlashCommandPanel 3 / AppShell 22 / ActiveSession 32）；全量前端 vitest **6143 pass/2 fail**（2 条=基线既有 providerModels、MessagePayloadRetention，零回归）。
+- vite build → App-C54fEqkT.js（2200.13 kB，2.66s）。
+- **dev 7788 live（127.0.0.1 agent-browser 进会话）**：header 费用徽标 `$0.87 · ¥6.27`（USD+CNY 双显示）+ 上下文指示器缓存尾巴 `96.7%`（`apiUsage` 有值时；estimate 路径 `apiUsage=undefined` 时尾巴隐藏、徽标仍显示 totalCost），console 无错。
+- **布局微调**（2026-09-25 追加，live 双端像素级验证）：缓存百分比尾巴相对触发**按钮**定位——桌面 32px 按钮/20px 可见圆环（6px padding）、移动 44px 触摸目标/22px 圆环（11px padding），同一 translate 值被移动端多出的 5px padding 吞掉（表现为"左挪无效"）。终值：尾巴 `transform: isMobileBrowser ? 'translate(-9px, 3px)' : 'translate(-4px, 3px)'`（两端均达「距可见圆环 2px + 下移 3px」）；整组（环+百分比）外层容器 `transform: translateX(15px)`（composer 工具栏右对齐，用 transform 而非 margin——首子项 margin-left 只加空 flex-1 间隙不挪元素；15px 使尾巴右缘与右侧 check 图标留 4.5px，不再贴死）。
+- **Patch**：`modify/patches/cache-billing.patch`（12 文件 533 行）。**10 patch 全链 `git apply` 干净且 cache-billing 12 文件逐字节等于工作树（0 差异）**。
 
 ---
 

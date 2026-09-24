@@ -25,6 +25,7 @@ import { useWorkspaceContentStore } from '../stores/workspaceContentStore'
 import { useTranslation } from '../i18n'
 import { Button } from '@/components/ui/Button'
 import { TpsIndicator } from '../components/chat/TpsIndicator'
+import { SessionCostBadge } from '../components/chat/SessionCostBadge'
 import { LoadingState } from '@/components/ui/LoadingState'
 import { Tooltip } from '@/components/ui/Tooltip'
 import { BrandSeal } from '@/components/composite/BrandSeal'
@@ -858,6 +859,7 @@ export function ActiveSession() {
                   actions={
                     <>
                       {activeTabId ? <TpsIndicator sessionId={activeTabId} /> : null}
+                      {activeTabId ? <SessionCostBadge sessionId={activeTabId} active={chatState !== 'idle'} /> : null}
                       <Button
                         variant="ghost"
                         size="sm"
