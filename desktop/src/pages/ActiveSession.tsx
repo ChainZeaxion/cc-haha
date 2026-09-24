@@ -23,6 +23,7 @@ import {
 } from '../stores/workspaceStore'
 import { useWorkspaceContentStore } from '../stores/workspaceContentStore'
 import { useTranslation } from '../i18n'
+import { Button } from '@/components/ui/Button'
 import { LoadingState } from '@/components/ui/LoadingState'
 import { Tooltip } from '@/components/ui/Tooltip'
 import { BrandSeal } from '@/components/composite/BrandSeal'
@@ -400,6 +401,26 @@ export function ActiveSession() {
       void fetchTeamForSession(activeTabId)
     }
   }, [activeTabId, connectToSession, fetchTeamForSession])
+
+  // Soft refresh: drop the WS + in-memory session state, then reconnect. The
+  // server replays pending permission requests (permission_request /
+  // permission_requests_snapshot) on reconnect and the transcript is reloaded,
+  // which recovers permission / AskUserQuestion prompts dropped on the realtime
+  // WS path (clients.size===0 or transcript-epoch mismatch).
+  const [refreshingSession, setRefreshingSession] = useState(false)
+  const handleManualRefresh = useCallback(async () => {
+    if (!activeTabId || refreshingSession) return
+    setRefreshingSession(true)
+    const chat = useChatStore.getState()
+    try {
+      chat.disconnectSession(activeTabId)
+      await new Promise((resolve) => setTimeout(resolve, 120))
+      chat.connectToSession(activeTabId)
+      await chat.reloadHistory(activeTabId)
+    } finally {
+      setRefreshingSession(false)
+    }
+  }, [activeTabId, refreshingSession])
 
   useEffect(() => {
     if (!activeTabId || !isSessionTabState(activeTabId, activeTabType)) return
@@ -833,6 +854,23 @@ export function ActiveSession() {
                   title={headerTitle}
                   compact={showRightPanel}
                   metadata={headerMetadata}
+                  actions={
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="shrink-0"
+                      onClick={() => void handleManualRefresh()}
+                      disabled={refreshingSession}
+                      icon={
+                        <span className={`material-symbols-outlined text-[16px] ${refreshingSession ? 'animate-spin' : ''}`}>
+                          refresh
+                        </span>
+                      }
+                      data-testid="session-manual-refresh"
+                    >
+                      {t('chat.refreshSession')}
+                    </Button>
+                  }
                 >
                   {session && getSessionWorkspaceState(session) !== 'available' && (
                     <div className={`mt-2 inline-flex max-w-full items-center gap-2 rounded-[var(--radius-md)] border px-3 py-1.5 text-[11px] ${

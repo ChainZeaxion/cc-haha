@@ -11,7 +11,7 @@
 |------|------|--------|------|
 | 功能特性 | 一 H5 访问「需要访问令牌」开关 + 免令牌豁免 | 旧§二 | ✅ |
 | 功能特性 | 二 会话导出（md/html/txt + 压缩边界范围） | 旧§三 | ✅ |
-| 工具调用/协议 | 三 会话刷新按钮（卡住软刷新规避） | 旧§八 | ⬜ |
+| 工具调用/协议 | 三 会话刷新按钮（卡住软刷新规避） | 旧§八 | ✅ |
 | 功能特性 | 四 实时解码速度（TPS）指示器 + 手机端两行 | 旧§九/§十六 | ⬜ |
 | 功能特性 | 五 文件下载桥接 | 旧§十二 | ⬜ |
 | 功能特性 | 六 设置-关于-更新：禁止更新开关 | 旧§十三 | 🕓 |
@@ -38,7 +38,7 @@
 | `patches/h5-auto-mode-optin.patch` | 一 H5 选「自动模式」400 修复（1.1） | 2f8d819d (v0.6.6) | ✅ |
 | `patches/h5-terminal-bridge.patch` | 一 H5 终端桥接（1.2） | 2f8d819d (v0.6.6) | ✅ |
 | `patches/session-export.patch` | 二 会话导出 | 2f8d819d (v0.6.6) | ✅ |
-| `patches/session-refresh.patch` | 三 会话刷新按钮 | — | ⬜ |
+| `patches/session-refresh.patch` | 三 会话刷新按钮 | 2f8d819d (v0.6.6) | ✅ |
 | `patches/tps-indicator.patch` | 四 TPS 指示器 + 两行 | — | ⬜ |
 | `patches/file-download.patch` | 五 文件下载桥接 | — | ⬜ |
 | `patches/disable-updates.patch` | 六 禁止更新开关 | — | ⬜ |
@@ -174,15 +174,33 @@
 
 ---
 
-## 三、会话刷新按钮（授权/提问卡住软刷新规避）（源§八）
+## 三、会话刷新按钮（授权/提问卡住软刷新规避）（源§八，✅ 2026-09-24）
 
 ### 需求背景
 
-### 0.6.6 现状核对
+会话中需要用户授权（can_use_tool）或提问问答（AskUserQuestion）时，有概率卡在「准备工具」不弹授权/问答对话框。根因是实时 WS 投递链路在特定条件下丢弃消息（`forwardCliMessageToSessionClients` 在 `clients.size===0` 时 return、`bindClientSessionOutput` 在 transcript epoch 不匹配时 return），而服务端 `pendingPermissionRequests` **总是完整记录**——刷新页面重连后服务端重放 permission 消息即可恢复。方案：手动「刷新会话」软刷新按钮，无需整页刷新。
 
-### 实施方案
+### 0.6.6 现状核对（调研结论）
+
+- **服务端重放机制已存在，无需新增**：`src/server/ws/handler.ts:639-646` 每个新连接/重连的 open 必发 `replayPendingPermissionRequests`（:4269-4286 逐条重发 `{type:'permission_request'}`）+ `{type:'permission_requests_snapshot', toolRequestIds, computerUseRequestIds, turnActive}`。
+- pending 存储：`conversationService.ts:227-237` 内存 `Map<requestId,...>` 挂 session，不落盘；断连宽限 30 分钟（`handler.ts:162 PENDING_PERMISSION_DISCONNECT_CLEANUP_MS`）。**AskUserQuestion 与 can_use_tool 是同一套 pending 机制**（`tool_name:'AskUserQuestion'` 进同一个 `pendingPermissionRequests`）。
+- 历史重拉：独立 HTTP API `GET /api/sessions/:id/messages?mode=full`（`api/sessions.ts:193-201`，读磁盘 transcript JSONL）——可补回 CLI 已写入的 AskUserQuestion tool_use。
+- 前端现成 API：`chatStore.disconnectSession(id)`（:3180）→ `connectToSession(id)`（:2941，重连触发服务端重放+全新 bootstrap 拉历史）→ `reloadHistory(id)`（:4003，无 guard 调用时直接应用结果；与 bootstrap 有 lifecycleGeneration 协调，重复拉取幂等）。
+- 挂载点：桌面 `SessionChatHeader` 已支持 `actions` prop（`SessionChatSurface.tsx:61` 渲染标题右侧）；移动端 `AppShell.tsx` `mobile-session-header`（0.6.6 只有侧栏 toggle 按钮，无菜单）。
+
+### 实施方案（纯前端，7 文件 73 行）
+
+- **handler（两处各一份，同逻辑）**：`useState refreshingSession` 防重入；`disconnectSession(activeTabId)` → 等 120ms → `connectToSession(activeTabId)`（服务端重放 permission_request/snapshot）→ `await reloadHistory(activeTabId)`（补 AskUserQuestion tool_use）。函数经 `useChatStore.getState()` 取（避免订阅 churn）。
+- **桌面**：`desktop/src/pages/ActiveSession.tsx` 加 `handleManualRefresh`，按钮挂 `SessionChatHeader actions`（`Button variant="ghost" size="sm"`，`refresh` material icon，刷新中 `animate-spin`，`data-testid="session-manual-refresh"`）。
+- **移动端**：`desktop/src/components/layout/AppShell.tsx` 加 `handleManualRefresh`（加 `isActiveChatTab` 门控），`IconButton` 挂 `mobile-session-header` 尾部（icon `refresh`/刷新中 `progress_activity`，`size="2xl"`，`data-testid="session-manual-refresh-mobile"`，仅 chat tab 渲染）。
+- **i18n**：新增 `chat.refreshSession` 5 语言（en 'Refresh session' / zh '刷新会话' / zh-TW '重新整理對話' / jp 'セッションを更新' / kr '세션 새로고침'）。
+- 参照旧 fork（CC-HAHA-Scode 2026-08）同功能实现，0.6.6 挂载点/组件名以本基座实际代码为准。
 
 ### 验证
+
+- `desktop tsc -b` exit 0；vitest `AppShell.test.tsx` + `ActiveSession.test.tsx` 54/54 pass（chatStore mock 已含 disconnectSession/connectToSession/reloadHistory）。
+- `vite build` 成功，新 bundle `App-BVVJKg7-.js`；dev 7788 伺服 dist/ 即生效（H5 会话页标题栏/移动端 header 右侧可见刷新按钮）。
+- Patch：`modify/patches/session-refresh.patch`（基线 2f8d819d，7 文件 171 行）。**6 patch 全链（require-token→auto-mode-optin→session-export→settings-parity→terminal-bridge→session-refresh）`git apply` 全成功，结果与当前工作树逐字节一致（41 文件 0 差异）**。
 
 ---
 

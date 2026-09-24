@@ -92,6 +92,25 @@ export function AppShell() {
       ? { 'aria-hidden': true, inert: '' }
       : {}
 
+  // Soft refresh: drop the WS + in-memory session state, then reconnect. The
+  // server replays pending permission requests on reconnect and the transcript
+  // is reloaded, recovering permission / AskUserQuestion prompts dropped on the
+  // realtime WS path.
+  const [refreshingSession, setRefreshingSession] = useState(false)
+  const handleManualRefresh = useCallback(async () => {
+    if (!activeTabId || !isActiveChatTab || refreshingSession) return
+    setRefreshingSession(true)
+    const chat = useChatStore.getState()
+    try {
+      chat.disconnectSession(activeTabId)
+      await new Promise((resolve) => setTimeout(resolve, 120))
+      chat.connectToSession(activeTabId)
+      await chat.reloadHistory(activeTabId)
+    } finally {
+      setRefreshingSession(false)
+    }
+  }, [activeTabId, isActiveChatTab, refreshingSession])
+
   useEffect(() => {
     const sessionStore = useSessionStore.getState()
     if (activeSession) {
@@ -399,6 +418,17 @@ export function AppShell() {
                   ) : null}
                 </div>
               </div>
+            ) : null}
+            {isActiveChatTab ? (
+              <IconButton
+                data-testid="session-manual-refresh-mobile"
+                icon={refreshingSession ? 'progress_activity' : 'refresh'}
+                label={t('chat.refreshSession')}
+                onClick={() => void handleManualRefresh()}
+                disabled={refreshingSession}
+                size="2xl"
+                aria-controls="content-area"
+              />
             ) : null}
           </div>
         ) : null}

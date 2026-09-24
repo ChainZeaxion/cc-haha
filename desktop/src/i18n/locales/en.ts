@@ -477,6 +477,7 @@ export const en = {
   'attachments.selectionItem': 'Selected element {number}: {name}',
   'chat.capabilities.managePlugins': 'Manage plugins',
   'chat.capabilities.moreTools': 'More tools',
+  'chat.refreshSession': 'Refresh session',
   'chat.referenceSearchHint': "Type to find sessions, skills, plugins and project files",
   'chat.slashFrequent': 'Frequent commands',
   'chat.slashSearchHint': 'Type to search commands, skills and plugins',

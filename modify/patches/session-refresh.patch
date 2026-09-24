@@ -1,0 +1,171 @@
+diff --git a/desktop/src/components/layout/AppShell.tsx b/desktop/src/components/layout/AppShell.tsx
+index 9237ae62..bd4a3e27 100644
+--- a/desktop/src/components/layout/AppShell.tsx
++++ b/desktop/src/components/layout/AppShell.tsx
+@@ -92,6 +92,25 @@ export function AppShell() {
+       ? { 'aria-hidden': true, inert: '' }
+       : {}
+ 
++  // Soft refresh: drop the WS + in-memory session state, then reconnect. The
++  // server replays pending permission requests on reconnect and the transcript
++  // is reloaded, recovering permission / AskUserQuestion prompts dropped on the
++  // realtime WS path.
++  const [refreshingSession, setRefreshingSession] = useState(false)
++  const handleManualRefresh = useCallback(async () => {
++    if (!activeTabId || !isActiveChatTab || refreshingSession) return
++    setRefreshingSession(true)
++    const chat = useChatStore.getState()
++    try {
++      chat.disconnectSession(activeTabId)
++      await new Promise((resolve) => setTimeout(resolve, 120))
++      chat.connectToSession(activeTabId)
++      await chat.reloadHistory(activeTabId)
++    } finally {
++      setRefreshingSession(false)
++    }
++  }, [activeTabId, isActiveChatTab, refreshingSession])
++
+   useEffect(() => {
+     const sessionStore = useSessionStore.getState()
+     if (activeSession) {
+@@ -400,6 +419,17 @@ export function AppShell() {
+                 </div>
+               </div>
+             ) : null}
++            {isActiveChatTab ? (
++              <IconButton
++                data-testid="session-manual-refresh-mobile"
++                icon={refreshingSession ? 'progress_activity' : 'refresh'}
++                label={t('chat.refreshSession')}
++                onClick={() => void handleManualRefresh()}
++                disabled={refreshingSession}
++                size="2xl"
++                aria-controls="content-area"
++              />
++            ) : null}
+           </div>
+         ) : null}
+         <WorkspaceHeaderProvider>
+diff --git a/desktop/src/i18n/locales/en.ts b/desktop/src/i18n/locales/en.ts
+index d4f65af7..114eb19b 100644
+--- a/desktop/src/i18n/locales/en.ts
++++ b/desktop/src/i18n/locales/en.ts
+@@ -477,6 +477,7 @@ export const en = {
+   'attachments.selectionItem': 'Selected element {number}: {name}',
+   'chat.capabilities.managePlugins': 'Manage plugins',
+   'chat.capabilities.moreTools': 'More tools',
++  'chat.refreshSession': 'Refresh session',
+   'chat.referenceSearchHint': "Type to find sessions, skills, plugins and project files",
+   'chat.slashFrequent': 'Frequent commands',
+   'chat.slashSearchHint': 'Type to search commands, skills and plugins',
+diff --git a/desktop/src/i18n/locales/jp.ts b/desktop/src/i18n/locales/jp.ts
+index 86eec1a6..1c06b89f 100644
+--- a/desktop/src/i18n/locales/jp.ts
++++ b/desktop/src/i18n/locales/jp.ts
+@@ -479,6 +479,7 @@ export const jp: Record<TranslationKey, string> = {
+   'attachments.selectionItem': '選択要素 {number}：{name}',
+   'chat.capabilities.managePlugins': 'プラグインを管理',
+   'chat.capabilities.moreTools': 'その他のツール',
++  'chat.refreshSession': 'セッションを更新',
+   'chat.referenceSearchHint': "入力してセッション、スキル、プラグイン、プロジェクトファイルを検索",
+   'chat.slashFrequent': 'よく使うコマンド',
+   'chat.slashSearchHint': '名前を入力してコマンド、スキル、プラグインを検索',
+diff --git a/desktop/src/i18n/locales/kr.ts b/desktop/src/i18n/locales/kr.ts
+index 79263822..e22ba157 100644
+--- a/desktop/src/i18n/locales/kr.ts
++++ b/desktop/src/i18n/locales/kr.ts
+@@ -481,6 +481,7 @@ export const kr: Record<TranslationKey, string> = {
+   'attachments.selectionItem': '선택한 요소 {number}: {name}',
+   'chat.capabilities.managePlugins': '플러그인 관리',
+   'chat.capabilities.moreTools': '더 많은 도구',
++  'chat.refreshSession': '세션 새로고침',
+   'chat.referenceSearchHint': "입력하여 세션, 스킬, 플러그인 및 프로젝트 파일 검색",
+   'chat.slashFrequent': '자주 쓰는 명령',
+   'chat.slashSearchHint': '이름을 입력하여 명령, 스킬 및 플러그인 검색',
+diff --git a/desktop/src/i18n/locales/zh-TW.ts b/desktop/src/i18n/locales/zh-TW.ts
+index 1ebefbf1..36bfa944 100644
+--- a/desktop/src/i18n/locales/zh-TW.ts
++++ b/desktop/src/i18n/locales/zh-TW.ts
+@@ -479,6 +479,7 @@ export const zh: Record<TranslationKey, string> = {
+   'attachments.selectionItem': '所選元素 {number}：{name}',
+   'chat.capabilities.managePlugins': '管理外掛',
+   'chat.capabilities.moreTools': '更多工具',
++  'chat.refreshSession': '重新整理對話',
+   'chat.referenceSearchHint': "輸入以尋找對話、技能、外掛程式及專案檔案",
+   'chat.slashFrequent': '常用指令',
+   'chat.slashSearchHint': '輸入名稱搜尋指令、技能和外掛',
+diff --git a/desktop/src/i18n/locales/zh.ts b/desktop/src/i18n/locales/zh.ts
+index 7b177de0..21cf4227 100644
+--- a/desktop/src/i18n/locales/zh.ts
++++ b/desktop/src/i18n/locales/zh.ts
+@@ -478,6 +478,7 @@ export const zh: Record<TranslationKey, string> = {
+   'attachments.selectionItem': '所选元素 {number}：{name}',
+   'chat.capabilities.managePlugins': '管理插件',
+   'chat.capabilities.moreTools': '更多工具',
++  'chat.refreshSession': '刷新会话',
+   'chat.referenceSearchHint': "输入以查找会话、技能、插件和项目文件",
+   'chat.slashFrequent': '常用命令',
+   'chat.slashSearchHint': '输入名称搜索命令、技能和插件',
+diff --git a/desktop/src/pages/ActiveSession.tsx b/desktop/src/pages/ActiveSession.tsx
+index 501ca12d..84246e79 100644
+--- a/desktop/src/pages/ActiveSession.tsx
++++ b/desktop/src/pages/ActiveSession.tsx
+@@ -23,6 +23,7 @@ import {
+ } from '../stores/workspaceStore'
+ import { useWorkspaceContentStore } from '../stores/workspaceContentStore'
+ import { useTranslation } from '../i18n'
++import { Button } from '@/components/ui/Button'
+ import { LoadingState } from '@/components/ui/LoadingState'
+ import { Tooltip } from '@/components/ui/Tooltip'
+ import { BrandSeal } from '@/components/composite/BrandSeal'
+@@ -401,6 +402,26 @@ export function ActiveSession() {
+     }
+   }, [activeTabId, connectToSession, fetchTeamForSession])
+ 
++  // Soft refresh: drop the WS + in-memory session state, then reconnect. The
++  // server replays pending permission requests (permission_request /
++  // permission_requests_snapshot) on reconnect and the transcript is reloaded,
++  // which recovers permission / AskUserQuestion prompts dropped on the realtime
++  // WS path (clients.size===0 or transcript-epoch mismatch).
++  const [refreshingSession, setRefreshingSession] = useState(false)
++  const handleManualRefresh = useCallback(async () => {
++    if (!activeTabId || refreshingSession) return
++    setRefreshingSession(true)
++    const chat = useChatStore.getState()
++    try {
++      chat.disconnectSession(activeTabId)
++      await new Promise((resolve) => setTimeout(resolve, 120))
++      chat.connectToSession(activeTabId)
++      await chat.reloadHistory(activeTabId)
++    } finally {
++      setRefreshingSession(false)
++    }
++  }, [activeTabId, refreshingSession])
++
+   useEffect(() => {
+     if (!activeTabId || !isSessionTabState(activeTabId, activeTabType)) return
+     void useWorkspaceContentStore.getState().loadStatus(activeTabId)
+@@ -833,6 +854,23 @@ export function ActiveSession() {
+                   title={headerTitle}
+                   compact={showRightPanel}
+                   metadata={headerMetadata}
++                  actions={
++                    <Button
++                      variant="ghost"
++                      size="sm"
++                      className="shrink-0"
++                      onClick={() => void handleManualRefresh()}
++                      disabled={refreshingSession}
++                      icon={
++                        <span className={`material-symbols-outlined text-[16px] ${refreshingSession ? 'animate-spin' : ''}`}>
++                          refresh
++                        </span>
++                      }
++                      data-testid="session-manual-refresh"
++                    >
++                      {t('chat.refreshSession')}
++                    </Button>
++                  }
+                 >
+                   {session && getSessionWorkspaceState(session) !== 'available' && (
+                     <div className={`mt-2 inline-flex max-w-full items-center gap-2 rounded-[var(--radius-md)] border px-3 py-1.5 text-[11px] ${

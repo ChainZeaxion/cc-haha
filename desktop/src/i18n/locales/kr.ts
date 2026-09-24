@@ -481,6 +481,7 @@ export const kr: Record<TranslationKey, string> = {
   'attachments.selectionItem': '선택한 요소 {number}: {name}',
   'chat.capabilities.managePlugins': '플러그인 관리',
   'chat.capabilities.moreTools': '더 많은 도구',
+  'chat.refreshSession': '세션 새로고침',
   'chat.referenceSearchHint': "입력하여 세션, 스킬, 플러그인 및 프로젝트 파일 검색",
   'chat.slashFrequent': '자주 쓰는 명령',
   'chat.slashSearchHint': '이름을 입력하여 명령, 스킬 및 플러그인 검색',

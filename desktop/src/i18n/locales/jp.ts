@@ -479,6 +479,7 @@ export const jp: Record<TranslationKey, string> = {
   'attachments.selectionItem': '選択要素 {number}：{name}',
   'chat.capabilities.managePlugins': 'プラグインを管理',
   'chat.capabilities.moreTools': 'その他のツール',
+  'chat.refreshSession': 'セッションを更新',
   'chat.referenceSearchHint': "入力してセッション、スキル、プラグイン、プロジェクトファイルを検索",
   'chat.slashFrequent': 'よく使うコマンド',
   'chat.slashSearchHint': '名前を入力してコマンド、スキル、プラグインを検索',
