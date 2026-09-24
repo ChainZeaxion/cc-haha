@@ -1,9 +1,9 @@
 diff --git a/desktop/src/components/chat/TpsIndicator.tsx b/desktop/src/components/chat/TpsIndicator.tsx
 new file mode 100644
-index 00000000..15897a99
+index 00000000..da2136ba
 --- /dev/null
 +++ b/desktop/src/components/chat/TpsIndicator.tsx
-@@ -0,0 +1,117 @@
+@@ -0,0 +1,116 @@
 +import { useEffect, useState } from 'react'
 +import { getSessionTpsMeter } from '../../stores/chatStore'
 +import { isTpsEnabled } from '../../lib/tpsMeter'
@@ -100,7 +100,7 @@ index 00000000..15897a99
 +      >
 +        <span className="font-bold leading-none">TPS</span>
 +        <span className="mt-0.5 inline-block min-w-[7ch] text-right leading-none">
-+          {tps.toFixed(0)}t/s
++          {tps.toFixed(0)}
 +        </span>
 +      </span>
 +    )
@@ -113,11 +113,10 @@ index 00000000..15897a99
 +      style={{ color: style.color, background: style.bg }}
 +      title={t('chat.tpsSpeedTitle')}
 +    >
-+      <span className="font-bold">TPS</span>
-+      {t('chat.tpsLabel')}:{' '}
-+      <span className="inline-block min-w-[7ch] text-right">
-+        {tps.toFixed(0)}t/s
++      <span className="inline-block min-w-[6ch] text-right">
++        {tps.toFixed(0)}
 +      </span>
++      <span>t/s</span>
 +    </span>
 +  )
 +}
@@ -180,66 +179,61 @@ index bd4a3e27..6f08a93b 100644
            </div>
          ) : null}
 diff --git a/desktop/src/i18n/locales/en.ts b/desktop/src/i18n/locales/en.ts
-index 114eb19b..7782a21b 100644
+index 114eb19b..4dda127a 100644
 --- a/desktop/src/i18n/locales/en.ts
 +++ b/desktop/src/i18n/locales/en.ts
-@@ -478,6 +478,8 @@ export const en = {
+@@ -478,6 +478,7 @@ export const en = {
    'chat.capabilities.managePlugins': 'Manage plugins',
    'chat.capabilities.moreTools': 'More tools',
    'chat.refreshSession': 'Refresh session',
-+  'chat.tpsLabel': 'rate',
 +  'chat.tpsSpeedTitle': 'Real-time decode speed (tokens/second)',
    'chat.referenceSearchHint': "Type to find sessions, skills, plugins and project files",
    'chat.slashFrequent': 'Frequent commands',
    'chat.slashSearchHint': 'Type to search commands, skills and plugins',
 diff --git a/desktop/src/i18n/locales/jp.ts b/desktop/src/i18n/locales/jp.ts
-index 1c06b89f..3b08fe03 100644
+index 1c06b89f..31392ecd 100644
 --- a/desktop/src/i18n/locales/jp.ts
 +++ b/desktop/src/i18n/locales/jp.ts
-@@ -480,6 +480,8 @@ export const jp: Record<TranslationKey, string> = {
+@@ -480,6 +480,7 @@ export const jp: Record<TranslationKey, string> = {
    'chat.capabilities.managePlugins': 'プラグインを管理',
    'chat.capabilities.moreTools': 'その他のツール',
    'chat.refreshSession': 'セッションを更新',
-+  'chat.tpsLabel': '速度',
 +  'chat.tpsSpeedTitle': 'リアルタイムデコード速度（トークン/秒）',
    'chat.referenceSearchHint': "入力してセッション、スキル、プラグイン、プロジェクトファイルを検索",
    'chat.slashFrequent': 'よく使うコマンド',
    'chat.slashSearchHint': '名前を入力してコマンド、スキル、プラグインを検索',
 diff --git a/desktop/src/i18n/locales/kr.ts b/desktop/src/i18n/locales/kr.ts
-index e22ba157..63ca83af 100644
+index e22ba157..f890e164 100644
 --- a/desktop/src/i18n/locales/kr.ts
 +++ b/desktop/src/i18n/locales/kr.ts
-@@ -482,6 +482,8 @@ export const kr: Record<TranslationKey, string> = {
+@@ -482,6 +482,7 @@ export const kr: Record<TranslationKey, string> = {
    'chat.capabilities.managePlugins': '플러그인 관리',
    'chat.capabilities.moreTools': '더 많은 도구',
    'chat.refreshSession': '세션 새로고침',
-+  'chat.tpsLabel': '속도',
 +  'chat.tpsSpeedTitle': '실시간 디코드 속도(토큰/초)',
    'chat.referenceSearchHint': "입력하여 세션, 스킬, 플러그인 및 프로젝트 파일 검색",
    'chat.slashFrequent': '자주 쓰는 명령',
    'chat.slashSearchHint': '이름을 입력하여 명령, 스킬 및 플러그인 검색',
 diff --git a/desktop/src/i18n/locales/zh-TW.ts b/desktop/src/i18n/locales/zh-TW.ts
-index 36bfa944..d67b5dab 100644
+index 36bfa944..3726f4b1 100644
 --- a/desktop/src/i18n/locales/zh-TW.ts
 +++ b/desktop/src/i18n/locales/zh-TW.ts
-@@ -480,6 +480,8 @@ export const zh: Record<TranslationKey, string> = {
+@@ -480,6 +480,7 @@ export const zh: Record<TranslationKey, string> = {
    'chat.capabilities.managePlugins': '管理外掛',
    'chat.capabilities.moreTools': '更多工具',
    'chat.refreshSession': '重新整理對話',
-+  'chat.tpsLabel': '速率',
 +  'chat.tpsSpeedTitle': '即時解碼速度（token/秒）',
    'chat.referenceSearchHint': "輸入以尋找對話、技能、外掛程式及專案檔案",
    'chat.slashFrequent': '常用指令',
    'chat.slashSearchHint': '輸入名稱搜尋指令、技能和外掛',
 diff --git a/desktop/src/i18n/locales/zh.ts b/desktop/src/i18n/locales/zh.ts
-index 21cf4227..f1d2c655 100644
+index 21cf4227..fbf62900 100644
 --- a/desktop/src/i18n/locales/zh.ts
 +++ b/desktop/src/i18n/locales/zh.ts
-@@ -479,6 +479,8 @@ export const zh: Record<TranslationKey, string> = {
+@@ -479,6 +479,7 @@ export const zh: Record<TranslationKey, string> = {
    'chat.capabilities.managePlugins': '管理插件',
    'chat.capabilities.moreTools': '更多工具',
    'chat.refreshSession': '刷新会话',
-+  'chat.tpsLabel': '速率',
 +  'chat.tpsSpeedTitle': '实时解码速度（token/秒）',
    'chat.referenceSearchHint': "输入以查找会话、技能、插件和项目文件",
    'chat.slashFrequent': '常用命令',
@@ -340,10 +334,10 @@ index 00000000..00c845f6
 +})
 diff --git a/desktop/src/lib/tpsMeter.ts b/desktop/src/lib/tpsMeter.ts
 new file mode 100644
-index 00000000..be30aa71
+index 00000000..a69b02e4
 --- /dev/null
 +++ b/desktop/src/lib/tpsMeter.ts
-@@ -0,0 +1,173 @@
+@@ -0,0 +1,176 @@
 +/**
 + * Real-time decode-speed (TPS) meter.
 + *
@@ -369,6 +363,14 @@ index 00000000..be30aa71
 +
 +const WINDOW_MS = 1500
 +const FALLBACK_WINDOW_MS = 2000
++// Denominator floor for the live-window speed (ms). Mobile ws/event loops can
++// batch many content_delta chunks so the intra-window span collapses to near-zero
++// and total/span would read in the hundreds/thousands. A small floor (NOT the full
++// 1.5s window) keeps that burst suppression while letting a turn's *opening* read
++// the real speed quickly — the old 1.5s floor spread a fresh turn's first seconds
++// across the whole window and systematically under-read the start. The UI's 30/70
++// exponential smoothing then damps any residual spike from a genuine batch.
++const BURST_FLOOR_MS = 400
 +const CJK_RE = /[\u3400-\u9fff\u3040-\u30ff\uac00-\ud7af\u3000-\u303f\uff00-\uffef]/
 +const WHITESPACE_RE = /\s/
 +const NON_CJK_TOKEN_WEIGHT = 1 / 3.5
@@ -442,17 +444,12 @@ index 00000000..be30aa71
 +    const first = this.samples[0]!
 +    const last = this.samples[this.samples.length - 1]!
 +    const span = (last.t - first.t) / 1000
-+    // opt23 §11.27: 移动端 ws/事件循环可能把多个 content_delta 批量到达，
-+    // 窗口内样本首尾差 (span) 极小导致 TPS 虚高（几百上千）。用「样本跨度
-+    // 与窗口时长的较大值」作时间基准——突发样本按整个窗口时长平均，防虚高。
-+    const elapsed = Math.max(span, this.windowMs / 1000)
-+    let result: number
-+    if (elapsed < 0.05) {
-+      // Single chunk / burst: extrapolate from the window length.
-+      result = total / (this.windowMs / 1000)
-+    } else {
-+      result = total / elapsed
-+    }
++    // Burst guard (opt23 §11.27): on mobile a batched ws delivery can collapse the
++    // intra-window span to near-zero, so a small floor (BURST_FLOOR_MS) prevents
++    // total/span from reading in the hundreds. Using the full window here instead
++    // would also under-read a turn's opening — see BURST_FLOOR_MS.
++    const elapsed = Math.max(span, BURST_FLOOR_MS / 1000)
++    const result = total / elapsed
 +    // Boundary guard: a window whose live speed is below the sparse threshold
 +    // is a stream switch, not slow decoding — hold the smoothed fallback and
 +    // do NOT let the sparse rate overwrite it.

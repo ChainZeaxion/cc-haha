@@ -271,12 +271,12 @@ index 7b5db470..78749636 100644
  })
  
 diff --git a/desktop/src/i18n/locales/en.ts b/desktop/src/i18n/locales/en.ts
-index 7782a21b..a7a13add 100644
+index 4dda127a..f27b6d22 100644
 --- a/desktop/src/i18n/locales/en.ts
 +++ b/desktop/src/i18n/locales/en.ts
-@@ -480,6 +480,11 @@ export const en = {
+@@ -479,6 +479,11 @@ export const en = {
+   'chat.capabilities.moreTools': 'More tools',
    'chat.refreshSession': 'Refresh session',
-   'chat.tpsLabel': 'rate',
    'chat.tpsSpeedTitle': 'Real-time decode speed (tokens/second)',
 +  'chat.downloadableFiles': 'Downloadable files',
 +  'chat.downloadableMore': 'Show {count} more',
@@ -287,12 +287,12 @@ index 7782a21b..a7a13add 100644
    'chat.slashFrequent': 'Frequent commands',
    'chat.slashSearchHint': 'Type to search commands, skills and plugins',
 diff --git a/desktop/src/i18n/locales/jp.ts b/desktop/src/i18n/locales/jp.ts
-index 3b08fe03..5a50d468 100644
+index 31392ecd..d898dfa4 100644
 --- a/desktop/src/i18n/locales/jp.ts
 +++ b/desktop/src/i18n/locales/jp.ts
-@@ -482,6 +482,10 @@ export const jp: Record<TranslationKey, string> = {
+@@ -481,6 +481,10 @@ export const jp: Record<TranslationKey, string> = {
+   'chat.capabilities.moreTools': 'その他のツール',
    'chat.refreshSession': 'セッションを更新',
-   'chat.tpsLabel': '速度',
    'chat.tpsSpeedTitle': 'リアルタイムデコード速度（トークン/秒）',
 +  'chat.downloadableFiles': 'ダウンロード可能なファイル',
 +  'chat.downloadableMore': 'さらに {count} 件表示',
@@ -302,12 +302,12 @@ index 3b08fe03..5a50d468 100644
    'chat.slashFrequent': 'よく使うコマンド',
    'chat.slashSearchHint': '名前を入力してコマンド、スキル、プラグインを検索',
 diff --git a/desktop/src/i18n/locales/kr.ts b/desktop/src/i18n/locales/kr.ts
-index 63ca83af..5e2ae2b3 100644
+index f890e164..83100e21 100644
 --- a/desktop/src/i18n/locales/kr.ts
 +++ b/desktop/src/i18n/locales/kr.ts
-@@ -484,6 +484,10 @@ export const kr: Record<TranslationKey, string> = {
+@@ -483,6 +483,10 @@ export const kr: Record<TranslationKey, string> = {
+   'chat.capabilities.moreTools': '더 많은 도구',
    'chat.refreshSession': '세션 새로고침',
-   'chat.tpsLabel': '속도',
    'chat.tpsSpeedTitle': '실시간 디코드 속도(토큰/초)',
 +  'chat.downloadableFiles': '다운로드 가능한 파일',
 +  'chat.downloadableMore': '더 {count}개 보기',
@@ -317,12 +317,12 @@ index 63ca83af..5e2ae2b3 100644
    'chat.slashFrequent': '자주 쓰는 명령',
    'chat.slashSearchHint': '이름을 입력하여 명령, 스킬 및 플러그인 검색',
 diff --git a/desktop/src/i18n/locales/zh-TW.ts b/desktop/src/i18n/locales/zh-TW.ts
-index d67b5dab..72e00d1d 100644
+index 3726f4b1..e152c97e 100644
 --- a/desktop/src/i18n/locales/zh-TW.ts
 +++ b/desktop/src/i18n/locales/zh-TW.ts
-@@ -482,6 +482,10 @@ export const zh: Record<TranslationKey, string> = {
+@@ -481,6 +481,10 @@ export const zh: Record<TranslationKey, string> = {
+   'chat.capabilities.moreTools': '更多工具',
    'chat.refreshSession': '重新整理對話',
-   'chat.tpsLabel': '速率',
    'chat.tpsSpeedTitle': '即時解碼速度（token/秒）',
 +  'chat.downloadableFiles': '可下載檔案',
 +  'chat.downloadableMore': '查看更多 ({count})',
@@ -332,12 +332,12 @@ index d67b5dab..72e00d1d 100644
    'chat.slashFrequent': '常用指令',
    'chat.slashSearchHint': '輸入名稱搜尋指令、技能和外掛',
 diff --git a/desktop/src/i18n/locales/zh.ts b/desktop/src/i18n/locales/zh.ts
-index f1d2c655..3e0edb40 100644
+index fbf62900..c7f5a458 100644
 --- a/desktop/src/i18n/locales/zh.ts
 +++ b/desktop/src/i18n/locales/zh.ts
-@@ -481,6 +481,10 @@ export const zh: Record<TranslationKey, string> = {
+@@ -480,6 +480,10 @@ export const zh: Record<TranslationKey, string> = {
+   'chat.capabilities.moreTools': '更多工具',
    'chat.refreshSession': '刷新会话',
-   'chat.tpsLabel': '速率',
    'chat.tpsSpeedTitle': '实时解码速度（token/秒）',
 +  'chat.downloadableFiles': '可下载文件',
 +  'chat.downloadableMore': '查看更多 ({count})',

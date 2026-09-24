@@ -235,8 +235,17 @@
 - `desktop tsc -b` exit 0；vitest `tpsMeter.test.ts` 4/4（fallback 保速/稀疏边界/350ms 跳过/token 估算校准）+ AppShell 22/22 + ActiveSession 32/32；全量前端 vitest **6141 pass / 2 fail**（2=基线既有 providerModels、MessagePayloadRetention，零回归）。
 - `vite build` 成功，新 bundle `App-BTQt5ZiK.js`。
 - 坑：TpsIndicator 早期 `if (!isTpsEnabled()) return null` 在 hooks 之后 → `useTranslation` 须声明在早退之前。
-- Patch：`modify/patches/tps-indicator.patch`（12 文件 636 行，3 新文件 mode 100644）。**7 patch 全链（+session-refresh+tps-indicator）`git apply` 干净且逐字节等于工作树（53 文件 0 差异）**。
+- Patch：`modify/patches/tps-indicator.patch`（12 文件 633 行，3 新文件 mode 100644）。
 
+### 子优化（2026-09-25）：起步速度更准确 + 标签精简
+
+- **起步速度修正（tpsMeter.ts）**：新增 `BURST_FLOOR_MS=400`，`value()` 改 `elapsed = Math.max(span, BURST_FLOOR_MS/1000)`（替换原 `Math.max(span, windowMs/1000)` + <0.05 外推分支）。作用=回合并流初期不再被摊到整窗 1.5s 而低估（20 token 突发从虚高 2000 降到 ~75），UI 30/70 指数平滑兜底。
+- **标签去冗（TpsIndicator.tsx）**：桌面 `42 t/s`（删「TPS」词与 `chat.tpsLabel` 前缀，min-w-[6ch]）；移动两行 `TPS`/`42`（删 `t/s`）；title 保留 `chat.tpsSpeedTitle`。色档 27/53/80 未动。
+- **i18n**：5 语言（en/zh/zh-TW/jp/kr.ts）删无引用的 `chat.tpsLabel` 行。
+- 验证：tsc -b exit 0；全量前端 vitest 6144 pass / 2 fail（2=既有，零回归）；vite build `App-CJApNwcB.js`。
+- Patch 重生成：`tps-indicator.patch` 12 文件 633 行（含子优化终态）。
+
+> 注：上下文面板「生成速度」口径修正（decode-only，分母用 `totalDecodeDuration` 而非 `totalAPIDuration`）归**第七章**（cache-billing.patch），见该章。
 ---
 
 ## 五、文件下载桥接功能（源§十二，✅ 2026-09-24）
@@ -339,7 +348,15 @@ H5 浏览器端打开文件链接时，`/local-file/<absPath>` 直接内联显�
 - vite build → App-C54fEqkT.js（2200.13 kB，2.66s）。
 - **dev 7788 live（127.0.0.1 agent-browser 进会话）**：header 费用徽标 `$0.87 · ¥6.27`（USD+CNY 双显示）+ 上下文指示器缓存尾巴 `96.7%`（`apiUsage` 有值时；estimate 路径 `apiUsage=undefined` 时尾巴隐藏、徽标仍显示 totalCost），console 无错。
 - **布局微调**（2026-09-25 追加，live 双端像素级验证）：缓存百分比尾巴相对触发**按钮**定位——桌面 32px 按钮/20px 可见圆环（6px padding）、移动 44px 触摸目标/22px 圆环（11px padding），同一 translate 值被移动端多出的 5px padding 吞掉（表现为"左挪无效"）。终值：尾巴 `transform: isMobileBrowser ? 'translate(-9px, 3px)' : 'translate(-4px, 3px)'`（两端均达「距可见圆环 2px + 下移 3px」）；整组（环+百分比）外层容器 `transform: translateX(15px)`（composer 工具栏右对齐，用 transform 而非 margin——首子项 margin-left 只加空 flex-1 间隙不挪元素；15px 使尾巴右缘与右侧 check 图标留 4.5px，不再贴死）。
-- **Patch**：`modify/patches/cache-billing.patch`（12 文件 533 行）。**10 patch 全链 `git apply` 干净且 cache-billing 12 文件逐字节等于工作树（0 差异）**。
+
+### 子优化（2026-09-25）：上下文面板「生成速度」口径修正（decode-only）
+
+- **根因**：`sessionUsageMetrics.ts` 的 `deriveSessionUsageMetrics` 原来用 `totalAPIDuration`（= 解码时长 + TTFT 首 token 等待）作分母算 `tokensPerSecond`，把首 token 等待混入「生成时间」→ 上下文面板「生成速度」实测偏低 ~24%（46.2 vs 真实 61.0）。
+- **修正**：分母改用 `totalDecodeDuration`（纯解码时长），`decodeMs > 0` 时优先；否则回退 `totalAPIDuration`。`generationMs = decodeMs > 0 ? decodeMs : apiMs`；`tokensPerSecond = generationMs > 0 && output > 0 ? output / (generationMs/1000) : null`。
+- **测试**：`sessionUsageMetrics.test.ts` 3 处更新（500=1000/2s；回退 API=200；双 0→null；长会话 166998/326）；`ContextUsageIndicator.test.tsx:894-895` 断言 57→200（2400/12s decode）。
+- **live 7788 确认**：上下文面板「生成速度」= `61tok/s`（改前 46.2；会话 f1be2b52 数据 totalAPIDuration=66971/totalDecodeDuration=50702/totalTtftDuration=16243/output=3095）。
+- 验证：tsc -b exit 0；5 受影响文件 107/107；全量前端 vitest 6144/2（既有）；vite build `App-CJApNwcB.js`。
+- **Patch**：`modify/patches/cache-billing.patch`（14 文件 650 行，含本口径修正 2 测试文件）。**10 patch 全链 `git apply` 干净且 cache-billing 14 文件逐字节等于工作树（0 差异）**。
 
 ---
 
