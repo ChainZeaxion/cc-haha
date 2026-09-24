@@ -478,7 +478,6 @@ export const en = {
   'chat.capabilities.managePlugins': 'Manage plugins',
   'chat.capabilities.moreTools': 'More tools',
   'chat.refreshSession': 'Refresh session',
-  'chat.tpsLabel': 'rate',
   'chat.tpsSpeedTitle': 'Real-time decode speed (tokens/second)',
   'chat.downloadableFiles': 'Downloadable files',
   'chat.downloadableMore': 'Show {count} more',

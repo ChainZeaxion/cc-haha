@@ -482,7 +482,6 @@ export const kr: Record<TranslationKey, string> = {
   'chat.capabilities.managePlugins': '플러그인 관리',
   'chat.capabilities.moreTools': '더 많은 도구',
   'chat.refreshSession': '세션 새로고침',
-  'chat.tpsLabel': '속도',
   'chat.tpsSpeedTitle': '실시간 디코드 속도(토큰/초)',
   'chat.downloadableFiles': '다운로드 가능한 파일',
   'chat.downloadableMore': '더 {count}개 보기',

@@ -23,6 +23,14 @@
 
 const WINDOW_MS = 1500
 const FALLBACK_WINDOW_MS = 2000
+// Denominator floor for the live-window speed (ms). Mobile ws/event loops can
+// batch many content_delta chunks so the intra-window span collapses to near-zero
+// and total/span would read in the hundreds/thousands. A small floor (NOT the full
+// 1.5s window) keeps that burst suppression while letting a turn's *opening* read
+// the real speed quickly — the old 1.5s floor spread a fresh turn's first seconds
+// across the whole window and systematically under-read the start. The UI's 30/70
+// exponential smoothing then damps any residual spike from a genuine batch.
+const BURST_FLOOR_MS = 400
 const CJK_RE = /[\u3400-\u9fff\u3040-\u30ff\uac00-\ud7af\u3000-\u303f\uff00-\uffef]/
 const WHITESPACE_RE = /\s/
 const NON_CJK_TOKEN_WEIGHT = 1 / 3.5
@@ -96,17 +104,12 @@ export class TpsMeter {
     const first = this.samples[0]!
     const last = this.samples[this.samples.length - 1]!
     const span = (last.t - first.t) / 1000
-    // opt23 §11.27: 移动端 ws/事件循环可能把多个 content_delta 批量到达，
-    // 窗口内样本首尾差 (span) 极小导致 TPS 虚高（几百上千）。用「样本跨度
-    // 与窗口时长的较大值」作时间基准——突发样本按整个窗口时长平均，防虚高。
-    const elapsed = Math.max(span, this.windowMs / 1000)
-    let result: number
-    if (elapsed < 0.05) {
-      // Single chunk / burst: extrapolate from the window length.
-      result = total / (this.windowMs / 1000)
-    } else {
-      result = total / elapsed
-    }
+    // Burst guard (opt23 §11.27): on mobile a batched ws delivery can collapse the
+    // intra-window span to near-zero, so a small floor (BURST_FLOOR_MS) prevents
+    // total/span from reading in the hundreds. Using the full window here instead
+    // would also under-read a turn's opening — see BURST_FLOOR_MS.
+    const elapsed = Math.max(span, BURST_FLOOR_MS / 1000)
+    const result = total / elapsed
     // Boundary guard: a window whose live speed is below the sparse threshold
     // is a stream switch, not slow decoding — hold the smoothed fallback and
     // do NOT let the sparse rate overwrite it.

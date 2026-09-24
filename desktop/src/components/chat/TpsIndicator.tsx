@@ -94,7 +94,7 @@ export function TpsIndicator({ sessionId, vertical = false }: { sessionId: strin
       >
         <span className="font-bold leading-none">TPS</span>
         <span className="mt-0.5 inline-block min-w-[7ch] text-right leading-none">
-          {tps.toFixed(0)}t/s
+          {tps.toFixed(0)}
         </span>
       </span>
     )
@@ -107,11 +107,10 @@ export function TpsIndicator({ sessionId, vertical = false }: { sessionId: strin
       style={{ color: style.color, background: style.bg }}
       title={t('chat.tpsSpeedTitle')}
     >
-      <span className="font-bold">TPS</span>
-      {t('chat.tpsLabel')}:{' '}
-      <span className="inline-block min-w-[7ch] text-right">
-        {tps.toFixed(0)}t/s
+      <span className="inline-block min-w-[6ch] text-right">
+        {tps.toFixed(0)}
       </span>
+      <span>t/s</span>
     </span>
   )
 }

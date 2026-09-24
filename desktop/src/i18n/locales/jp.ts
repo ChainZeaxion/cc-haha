@@ -480,7 +480,6 @@ export const jp: Record<TranslationKey, string> = {
   'chat.capabilities.managePlugins': 'プラグインを管理',
   'chat.capabilities.moreTools': 'その他のツール',
   'chat.refreshSession': 'セッションを更新',
-  'chat.tpsLabel': '速度',
   'chat.tpsSpeedTitle': 'リアルタイムデコード速度（トークン/秒）',
   'chat.downloadableFiles': 'ダウンロード可能なファイル',
   'chat.downloadableMore': 'さらに {count} 件表示',

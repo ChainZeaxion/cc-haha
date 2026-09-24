@@ -480,7 +480,6 @@ export const zh: Record<TranslationKey, string> = {
   'chat.capabilities.managePlugins': '管理外掛',
   'chat.capabilities.moreTools': '更多工具',
   'chat.refreshSession': '重新整理對話',
-  'chat.tpsLabel': '速率',
   'chat.tpsSpeedTitle': '即時解碼速度（token/秒）',
   'chat.downloadableFiles': '可下載檔案',
   'chat.downloadableMore': '查看更多 ({count})',
