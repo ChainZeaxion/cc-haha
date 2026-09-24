@@ -2,7 +2,10 @@ import type { RequestCompatibility, SavedProvider } from './types/provider.js'
 
 export type ApiRequestContext = { remoteBrowser?: boolean }
 const READ_SETTINGS = ['alwaysThinkingEnabled', 'workflowKeywordTriggerEnabled', 'autoDreamEnabled', 'skipAutoPermissionPrompt', 'chatSendBehavior', 'outputStyle', 'skipWebFetchPreflight', 'language']
-const WRITE_SETTINGS = new Set(['language', 'chatSendBehavior', 'alwaysThinkingEnabled', 'workflowKeywordTriggerEnabled', 'outputStyle'])
+// `skipAutoPermissionPrompt` is writable so the H5 "auto mode" opt-in dialog can
+// persist from the phone; it only flips a persistent userSettings boolean, same
+// risk class as the other booleans below.
+const WRITE_SETTINGS = new Set(['language', 'chatSendBehavior', 'alwaysThinkingEnabled', 'workflowKeywordTriggerEnabled', 'outputStyle', 'skipAutoPermissionPrompt'])
 const RESERVED_PROVIDER_PATHS = new Set(['settings', 'cc-switch', 'test', 'models', 'presets', 'auth-status', 'official', 'reorder'])
 const REMOTE_COMPATIBILITY_KEYS = new Set(['maxOutputTokens', 'outputTokenLimit', 'outputTokenField', 'sampling', 'reasoning', 'parallelTools', 'structuredOutput'])
 
@@ -30,12 +33,31 @@ export function remoteSettingsRouteAllowed(parts: string[], method: string): boo
   return parts.length === 3 && parts[2] === 'user' && ['GET', 'PUT'].includes(method)
 }
 
+const DESKTOP_TERMINAL_SHELLS = ['', 'system', 'pwsh', 'powershell', 'cmd', 'custom']
+
+function isDesktopTerminalPatch(value: unknown): boolean {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return false
+  const entry = value as Record<string, unknown>
+  if (entry.startupShell !== undefined && !DESKTOP_TERMINAL_SHELLS.includes(entry.startupShell as string)) return false
+  if (entry.customShellPath !== undefined && entry.customShellPath !== null && typeof entry.customShellPath !== 'string') return false
+  if (entry.startupShell === 'custom') {
+    const customShellPath = typeof entry.customShellPath === 'string' ? entry.customShellPath.trim() : ''
+    if (!customShellPath) return false
+  }
+  return true
+}
+
 export function projectRemoteSettings(settings: Record<string, unknown>) {
-  return Object.fromEntries(READ_SETTINGS.filter(key => ['string', 'boolean', 'number'].includes(typeof settings[key])).map(key => [key, settings[key]]))
+  const result = Object.fromEntries(READ_SETTINGS.filter(key => ['string', 'boolean', 'number'].includes(typeof settings[key])).map(key => [key, settings[key]]))
+  if (isDesktopTerminalPatch(settings.desktopTerminal)) {
+    result.desktopTerminal = { ...(settings.desktopTerminal as Record<string, unknown>) }
+  }
+  return result
 }
 
 export function validateRemoteSettingsPatch(input: Record<string, unknown>): boolean {
   return Object.entries(input).every(([key, value]) => {
+    if (key === 'desktopTerminal') return isDesktopTerminalPatch(value)
     if (!WRITE_SETTINGS.has(key)) return false
     if (key === 'language') return typeof value === 'string' && value.length <= 80
     if (key === 'outputStyle') return typeof value === 'string' && ['default', 'Explanatory', 'Learning'].includes(value)
@@ -43,7 +65,6 @@ export function validateRemoteSettingsPatch(input: Record<string, unknown>): boo
     return typeof value === 'boolean'
   })
 }
-
 export function projectRemoteProvider(provider: SavedProvider) {
   const publicKeys = [
     'id', 'presetId', 'name', 'authStrategy', 'baseUrl', 'apiFormat', 'runtimeKind', 'models',

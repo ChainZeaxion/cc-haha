@@ -104,10 +104,15 @@ describe('remote browser API routing', () => {
 
   test('general reads exclude secrets and valid edits including language reset keep exact requested fields', async () => {
     expect(await (await request('/api/settings/user')).json()).toEqual({ language: 'en', alwaysThinkingEnabled: true })
-    const patch = { language: '', chatSendBehavior: 'modifierEnter', workflowKeywordTriggerEnabled: true, alwaysThinkingEnabled: false, outputStyle: 'Learning' }
+    const patch = { language: '', chatSendBehavior: 'modifierEnter', workflowKeywordTriggerEnabled: true, alwaysThinkingEnabled: false, outputStyle: 'Learning', skipAutoPermissionPrompt: true }
     const response = await request('/api/settings/user', 'PUT', patch)
     expect(response.status).toBe(200)
     expect(SettingsService.prototype.updateUserSettings).toHaveBeenCalledWith(patch)
+    // The H5 "auto mode" opt-in dialog persists this field from the phone.
+    const autoModeResponse = await request('/api/settings/user', 'PUT', { skipAutoPermissionPrompt: true })
+    expect(autoModeResponse.status).toBe(200)
+    expect(SettingsService.prototype.updateUserSettings).toHaveBeenLastCalledWith({ skipAutoPermissionPrompt: true })
+    expect((await request('/api/settings/user', 'PUT', { skipAutoPermissionPrompt: 'true' })).status).toBe(400)
   })
 
   test('rejects protected routes and malformed patches before touching persistence', async () => {

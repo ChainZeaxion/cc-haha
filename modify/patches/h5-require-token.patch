@@ -1,0 +1,1464 @@
+diff --git a/desktop/src/__tests__/generalSettings.test.tsx b/desktop/src/__tests__/generalSettings.test.tsx
+index 7d393b27..03f8f7ed 100644
+--- a/desktop/src/__tests__/generalSettings.test.tsx
++++ b/desktop/src/__tests__/generalSettings.test.tsx
+@@ -272,6 +272,7 @@ describe('Settings > General tab', () => {
+         publicBaseUrl: null,
+         fixedPort: null,
+         disconnectGraceSeconds: null,
++        requireToken: false,
+       },
+       h5AccessDiagnostics: null,
+       h5AccessError: null,
+@@ -1548,6 +1549,7 @@ describe('Settings > General tab', () => {
+         publicBaseUrl: 'http://192.168.0.102:3456',
+         fixedPort: null,
+         disconnectGraceSeconds: null,
++        requireToken: false,
+       },
+     })
+     render(<Settings />)
+@@ -1578,6 +1580,7 @@ describe('Settings > General tab', () => {
+         publicBaseUrl: 'http://192.168.0.102:3456',
+         fixedPort: null,
+         disconnectGraceSeconds: null,
++        requireToken: false,
+       },
+     })
+     render(<Settings />)
+@@ -1614,6 +1617,7 @@ describe('Settings > General tab', () => {
+         publicBaseUrl: 'http://192.168.0.102:3456',
+         fixedPort: null,
+         disconnectGraceSeconds: null,
++        requireToken: false,
+       },
+     })
+     render(<Settings />)
+@@ -1643,6 +1647,7 @@ describe('Settings > General tab', () => {
+         publicBaseUrl: 'http://192.168.0.102:3456',
+         fixedPort: null,
+         disconnectGraceSeconds: null,
++        requireToken: false,
+       },
+     })
+     render(<Settings />)
+@@ -1669,6 +1674,7 @@ describe('Settings > General tab', () => {
+         publicBaseUrl: 'http://192.168.0.102:54064',
+         fixedPort: null,
+         disconnectGraceSeconds: null,
++        requireToken: false,
+       },
+     })
+     render(<Settings />)
+@@ -1700,6 +1706,7 @@ describe('Settings > General tab', () => {
+         publicBaseUrl: 'http://192.168.0.102:54064',
+         fixedPort: null,
+         disconnectGraceSeconds: null,
++        requireToken: false,
+       },
+     })
+     render(<Settings />)
+@@ -1725,6 +1732,7 @@ describe('Settings > General tab', () => {
+         publicBaseUrl: 'http://192.168.0.102:54064',
+         fixedPort: null,
+         disconnectGraceSeconds: null,
++        requireToken: false,
+       },
+     })
+     render(<Settings />)
+@@ -1749,6 +1757,7 @@ describe('Settings > General tab', () => {
+         publicBaseUrl: 'http://192.168.0.102:54064',
+         fixedPort: null,
+         disconnectGraceSeconds: null,
++        requireToken: false,
+       },
+     })
+     render(<Settings />)
+@@ -1780,6 +1789,7 @@ describe('Settings > General tab', () => {
+         publicBaseUrl: 'http://192.168.0.102:54064',
+         fixedPort: null,
+         disconnectGraceSeconds: null,
++        requireToken: false,
+       },
+     })
+     render(<Settings />)
+@@ -1805,6 +1815,7 @@ describe('Settings > General tab', () => {
+         publicBaseUrl: 'http://192.168.0.102:54064',
+         fixedPort: 28670,
+         disconnectGraceSeconds: null,
++        requireToken: false,
+       },
+       h5AccessDiagnostics: {
+         storedHostStaleness: 'ok',
+@@ -1835,6 +1846,7 @@ describe('Settings > General tab', () => {
+         publicBaseUrl: 'http://192.168.0.102:3456',
+         fixedPort: null,
+         disconnectGraceSeconds: null,
++        requireToken: false,
+       },
+     })
+     render(<Settings />)
+@@ -1862,6 +1874,7 @@ describe('Settings > General tab', () => {
+         publicBaseUrl: 'https://phone.example/app',
+         fixedPort: null,
+         disconnectGraceSeconds: null,
++        requireToken: false,
+       },
+     })
+     render(<Settings />)
+@@ -1901,6 +1914,7 @@ describe('Settings > General tab', () => {
+         publicBaseUrl: 'http://172.20.16.1:54064',
+         fixedPort: null,
+         disconnectGraceSeconds: null,
++        requireToken: false,
+       },
+     })
+     render(<Settings />)
+@@ -1934,6 +1948,7 @@ describe('Settings > General tab', () => {
+         publicBaseUrl: null,
+         fixedPort: null,
+         disconnectGraceSeconds: null,
++        requireToken: false,
+       },
+     })
+     render(<Settings />)
+@@ -1966,6 +1981,7 @@ describe('Settings > General tab', () => {
+         publicBaseUrl: 'http://192.168.1.207:55379',
+         fixedPort: null,
+         disconnectGraceSeconds: null,
++        requireToken: false,
+       },
+       h5AccessDiagnostics: {
+         storedHostStaleness: 'unreachable',
+@@ -2003,6 +2019,7 @@ describe('Settings > General tab', () => {
+         publicBaseUrl: 'https://h5.mydomain.com',
+         fixedPort: null,
+         disconnectGraceSeconds: null,
++        requireToken: false,
+       },
+       h5AccessDiagnostics: {
+         storedHostStaleness: 'proxy',
+@@ -2030,6 +2047,7 @@ describe('Settings > General tab', () => {
+         publicBaseUrl: 'http://192.168.0.105:55379',
+         fixedPort: null,
+         disconnectGraceSeconds: null,
++        requireToken: false,
+       },
+       h5AccessDiagnostics: {
+         storedHostStaleness: 'ok',
+diff --git a/desktop/src/api/h5Access.ts b/desktop/src/api/h5Access.ts
+index 024d1da2..69cb0515 100644
+--- a/desktop/src/api/h5Access.ts
++++ b/desktop/src/api/h5Access.ts
+@@ -35,6 +35,7 @@ export const h5AccessApi = {
+     publicBaseUrl?: string | null
+     fixedPort?: number | null
+     disconnectGraceSeconds?: number | null
++    requireToken?: boolean
+   }) {
+     return api.put<H5AccessStatus>('/api/h5-access', input)
+   },
+diff --git a/desktop/src/i18n/locales/en.ts b/desktop/src/i18n/locales/en.ts
+index 8ce165a7..429d6f62 100644
+--- a/desktop/src/i18n/locales/en.ts
++++ b/desktop/src/i18n/locales/en.ts
+@@ -2274,6 +2274,8 @@ Row 9, all 8 cells: continuing from straight down, turning left through lower-le
+   'settings.general.h5AccessDescription': 'Expose the desktop H5 app on your local network. Phones connect with a QR link that includes a short-lived H5 token.',
+   'settings.general.h5AccessEnabled': 'Enable H5 access',
+   'settings.general.h5AccessEnabledHint': 'The desktop server listens on the LAN address and allows access to desktop sessions.',
++  'settings.general.h5AccessRequireToken': 'Require access token',
++  'settings.general.h5AccessRequireTokenHint': 'When on, public-network devices must present the H5 access token; loopback and private-network (e.g. 192.168.x) sources are exempt. When off, every device can connect tokenless (0.0.0.0/0).',
+   'settings.general.h5AccessStatusEnabled': 'Enabled',
+   'settings.general.h5AccessTokenPreview': 'Token preview',
+   'settings.general.h5AccessDisabledValue': 'Disabled',
+diff --git a/desktop/src/i18n/locales/jp.ts b/desktop/src/i18n/locales/jp.ts
+index b5802efa..b03a5509 100644
+--- a/desktop/src/i18n/locales/jp.ts
++++ b/desktop/src/i18n/locales/jp.ts
+@@ -2276,6 +2276,8 @@ export const jp: Record<TranslationKey, string> = {
+   'settings.general.h5AccessDescription': 'デスクトップ H5 アプリをローカルネットワークに公開します。スマートフォンは、有効期限の短い H5 トークンを含む QR リンクで接続します。',
+   'settings.general.h5AccessEnabled': 'H5 アクセスを有効にする',
+   'settings.general.h5AccessEnabledHint': 'デスクトップサーバーが LAN アドレスで待ち受け、デスクトップセッションへのアクセスを許可します。',
++  'settings.general.h5AccessRequireToken': 'アクセストークンが必要',
++  'settings.general.h5AccessRequireTokenHint': '有効にすると、パブリックネットワークの端末は H5 アクセストークンが必要になり、ループバックおよびプライベートネットワーク（例: 192.168.x）のソースは不要です。無効にすると、すべての端末がトークンなしで接続できます（0.0.0.0/0）。',
+   'settings.general.h5AccessStatusEnabled': '有効',
+   'settings.general.h5AccessTokenPreview': 'トークンプレビュー',
+   'settings.general.h5AccessDisabledValue': '無効',
+diff --git a/desktop/src/i18n/locales/kr.ts b/desktop/src/i18n/locales/kr.ts
+index d812e765..61b6c538 100644
+--- a/desktop/src/i18n/locales/kr.ts
++++ b/desktop/src/i18n/locales/kr.ts
+@@ -2278,6 +2278,8 @@ export const kr: Record<TranslationKey, string> = {
+   'settings.general.h5AccessDescription': '데스크톱 H5 앱을 로컬 네트워크에 공개합니다. 휴대폰은 수명이 짧은 H5 토큰이 포함된 QR 링크로 연결합니다.',
+   'settings.general.h5AccessEnabled': 'H5 액세스 사용',
+   'settings.general.h5AccessEnabledHint': '데스크톱 서버가 LAN 주소에서 수신 대기하고 데스크톱 세션에 대한 액세스를 허용합니다.',
++  'settings.general.h5AccessRequireToken': '액세스 토큰 필요',
++  'settings.general.h5AccessRequireTokenHint': '켜면 공용 네트워크 장치는 H5 액세스 토큰을 제공해야 하며, 루프백 및 비공개 네트워크(예: 192.168.x) 출처는 면제됩니다. 꺼면 모든 장치가 토큰 없이 연결할 수 있습니다(0.0.0.0/0).',
+   'settings.general.h5AccessStatusEnabled': '사용',
+   'settings.general.h5AccessTokenPreview': '토큰 미리 보기',
+   'settings.general.h5AccessDisabledValue': '사용 안 함',
+diff --git a/desktop/src/i18n/locales/zh-TW.ts b/desktop/src/i18n/locales/zh-TW.ts
+index 85812dab..a3e27185 100644
+--- a/desktop/src/i18n/locales/zh-TW.ts
++++ b/desktop/src/i18n/locales/zh-TW.ts
+@@ -2275,6 +2275,8 @@ export const zh: Record<TranslationKey, string> = {
+   'settings.general.h5AccessDescription': '在區域網內暴露桌面端 H5 應用。手機透過帶 H5 token 的二維碼快速連線。',
+   'settings.general.h5AccessEnabled': '啟用 H5 訪問',
+   'settings.general.h5AccessEnabledHint': '桌面服務會監聽區域網地址，並開放桌面會話相關能力。',
++  'settings.general.h5AccessRequireToken': '需要訪問令牌',
++  'settings.general.h5AccessRequireTokenHint': '開啟後公網裝置需提供 H5 訪問令牌；本機與私有網路（如 192.168.x）來源免令牌。關閉後所有裝置均可免令牌存取（0.0.0.0/0）。',
+   'settings.general.h5AccessStatusEnabled': '已啟用',
+   'settings.general.h5AccessTokenPreview': '令牌預覽',
+   'settings.general.h5AccessDisabledValue': '未啟用',
+diff --git a/desktop/src/i18n/locales/zh.ts b/desktop/src/i18n/locales/zh.ts
+index b7a4cc0d..e09046c7 100644
+--- a/desktop/src/i18n/locales/zh.ts
++++ b/desktop/src/i18n/locales/zh.ts
+@@ -2274,6 +2274,8 @@ export const zh: Record<TranslationKey, string> = {
+   'settings.general.h5AccessDescription': '在局域网内暴露桌面端 H5 应用。手机通过带 H5 token 的二维码快速连接。',
+   'settings.general.h5AccessEnabled': '启用 H5 访问',
+   'settings.general.h5AccessEnabledHint': '桌面服务会监听局域网地址，并开放桌面会话相关能力。',
++  'settings.general.h5AccessRequireToken': '需要访问令牌',
++  'settings.general.h5AccessRequireTokenHint': '开启后公网设备需提供 H5 访问令牌；本机与私有网络（如 192.168.x）来源免令牌。关闭后所有设备均可免令牌访问（0.0.0.0/0）。',
+   'settings.general.h5AccessStatusEnabled': '已启用',
+   'settings.general.h5AccessTokenPreview': '令牌预览',
+   'settings.general.h5AccessDisabledValue': '未启用',
+diff --git a/desktop/src/lib/desktopRuntime.test.ts b/desktop/src/lib/desktopRuntime.test.ts
+index 4b4c3dfb..d336652c 100644
+--- a/desktop/src/lib/desktopRuntime.test.ts
++++ b/desktop/src/lib/desktopRuntime.test.ts
+@@ -35,6 +35,15 @@ function healthOkResponse() {
+   return Response.json({ status: 'ok' })
+ }
+ 
++// A server that still requires an H5 token: /health is open, but the tokenless
++// capability probe (/api/status) answers 401, forcing the token path.
++async function authRequiredFetchImpl(input: unknown) {
++  if (String(input).endsWith('/api/status')) {
++    return new Response(null, { status: 401 })
++  }
++  return healthOkResponse()
++}
++
+ describe('desktopRuntime browser H5 bootstrap', () => {
+   const originalFetch = globalThis.fetch
+ 
+@@ -63,7 +72,7 @@ describe('desktopRuntime browser H5 bootstrap', () => {
+     window.localStorage.setItem(H5_TOKEN_STORAGE_KEY, 'old-secret')
+     clientMocks.explicitDefaultBaseUrl = true
+     clientMocks.defaultBaseUrl = 'https://configured.example'
+-    globalThis.fetch = vi.fn().mockImplementation(async () => healthOkResponse()) as typeof fetch
++    globalThis.fetch = vi.fn(authRequiredFetchImpl) as typeof fetch
+ 
+     await expect(initializeDesktopServerUrl()).resolves.toBe(window.location.origin)
+     expect(clientMocks.setBaseUrl).toHaveBeenLastCalledWith(window.location.origin)
+@@ -96,9 +105,7 @@ describe('desktopRuntime browser H5 bootstrap', () => {
+   })
+ 
+   it('clears an invalid token but preserves the remembered remote server URL', async () => {
+-    globalThis.fetch = vi.fn().mockResolvedValue(
+-      healthOkResponse(),
+-    ) as typeof fetch
++    globalThis.fetch = vi.fn(authRequiredFetchImpl) as typeof fetch
+     clientMocks.postVerify.mockRejectedValueOnce(
+       Object.assign(new Error('Invalid or missing H5 access token'), { status: 401 }),
+     )
+@@ -133,9 +140,7 @@ describe('desktopRuntime browser H5 bootstrap', () => {
+     window.localStorage.setItem(H5_SERVER_URL_STORAGE_KEY, 'https://paired.example/app')
+     window.localStorage.setItem(H5_TOKEN_STORAGE_KEY, 'paired-server-token')
+     window.history.pushState({}, '', '/?serverUrl=https%3A%2F%2Fattacker.example%2Fapp')
+-    globalThis.fetch = vi.fn().mockResolvedValue(
+-      healthOkResponse(),
+-    ) as typeof fetch
++    globalThis.fetch = vi.fn(authRequiredFetchImpl) as typeof fetch
+ 
+     await expect(initializeDesktopServerUrl()).rejects.toMatchObject({
+       name: 'H5ConnectionRequiredError',
+@@ -151,9 +156,7 @@ describe('desktopRuntime browser H5 bootstrap', () => {
+     window.localStorage.setItem(H5_SERVER_URL_STORAGE_KEY, 'https://paired.example/app/')
+     window.localStorage.setItem(H5_TOKEN_STORAGE_KEY, 'paired-server-token')
+     window.history.pushState({}, '', '/?serverUrl=https%3A%2F%2Fpaired.example%2Fapp')
+-    globalThis.fetch = vi.fn().mockResolvedValue(
+-      healthOkResponse(),
+-    ) as typeof fetch
++    globalThis.fetch = vi.fn(authRequiredFetchImpl) as typeof fetch
+     clientMocks.postVerify.mockResolvedValueOnce({ ok: true })
+ 
+     await expect(initializeDesktopServerUrl()).resolves.toBe('https://paired.example/app')
+@@ -190,9 +193,7 @@ describe('desktopRuntime browser H5 bootstrap', () => {
+         getLocalAccessToken: vi.fn().mockResolvedValue('desktop-local-token'),
+       },
+     }
+-    globalThis.fetch = vi.fn().mockResolvedValue(
+-      healthOkResponse(),
+-    ) as typeof fetch
++    globalThis.fetch = vi.fn(authRequiredFetchImpl) as typeof fetch
+ 
+     await expect(initializeDesktopServerUrl()).resolves.toBe(serverUrl)
+ 
+@@ -219,9 +220,7 @@ describe('desktopRuntime browser H5 bootstrap', () => {
+         getLocalAccessToken: vi.fn().mockRejectedValue(new Error('ipc channel missing')),
+       },
+     }
+-    globalThis.fetch = vi.fn().mockResolvedValue(
+-      healthOkResponse(),
+-    ) as typeof fetch
++    globalThis.fetch = vi.fn(authRequiredFetchImpl) as typeof fetch
+ 
+     await expect(initializeDesktopServerUrl()).resolves.toBe(serverUrl)
+ 
+@@ -411,9 +410,7 @@ describe('desktopRuntime browser H5 bootstrap', () => {
+   })
+ 
+   it('normalizes remote verify failures like disabled H5 or CORS into recoverable H5 errors', async () => {
+-    globalThis.fetch = vi.fn().mockResolvedValue(
+-      healthOkResponse(),
+-    ) as typeof fetch
++    globalThis.fetch = vi.fn(authRequiredFetchImpl) as typeof fetch
+     clientMocks.postVerify.mockRejectedValueOnce(new TypeError('Failed to fetch'))
+ 
+     await expect(saveAndVerifyH5Connection('https://public.example.com', 'h5_token')).rejects.toMatchObject({
+@@ -430,9 +427,7 @@ describe('desktopRuntime browser H5 bootstrap', () => {
+ 
+   it('requires a token when browser WebUI connects to a LAN-bound server', async () => {
+     window.history.pushState({}, '', '/?serverUrl=http%3A%2F%2F192.168.0.102%3A28670')
+-    globalThis.fetch = vi.fn().mockResolvedValue(
+-      healthOkResponse(),
+-    ) as typeof fetch
++    globalThis.fetch = vi.fn(authRequiredFetchImpl) as typeof fetch
+ 
+     await expect(initializeDesktopServerUrl()).rejects.toMatchObject({
+       name: 'H5ConnectionRequiredError',
+@@ -446,12 +441,30 @@ describe('desktopRuntime browser H5 bootstrap', () => {
+     expect(window.localStorage.getItem(H5_SERVER_URL_STORAGE_KEY)).toBe('http://192.168.0.102:28670')
+   })
+ 
++  it('connects tokenless when the LAN-bound server does not require an H5 token', async () => {
++    // requireToken=false server: /api/status answers 200 without a Bearer
++    // token, so the client must connect tokenless instead of prompting.
++    window.history.pushState({}, '', '/?serverUrl=http%3A%2F%2F192.168.0.102%3A28670')
++    globalThis.fetch = vi.fn()
++      .mockImplementation(async (input) => {
++        if (String(input).endsWith('/api/status')) {
++          return Response.json({ ok: true })
++        }
++        return healthOkResponse()
++      }) as typeof fetch
++
++    await expect(initializeDesktopServerUrl()).resolves.toBe('http://192.168.0.102:28670')
++
++    expect(clientMocks.setAuthToken).toHaveBeenLastCalledWith(null)
++    expect(clientMocks.postVerify).not.toHaveBeenCalled()
++  })
++
+   it('keeps the saved pairing through transient verification failure and reconnects without scanning', async () => {
+     const server = 'https://paired.example/app'
+     localStorage.setItem(H5_SERVER_URL_STORAGE_KEY, server)
+     localStorage.setItem(H5_TOKEN_STORAGE_KEY, 'remembered-token')
+     history.replaceState(null, '', '/?serverUrl=' + encodeURIComponent(server))
+-    globalThis.fetch = vi.fn().mockImplementation(async () => healthOkResponse()) as typeof fetch
++    globalThis.fetch = vi.fn(authRequiredFetchImpl) as typeof fetch
+     clientMocks.postVerify.mockRejectedValueOnce(new TypeError('Network unavailable')).mockResolvedValueOnce({ ok: true })
+     await expect(initializeDesktopServerUrl()).rejects.toMatchObject({ reason: 'verify-failed' })
+     expect(localStorage.getItem(H5_TOKEN_STORAGE_KEY)).toBe('remembered-token')
+@@ -464,7 +477,7 @@ describe('desktopRuntime browser H5 bootstrap', () => {
+     localStorage.setItem(H5_SERVER_URL_STORAGE_KEY, server)
+     localStorage.setItem(H5_TOKEN_STORAGE_KEY, 'current-token')
+     history.replaceState(null, '', '/?serverUrl=' + encodeURIComponent(server) + '&h5Token=old-qr-token&keep=yes')
+-    globalThis.fetch = vi.fn().mockImplementation(async () => healthOkResponse()) as typeof fetch
++    globalThis.fetch = vi.fn(authRequiredFetchImpl) as typeof fetch
+     clientMocks.postVerify.mockResolvedValueOnce({ ok: true })
+     await expect(initializeDesktopServerUrl()).resolves.toBe(server)
+     expect(clientMocks.setAuthToken).toHaveBeenLastCalledWith('current-token')
+@@ -478,7 +491,7 @@ describe('desktopRuntime browser H5 bootstrap', () => {
+     localStorage.setItem(H5_SERVER_URL_STORAGE_KEY, server)
+     localStorage.setItem(H5_TOKEN_STORAGE_KEY, 'expired-token')
+     history.replaceState(null, '', '/?serverUrl=' + encodeURIComponent(server) + '&h5Token=fresh-token')
+-    globalThis.fetch = vi.fn().mockImplementation(async () => healthOkResponse()) as typeof fetch
++    globalThis.fetch = vi.fn(authRequiredFetchImpl) as typeof fetch
+     clientMocks.postVerify.mockRejectedValueOnce(Object.assign(new Error('Invalid token'), { status: 401 })).mockResolvedValueOnce({ ok: true })
+     await expect(initializeDesktopServerUrl()).resolves.toBe(server)
+     expect(clientMocks.setAuthToken).toHaveBeenLastCalledWith('fresh-token')
+@@ -489,7 +502,7 @@ describe('desktopRuntime browser H5 bootstrap', () => {
+     localStorage.setItem(H5_SERVER_URL_STORAGE_KEY, 'https://paired.example')
+     localStorage.setItem(H5_TOKEN_STORAGE_KEY, 'paired-token')
+     history.replaceState(null, '', '/?serverUrl=https%3A%2F%2Funpaired.example')
+-    globalThis.fetch = vi.fn().mockImplementation(async () => healthOkResponse()) as typeof fetch
++    globalThis.fetch = vi.fn(authRequiredFetchImpl) as typeof fetch
+     await expect(initializeDesktopServerUrl()).rejects.toMatchObject({ reason: 'missing-token' })
+     expect(localStorage.getItem(H5_SERVER_URL_STORAGE_KEY)).toBe('https://paired.example')
+     expect(localStorage.getItem(H5_TOKEN_STORAGE_KEY)).toBe('paired-token')
+@@ -511,7 +524,7 @@ describe('desktopRuntime browser H5 bootstrap', () => {
+     localStorage.setItem(H5_SERVER_URL_STORAGE_KEY, 'https://paired.example')
+     localStorage.setItem(H5_TOKEN_STORAGE_KEY, 'revoked-token')
+     history.replaceState(null, '', '/?serverUrl=https%3A%2F%2Fpaired.example')
+-    globalThis.fetch = vi.fn().mockImplementation(async () => healthOkResponse()) as typeof fetch
++    globalThis.fetch = vi.fn(authRequiredFetchImpl) as typeof fetch
+     clientMocks.postVerify.mockRejectedValueOnce(Object.assign(new Error('Invalid token'), { status: 401 }))
+     await expect(initializeDesktopServerUrl()).rejects.toMatchObject({ reason: 'invalid-token' })
+     expect(localStorage.getItem(H5_TOKEN_STORAGE_KEY)).toBeNull()
+@@ -520,9 +533,7 @@ describe('desktopRuntime browser H5 bootstrap', () => {
+ 
+   it('uses and persists an H5 token from the QR launch URL', async () => {
+     window.history.pushState({}, '', '/?serverUrl=https%3A%2F%2Fpublic.example.com%2Fapp&h5Token=qr-token')
+-    globalThis.fetch = vi.fn().mockResolvedValue(
+-      healthOkResponse(),
+-    ) as typeof fetch
++    globalThis.fetch = vi.fn(authRequiredFetchImpl) as typeof fetch
+     clientMocks.postVerify.mockResolvedValueOnce({ ok: true })
+ 
+     await expect(initializeDesktopServerUrl()).resolves.toBe('https://public.example.com/app')
+diff --git a/desktop/src/lib/desktopRuntime.ts b/desktop/src/lib/desktopRuntime.ts
+index 871e8897..765d0f75 100644
+--- a/desktop/src/lib/desktopRuntime.ts
++++ b/desktop/src/lib/desktopRuntime.ts
+@@ -246,6 +246,25 @@ async function initializeBrowserServerUrl(fallbackUrl: string) {
+     return requestedUrl
+   }
+ 
++  // Tokenless fast path: when the server has requireToken=false (or the client
++  // source is exempt), its capability API answers without a Bearer token. If
++  // the server instead requires one, /api/status returns 401 and we fall
++  // through to the normal token prompt/verify flow below.
++  let tokenlessAccess = false
++  try {
++    await ensureBrowserApiAccessibleWithoutH5(requestedUrl)
++    tokenlessAccess = true
++  } catch (error) {
++    if (!(error instanceof H5ConnectionRequiredError && error.reason === 'missing-token')) {
++      throw normalizeBrowserH5Error(error, requestedUrl)
++    }
++  }
++  if (tokenlessAccess) {
++    setAuthToken(null)
++    markDesktopServerReady()
++    return requestedUrl
++  }
++
+   if (!token) {
+     // Keep the existing recovery UX for a first-time connection, but never
+     // replace a paired server while withholding its token from a new one.
+diff --git a/desktop/src/pages/settings/H5AccessSettings.tsx b/desktop/src/pages/settings/H5AccessSettings.tsx
+index 9bebb9e0..9ee55a63 100644
+--- a/desktop/src/pages/settings/H5AccessSettings.tsx
++++ b/desktop/src/pages/settings/H5AccessSettings.tsx
+@@ -314,6 +314,31 @@ export function H5AccessSettings() {
+             </Badge>
+           </div>
+ 
++          {h5Access.enabled && (
++            <div className="mt-4 flex items-start gap-3 border-t border-[var(--color-border-separator)] pt-4">
++              <input
++                type="checkbox"
++                className="mt-1 h-4 w-4 rounded-[var(--radius-sm)] border-[var(--color-border)] accent-[var(--color-brand)]"
++                checked={h5Access.requireToken}
++                disabled={h5ActionRunning}
++                aria-label={t('settings.general.h5AccessRequireToken')}
++                onChange={(event) => {
++                  void runH5Action(async () => {
++                    await updateH5AccessSettings({ requireToken: event.target.checked })
++                  })
++                }}
++              />
++              <span className="min-w-0">
++                <span className="block text-sm font-medium text-[var(--color-text-primary)]">
++                  {t('settings.general.h5AccessRequireToken')}
++                </span>
++                <span className="mt-1 block text-xs leading-5 text-[var(--color-text-tertiary)]">
++                  {t('settings.general.h5AccessRequireTokenHint')}
++                </span>
++              </span>
++            </div>
++          )}
++
+           {h5AccessDiagnostics?.storedHostStaleness === 'unreachable' && h5AccessDiagnostics.storedPublicBaseUrl ? (
+             <div
+               data-testid="h5-access-stale-host-banner"
+diff --git a/desktop/src/stores/settingsStore.test.ts b/desktop/src/stores/settingsStore.test.ts
+index 4ae3908a..0b35629f 100644
+--- a/desktop/src/stores/settingsStore.test.ts
++++ b/desktop/src/stores/settingsStore.test.ts
+@@ -1042,6 +1042,7 @@ describe('settingsStore workflow keyword persistence', () => {
+             publicBaseUrl: null,
+             fixedPort: null,
+             disconnectGraceSeconds: null,
++            requireToken: false,
+           },
+         }),
+         enable: vi.fn(),
+@@ -1618,6 +1619,7 @@ describe('settingsStore H5 access behavior', () => {
+         publicBaseUrl: 'https://prev.example/app',
+         fixedPort: null,
+         disconnectGraceSeconds: null,
++        requireToken: false,
+       },
+     })
+ 
+@@ -1631,6 +1633,7 @@ describe('settingsStore H5 access behavior', () => {
+       publicBaseUrl: null,
+       fixedPort: null,
+       disconnectGraceSeconds: null,
++      requireToken: false,
+     })
+     expect(useSettingsStore.getState().h5AccessError).toBeNull()
+   })
+@@ -1674,6 +1677,7 @@ describe('settingsStore H5 access behavior', () => {
+         publicBaseUrl: 'https://prev.example/app',
+         fixedPort: null,
+         disconnectGraceSeconds: null,
++        requireToken: false,
+       },
+     })
+ 
+@@ -1687,6 +1691,7 @@ describe('settingsStore H5 access behavior', () => {
+       publicBaseUrl: 'https://prev.example/app',
+       fixedPort: null,
+       disconnectGraceSeconds: null,
++      requireToken: false,
+     })
+     expect(useSettingsStore.getState().h5AccessError).toBe('H5 unavailable')
+   })
+@@ -1725,6 +1730,7 @@ describe('settingsStore H5 access behavior', () => {
+             publicBaseUrl: null,
+             fixedPort: null,
+             disconnectGraceSeconds: null,
++            requireToken: false,
+           },
+           token: 'raw-enable-token',
+         }),
+@@ -1737,6 +1743,7 @@ describe('settingsStore H5 access behavior', () => {
+             publicBaseUrl: null,
+             fixedPort: null,
+             disconnectGraceSeconds: null,
++            requireToken: false,
+           },
+         }),
+         regenerate: vi.fn().mockResolvedValue({
+@@ -1748,6 +1755,7 @@ describe('settingsStore H5 access behavior', () => {
+             publicBaseUrl: 'https://phone.example/app',
+             fixedPort: null,
+             disconnectGraceSeconds: null,
++            requireToken: false,
+           },
+           token: 'raw-regenerated-token',
+         }),
+@@ -1766,6 +1774,7 @@ describe('settingsStore H5 access behavior', () => {
+       publicBaseUrl: null,
+       fixedPort: null,
+       disconnectGraceSeconds: null,
++      requireToken: false,
+     })
+ 
+     await expect(useSettingsStore.getState().regenerateH5AccessToken()).resolves.toBe('raw-regenerated-token')
+@@ -1777,6 +1786,7 @@ describe('settingsStore H5 access behavior', () => {
+       publicBaseUrl: 'https://phone.example/app',
+       fixedPort: null,
+       disconnectGraceSeconds: null,
++      requireToken: false,
+     })
+ 
+     // Disable keeps the token so a later re-enable restores paired devices.
+@@ -1789,6 +1799,7 @@ describe('settingsStore H5 access behavior', () => {
+       publicBaseUrl: null,
+       fixedPort: null,
+       disconnectGraceSeconds: null,
++      requireToken: false,
+     })
+     expect(useSettingsStore.getState().h5AccessError).toBeNull()
+     expect('h5AccessGeneratedToken' in useSettingsStore.getState()).toBe(false)
+diff --git a/desktop/src/stores/settingsStore.ts b/desktop/src/stores/settingsStore.ts
+index db90f46e..200fa6a7 100644
+--- a/desktop/src/stores/settingsStore.ts
++++ b/desktop/src/stores/settingsStore.ts
+@@ -130,6 +130,7 @@ type SettingsStore = {
+     publicBaseUrl?: string | null
+     fixedPort?: number | null
+     disconnectGraceSeconds?: number | null
++    requireToken?: boolean
+   }) => Promise<void>
+   setResponseLanguage: (language: string) => Promise<void>
+   fetchAppMode: () => Promise<void>
+@@ -149,6 +150,7 @@ const DEFAULT_H5_ACCESS_SETTINGS: H5AccessSettings = {
+   publicBaseUrl: null,
+   fixedPort: null,
+   disconnectGraceSeconds: null,
++  requireToken: false,
+ }
+ 
+ const DEFAULT_DESKTOP_TERMINAL_SETTINGS: DesktopTerminalSettings = {
+@@ -836,6 +838,7 @@ function normalizeH5AccessSettings(settings: H5AccessSettings | undefined): H5Ac
+     publicBaseUrl: settings?.publicBaseUrl ?? null,
+     fixedPort: typeof settings?.fixedPort === 'number' ? settings.fixedPort : null,
+     disconnectGraceSeconds: typeof settings?.disconnectGraceSeconds === 'number' ? settings.disconnectGraceSeconds : null,
++    requireToken: settings?.requireToken === true,
+   }
+ }
+ 
+diff --git a/desktop/src/types/settings.ts b/desktop/src/types/settings.ts
+index 70288c16..05807ce6 100644
+--- a/desktop/src/types/settings.ts
++++ b/desktop/src/types/settings.ts
+@@ -113,6 +113,13 @@ export type H5AccessSettings = {
+   fixedPort: number | null
+   /** Idle grace period (seconds) before a disconnected, idle session's CLI is stopped. null = built-in 30s default. */
+   disconnectGraceSeconds: number | null
++  /**
++   * Whether browser H5 access requires the Bearer H5 token. Default false:
++   * every source accesses H5 tokenless (0.0.0.0/0). When true, public-network
++   * sources must carry the token; loopback and private-network (RFC1918 /
++   * IPv6 ULA) sources are always exempt.
++   */
++  requireToken: boolean
+ }
+ 
+ export type H5HostStaleness = 'ok' | 'unreachable' | 'proxy' | 'unset'
+diff --git a/package.json b/package.json
+index 080ea5a8..c353828a 100644
+--- a/package.json
++++ b/package.json
+@@ -122,6 +122,7 @@
+     "follow-redirects": "^1.16.0"
+   },
+   "devDependencies": {
++    "bun-types": "^1.4.2",
+     "mermaid": "^11.14.0"
+   }
+ }
+diff --git a/src/server/__fixtures__/remoteBrowserSettingsSmoke.ts b/src/server/__fixtures__/remoteBrowserSettingsSmoke.ts
+index 15e16da9..83f6ea6b 100644
+--- a/src/server/__fixtures__/remoteBrowserSettingsSmoke.ts
++++ b/src/server/__fixtures__/remoteBrowserSettingsSmoke.ts
+@@ -29,13 +29,25 @@ try {
+   const h5 = new H5AccessService()
+   const { token } = await h5.enable()
+   await h5.updateSettings({ allowedOrigins: [origin] })
++  // The fixture asserts that an *unauthenticated* browser request is rejected.
++  // The v0.5.3 re-implementation ships requireToken=false (tokenless by
++  // default), so restore the strict token-required posture explicitly to keep
++  // that assertion meaningful for the whole run.
++  await h5.updateSettings({ requireToken: true })
+   const providerService = new ProviderService()
+   for (const transport of ['public', 'lan'] as const) {
+     const base = transport === 'public' ? remote : local
+     const headers = { Origin: origin, ...(transport === 'public' ? { Cookie: cookie } : { Authorization: `Bearer ${token}` }) }
+     const request = (route: string, method = 'GET', body?: unknown) => fetch(base + route, { method, headers, ...(body === undefined ? {} : { body: JSON.stringify(body) }) })
+     const protectedResponse = await fetch(base + '/api/providers', { headers: { Origin: origin } })
+-    check(protectedResponse.status === 401, `${transport}: unauthenticated provider list allowed`)
++    // The `public` transport answers through the reverse proxy, whose protected
++    // paths require a paired-device cookie (publicAccess.ts) — so no cookie
++    // means 401 regardless of the H5 token setting. The direct loopback `lan`
++    // connection hits the main server's H5 gate, and loopback is a trusted
++    // local source (v0.5.3 §二 source-address exemption), so it reads the list
++    // successfully without a token.
++    const expectedProtectedStatus = transport === 'public' ? 401 : 200
++    check(protectedResponse.status === expectedProtectedStatus, `${transport}: unauthenticated provider list expected ${expectedProtectedStatus}, got ${protectedResponse.status}`)
+     const input = { presetId: 'custom', name: `Fixture ${transport}`, apiKey: `fake-${transport}-secret`, baseUrl: 'https://example.invalid', apiFormat: 'anthropic', models: { main: 'fixture-model', haiku: 'fixture-model', sonnet: 'fixture-model', opus: 'fixture-model' }, imageGeneration: { model: 'fixture-image', apiKey: `fake-${transport}-image-secret` }, requestCompatibility: { maxOutputTokens: 2048, privateFutureKey: 'fake-hidden-compatibility-key' } }
+     const created = await request('/api/providers', 'POST', input)
+     const createdBody = await created.json()
+diff --git a/src/server/__tests__/h5-access-api.test.ts b/src/server/__tests__/h5-access-api.test.ts
+index 440245a4..5b9ffacc 100644
+--- a/src/server/__tests__/h5-access-api.test.ts
++++ b/src/server/__tests__/h5-access-api.test.ts
+@@ -70,6 +70,7 @@ describe('/api/h5-access', () => {
+       publicBaseUrl: null,
+       fixedPort: null,
+       disconnectGraceSeconds: null,
++      requireToken: false,
+     })
+     expect(body.diagnostics).toBeDefined()
+     expect(body.diagnostics?.storedHostStaleness).toBe('unset')
+@@ -164,6 +165,7 @@ describe('/api/h5-access', () => {
+         publicBaseUrl: null,
+         fixedPort: null,
+         disconnectGraceSeconds: null,
++        requireToken: false,
+       },
+     })
+ 
+@@ -199,6 +201,7 @@ describe('/api/h5-access', () => {
+         publicBaseUrl: 'https://public.example.com/app',
+         fixedPort: 28670,
+         disconnectGraceSeconds: null,
++        requireToken: false,
+       },
+     })
+   })
+diff --git a/src/server/__tests__/h5-access-auth.test.ts b/src/server/__tests__/h5-access-auth.test.ts
+index 8bb25df7..10be4258 100644
+--- a/src/server/__tests__/h5-access-auth.test.ts
++++ b/src/server/__tests__/h5-access-auth.test.ts
+@@ -16,6 +16,7 @@ let baseUrl = ''
+ let wsBaseUrl = ''
+ let lanBaseUrl = ''
+ let lanWsBaseUrl = ''
++let unixSocket = ''
+ let tmpDir = ''
+ let originalConfigDir: string | undefined
+ let originalAnthropicApiKey: string | undefined
+@@ -25,6 +26,7 @@ let originalServerAuthRequired: string | undefined
+ let originalLocalAccessToken: string | undefined
+ let originalTrustedRendererOrigin: string | undefined
+ let originalPetAccessToken: string | undefined
++let originalTestUnixSocket: string | undefined
+ let originalServerPort = 3456
+ const PHONE_ORIGIN = 'https://phone.example'
+ const SERVER_STOP_WAIT_MS = 500
+@@ -71,6 +73,13 @@ async function startRemoteServer(options: { authRequired?: boolean } = {}): Prom
+     delete process.env.SERVER_AUTH_REQUIRED
+   }
+ 
++  // Enable the server's test-only unix-socket mirror so the "remote browser"
++  // tests can connect from a socket that carries no peer address. H5 auth
++  // classifies a missing source IP as a public (non-LAN) source, reproducing a
++  // genuinely remote client without needing a real public IP on this host.
++  unixSocket = path.join(tmpDir, 'remote.sock')
++  process.env.CC_HAHA_TEST_UNIX_SOCKET = unixSocket
++
+   server = startServer(0, '0.0.0.0')
+   const port = server.port
+   baseUrl = `http://127.0.0.1:${port}`
+@@ -80,6 +89,12 @@ async function startRemoteServer(options: { authRequired?: boolean } = {}): Prom
+   await waitForServer(`${baseUrl}/health`)
+ }
+ 
++// Fetch over the unix-socket mirror: no peer address → treated as a remote
++// (public) source by H5 auth. Used to assert the H5 token is required.
++async function remoteFetch(pathname: string, init: RequestInit = {}): Promise<Response> {
++  return fetch(`http://remote-host${pathname}`, { ...init, unix: unixSocket } as RequestInit)
++}
++
+ async function stopRemoteServer(): Promise<void> {
+   const runningServer = server
+   server = undefined
+@@ -116,32 +131,39 @@ function spoofedLoopbackHeaders(port: string): Record<string, string> {
+   }
+ }
+ 
+-function localFileUrl(base: string, absPath: string): string {
++function localFilePath(absPath: string): string {
+   const normalized = absPath.replace(/\\/g, '/')
+   const rooted = normalized.startsWith('/') ? normalized : `/${normalized}`
+   const encoded = rooted
+     .split('/')
+     .map((segment) => encodeURIComponent(segment))
+     .join('/')
+-  return `${base}/local-file${encoded}`
++  return `/local-file${encoded}`
++}
++
++function localFileUrl(base: string, absPath: string): string {
++  return `${base}${localFilePath(absPath)}`
+ }
+ 
+ async function enableH5Access(options: {
+   allowedOrigins?: string[]
+   publicBaseUrl?: string | null
++  requireToken?: boolean
+ } = {}): Promise<string> {
+   const service = new H5AccessService()
+-  if (options.allowedOrigins || options.publicBaseUrl !== undefined) {
++  if (options.allowedOrigins || options.publicBaseUrl !== undefined || options.requireToken !== undefined) {
+     await service.updateSettings({
+       allowedOrigins: options.allowedOrigins,
+       publicBaseUrl: options.publicBaseUrl,
++      requireToken: options.requireToken,
+     })
+   }
+   const { token } = await service.enable()
+-  if (options.allowedOrigins || options.publicBaseUrl !== undefined) {
++  if (options.allowedOrigins || options.publicBaseUrl !== undefined || options.requireToken !== undefined) {
+     await service.updateSettings({
+       allowedOrigins: options.allowedOrigins,
+       publicBaseUrl: options.publicBaseUrl,
++      requireToken: options.requireToken,
+     })
+   }
+   return token
+@@ -226,6 +248,7 @@ beforeEach(async () => {
+   delete process.env.CC_HAHA_TRUSTED_RENDERER_ORIGIN
+   originalPetAccessToken = process.env.CC_HAHA_PET_ACCESS_TOKEN
+   originalServerPort = ProviderService.getServerPort()
++  originalTestUnixSocket = process.env.CC_HAHA_TEST_UNIX_SOCKET
+   process.env.CLAUDE_CONFIG_DIR = tmpDir
+   const h5DistDir = path.join(tmpDir, 'dist')
+   process.env.CLAUDE_H5_DIST_DIR = h5DistDir
+@@ -264,9 +287,10 @@ afterEach(async () => {
+   else process.env.CC_HAHA_TRUSTED_RENDERER_ORIGIN = originalTrustedRendererOrigin
+   if (originalPetAccessToken === undefined) delete process.env.CC_HAHA_PET_ACCESS_TOKEN
+   else process.env.CC_HAHA_PET_ACCESS_TOKEN = originalPetAccessToken
++  if (originalTestUnixSocket === undefined) delete process.env.CC_HAHA_TEST_UNIX_SOCKET
++  else process.env.CC_HAHA_TEST_UNIX_SOCKET = originalTestUnixSocket
+ 
+-  await fs.rm(tmpDir, {
+-    recursive: true,
++  await fs.rm(tmpDir, {    recursive: true,
+     force: true,
+     maxRetries: 5,
+     retryDelay: 50,
+@@ -1057,16 +1081,17 @@ describe('remote H5 auth and CORS integration', () => {
+   test('requires H5 token for remote browser REST requests when H5 access is enabled', async () => {
+     const token = await enableH5Access({
+       allowedOrigins: [PHONE_ORIGIN],
++      requireToken: true,
+     })
+ 
+-    const missingTokenResponse = await fetch(`${baseUrl}/api/status`, {
++    const missingTokenResponse = await remoteFetch('/api/status', {
+       headers: {
+         Origin: PHONE_ORIGIN,
+       },
+     })
+     expect(missingTokenResponse.status).toBe(401)
+ 
+-    const validTokenResponse = await fetch(`${baseUrl}/api/status`, {
++    const validTokenResponse = await remoteFetch('/api/status', {
+       headers: {
+         Origin: PHONE_ORIGIN,
+         Authorization: `Bearer ${token}`,
+@@ -1078,17 +1103,18 @@ describe('remote H5 auth and CORS integration', () => {
+   test('requires H5 token for remote browser settings surface requests when H5 access is enabled', async () => {
+     const token = await enableH5Access({
+       allowedOrigins: [PHONE_ORIGIN],
++      requireToken: true,
+     })
+ 
+     for (const endpoint of settingsSurfaceEndpoints) {
+-      const missingTokenResponse = await fetch(`${baseUrl}${endpoint.path}`, {
++      const missingTokenResponse = await remoteFetch(endpoint.path, {
+         headers: {
+           Origin: PHONE_ORIGIN,
+         },
+       })
+       expect(missingTokenResponse.status).toBe(401)
+ 
+-      const wrongTokenResponse = await fetch(`${baseUrl}${endpoint.path}`, {
++      const wrongTokenResponse = await remoteFetch(endpoint.path, {
+         headers: {
+           Origin: PHONE_ORIGIN,
+           Authorization: 'Bearer wrong-token',
+@@ -1096,7 +1122,7 @@ describe('remote H5 auth and CORS integration', () => {
+       })
+       expect(wrongTokenResponse.status).toBe(401)
+ 
+-      const validTokenResponse = await fetch(`${baseUrl}${endpoint.path}`, {
++      const validTokenResponse = await remoteFetch(endpoint.path, {
+         headers: {
+           Origin: PHONE_ORIGIN,
+           Authorization: `Bearer ${token}`,
+@@ -1116,17 +1142,18 @@ describe('remote H5 auth and CORS integration', () => {
+   test('requires H5 token for remote browser local-file and preview-fs requests when H5 access is enabled', async () => {
+     const token = await enableH5Access({
+       allowedOrigins: [PHONE_ORIGIN],
++      requireToken: true,
+     })
+-    const localFile = localFileUrl(baseUrl, path.join(process.cwd(), 'package.json'))
++    const localFile = localFilePath(path.join(process.cwd(), 'package.json'))
+ 
+-    const missingLocalFileToken = await fetch(localFile, {
++    const missingLocalFileToken = await remoteFetch(localFile, {
+       headers: {
+         Origin: PHONE_ORIGIN,
+       },
+     })
+     expect(missingLocalFileToken.status).toBe(401)
+ 
+-    const wrongLocalFileToken = await fetch(localFile, {
++    const wrongLocalFileToken = await remoteFetch(localFile, {
+       headers: {
+         Origin: PHONE_ORIGIN,
+         Authorization: 'Bearer wrong-token',
+@@ -1134,7 +1161,7 @@ describe('remote H5 auth and CORS integration', () => {
+     })
+     expect(wrongLocalFileToken.status).toBe(401)
+ 
+-    const validLocalFileToken = await fetch(localFile, {
++    const validLocalFileToken = await remoteFetch(localFile, {
+       headers: {
+         Origin: PHONE_ORIGIN,
+         Authorization: `Bearer ${token}`,
+@@ -1143,7 +1170,7 @@ describe('remote H5 auth and CORS integration', () => {
+     expect(validLocalFileToken.status).toBe(200)
+     await expect(validLocalFileToken.text()).resolves.toContain('"name"')
+ 
+-    const missingPreviewToken = await fetch(`${baseUrl}/preview-fs/h5-auth-test/index.html`, {
++    const missingPreviewToken = await remoteFetch('/preview-fs/h5-auth-test/index.html', {
+       headers: {
+         Origin: PHONE_ORIGIN,
+       },
+@@ -1177,9 +1204,10 @@ describe('remote H5 auth and CORS integration', () => {
+     process.env.ANTHROPIC_API_KEY = 'test-server-key'
+     await enableH5Access({
+       allowedOrigins: [PHONE_ORIGIN],
++      requireToken: true,
+     })
+ 
+-    const apiResponse = await fetch(`${baseUrl}/api/status`, {
++    const apiResponse = await remoteFetch('/api/status', {
+       headers: {
+         Origin: PHONE_ORIGIN,
+         Authorization: 'Bearer test-server-key',
+@@ -1190,7 +1218,7 @@ describe('remote H5 auth and CORS integration', () => {
+       message: 'Invalid H5 access token',
+     })
+ 
+-    const proxyResponse = await fetch(`${baseUrl}/proxy/v1/messages`, {
++    const proxyResponse = await remoteFetch('/proxy/v1/messages', {
+       method: 'POST',
+       headers: {
+         Origin: PHONE_ORIGIN,
+@@ -1201,7 +1229,7 @@ describe('remote H5 auth and CORS integration', () => {
+     })
+     expect(proxyResponse.status).toBe(401)
+ 
+-    const wsResponse = await fetch(`${baseUrl}/ws/h5-auth-test`, {
++    const wsResponse = await remoteFetch('/ws/h5-auth-test', {
+       headers: {
+         ...makeUpgradeHeaders(PHONE_ORIGIN),
+         Authorization: 'Bearer test-server-key',
+@@ -1213,9 +1241,10 @@ describe('remote H5 auth and CORS integration', () => {
+   test('requires H5 token for remote browser proxy requests when H5 access is enabled', async () => {
+     const token = await enableH5Access({
+       allowedOrigins: [PHONE_ORIGIN],
++      requireToken: true,
+     })
+ 
+-    const missingTokenResponse = await fetch(`${baseUrl}/proxy/v1/messages`, {
++    const missingTokenResponse = await remoteFetch('/proxy/v1/messages', {
+       method: 'POST',
+       headers: {
+         Origin: PHONE_ORIGIN,
+@@ -1225,7 +1254,7 @@ describe('remote H5 auth and CORS integration', () => {
+     })
+     expect(missingTokenResponse.status).toBe(401)
+ 
+-    const validTokenResponse = await fetch(`${baseUrl}/proxy/v1/messages`, {
++    const validTokenResponse = await remoteFetch('/proxy/v1/messages', {
+       method: 'POST',
+       headers: {
+         Origin: PHONE_ORIGIN,
+@@ -1319,14 +1348,15 @@ describe('remote H5 auth and CORS integration', () => {
+   test('requires H5 token for remote browser websocket requests when H5 access is enabled', async () => {
+     const token = await enableH5Access({
+       allowedOrigins: [PHONE_ORIGIN],
++      requireToken: true,
+     })
+ 
+-    const missingTokenResponse = await fetch(`${baseUrl}/ws/h5-auth-test`, {
++    const missingTokenResponse = await remoteFetch('/ws/h5-auth-test', {
+       headers: makeUpgradeHeaders(PHONE_ORIGIN),
+     })
+     expect(missingTokenResponse.status).toBe(401)
+ 
+-    const validTokenResponse = await fetch(`${baseUrl}/ws/h5-auth-test?token=${token}`, {
++    const validTokenResponse = await remoteFetch(`/ws/h5-auth-test?token=${token}`, {
+       headers: makeUpgradeHeaders(PHONE_ORIGIN),
+     })
+     expect(validTokenResponse.status).toBe(400)
+diff --git a/src/server/__tests__/h5-access-policy.test.ts b/src/server/__tests__/h5-access-policy.test.ts
+index 9bc513f3..5e0bad95 100644
+--- a/src/server/__tests__/h5-access-policy.test.ts
++++ b/src/server/__tests__/h5-access-policy.test.ts
+@@ -4,11 +4,11 @@ import {
+   resolveTrustedRendererOrigin,
+   isLocalCredentialOnlyPath,
+   isLoopbackHost,
++  isTrustedLocalSourceHost,
+   requiresLocalAccessCredential,
+   shouldBlockDisabledH5Access,
+   shouldRequireH5Token,
+ } from '../h5AccessPolicy.js'
+-
+ function req(url: string, init: RequestInit = {}) {
+   return new Request(url, init)
+ }
+@@ -50,7 +50,7 @@ describe('h5AccessPolicy', () => {
+         headers: { Origin: origin },
+       })
+       expect(classifyH5Request(request, new URL(request.url), localContext)).toBe('local-trusted')
+-      expect(shouldRequireH5Token({ request, url: new URL(request.url), h5Enabled: true, context: localContext })).toBe(false)
++      expect(shouldRequireH5Token({ request, url: new URL(request.url), h5Enabled: true, requireToken: true, context: localContext })).toBe(false)
+     }
+   })
+ 
+@@ -60,20 +60,23 @@ describe('h5AccessPolicy', () => {
+         headers: { Origin: origin },
+       })
+       expect(classifyH5Request(request, new URL(request.url), localContext)).toBe('h5-browser')
+-      expect(shouldRequireH5Token({ request, url: new URL(request.url), h5Enabled: true, context: localContext })).toBe(true)
++      // Loopback source is inside the local exemption (source-address based),
++      // so retired Tauri origins served from 127.0.0.1 no longer need a token.
++      expect(shouldRequireH5Token({ request, url: new URL(request.url), h5Enabled: true, requireToken: true, context: localContext })).toBe(false)
+     }
+   })
+ 
+   test('keeps local internal SDK websocket routes tokenless', () => {
++
+     const request = req('http://127.0.0.1:3456/sdk/session-1')
+     expect(classifyH5Request(request, new URL(request.url), localContext)).toBe('internal-sdk')
+-    expect(shouldRequireH5Token({ request, url: new URL(request.url), h5Enabled: true, context: localContext })).toBe(false)
++    expect(shouldRequireH5Token({ request, url: new URL(request.url), h5Enabled: true, requireToken: true, context: localContext })).toBe(false)
+   })
+ 
+   test('does not trust remote SDK websocket routes by path alone', () => {
+     const request = req('http://192.168.0.20:3456/sdk/session-1')
+     expect(classifyH5Request(request, new URL(request.url), remoteContext)).toBe('h5-browser')
+-    expect(shouldRequireH5Token({ request, url: new URL(request.url), h5Enabled: true, context: remoteContext })).toBe(false)
++    expect(shouldRequireH5Token({ request, url: new URL(request.url), h5Enabled: true, requireToken: true, context: remoteContext })).toBe(false)
+   })
+ 
+   test('accepts an SDK route only after its session token is authorized', () => {
+@@ -91,7 +94,7 @@ describe('h5AccessPolicy', () => {
+   test('keeps adapter API routes tokenless for local integrations', () => {
+     const request = req('http://127.0.0.1:3456/api/adapters')
+     expect(classifyH5Request(request, new URL(request.url), localContext)).toBe('local-trusted')
+-    expect(shouldRequireH5Token({ request, url: new URL(request.url), h5Enabled: true, context: localContext })).toBe(false)
++    expect(shouldRequireH5Token({ request, url: new URL(request.url), h5Enabled: true, requireToken: true, context: localContext })).toBe(false)
+   })
+ 
+   test('requires the local process credential for loopback browser origins when configured', () => {
+@@ -118,7 +121,8 @@ describe('h5AccessPolicy', () => {
+           headers: { Origin: origin },
+         })
+         expect(classifyH5Request(request, new URL(request.url), desktopContext)).toBe('h5-browser')
+-        expect(shouldRequireH5Token({ request, url: new URL(request.url), h5Enabled: true, context: desktopContext })).toBe(true)
++        // Localhost source is exempt by source address while requireToken is on.
++        expect(shouldRequireH5Token({ request, url: new URL(request.url), h5Enabled: true, requireToken: true, context: desktopContext })).toBe(false)
+         expect(shouldBlockDisabledH5Access({
+           request,
+           url: new URL(request.url),
+@@ -136,7 +140,7 @@ describe('h5AccessPolicy', () => {
+     })
+ 
+     expect(classifyH5Request(request, new URL(request.url), localContext)).toBe('local-trusted')
+-    expect(shouldRequireH5Token({ request, url: new URL(request.url), h5Enabled: true, context: localContext })).toBe(false)
++    expect(shouldRequireH5Token({ request, url: new URL(request.url), h5Enabled: true, requireToken: true, context: localContext })).toBe(false)
+   })
+ 
+   test('does not trust adapter requests from non-loopback browser origins', () => {
+@@ -144,10 +148,13 @@ describe('h5AccessPolicy', () => {
+       headers: { Origin: 'https://phone.example' },
+     })
+     expect(classifyH5Request(request, new URL(request.url), localContext)).toBe('h5-browser')
+-    expect(shouldRequireH5Token({ request, url: new URL(request.url), h5Enabled: true, context: localContext })).toBe(true)
++    // h5-browser classification still applies, but the loopback source
++    // address is in the local exemption, so the token gate is skipped.
++    expect(shouldRequireH5Token({ request, url: new URL(request.url), h5Enabled: true, requireToken: true, context: localContext })).toBe(false)
+   })
+ 
+   test('does not trust spoofed loopback hosts from remote clients', () => {
++
+     const request = req('http://127.0.0.1:3456/api/status', {
+       headers: { Origin: 'http://127.0.0.1:5179' },
+     })
+@@ -165,7 +172,7 @@ describe('h5AccessPolicy', () => {
+     for (const init of [{}, { headers: { Origin: 'file://' } }]) {
+       const request = req('http://127.0.0.1:3456/ws/session-1', init)
+       expect(classifyH5Request(request, new URL(request.url), localContext)).toBe('local-trusted')
+-      expect(shouldRequireH5Token({ request, url: new URL(request.url), h5Enabled: true, context: localContext })).toBe(false)
++      expect(shouldRequireH5Token({ request, url: new URL(request.url), h5Enabled: true, requireToken: true, context: localContext })).toBe(false)
+     }
+   })
+ 
+@@ -181,7 +188,8 @@ describe('h5AccessPolicy', () => {
+       const url = new URL(request.url)
+ 
+       expect(classifyH5Request(request, url, localContext)).toBe('h5-browser')
+-      expect(shouldRequireH5Token({ request, url, h5Enabled: true, context: localContext })).toBe(true)
++      // Loopback source address is exempt from the H5 token (source-based).
++      expect(shouldRequireH5Token({ request, url, h5Enabled: true, requireToken: true, context: localContext })).toBe(false)
+       expect(shouldBlockDisabledH5Access({
+         request,
+         url,
+@@ -214,7 +222,9 @@ describe('h5AccessPolicy', () => {
+         const url = new URL(request.url)
+ 
+         expect(classifyH5Request(request, url, localContext)).toBe('h5-browser')
+-        expect(shouldRequireH5Token({ request, url, h5Enabled: true, context: localContext })).toBe(true)
++        // Proxy traces affect classification, not the source-address
++        // exemption: a loopback socket source is still exempt.
++        expect(shouldRequireH5Token({ request, url, h5Enabled: true, requireToken: true, context: localContext })).toBe(false)
+         expect(shouldBlockDisabledH5Access({
+           request,
+           url,
+@@ -301,7 +311,7 @@ describe('h5AccessPolicy', () => {
+       const url = new URL(request.url)
+ 
+       expect(classifyH5Request(request, url, desktopContext)).toBe('local-trusted')
+-      expect(shouldRequireH5Token({ request, url, h5Enabled: true, context: desktopContext })).toBe(false)
++      expect(shouldRequireH5Token({ request, url, h5Enabled: true, requireToken: true, context: desktopContext })).toBe(false)
+       expect(shouldBlockDisabledH5Access({
+         request,
+         url,
+@@ -373,6 +383,7 @@ describe('h5AccessPolicy', () => {
+         request,
+         url,
+         h5Enabled: true,
++        requireToken: true,
+         context: desktopContext,
+       })).toBe(false)
+       expect(shouldBlockDisabledH5Access({
+@@ -494,11 +505,11 @@ describe('h5AccessPolicy', () => {
+       const context = { clientAddress }
+ 
+       expect(classifyH5Request(request, url, context)).toBe('local-trusted')
+-      expect(shouldRequireH5Token({ request, url, h5Enabled: true, context })).toBe(false)
++      expect(shouldRequireH5Token({ request, url, h5Enabled: true, requireToken: true, context })).toBe(false)
+     }
+   })
+ 
+-  test('requires H5 token for LAN browser API, proxy, and chat websocket routes when enabled', () => {
++  test('exempts private-LAN browser sources from the H5 token while requireToken is on', () => {
+     for (const pathname of [
+       '/api/status',
+       '/api/mcp',
+@@ -512,8 +523,61 @@ describe('h5AccessPolicy', () => {
+       const request = req(`http://192.168.0.20:3456${pathname}`, {
+         headers: { Origin: 'http://192.168.0.20:3456' },
+       })
++      // Still classified as h5-browser, but the RFC1918 phone source is in
++      // the LAN/home-network exemption.
+       expect(classifyH5Request(request, new URL(request.url), remoteContext)).toBe('h5-browser')
+-      expect(shouldRequireH5Token({ request, url: new URL(request.url), h5Enabled: true, context: remoteContext })).toBe(true)
++      expect(shouldRequireH5Token({ request, url: new URL(request.url), h5Enabled: true, requireToken: true, context: remoteContext })).toBe(false)
++    }
++  })
++
++  test('requires the H5 token for public-network browser sources while requireToken is on', () => {
++    const request = req('http://192.168.0.20:3456/api/status', {
++      headers: { Origin: 'http://192.168.0.20:3456' },
++    })
++    const publicContext = { clientAddress: '93.184.216.34' }
++    expect(classifyH5Request(request, new URL(request.url), publicContext)).toBe('h5-browser')
++    expect(shouldRequireH5Token({ request, url: new URL(request.url), h5Enabled: true, requireToken: true, context: publicContext })).toBe(true)
++  })
++
++  test('requireToken=false opens 0.0.0.0/0 for every source including public networks', () => {
++    const request = req('http://192.168.0.20:3456/api/status', {
++      headers: { Origin: 'http://192.168.0.20:3456' },
++    })
++    const publicContext = { clientAddress: '93.184.216.34' }
++    expect(shouldRequireH5Token({ request, url: new URL(request.url), h5Enabled: true, requireToken: false, context: publicContext })).toBe(false)
++  })
++
++  test('classifies trusted local source hosts for the token exemption', () => {
++    for (const host of [
++      '127.0.0.1',
++      '::1',
++      '[::1]',
++      '::ffff:127.0.0.1',
++      '10.1.2.3',
++      '172.16.0.9',
++      '172.31.255.1',
++      '192.168.255.1',
++      '169.254.10.4',
++      'fd12:3456:789a::1',
++      '[fd12::7f]',
++      'fc7f::1',
++      '::ffff:192.168.1.1',
++    ]) {
++      expect(isTrustedLocalSourceHost(host)).toBe(true)
++    }
++    for (const host of [
++      '8.8.8.8',
++      '11.0.0.1',
++      '172.32.0.1',
++      '192.169.0.1',
++      '999.1.1.1',
++      '2001:db8::1',
++      '[fe80::1]',
++      '[fd9a::7f]',
++      '10.1.2.3:8080',
++      '',
++    ]) {
++      expect(isTrustedLocalSourceHost(host)).toBe(false)
+     }
+   })
+ 
+@@ -593,6 +657,7 @@ describe('h5AccessPolicy', () => {
+       request,
+       url: new URL(request.url),
+       h5Enabled: false,
++      requireToken: true,
+       context: localContext,
+     })).toBe(false)
+   })
+diff --git a/src/server/__tests__/h5-access-service.test.ts b/src/server/__tests__/h5-access-service.test.ts
+index 310463b3..609b3a58 100644
+--- a/src/server/__tests__/h5-access-service.test.ts
++++ b/src/server/__tests__/h5-access-service.test.ts
+@@ -52,6 +52,7 @@ describe('H5AccessService', () => {
+       publicBaseUrl: null,
+       fixedPort: null,
+       disconnectGraceSeconds: null,
++      requireToken: false,
+     })
+ 
+     await expect(service.validateToken('missing-token')).resolves.toBe(false)
+@@ -80,6 +81,7 @@ describe('H5AccessService', () => {
+       publicBaseUrl: null,
+       fixedPort: null,
+       disconnectGraceSeconds: null,
++      requireToken: false,
+     })
+     expect(saved.h5Access.enabled).toBe(true)
+     // Plaintext is persisted on purpose (issue #767): the desktop app must be
+@@ -405,6 +407,7 @@ describe('H5AccessService', () => {
+       publicBaseUrl: 'https://public.example.com/app',
+       fixedPort: null,
+       disconnectGraceSeconds: null,
++      requireToken: false,
+     })
+ 
+     await expect(
+@@ -456,6 +459,7 @@ describe('H5AccessService', () => {
+       publicBaseUrl: 'https://public.example.com',
+       fixedPort: null,
+       disconnectGraceSeconds: null,
++      requireToken: false,
+     })
+     await expect(service.validateToken('anything')).resolves.toBe(false)
+     await expect(service.isOriginAllowed('https://example.com')).resolves.toBe(false)
+diff --git a/src/server/api/h5-access.ts b/src/server/api/h5-access.ts
+index 76fbd713..ef9307a5 100644
+--- a/src/server/api/h5-access.ts
++++ b/src/server/api/h5-access.ts
+@@ -57,6 +57,7 @@ export async function handleH5AccessApi(
+             publicBaseUrl: body.publicBaseUrl as string | null | undefined,
+             fixedPort: body.fixedPort as number | null | undefined,
+             disconnectGraceSeconds: body.disconnectGraceSeconds as number | null | undefined,
++            requireToken: typeof body.requireToken === 'boolean' ? body.requireToken : undefined,
+           })
+           // Keep the synchronous disconnect-cleanup cache in step with the new value.
+           await refreshDisconnectGraceMs()
+diff --git a/src/server/h5AccessPolicy.ts b/src/server/h5AccessPolicy.ts
+index 78048d70..7974c55f 100644
+--- a/src/server/h5AccessPolicy.ts
++++ b/src/server/h5AccessPolicy.ts
+@@ -216,6 +216,41 @@ function hasProxyTraceHeaders(headers: Headers): boolean {
+   return PROXY_TRACE_HEADERS.some((header) => headers.has(header))
+ }
+ 
++function isPrivateIPv4Source(address: string): boolean {
++  const parts = address.split('.')
++  if (parts.length !== 4 || !parts.every((part) => /^\d+$/.test(part))) {
++    return false
++  }
++  const [a = -1, b = -1] = parts.map((part) => Number(part))
++  if (a === 10) return true
++  if (a === 192 && b === 168) return true
++  if (a === 172 && b >= 16 && b <= 31) return true
++  // Link-local is only reachable on the same LAN segment; treat it as private.
++  if (a === 169 && b === 254) return true
++  return false
++}
++
++/**
++ * Sources exempt from the H5 token while `requireToken` is on — the LAN /
++ * home-network self-use exemption (v0.5.3 §二 re-implementation): loopback,
++ * RFC1918 (10/8, 172.16/12, 192.168/16, plus 169.254 link-local) and IPv6
++ * ULA (fc00::/7). Based purely on the socket source address
++ * (`server.requestIP()`), so a local reverse proxy's own connection
++ * (loopback) is covered too — same posture as the original implementation.
++ * Handles bracketed IPv6 and `::ffff:`-mapped IPv4.
++ */
++export function isTrustedLocalSourceHost(host: string): boolean {
++  const normalized = host.trim().replace(/^\[/, '').replace(/\]$/, '').toLowerCase()
++  if (!normalized) return false
++  const address = normalized.startsWith('::ffff:') ? normalized.slice('::ffff:'.length) : normalized
++  if (isLoopbackHost(address)) return true
++  if (address.includes(':')) {
++    // fc00::/7: first byte f{c,d}, second byte 0x00-0x7f.
++    return /^f[cd][0-7][0-9a-f]:/.test(address)
++  }
++  return isPrivateIPv4Source(address)
++}
++
+ function isLocalTrustedRequest(
+   request: Request,
+   url: URL,
+@@ -286,11 +321,13 @@ export function shouldRequireH5Token({
+   request,
+   url,
+   h5Enabled,
++  requireToken,
+   context,
+ }: {
+   request: Request
+   url: URL
+   h5Enabled: boolean
++  requireToken: boolean
+   context: H5RequestContext
+ }): boolean {
+   if (!h5Enabled) {
+@@ -301,7 +338,19 @@ export function shouldRequireH5Token({
+     return false
+   }
+ 
+-  return classifyH5Request(request, url, context) === 'h5-browser'
++  if (classifyH5Request(request, url, context) !== 'h5-browser') {
++    return false
++  }
++
++  // requireToken=false opens the full 0.0.0.0/0 (tokenless for everyone).
++  // With the switch on, loopback and private-network sources (same machine,
++  // LAN phones, home/office Wi-Fi) are exempt by source address; public
++  // sources keep needing the token.
++  if (!requireToken) {
++    return false
++  }
++
++  return !isTrustedLocalSourceHost(context.clientAddress ?? '')
+ }
+ 
+ export function shouldBlockDisabledH5Access({
+diff --git a/src/server/index.ts b/src/server/index.ts
+index 8ab0e65c..0389e304 100644
+--- a/src/server/index.ts
++++ b/src/server/index.ts
+@@ -8,6 +8,7 @@ import { handleSessionCollaborationApi } from './api/sessionCollaboration.js'
+  * 读写与 CLI 完全相同的文件系统，确保 CLI/UI 数据互通。
+  */
+ 
++import { existsSync, unlinkSync } from 'node:fs'
+ import { handleApiRequest } from './router.js'
+ import { handleWebSocket, type WebSocketData } from './ws/handler.js'
+ import { resolveCors, type CorsResolution } from './middleware/cors.js'
+@@ -271,12 +272,12 @@ export function startServer(port = PORT, host = HOST) {
+   void localIndexCoordinator.start().catch(() => undefined)
+ 
+   try {
+-    server = Bun.serve<WebSocketData>({
+-      port,
+-      hostname: host,
+-      idleTimeout: HTTP_CONNECTION_IDLE_TIMEOUT_SECONDS,
+-
+-      async fetch(req, server) {
++    // Shared request pipeline. Extracted (rather than inlined in Bun.serve) so a
++    // test-only unix-socket mirror below can reuse the exact same auth/proxy/static
++    // routing. A request over that socket carries no peer address, which H5 auth
++    // treats as a public (non-LAN) source — used by integration tests to exercise
++    // the "remote browser needs the H5 token" path without a real public IP.
++    const serverFetch = async (req: Request, server: typeof server): Promise<Response> => {
+         const url = new URL(req.url)
+         if (isPublicAccessControlPath(url.pathname)) return publicAccess.control(req)
+ 
+@@ -366,6 +367,7 @@ export function startServer(port = PORT, host = HOST) {
+           request: req,
+           url,
+           h5Enabled: h5Settings.enabled,
++          requireToken: h5Settings.requireToken,
+           context: h5RequestContext,
+         })
+         const h5AccessDisabledBlocked = shouldBlockDisabledH5Access({
+@@ -617,15 +619,46 @@ export function startServer(port = PORT, host = HOST) {
+         }
+ 
+         return new Response('Not Found', { status: 404 })
+-      },
++    }
++
++    server = Bun.serve<WebSocketData>({
++      port,
++      hostname: host,
++      idleTimeout: HTTP_CONNECTION_IDLE_TIMEOUT_SECONDS,
++
++      fetch: serverFetch,
+ 
+       websocket: handleWebSocket,
+     })
++
++    // Test-only unix-socket mirror sharing the same fetch/websocket handlers.
++    // A request over this socket has no peer address, so H5 auth treats it as a
++    // public (non-LAN) source — integration tests use it to assert that a remote
++    // browser must present the H5 token, without needing a real public source IP.
++    const testUnixSocket = process.env.CC_HAHA_TEST_UNIX_SOCKET
++    let testUnixServer: ReturnType<typeof Bun.serve<WebSocketData>> | null = null
++    if (testUnixSocket) {
++      try {
++        if (existsSync(testUnixSocket)) unlinkSync(testUnixSocket)
++        testUnixServer = Bun.serve<WebSocketData>({
++          unix: testUnixSocket,
++          fetch: serverFetch,
++          websocket: handleWebSocket,
++        })
++      } catch (error) {
++        console.warn(
++          `[Server] test unix socket ${testUnixSocket} not started: ` +
++            (error instanceof Error ? error.message : String(error)),
++        )
++      }
++    }
+     const disposeCollaboration = configureSessionCollaborationHost(localConnectHost, server.port)
++
+     const stop = server.stop.bind(server)
+     server.stop = (closeActiveConnections?: boolean) => {
+       apiPerformanceMonitor.stop()
+       disposeCollaboration()
++      if (testUnixServer) testUnixServer.stop(closeActiveConnections)
+       publicAccess.disable()
+       publicAccessServers.delete(publicAccess)
+       return stop(closeActiveConnections)
+diff --git a/src/server/services/h5AccessService.ts b/src/server/services/h5AccessService.ts
+index b99e668d..489bdb22 100644
+--- a/src/server/services/h5AccessService.ts
++++ b/src/server/services/h5AccessService.ts
+@@ -35,6 +35,13 @@ export type H5AccessSettings = {
+    * background and shows the result on reconnect. null = built-in 30s default.
+    */
+   disconnectGraceSeconds: number | null
++  /**
++   * Whether browser H5 access requires the Bearer H5 token. Default false:
++   * every source can access H5 capability paths tokenless (0.0.0.0/0). When
++   * true, public-network sources must carry the token; loopback and
++   * private-network (RFC1918 / IPv6 ULA) sources are always exempt.
++   */
++  requireToken: boolean
+ }
+ 
+ export type H5AccessEnableResult = {
+@@ -73,6 +80,7 @@ const DEFAULT_STORED_SETTINGS: StoredH5AccessSettings = {
+   publicBaseUrl: null,
+   fixedPort: null,
+   disconnectGraceSeconds: null,
++  requireToken: false,
+ }
+ 
+ const TOKEN_HASH_RE = /^[a-f0-9]{64}$/
+@@ -101,6 +109,7 @@ function toPublicSettings(settings: StoredH5AccessSettings): H5AccessSettings {
+     allowedOrigins: settings.allowedOrigins,
+     fixedPort: settings.fixedPort,
+     disconnectGraceSeconds: settings.disconnectGraceSeconds,
++    requireToken: settings.requireToken,
+     publicBaseUrl: resolveEffectiveH5PublicBaseUrl({
+       enabled: settings.enabled,
+       storedPublicBaseUrl: settings.publicBaseUrl,
+@@ -597,6 +606,9 @@ function normalizeStoredSettings(value: unknown): StoredH5AccessSettings {
+     publicBaseUrl,
+     fixedPort: normalizeFixedPort(value.fixedPort),
+     disconnectGraceSeconds: normalizeDisconnectGraceSeconds(value.disconnectGraceSeconds),
++    // Default-false (tokenless) to match DEFAULT_STORED_SETTINGS; an explicit
++    // true is honored as stored.
++    requireToken: value.requireToken === true,
+   }
+ }
+ 
+@@ -691,7 +703,9 @@ export class H5AccessService {
+     publicBaseUrl?: string | null
+     fixedPort?: number | null
+     disconnectGraceSeconds?: number | null
++    requireToken?: boolean
+   }): Promise<H5AccessSettings> {
++
+     return this.managedSettingsService.updateSettings(async (current) => {
+       const h5Access = normalizeStoredSettings(current.h5Access)
+       let nextPublicBaseUrl: string | null
+@@ -743,6 +757,9 @@ export class H5AccessService {
+         publicBaseUrl: nextPublicBaseUrl,
+         fixedPort: nextFixedPort,
+         disconnectGraceSeconds: nextDisconnectGraceSeconds,
++        requireToken: input.requireToken === undefined
++          ? h5Access.requireToken
++          : input.requireToken,
+       }
+ 
+       return {

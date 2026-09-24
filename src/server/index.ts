@@ -8,6 +8,7 @@ import { handleSessionCollaborationApi } from './api/sessionCollaboration.js'
  * 读写与 CLI 完全相同的文件系统，确保 CLI/UI 数据互通。
  */
 
+import { existsSync, unlinkSync } from 'node:fs'
 import { handleApiRequest } from './router.js'
 import { handleWebSocket, type WebSocketData } from './ws/handler.js'
 import { resolveCors, type CorsResolution } from './middleware/cors.js'
@@ -271,12 +272,12 @@ export function startServer(port = PORT, host = HOST) {
   void localIndexCoordinator.start().catch(() => undefined)
 
   try {
-    server = Bun.serve<WebSocketData>({
-      port,
-      hostname: host,
-      idleTimeout: HTTP_CONNECTION_IDLE_TIMEOUT_SECONDS,
-
-      async fetch(req, server) {
+    // Shared request pipeline. Extracted (rather than inlined in Bun.serve) so a
+    // test-only unix-socket mirror below can reuse the exact same auth/proxy/static
+    // routing. A request over that socket carries no peer address, which H5 auth
+    // treats as a public (non-LAN) source — used by integration tests to exercise
+    // the "remote browser needs the H5 token" path without a real public IP.
+    const serverFetch = async (req: Request, server: typeof server): Promise<Response> => {
         const url = new URL(req.url)
         if (isPublicAccessControlPath(url.pathname)) return publicAccess.control(req)
 
@@ -366,6 +367,7 @@ export function startServer(port = PORT, host = HOST) {
           request: req,
           url,
           h5Enabled: h5Settings.enabled,
+          requireToken: h5Settings.requireToken,
           context: h5RequestContext,
         })
         const h5AccessDisabledBlocked = shouldBlockDisabledH5Access({
@@ -393,6 +395,41 @@ export function startServer(port = PORT, host = HOST) {
             return corsRejectedResponse(cors)
           }
           return new Response(null, { status: 204, headers: cors.headers })
+        }
+
+        // Dedicated terminal WebSocket channel for the H5 browser terminal.
+        // The literal path /ws/terminal would otherwise be swallowed by the
+        // generic /ws/{sessionId} branch below, so it must be routed first.
+        if (url.pathname === '/ws/terminal') {
+          if (cors.rejected) {
+            return corsRejectedResponse(cors)
+          }
+
+          if (!petAccessAuthorized && authRequired) {
+            const authError = await requireH5Token(req, url.searchParams.get('token'))
+            if (authError) {
+              return withCors(authError, cors)
+            }
+          } else if (!petAccessAuthorized && forceAuth) {
+            const authError = await requireAuth(req, url.searchParams.get('token'))
+            if (authError) {
+              return withCors(authError, cors)
+            }
+          }
+
+          const upgraded = server.upgrade(req, {
+            data: {
+              sessionId: 'terminal',
+              connectedAt: Date.now(),
+              channel: 'terminal',
+              clientKind: 'full',
+              sdkToken: null,
+              serverPort,
+              serverHost: localConnectHost,
+            },
+          })
+          if (upgraded) return undefined
+          return new Response('WebSocket upgrade failed', { status: 400 })
         }
 
         // WebSocket upgrade
@@ -617,15 +654,46 @@ export function startServer(port = PORT, host = HOST) {
         }
 
         return new Response('Not Found', { status: 404 })
-      },
+    }
+
+    server = Bun.serve<WebSocketData>({
+      port,
+      hostname: host,
+      idleTimeout: HTTP_CONNECTION_IDLE_TIMEOUT_SECONDS,
+
+      fetch: serverFetch,
 
       websocket: handleWebSocket,
     })
+
+    // Test-only unix-socket mirror sharing the same fetch/websocket handlers.
+    // A request over this socket has no peer address, so H5 auth treats it as a
+    // public (non-LAN) source — integration tests use it to assert that a remote
+    // browser must present the H5 token, without needing a real public source IP.
+    const testUnixSocket = process.env.CC_HAHA_TEST_UNIX_SOCKET
+    let testUnixServer: ReturnType<typeof Bun.serve<WebSocketData>> | null = null
+    if (testUnixSocket) {
+      try {
+        if (existsSync(testUnixSocket)) unlinkSync(testUnixSocket)
+        testUnixServer = Bun.serve<WebSocketData>({
+          unix: testUnixSocket,
+          fetch: serverFetch,
+          websocket: handleWebSocket,
+        })
+      } catch (error) {
+        console.warn(
+          `[Server] test unix socket ${testUnixSocket} not started: ` +
+            (error instanceof Error ? error.message : String(error)),
+        )
+      }
+    }
     const disposeCollaboration = configureSessionCollaborationHost(localConnectHost, server.port)
+
     const stop = server.stop.bind(server)
     server.stop = (closeActiveConnections?: boolean) => {
       apiPerformanceMonitor.stop()
       disposeCollaboration()
+      if (testUnixServer) testUnixServer.stop(closeActiveConnections)
       publicAccess.disable()
       publicAccessServers.delete(publicAccess)
       return stop(closeActiveConnections)

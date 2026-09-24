@@ -113,6 +113,13 @@ export type H5AccessSettings = {
   fixedPort: number | null
   /** Idle grace period (seconds) before a disconnected, idle session's CLI is stopped. null = built-in 30s default. */
   disconnectGraceSeconds: number | null
+  /**
+   * Whether browser H5 access requires the Bearer H5 token. Default false:
+   * every source accesses H5 tokenless (0.0.0.0/0). When true, public-network
+   * sources must carry the token; loopback and private-network (RFC1918 /
+   * IPv6 ULA) sources are always exempt.
+   */
+  requireToken: boolean
 }
 
 export type H5HostStaleness = 'ok' | 'unreachable' | 'proxy' | 'unset'

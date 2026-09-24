@@ -1,0 +1,37 @@
+diff --git a/src/server/remoteBrowserPolicy.ts b/src/server/remoteBrowserPolicy.ts
+index 5bc98d56..587c8415 100644
+--- a/src/server/remoteBrowserPolicy.ts
++++ b/src/server/remoteBrowserPolicy.ts
+@@ -2,7 +2,10 @@ import type { RequestCompatibility, SavedProvider } from './types/provider.js'
+ 
+ export type ApiRequestContext = { remoteBrowser?: boolean }
+ const READ_SETTINGS = ['alwaysThinkingEnabled', 'workflowKeywordTriggerEnabled', 'autoDreamEnabled', 'skipAutoPermissionPrompt', 'chatSendBehavior', 'outputStyle', 'skipWebFetchPreflight', 'language']
+-const WRITE_SETTINGS = new Set(['language', 'chatSendBehavior', 'alwaysThinkingEnabled', 'workflowKeywordTriggerEnabled', 'outputStyle'])
++// `skipAutoPermissionPrompt` is writable so the H5 "auto mode" opt-in dialog can
++// persist from the phone; it only flips a persistent userSettings boolean, same
++// risk class as the other booleans below.
++const WRITE_SETTINGS = new Set(['language', 'chatSendBehavior', 'alwaysThinkingEnabled', 'workflowKeywordTriggerEnabled', 'outputStyle', 'skipAutoPermissionPrompt'])
+ const RESERVED_PROVIDER_PATHS = new Set(['settings', 'cc-switch', 'test', 'models', 'presets', 'auth-status', 'official', 'reorder'])
+ const REMOTE_COMPATIBILITY_KEYS = new Set(['maxOutputTokens', 'outputTokenLimit', 'outputTokenField', 'sampling', 'reasoning', 'parallelTools', 'structuredOutput'])
+ 
+diff --git a/src/server/router.remoteBrowser.test.ts b/src/server/router.remoteBrowser.test.ts
+index 8106583e..1ea57784 100644
+--- a/src/server/router.remoteBrowser.test.ts
++++ b/src/server/router.remoteBrowser.test.ts
+@@ -104,10 +104,15 @@ describe('remote browser API routing', () => {
+ 
+   test('general reads exclude secrets and valid edits including language reset keep exact requested fields', async () => {
+     expect(await (await request('/api/settings/user')).json()).toEqual({ language: 'en', alwaysThinkingEnabled: true })
+-    const patch = { language: '', chatSendBehavior: 'modifierEnter', workflowKeywordTriggerEnabled: true, alwaysThinkingEnabled: false, outputStyle: 'Learning' }
++    const patch = { language: '', chatSendBehavior: 'modifierEnter', workflowKeywordTriggerEnabled: true, alwaysThinkingEnabled: false, outputStyle: 'Learning', skipAutoPermissionPrompt: true }
+     const response = await request('/api/settings/user', 'PUT', patch)
+     expect(response.status).toBe(200)
+     expect(SettingsService.prototype.updateUserSettings).toHaveBeenCalledWith(patch)
++    // The H5 "auto mode" opt-in dialog persists this field from the phone.
++    const autoModeResponse = await request('/api/settings/user', 'PUT', { skipAutoPermissionPrompt: true })
++    expect(autoModeResponse.status).toBe(200)
++    expect(SettingsService.prototype.updateUserSettings).toHaveBeenLastCalledWith({ skipAutoPermissionPrompt: true })
++    expect((await request('/api/settings/user', 'PUT', { skipAutoPermissionPrompt: 'true' })).status).toBe(400)
+   })
+ 
+   test('rejects protected routes and malformed patches before touching persistence', async () => {

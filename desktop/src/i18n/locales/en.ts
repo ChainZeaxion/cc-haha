@@ -2274,6 +2274,8 @@ Row 9, all 8 cells: continuing from straight down, turning left through lower-le
   'settings.general.h5AccessDescription': 'Expose the desktop H5 app on your local network. Phones connect with a QR link that includes a short-lived H5 token.',
   'settings.general.h5AccessEnabled': 'Enable H5 access',
   'settings.general.h5AccessEnabledHint': 'The desktop server listens on the LAN address and allows access to desktop sessions.',
+  'settings.general.h5AccessRequireToken': 'Require access token',
+  'settings.general.h5AccessRequireTokenHint': 'When on, public-network devices must present the H5 access token; loopback and private-network (e.g. 192.168.x) sources are exempt. When off, every device can connect tokenless (0.0.0.0/0).',
   'settings.general.h5AccessStatusEnabled': 'Enabled',
   'settings.general.h5AccessTokenPreview': 'Token preview',
   'settings.general.h5AccessDisabledValue': 'Disabled',
@@ -3753,6 +3755,12 @@ Row 9, all 8 cells: continuing from straight down, turning left through lower-le
   'workflows.history.agents': '{count} agents recorded',
   'workflows.history.script': 'Script',
   'workflows.launcher.argsPlaceholder': 'e.g. a question, or a list of paths',
+  'session.export.title': 'Export conversation',
+  'session.export.export': 'Export',
+  'session.export.format': 'Export format',
+  'session.export.range': 'Export range',
+  'session.export.range.latest': 'Latest compact → newest (default)',
+  'session.export.range.all': 'All messages',
 } as const
 
 export type TranslationKey = keyof typeof en

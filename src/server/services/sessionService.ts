@@ -221,6 +221,8 @@ export type MessageEntry = {
   collaboration?: { sourceSessionId: string; messageId: string }
   id: string
   type: 'user' | 'assistant' | 'system' | 'tool_use' | 'tool_result'
+  /** Raw JSONL subtype, present for compact boundary system entries ('compact_boundary' / 'microcompact_boundary'). */
+  subtype?: string
   content: unknown
   bodyTruncated?: boolean
   toolUseResult?: unknown
@@ -5196,6 +5198,21 @@ export class SessionService {
       const goalLocalCommandMessage = this.goalLocalCommandEntryToMessage(entry)
       if (goalLocalCommandMessage) {
         messages.push(goalLocalCommandMessage)
+        continue
+      }
+
+      // Compact boundary entries carry no `message` role, so the generic filter below
+      // would drop them. Surface them as a typed system entry so the client can use the
+      // boundaries as export range markers (and the UI already renders the
+      // "Conversation compacted" text as a compact summary).
+      if (entry.type === 'system' && (entry.subtype === 'compact_boundary' || entry.subtype === 'microcompact_boundary')) {
+        messages.push({
+          id: typeof entry.uuid === 'string' && entry.uuid ? entry.uuid : crypto.randomUUID(),
+          type: 'system',
+          subtype: entry.subtype,
+          content: entry.content,
+          timestamp: entry.timestamp || new Date().toISOString(),
+        })
         continue
       }
 

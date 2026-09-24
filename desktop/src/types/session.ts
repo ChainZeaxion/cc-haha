@@ -49,6 +49,8 @@ export type MessageEntry = {
   collaboration?: { sourceSessionId: string; messageId?: string }
   id: string
   type: 'user' | 'assistant' | 'system' | 'tool_use' | 'tool_result'
+  /** Raw JSONL subtype, present for compact boundary system entries. */
+  subtype?: string
   content: unknown
   toolUseResult?: unknown
   timestamp: string

@@ -130,6 +130,7 @@ type SettingsStore = {
     publicBaseUrl?: string | null
     fixedPort?: number | null
     disconnectGraceSeconds?: number | null
+    requireToken?: boolean
   }) => Promise<void>
   setResponseLanguage: (language: string) => Promise<void>
   fetchAppMode: () => Promise<void>
@@ -149,6 +150,7 @@ const DEFAULT_H5_ACCESS_SETTINGS: H5AccessSettings = {
   publicBaseUrl: null,
   fixedPort: null,
   disconnectGraceSeconds: null,
+  requireToken: false,
 }
 
 const DEFAULT_DESKTOP_TERMINAL_SETTINGS: DesktopTerminalSettings = {
@@ -836,6 +838,7 @@ function normalizeH5AccessSettings(settings: H5AccessSettings | undefined): H5Ac
     publicBaseUrl: settings?.publicBaseUrl ?? null,
     fixedPort: typeof settings?.fixedPort === 'number' ? settings.fixedPort : null,
     disconnectGraceSeconds: typeof settings?.disconnectGraceSeconds === 'number' ? settings.disconnectGraceSeconds : null,
+    requireToken: settings?.requireToken === true,
   }
 }
 
