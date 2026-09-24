@@ -1,11 +1,12 @@
 import type { RequestCompatibility, SavedProvider } from './types/provider.js'
 
 export type ApiRequestContext = { remoteBrowser?: boolean }
-const READ_SETTINGS = ['alwaysThinkingEnabled', 'workflowKeywordTriggerEnabled', 'autoDreamEnabled', 'skipAutoPermissionPrompt', 'chatSendBehavior', 'outputStyle', 'skipWebFetchPreflight', 'language']
+const READ_SETTINGS = ['alwaysThinkingEnabled', 'workflowKeywordTriggerEnabled', 'autoDreamEnabled', 'skipAutoPermissionPrompt', 'disableUpdates', 'chatSendBehavior', 'outputStyle', 'skipWebFetchPreflight', 'language']
 // `skipAutoPermissionPrompt` is writable so the H5 "auto mode" opt-in dialog can
-// persist from the phone; it only flips a persistent userSettings boolean, same
-// risk class as the other booleans below.
-const WRITE_SETTINGS = new Set(['language', 'chatSendBehavior', 'alwaysThinkingEnabled', 'workflowKeywordTriggerEnabled', 'outputStyle', 'skipAutoPermissionPrompt'])
+// persist from the phone; `disableUpdates` is writable so the H5 "disable updates"
+// switch can persist the same way — both only flip a persistent userSettings
+// boolean, same risk class as the other booleans below.
+const WRITE_SETTINGS = new Set(['language', 'chatSendBehavior', 'alwaysThinkingEnabled', 'workflowKeywordTriggerEnabled', 'outputStyle', 'skipAutoPermissionPrompt', 'disableUpdates'])
 const RESERVED_PROVIDER_PATHS = new Set(['settings', 'cc-switch', 'test', 'models', 'presets', 'auth-status', 'official', 'reorder'])
 const REMOTE_COMPATIBILITY_KEYS = new Set(['maxOutputTokens', 'outputTokenLimit', 'outputTokenField', 'sampling', 'reasoning', 'parallelTools', 'structuredOutput'])
 

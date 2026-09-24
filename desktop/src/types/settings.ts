@@ -170,6 +170,8 @@ export type UserSettings = {
   skipWebFetchPreflight?: boolean
   desktopNotificationsEnabled?: boolean
   webSearch?: WebSearchSettings
+  /** When true, skip the startup update check and disable the manual "check now" action. */
+  disableUpdates?: boolean
   updateProxy?: Partial<UpdateProxySettings>
   network?: {
     aiRequestTimeoutMs?: number

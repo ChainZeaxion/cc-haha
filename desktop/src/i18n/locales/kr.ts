@@ -3333,6 +3333,8 @@ export const kr: Record<TranslationKey, string> = {
   'update.restarting': '업데이트를 완료하기 위해 다시 시작 중...',
   'update.upToDate': 'v{version}은(는) 최신입니다.',
   'update.failed': '업데이트에 실패했습니다: {error}',
+  'update.disableUpdates': '업데이트 비활성화',
+  'update.disableUpdatesDescription': '활성화하면 시작 시 자동 업데이트 확인을 건너뛰고 지금 확인 동작이 비활성화됩니다.',
 
   // ─── Active Session ──────────────────────────────────────
   'session.untitled': '제목 없는 세션',

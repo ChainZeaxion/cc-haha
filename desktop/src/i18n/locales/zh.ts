@@ -3329,6 +3329,8 @@ export const zh: Record<TranslationKey, string> = {
   'update.restarting': '正在重启以完成更新...',
   'update.upToDate': '当前已是最新版本 v{version}。',
   'update.failed': '更新失败: {error}',
+  'update.disableUpdates': '禁止更新',
+  'update.disableUpdatesDescription': '启用后跳过启动时的自动更新检查，并停用「检查更新」操作。',
 
   // ─── 活跃会话 ──────────────────────────────────────
   'session.untitled': '未命名会话',

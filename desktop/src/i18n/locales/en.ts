@@ -3330,6 +3330,8 @@ Row 9, all 8 cells: continuing from straight down, turning left through lower-le
   'update.restarting': 'Restarting to finish update...',
   'update.upToDate': 'You are up to date on v{version}.',
   'update.failed': 'Update failed: {error}',
+  'update.disableUpdates': 'Disable updates',
+  'update.disableUpdatesDescription': 'Skips the automatic update check at startup and disables the Check now action while enabled.',
 
   // ─── Active Session ──────────────────────────────────────
   'session.untitled': 'Untitled Session',

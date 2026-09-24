@@ -63,7 +63,9 @@ type SettingsStore = {
   workflowKeywordTriggerEnabled: boolean
   agentTeamsEnabled: boolean
   autoDreamEnabled: boolean
+  disableUpdates: boolean
   autoModeOptInAccepted: boolean
+
   availableModels: ModelInfo[]
   activeProviderName: string | null
   locale: Locale
@@ -108,6 +110,7 @@ type SettingsStore = {
   setWorkflowKeywordTriggerEnabled: (enabled: boolean) => Promise<void>
   setAgentTeamsEnabled: (enabled: boolean) => Promise<void>
   setAutoDreamEnabled: (enabled: boolean) => Promise<void>
+  setDisableUpdates: (enabled: boolean) => Promise<void>
   acceptAutoModeOptIn: () => Promise<void>
   setLocale: (locale: Locale) => void
   setTheme: (theme: ThemeMode) => Promise<void>
@@ -203,6 +206,7 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
   workflowKeywordTriggerEnabled: true,
   agentTeamsEnabled: true,
   autoDreamEnabled: false,
+  disableUpdates: false,
   autoModeOptInAccepted: false,
   availableModels: [],
   activeProviderName: null,
@@ -281,6 +285,7 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
         workflowKeywordTriggerEnabled: userSettings.workflowKeywordTriggerEnabled !== false,
         agentTeamsEnabled: userSettings.agentTeamsEnabled !== false,
         autoDreamEnabled: userSettings.autoDreamEnabled === true,
+        disableUpdates: userSettings.disableUpdates === true,
         autoModeOptInAccepted: userSettings.skipAutoPermissionPrompt === true,
         chatSendBehavior: normalizeChatSendBehavior(userSettings.chatSendBehavior),
         outputStyle: normalizeOutputStyle(userSettings.outputStyle),
@@ -382,6 +387,17 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
       await settingsApi.updateUser({ autoDreamEnabled: enabled })
     } catch (error) {
       set({ autoDreamEnabled: prev })
+      throw error
+    }
+  },
+
+  setDisableUpdates: async (enabled) => {
+    const prev = get().disableUpdates
+    set({ disableUpdates: enabled })
+    try {
+      await settingsApi.updateUser({ disableUpdates: enabled })
+    } catch (error) {
+      set({ disableUpdates: prev })
       throw error
     }
   },

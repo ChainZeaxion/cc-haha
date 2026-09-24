@@ -15,7 +15,7 @@
 | 工具调用/协议 | 三 会话刷新按钮（卡住软刷新规避） | 旧§八 | ✅ |
 | 功能特性 | 四 实时解码速度（TPS）指示器 + 手机端两行 | 旧§九/§十六 | ✅ |
 | 功能特性 | 五 文件下载桥接 | 旧§十二 | ✅ |
-| 功能特性 | 六 设置-关于-更新：禁止更新开关 | 旧§十三 | 🕓 |
+| 功能特性 | 六 设置-关于-更新：禁止更新开关 | 旧§十三 | ✅ |
 | 计费/上下文 | 七 上下文缓存与计费显示（cache 命中率修正） | 旧§十四 | ⬜ |
 | 功能特性 | 八 思考模式二级开关（think 是否回传后端） | 旧§二十五 | ⬜ |
 | 功能特性 | 九 H5 设置页与桌面端全 tab 对齐（放开浏览器「两 pill」围栏） | —（新增） | ✅ |
@@ -42,7 +42,7 @@
 | `patches/session-refresh.patch` | 三 会话刷新按钮 | 2f8d819d (v0.6.6) | ✅ |
 | `patches/tps-indicator.patch` | 四 TPS 指示器 + 两行 | 2f8d819d (v0.6.6) | ✅ |
 | `patches/file-download.patch` | 五 文件下载桥接 | — | ✅ |
-| `patches/disable-updates.patch` | 六 禁止更新开关 | — | ⬜ |
+| `patches/disable-updates.patch` | 六 禁止更新开关 | 4aaf425a | ✅ |
 | `patches/cache-billing.patch` | 七 上下文缓存与计费显示 | — | ⬜ |
 | `patches/thinking-switch.patch` | 八 思考模式二级开关 | — | ⬜ |
 | `patches/h5-settings-parity.patch` | 九 H5 设置全 tab 对齐 | 2f8d819d (v0.6.6) | ✅ |
@@ -270,15 +270,36 @@ H5 浏览器端打开文件链接时，`/local-file/<absPath>` 直接内联显�
 
 ---
 
-## 六、设置-关于-更新：禁止更新开关（源§十三）
+## 六、设置-关于-更新：禁止更新开关（源§十三，✅ 2026-09-25）
 
 ### 需求背景
 
+源§十三：桌面端 设置→关于→更新 区域加「禁止更新」开关，彻底关闭自动更新检查与下载（0.5.x 现状：启动即 `checkForUpdates({silent:true,autoDownload:true})` 检查+自动下载，AboutSettings 仅手动检查按钮，无开关）。
+
+**语义决策（用户拍板）= 完全禁用（含手动）**：启动检查跳过 + 手动「检查更新」按钮置灰。`checkForUpdates` 外部调用方仅 AboutSettings 按钮一处，守卫放在 store 层即可全覆盖。
+
 ### 0.6.6 现状核对
+
+- 更新系统：`UpdateChecker.tsx` 挂载即 `useUpdateStore.initialize()`；`updateStore.initialize()` 延迟 5s 后 `checkForUpdates({silent:true})`（startupCheckPromise 单飞）；`checkForUpdates({silent,autoDownload})` 内 `autoDownload && (shouldOffer||!silent)` 触发 `downloadUpdate()`。
+- 设置持久化=REST `/api/settings/user`，服务端 `settingsService.updateUserSettings` 顶层浅合并（`Object.assign`）→ **新 boolean 字段服务端零改动**（照 `autoDreamEnabled` 完整 boolean toggle 范式）。
+- **坑（live 发现）**：H5 浏览器端（`remoteBrowser=true`，由 `classifyH5Request==='h5-browser'` 判定）走 `router.ts:68 validateRemoteSettingsPatch`（`WRITE_SETTINGS` 白名单）与 `:93 projectRemoteSettings`（`READ_SETTINGS` 投影）——新 key 两侧都不在名单 → PUT 400「Unsupported General setting」+ 乐观更新回弹、GET 读回永远 false。loopback 桌面直连不走此路径（loopback curl 200），所以单测全绿仍会漏。
 
 ### 实施方案
 
+1. `desktop/src/types/settings.ts`：`UserSettings` 加 `disableUpdates?: boolean`（webSearch 与 updateProxy 之间）。
+2. `desktop/src/stores/settingsStore.ts`：`disableUpdates: boolean` 字段（初始 false）+ hydrate `userSettings.disableUpdates === true` + `setDisableUpdates(enabled)` 乐观 set→`settingsApi.updateUser`→失败回滚 throw（照 `setAutoDreamEnabled`）。
+3. `desktop/src/stores/updateStore.ts` 两处守卫：`initialize()` 在 `getUpdateHost()` 后、`checkForUpdates()` 在 host 判定后各加 `if (useSettingsStore.getState().disableUpdates) return (null)`——启动/手动检查全拦，自动下载随检查入口一并停。
+4. `desktop/src/pages/settings/AboutSettings.tsx`：Check now 按钮 `disabled={disableUpdates}`；按钮块后插 `Switch`（label/description 走 i18n）——「关于」tab 桌面+H5 共用（H5Settings.tsx:92 已渲染 AboutSettings）。
+5. **`src/server/remoteBrowserPolicy.ts`**：`disableUpdates` 加进 `READ_SETTINGS` 与 `WRITE_SETTINGS`（boolean 走默认 `typeof value==='boolean'` 校验）——H5 手机可读写该开关（同 `skipAutoPermissionPrompt` 先例）。
+6. i18n `update.disableUpdates`/`update.disableUpdatesDescription` 5 语言（en/zh/zh-TW/jp/kr，插在 `update.failed` 后）。
+7. 测试：`updateStore.test.ts` +2（disableUpdates 时手动 check 返回 null 且不触发 check；initialize+fakeTimers 6s 启动检查不触发）；`remoteBrowserPolicy.test.ts` +3 断言（`validateRemoteSettingsPatch({disableUpdates:true})` true、非 boolean false、`projectRemoteSettings` 透传）。
+
 ### 验证
+
+- 桌面 `tsc -b` exit 0；`updateStore.test.ts` 20/20；全量前端 vitest **6143 pass/2 fail**（2 条=基线既有 providerModels、MessagePayloadRetention，零回归）；`remoteBrowserPolicy`+`router.remoteBrowser` 10/10。
+- vite build → App-BxBY2ThW.js；dev 7788 live（H5 关于页）：开关开→persisted=true+「检查更新」置灰、关→persisted=false+恢复，console 无错（400 修复前开关回弹）。
+- **坑实录**：初版漏改 `remoteBrowserPolicy.ts` → H5 PUT 400、开关回弹（loopback curl 200 未暴露）；补 READ+WRITE 白名单后 H5 读写全通。
+- Patch：`modify/patches/disable-updates.patch`（12 文件 302 行）。**9 patch 全链 `git apply` 干净且 disable-updates 12 文件逐字节等于工作树（0 差异）**。
 
 ---
 

@@ -1,0 +1,302 @@
+diff --git a/desktop/src/i18n/locales/en.ts b/desktop/src/i18n/locales/en.ts
+index a7a13add..e41915b0 100644
+--- a/desktop/src/i18n/locales/en.ts
++++ b/desktop/src/i18n/locales/en.ts
+@@ -3330,6 +3330,8 @@ Row 9, all 8 cells: continuing from straight down, turning left through lower-le
+   'update.restarting': 'Restarting to finish update...',
+   'update.upToDate': 'You are up to date on v{version}.',
+   'update.failed': 'Update failed: {error}',
++  'update.disableUpdates': 'Disable updates',
++  'update.disableUpdatesDescription': 'Skips the automatic update check at startup and disables the Check now action while enabled.',
+ 
+   // ─── Active Session ──────────────────────────────────────
+   'session.untitled': 'Untitled Session',
+diff --git a/desktop/src/i18n/locales/jp.ts b/desktop/src/i18n/locales/jp.ts
+index 5a50d468..a079886c 100644
+--- a/desktop/src/i18n/locales/jp.ts
++++ b/desktop/src/i18n/locales/jp.ts
+@@ -3331,6 +3331,8 @@ export const jp: Record<TranslationKey, string> = {
+   'update.restarting': '更新を完了するために再起動中...',
+   'update.upToDate': 'v{version} は最新です。',
+   'update.failed': '更新に失敗しました: {error}',
++  'update.disableUpdates': '更新を無効にする',
++  'update.disableUpdatesDescription': '有効にすると起動時の自動更新チェックをスキップし、「今すぐ確認」操作が無効になります。',
+ 
+   // ─── Active Session ──────────────────────────────────────
+   'session.untitled': '無題のセッション',
+diff --git a/desktop/src/i18n/locales/kr.ts b/desktop/src/i18n/locales/kr.ts
+index 5e2ae2b3..3470cc24 100644
+--- a/desktop/src/i18n/locales/kr.ts
++++ b/desktop/src/i18n/locales/kr.ts
+@@ -3333,6 +3333,8 @@ export const kr: Record<TranslationKey, string> = {
+   'update.restarting': '업데이트를 완료하기 위해 다시 시작 중...',
+   'update.upToDate': 'v{version}은(는) 최신입니다.',
+   'update.failed': '업데이트에 실패했습니다: {error}',
++  'update.disableUpdates': '업데이트 비활성화',
++  'update.disableUpdatesDescription': '활성화하면 시작 시 자동 업데이트 확인을 건너뛰고 지금 확인 동작이 비활성화됩니다.',
+ 
+   // ─── Active Session ──────────────────────────────────────
+   'session.untitled': '제목 없는 세션',
+diff --git a/desktop/src/i18n/locales/zh-TW.ts b/desktop/src/i18n/locales/zh-TW.ts
+index 72e00d1d..cd4daee2 100644
+--- a/desktop/src/i18n/locales/zh-TW.ts
++++ b/desktop/src/i18n/locales/zh-TW.ts
+@@ -3330,6 +3330,8 @@ export const zh: Record<TranslationKey, string> = {
+   'update.restarting': '正在重啟以完成更新...',
+   'update.upToDate': '當前已是最新版本 v{version}。',
+   'update.failed': '更新失敗: {error}',
++  'update.disableUpdates': '禁止更新',
++  'update.disableUpdatesDescription': '啟用後略過啟動時的自動更新檢查，並停用「檢查更新」操作。',
+ 
+   // ─── 活躍會話 ──────────────────────────────────────
+   'session.untitled': '未命名會話',
+diff --git a/desktop/src/i18n/locales/zh.ts b/desktop/src/i18n/locales/zh.ts
+index 3e0edb40..e6cc1ee9 100644
+--- a/desktop/src/i18n/locales/zh.ts
++++ b/desktop/src/i18n/locales/zh.ts
+@@ -3329,6 +3329,8 @@ export const zh: Record<TranslationKey, string> = {
+   'update.restarting': '正在重启以完成更新...',
+   'update.upToDate': '当前已是最新版本 v{version}。',
+   'update.failed': '更新失败: {error}',
++  'update.disableUpdates': '禁止更新',
++  'update.disableUpdatesDescription': '启用后跳过启动时的自动更新检查，并停用「检查更新」操作。',
+ 
+   // ─── 活跃会话 ──────────────────────────────────────
+   'session.untitled': '未命名会话',
+diff --git a/desktop/src/pages/settings/AboutSettings.tsx b/desktop/src/pages/settings/AboutSettings.tsx
+index 67c9b204..109f960c 100644
+--- a/desktop/src/pages/settings/AboutSettings.tsx
++++ b/desktop/src/pages/settings/AboutSettings.tsx
+@@ -4,6 +4,7 @@ import { useTranslation } from '../../i18n'
+ import { Input } from '@/components/ui/Input'
+ import { Button } from '@/components/ui/Button'
+ import { Card } from '@/components/ui/Card'
++import { Switch } from '@/components/ui/Switch'
+ import type { UpdateProxyMode } from '../../types/settings'
+ import { MarkdownRenderer } from '../../components/markdown/MarkdownRenderer'
+ import { useUpdateStore } from '../../stores/updateStore'
+@@ -37,6 +38,8 @@ export function AboutSettings() {
+   const [version, setVersion] = useState('')
+   const updateProxy = useSettingsStore((s) => s.updateProxy)
+   const setUpdateProxy = useSettingsStore((s) => s.setUpdateProxy)
++  const disableUpdates = useSettingsStore((s) => s.disableUpdates)
++  const setDisableUpdates = useSettingsStore((s) => s.setDisableUpdates)
+   const updateStatus = useUpdateStore((s) => s.status)
+   const availableVersion = useUpdateStore((s) => s.availableVersion)
+   const releaseNotes = useUpdateStore((s) => s.releaseNotes)
+@@ -195,11 +198,21 @@ export function AboutSettings() {
+             variant="secondary"
+             onClick={() => void checkForUpdates()}
+             loading={updateStatus === 'checking'}
++            disabled={disableUpdates}
+           >
+             {t('update.checkNow')}
+           </Button>
+         </div>
+ 
++        <div className="mt-3">
++          <Switch
++            checked={disableUpdates}
++            onChange={(enabled) => void setDisableUpdates(enabled)}
++            label={t('update.disableUpdates')}
++            description={t('update.disableUpdatesDescription')}
++          />
++        </div>
++
+         <div className="mt-4 rounded-[var(--radius-lg)] border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-3">
+           <div className="flex items-center justify-between gap-3">
+             <div>
+diff --git a/desktop/src/stores/settingsStore.ts b/desktop/src/stores/settingsStore.ts
+index 200fa6a7..2bce1963 100644
+--- a/desktop/src/stores/settingsStore.ts
++++ b/desktop/src/stores/settingsStore.ts
+@@ -63,7 +63,9 @@ type SettingsStore = {
+   workflowKeywordTriggerEnabled: boolean
+   agentTeamsEnabled: boolean
+   autoDreamEnabled: boolean
++  disableUpdates: boolean
+   autoModeOptInAccepted: boolean
++
+   availableModels: ModelInfo[]
+   activeProviderName: string | null
+   locale: Locale
+@@ -108,6 +110,7 @@ type SettingsStore = {
+   setWorkflowKeywordTriggerEnabled: (enabled: boolean) => Promise<void>
+   setAgentTeamsEnabled: (enabled: boolean) => Promise<void>
+   setAutoDreamEnabled: (enabled: boolean) => Promise<void>
++  setDisableUpdates: (enabled: boolean) => Promise<void>
+   acceptAutoModeOptIn: () => Promise<void>
+   setLocale: (locale: Locale) => void
+   setTheme: (theme: ThemeMode) => Promise<void>
+@@ -203,6 +206,7 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
+   workflowKeywordTriggerEnabled: true,
+   agentTeamsEnabled: true,
+   autoDreamEnabled: false,
++  disableUpdates: false,
+   autoModeOptInAccepted: false,
+   availableModels: [],
+   activeProviderName: null,
+@@ -281,6 +285,7 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
+         workflowKeywordTriggerEnabled: userSettings.workflowKeywordTriggerEnabled !== false,
+         agentTeamsEnabled: userSettings.agentTeamsEnabled !== false,
+         autoDreamEnabled: userSettings.autoDreamEnabled === true,
++        disableUpdates: userSettings.disableUpdates === true,
+         autoModeOptInAccepted: userSettings.skipAutoPermissionPrompt === true,
+         chatSendBehavior: normalizeChatSendBehavior(userSettings.chatSendBehavior),
+         outputStyle: normalizeOutputStyle(userSettings.outputStyle),
+@@ -386,6 +391,17 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
+     }
+   },
+ 
++  setDisableUpdates: async (enabled) => {
++    const prev = get().disableUpdates
++    set({ disableUpdates: enabled })
++    try {
++      await settingsApi.updateUser({ disableUpdates: enabled })
++    } catch (error) {
++      set({ disableUpdates: prev })
++      throw error
++    }
++  },
++
+   acceptAutoModeOptIn: async () => {
+     const previous = get().autoModeOptInAccepted
+     set({ autoModeOptInAccepted: true })
+diff --git a/desktop/src/stores/updateStore.test.ts b/desktop/src/stores/updateStore.test.ts
+index f1f47f09..cfacec1c 100644
+--- a/desktop/src/stores/updateStore.test.ts
++++ b/desktop/src/stores/updateStore.test.ts
+@@ -369,6 +369,54 @@ describe('updateStore', () => {
+     expect(useUpdateStore.getState().shouldPrompt).toBe(true)
+   })
+ 
++  it('skips manual checks while disableUpdates is on', async () => {
++    check.mockResolvedValue({
++      version: '0.2.0',
++      body: 'Notes',
++      download: vi.fn().mockResolvedValue(undefined),
++      close: vi.fn().mockResolvedValue(undefined),
++    })
++
++    vi.resetModules()
++    const { useSettingsStore } = await import('./settingsStore')
++    useSettingsStore.setState({ disableUpdates: true })
++    const { useUpdateStore } = await import('./updateStore')
++
++    const result = await useUpdateStore.getState().checkForUpdates()
++
++    expect(result).toBeNull()
++    expect(check).not.toHaveBeenCalled()
++    expect(useUpdateStore.getState().status).toBe('idle')
++    useSettingsStore.setState({ disableUpdates: false })
++  })
++
++  it('does not run the startup check from initialize while disableUpdates is on', async () => {
++    vi.useFakeTimers()
++    try {
++      check.mockResolvedValue({
++        version: '0.2.0',
++        body: 'Notes',
++        download: vi.fn().mockResolvedValue(undefined),
++        close: vi.fn().mockResolvedValue(undefined),
++      })
++
++      vi.resetModules()
++      const { useSettingsStore } = await import('./settingsStore')
++      useSettingsStore.setState({ disableUpdates: true })
++      const { useUpdateStore } = await import('./updateStore')
++
++      await useUpdateStore.getState().initialize()
++      // The startup check is deferred 5s; advance past it and assert nothing fired.
++      await vi.advanceTimersByTimeAsync(6_000)
++
++      expect(check).not.toHaveBeenCalled()
++      expect(useUpdateStore.getState().status).toBe('idle')
++      useSettingsStore.setState({ disableUpdates: false })
++    } finally {
++      vi.useRealTimers()
++    }
++  })
++
+   it('does not download again when the pending update is already downloaded', async () => {
+     const download = vi.fn(async (onEvent?: (event: unknown) => void) => {
+       onEvent?.({ event: 'Started', data: { contentLength: 100 } })
+diff --git a/desktop/src/stores/updateStore.ts b/desktop/src/stores/updateStore.ts
+index 58e767fd..4e9daa86 100644
+--- a/desktop/src/stores/updateStore.ts
++++ b/desktop/src/stores/updateStore.ts
+@@ -195,6 +195,8 @@ export const useUpdateStore = create<UpdateStore>((set, get) => ({
+ 
+   initialize: async () => {
+     if (!getUpdateHost()) return
++    // "Disable updates" suppresses the startup check entirely.
++    if (useSettingsStore.getState().disableUpdates) return
+     if (!startupCheckPromise) {
+       startupCheckPromise = (async () => {
+         await new Promise((resolve) => setTimeout(resolve, 5000))
+@@ -210,6 +212,8 @@ export const useUpdateStore = create<UpdateStore>((set, get) => ({
+   checkForUpdates: async ({ silent = false, autoDownload = true } = {}) => {
+     const host = getUpdateHost()
+     if (!host) return null
++    // While "disable updates" is on, neither startup nor manual checks run.
++    if (useSettingsStore.getState().disableUpdates) return null
+     if (downloadPromise && get().status === 'downloading' && pendingUpdate) return pendingUpdate
+     clearRelaunchWatchdog()
+ 
+diff --git a/desktop/src/types/settings.ts b/desktop/src/types/settings.ts
+index 05807ce6..56551ea5 100644
+--- a/desktop/src/types/settings.ts
++++ b/desktop/src/types/settings.ts
+@@ -170,6 +170,8 @@ export type UserSettings = {
+   skipWebFetchPreflight?: boolean
+   desktopNotificationsEnabled?: boolean
+   webSearch?: WebSearchSettings
++  /** When true, skip the startup update check and disable the manual "check now" action. */
++  disableUpdates?: boolean
+   updateProxy?: Partial<UpdateProxySettings>
+   network?: {
+     aiRequestTimeoutMs?: number
+diff --git a/src/server/remoteBrowserPolicy.test.ts b/src/server/remoteBrowserPolicy.test.ts
+index 39840621..c1d278b0 100644
+--- a/src/server/remoteBrowserPolicy.test.ts
++++ b/src/server/remoteBrowserPolicy.test.ts
+@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync } from 'node:fs'
+ import os from 'node:os'
+ import path from 'node:path'
+ import { createSandboxedTestEnvironment } from '../../scripts/pr/test-environment.js'
+-import { remoteProviderRouteAllowed, remoteSettingsRouteAllowed, validateRemoteSettingsPatch } from './remoteBrowserPolicy.js'
++import { projectRemoteSettings, remoteProviderRouteAllowed, remoteSettingsRouteAllowed, validateRemoteSettingsPatch } from './remoteBrowserPolicy.js'
+ 
+ test('remote settings boundary permits only intended provider routes and General fields', () => {
+   const parts = (pathname: string) => pathname.split('/').filter(Boolean)
+@@ -15,6 +15,9 @@ test('remote settings boundary permits only intended provider routes and General
+   expect(validateRemoteSettingsPatch({ alwaysThinkingEnabled: 'true' })).toBe(false)
+   expect(validateRemoteSettingsPatch({ chatSendBehavior: 'modifierEnter' })).toBe(true)
+   expect(validateRemoteSettingsPatch({ language: '' })).toBe(true)
++  expect(validateRemoteSettingsPatch({ disableUpdates: true })).toBe(true)
++  expect(validateRemoteSettingsPatch({ disableUpdates: 'true' })).toBe(false)
++  expect(projectRemoteSettings({ disableUpdates: true })).toEqual({ disableUpdates: true })
+ })
+ 
+ test('LAN and public provider CRUD redact and preserve keys; General edits isolate desktop secrets', async () => {
+diff --git a/src/server/remoteBrowserPolicy.ts b/src/server/remoteBrowserPolicy.ts
+index 6707fed2..077023b5 100644
+--- a/src/server/remoteBrowserPolicy.ts
++++ b/src/server/remoteBrowserPolicy.ts
+@@ -1,11 +1,12 @@
+ import type { RequestCompatibility, SavedProvider } from './types/provider.js'
+ 
+ export type ApiRequestContext = { remoteBrowser?: boolean }
+-const READ_SETTINGS = ['alwaysThinkingEnabled', 'workflowKeywordTriggerEnabled', 'autoDreamEnabled', 'skipAutoPermissionPrompt', 'chatSendBehavior', 'outputStyle', 'skipWebFetchPreflight', 'language']
++const READ_SETTINGS = ['alwaysThinkingEnabled', 'workflowKeywordTriggerEnabled', 'autoDreamEnabled', 'skipAutoPermissionPrompt', 'disableUpdates', 'chatSendBehavior', 'outputStyle', 'skipWebFetchPreflight', 'language']
+ // `skipAutoPermissionPrompt` is writable so the H5 "auto mode" opt-in dialog can
+-// persist from the phone; it only flips a persistent userSettings boolean, same
+-// risk class as the other booleans below.
+-const WRITE_SETTINGS = new Set(['language', 'chatSendBehavior', 'alwaysThinkingEnabled', 'workflowKeywordTriggerEnabled', 'outputStyle', 'skipAutoPermissionPrompt'])
++// persist from the phone; `disableUpdates` is writable so the H5 "disable updates"
++// switch can persist the same way — both only flip a persistent userSettings
++// boolean, same risk class as the other booleans below.
++const WRITE_SETTINGS = new Set(['language', 'chatSendBehavior', 'alwaysThinkingEnabled', 'workflowKeywordTriggerEnabled', 'outputStyle', 'skipAutoPermissionPrompt', 'disableUpdates'])
+ const RESERVED_PROVIDER_PATHS = new Set(['settings', 'cc-switch', 'test', 'models', 'presets', 'auth-status', 'official', 'reorder'])
+ const REMOTE_COMPATIBILITY_KEYS = new Set(['maxOutputTokens', 'outputTokenLimit', 'outputTokenField', 'sampling', 'reasoning', 'parallelTools', 'structuredOutput'])
+ 

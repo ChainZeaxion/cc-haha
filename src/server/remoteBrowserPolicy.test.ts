@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { createSandboxedTestEnvironment } from '../../scripts/pr/test-environment.js'
-import { remoteProviderRouteAllowed, remoteSettingsRouteAllowed, validateRemoteSettingsPatch } from './remoteBrowserPolicy.js'
+import { projectRemoteSettings, remoteProviderRouteAllowed, remoteSettingsRouteAllowed, validateRemoteSettingsPatch } from './remoteBrowserPolicy.js'
 
 test('remote settings boundary permits only intended provider routes and General fields', () => {
   const parts = (pathname: string) => pathname.split('/').filter(Boolean)
@@ -15,6 +15,9 @@ test('remote settings boundary permits only intended provider routes and General
   expect(validateRemoteSettingsPatch({ alwaysThinkingEnabled: 'true' })).toBe(false)
   expect(validateRemoteSettingsPatch({ chatSendBehavior: 'modifierEnter' })).toBe(true)
   expect(validateRemoteSettingsPatch({ language: '' })).toBe(true)
+  expect(validateRemoteSettingsPatch({ disableUpdates: true })).toBe(true)
+  expect(validateRemoteSettingsPatch({ disableUpdates: 'true' })).toBe(false)
+  expect(projectRemoteSettings({ disableUpdates: true })).toEqual({ disableUpdates: true })
 })
 
 test('LAN and public provider CRUD redact and preserve keys; General edits isolate desktop secrets', async () => {

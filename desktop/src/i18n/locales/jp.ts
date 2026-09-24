@@ -3331,6 +3331,8 @@ export const jp: Record<TranslationKey, string> = {
   'update.restarting': '更新を完了するために再起動中...',
   'update.upToDate': 'v{version} は最新です。',
   'update.failed': '更新に失敗しました: {error}',
+  'update.disableUpdates': '更新を無効にする',
+  'update.disableUpdatesDescription': '有効にすると起動時の自動更新チェックをスキップし、「今すぐ確認」操作が無効になります。',
 
   // ─── Active Session ──────────────────────────────────────
   'session.untitled': '無題のセッション',
