@@ -35,6 +35,11 @@ describe('complete message payloads', () => {
     expect(screen.getByText('notes.md')).toBeInTheDocument()
   })
 
+  // A 5000-line Edit renders a 5001-line word diff with per-line syntax
+  // highlighting — ~4s under jsdom, so the default 5s budget flips to a
+  // timeout under full-suite machine load. Bump the budget; the render cost is
+  // the point of this test (payload retention through a huge diff), not the
+  // default timeout.
   it('renders both sides of a large successful Edit', async () => {
     const message = {
       id: 'edit', type: 'tool_use', toolName: 'Edit', toolUseId: 'edit', timestamp: 1,
@@ -46,7 +51,7 @@ describe('complete message payloads', () => {
     })
     expect(screen.getByText('+1')).toBeInTheDocument()
     expect(screen.getByText('-5001')).toBeInTheDocument()
-  })
+  }, 20_000)
 
   it('copies the entire retained reply including its beginning and end', async () => {
     const content = 'HEAD_SENTINEL' + 'm'.repeat(70_000) + 'TAIL_SENTINEL'
