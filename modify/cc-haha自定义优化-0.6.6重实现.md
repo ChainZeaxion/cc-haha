@@ -24,6 +24,8 @@
 | 工程/质量 | 十二 src/server 既有 22 条测试失败清零 | —（新增） | ✅ |
 | 上下文/压缩 | 十三 pi-vcc 算法压缩移植（transcript-preserving，无 LLM 调用）+ 双后端热切换 + vcc_recall 工具 | 新增（参考 @sting8k/pi-vcc 0.8.0） | ✅ |
 | 移动端/H5 | 十四 H5/移动端支持打开插件市场（技能·连接器） | —（新增） | ✅ |
+| 移动端/H5 | 十五 H5/移动端支持打开计划任务（定时任务）页 | —（新增） | ✅ |
+| 连接器/平台 | 十六 连接器目录 Linux 平台支持（x64/arm64，服务端 H5 场景生效） | —（新增） | ✅ |
 ## 📦 联动 Patches
 
 > 各优化项的实施 diff 以 patch 文件形式统一存放到本 `modify/` 目录（后期全部归档于此），与上文章节联动：每完成一项，patch 入库并在此登记；升级/重打基座时按本表逐个 `git apply` 重放。
@@ -54,6 +56,9 @@
 | `patches/h5-mobile-quick-actions.patch` | 十一 H5 悬浮快捷入口（任务/终端/文件/审查） | 447d03a7 | ✅ |
 | `patches/vcc-compactor.patch` | 十三 pi-vcc 算法压缩移植 + 双后端热切换 + vcc_recall | 2004cd16 | ✅ |
 | `patches/h5-mobile-market.patch` | 十四 H5/移动端支持打开插件市场 | 10d7d52a | ✅ |
+| `patches/h5-mobile-scheduled.patch` | 十五 H5/移动端支持打开计划任务（定时任务）页 | cc88daa5 | ✅ |
+| `patches/connector-linux-platform.patch` | 十六 连接器目录 Linux 平台支持（x64/arm64） | cc88daa5 | ✅ |
+
 
 ### 移植通用注意事项- stale `.js` 孪生：改 `src/*.ts` 走 sidecar 打包路径时，须核对被改文件同名 `.js` 是否存在且同步（旧树 `.js` 优先加载坑）。
 - 0.6.6 已有对应能力需**融合**而非整块覆盖（如 H5 安全配对、缓存 token 显示、rewind 等），各章落地前先核对现状。
@@ -663,3 +668,54 @@ CLAUDE_H5_DIST_DIR=/home/zeaxion/myproject/cchaha-06scode/desktop/dist \
 - **16 链全验证**（worktree@2f8d819d 顺序 apply 16 patch：15 既有 + `h5-mobile-market`）全干净；链上 Sidebar/AppShell 与工作树逐字节一致（已知非章 delta 不变：bun.lock、TerminalSettings.tsx、providerModels.ts、MessagePayloadRetention.test.tsx）。
 
 **patch**：`modify/patches/h5-mobile-market.patch`（2 文件 61 行，链位 16，基线 10d7d52a）。
+
+## 十五、H5/移动端支持打开计划任务（定时任务）页（✅ 2026-09-26）
+
+> 用户 verbatim：「再把计划任务也给移动端访问H5打开适配」。
+
+### 现状核对
+- 计划任务页 `desktop/src/pages/ScheduledTasks.tsx` 纯 `taskStore`+HTTP（`api/tasks`），无桌面宿主依赖，移动端可打开；布局 `px-11` 在 390px 下两侧占 88px 偏宽。
+- 与十四章同构的两处拦截：①`Sidebar.tsx` 定时任务 NavItem 包在 `{!isMobile && ...}` 内→移动端抽屉无入口；②`AppShell.tsx:275` 移动端 effect 早退条件不含 scheduled→scheduled tab 被踢回会话。
+
+### 实施方案（3 文件 3 处 + 1 测试更新）
+1. `Sidebar.tsx`：定时任务 NavItem 移出 `{!isMobile}` 包裹；
+2. `AppShell.tsx:275`：早退条件加 `|| activeTab?.type === 'scheduled'`；
+3. `AppShell.tsx` mobile-session-header：scheduled tab 标题分支（`t('sidebar.scheduled')`，settings/market 分支范式）；
+4. `ScheduledTasks.tsx`：内容容器 `px-11` → `px-4 lg:px-11`（移动端响应式）。
+5. `Sidebar.test.tsx`：「keeps mobile navigation focused on chat sessions」用例原断言移动端无 Scheduled/Extension Market——该断言在十四章（market 上移动端）后已失配（HEAD 即失败），本轮随 scheduled 上移动端一并更新为「两者均在」。
+
+### 验证
+- tsc exit 0；Sidebar/AppShell/ContentRouter 3 文件 135/135（含更新后的移动端导航用例）；全量前端 vitest 12298 pass / 12 skip / 2 fail（2 条=既有 MessageList 虚拟化负载 flaky「preserves the expanded change card through virtual unmount」，.tsx/.js 孪生各 1，单跑 198/198 过）。
+- **live 7788 移动端（iPhone 14 390×844）**：侧边栏抽屉出现「定时任务」→点击→页头 h1=定时任务、新建任务按钮可用、桌面在线提示条正常显示。
+- **18 链全验证**（worktree@2f8d819d 顺序 apply 18 patch：16 既有 + `h5-mobile-scheduled` + `connector-linux-platform`）全干净；链上 8 个本章+十六章文件与工作树逐字节一致（diff 全空，0 差异）。
+
+**patch**：`modify/patches/h5-mobile-scheduled.patch`（4 文件，链位 17，基线 cc88daa5）。
+
+## 十六、连接器目录 Linux 平台支持（x64/arm64）（✅ 2026-09-26）
+
+> 用户拍板（AskUserQuestion）：「加 Linux 平台支持」。起因=移动端 H5 市场页连接器卡片全显示「当前平台不支持」。
+
+### 现状核对
+- `supported` 由**服务端**算（`src/server/services/connectorService.ts:45` `def.platforms.includes(process.platform-process.arch)`）；H5 场景连接器运行时在服务端，判定对象正确。本机=linux-x64，旧目录只声明 darwin/win32→全部不支持（桌面 Linux 用户同样看到，语义一致）。
+- 关键=CLI 三连接器（feishu/dingtalk/wecom）走 `cliAdapter`→`managedRuntime.prepareManagedRuntime`，**按平台 pin 下载 URL + sha256/sha512 哈希**（`getArtifactPins` 缺 pin 即抛 "no pinned artifact"）；且 `:225` 原 `os = platform==='win32'?'windows':'darwin'` 把 Linux 误映射成 darwin URL。
+- 上游 Linux 产物确认（WebFetch）：飞书 @larksuite/cli=Go 原生（goreleaser linux amd64/arm64）；钉钉 dingtalk-workspace-cli=Go/CGO（glibc 2.17+，官方 macOS/Linux(x64/arm64)/Windows）；企微 @wecom/cli=Rust（npm 平台包，官方列 macOS/Linux/Windows，**无 win32-arm64**）。skill/remote 连接器平台无关（文件下载/MCP HTTP），仅需声明平台。
+
+### 实施方案（4 文件）
+1. `catalog.ts`：feishu/dingtalk/wecom `platforms` 加 `linux-x64`、`linux-arm64`（wecom 同）；`skillCatalog.ts`、`remoteCatalog.ts` 同加（保守统一）。
+2. `managedRuntime.ts`（核心）：
+   - `larkArchiveHashesV1_0_95` + linux-x64 `7da92d42…`/linux-arm64 `063012a6…`（sha256 归档）；
+   - `wecomArchiveHashesV1_2_1` + linux-x64 `rRWW/Z0…`/linux-arm64 `ndgR2jV…`（sha512 base64 归档）；
+   - `initialBinaryHashes` 三连接器各加 linux-x64/linux-arm64 二进制 sha256（feishu `44356a43…`/`8afae147…`；dingtalk `929ad4d0…`/`23c5e06b…`；wecom `a93389bd…`/`327faa17…`）；
+   - `os` 映射修 `:225`→`'win32'?'windows':'linux'==='linux'?'linux':'darwin'`（Linux 走 lark-cli-…-linux-amd64.tar.gz / dws-linux-*.tar.gz / @wecom/cli-linux-* 平台包，均已验证 URL 可达）；
+   - dingtalk 归档 sha512（`dingArchiveIntegrityV1_0_61`）复用同一 tgz 全平台共用，实测 base64 与既有 pin 逐字节一致；
+   - legacy 版本回退正则（`connectorService.ts:55`）本就通用 `[a-z]+-(?:arm64|x64)$`，linux 目录名可解析。
+3. 服务端 `.js` 孪生（untracked，bun 优先加载）同步 4 文件。
+
+### 验证
+- **6 个 Linux pin 全解析**：`getArtifactPins(def, 'linux-x64'/'linux-arm64')` 对三连接器全返回有效 integrity（不再抛 "no pinned artifact"）。
+- **端到端真实 prepare**：live 7788 触发 `POST /api/connectors/feishu/prepare`→下载 14MB linux-amd64 归档→sha256 归档+二进制双校验→版本探针→`installed=True ver=1.0.95 status=needs-auth`；`/home/zeaxion/cc-haha-dev/connectors/runtime/feishu/1.0.95-linux-x64/lark-cli --version` 实际可执行（`lark-cli version 1.0.95`）。
+- **测试**：`bun test src/services/connectors/` 416 pass / **0 fail**——加 linux 平台后**连修了 8 条既有平台耦合失败**（HEAD 为 408/8，这 8 条假设 darwin 宿主、在 linux 上先被 platforms 门控挡下而 fail；加 linux-x64 后进入 pin 校验路径且通过）。tsc exit 0；全量前端 vitest 与基线一致（零回归）。
+- **live 7788 移动端**：市场卡片「当前平台不支持」→「待连接账号」（supported=true 生效）。
+- **18 链全验证**：同十五章（worktree@2f8d819d 顺序 apply 18 patch 全干净，8 文件逐字节=工作树）。
+
+**patch**：`modify/patches/connector-linux-platform.patch`（4 文件 105 行，链位 18，基线 cc88daa5）。
