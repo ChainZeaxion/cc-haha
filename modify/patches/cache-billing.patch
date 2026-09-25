@@ -1,5 +1,5 @@
 diff --git a/desktop/src/components/chat/ContextUsageDetails.tsx b/desktop/src/components/chat/ContextUsageDetails.tsx
-index 36f33198..8b9166fe 100644
+index 36f33198..767cf6cd 100644
 --- a/desktop/src/components/chat/ContextUsageDetails.tsx
 +++ b/desktop/src/components/chat/ContextUsageDetails.tsx
 @@ -2,6 +2,7 @@ import { useState } from 'react'
@@ -33,24 +33,41 @@ index 36f33198..8b9166fe 100644
  export type ContextUsageDetailsStatus = 'ready' | 'pending' | 'loading' | 'unavailable'
  
  export type ContextUsageDetailsProps = {
-@@ -116,7 +127,9 @@ function SessionStatGrid({
-   const valueClass = 'mt-[3px] font-mono text-sm text-[var(--color-text-primary)]'
+@@ -113,29 +124,60 @@ function SessionStatGrid({
+   const labelClass = density === 'compact'
+     ? 'text-[12.5px] text-[var(--color-text-tertiary)]'
+     : 'text-xs text-[var(--color-text-tertiary)]'
+-  const valueClass = 'mt-[3px] font-mono text-sm text-[var(--color-text-primary)]'
++  // 13/10px uniform across all three columns — the values read as an even row.
++  // A 6-digit cost ($123.45 · ¥888.84, 17 chars ≈ 111px at 13/10) does not fit
++  // the 100px cost column at the old 340px popover width, so the popover was
++  // widened to 372px and the cost column rebalanced wider (~110px) instead of
++  // shrinking the font per field.
++  const valueClass = 'mt-[3px] font-mono text-[13px] text-[var(--color-text-primary)]'
++  const unitClass = 'text-[10px] text-[var(--color-text-tertiary)]'
  
    return (
 -    <div className="mt-4 grid grid-cols-3 gap-3">
-+    // The cost cell carries two currencies (USD + CNY), so it takes the widest
-+    // third — a plain three-way split clipped the CNY readout to an ellipsis.
-+    <div className="mt-4 grid grid-cols-[1fr_1fr_1.6fr] gap-3">
++    // Columns are sized so the longest live value fits at the popover's 372px
++    // width (content ≈ 332px after 18px padding): cost ≈ 110px, cache ≈ 100px,
++    // speed ≈ 92px. Values never wrap (whitespace-nowrap).
++    <div className="mt-4 grid grid-cols-[11fr_12fr_14fr] gap-3">
        <div>
          <div className={labelClass}>{labels.sessionSpeed}</div>
-         <div className={valueClass} data-testid="session-speed">
-@@ -128,14 +141,36 @@ function SessionStatGrid({
+-        <div className={valueClass} data-testid="session-speed">
++        <div className={`${valueClass} whitespace-nowrap`} data-testid="session-speed">
+           {formatTokensPerSecond(stats.tokensPerSecond ?? 0)}
+           {stats.tokensPerSecond !== null && (
+-            <span className="ml-1 text-[11px] text-[var(--color-text-tertiary)]">{labels.sessionSpeedUnit}</span>
++            <span className={`ml-1 ${unitClass}`}>{labels.sessionSpeedUnit}</span>
+           )}
+         </div>
        </div>
        <div>
          <div className={labelClass}>{labels.sessionCacheHit}</div>
 -        <div className={valueClass} data-testid="session-cache-hit">
 +        <div
-+          className={`${valueClass} ${stats.cacheHitRate !== null ? 'text-[#ea580c]' : ''}`}
++          className={`${valueClass} whitespace-nowrap ${stats.cacheHitRate !== null ? 'text-[#ea580c]' : ''}`}
 +          data-testid="session-cache-hit"
 +          title={stats.cacheHitRate !== null && stats.cacheReadTokens > 0
 +            ? `${formatCacheHitRate(stats.cacheHitRate!)} · ${formatCompactTokens(stats.cacheReadTokens)}`
@@ -58,28 +75,27 @@ index 36f33198..8b9166fe 100644
 +        >
            {stats.cacheHitRate === null ? '--' : formatCacheHitRate(stats.cacheHitRate)}
 +          {stats.cacheHitRate !== null && stats.cacheReadTokens > 0 && (
-+            <span className="ml-1 text-[11px] text-[var(--color-text-tertiary)]">{formatCompactTokens(stats.cacheReadTokens)}</span>
++            <span className={`ml-1 mr-1 ${unitClass}`}>·</span>
++          )}
++          {stats.cacheHitRate !== null && stats.cacheReadTokens > 0 && (
++            <span className={unitClass}>{formatCompactTokens(stats.cacheReadTokens)}</span>
 +          )}
          </div>
        </div>
--      <div>
-+      <div
-+        // The cost column is nudged right of its grid track so the two-currency
-+        // readout sits away from the cache column. transform (not margin) keeps
-+        // the 1fr/1fr/1.6fr track widths — which the other two columns rely on
-+        // — untouched.
-+        style={{ transform: 'translateX(20px)' }}
-+      >
+       <div>
          <div className={labelClass}>{labels.sessionCost}</div>
 -        <div className={`${valueClass} truncate`} data-testid="session-cost" title={stats.costDisplay}>
 +        <div
-+          className={valueClass}
++          className={`${valueClass} whitespace-nowrap`}
 +          data-testid="session-cost"
 +          title={stats.totalCostUSD !== null ? `${stats.costDisplay} · ${formatCnyCost(stats.totalCostUSD)}` : stats.costDisplay}
 +        >
            {stats.costDisplay}
 +          {stats.totalCostUSD !== null && stats.totalCostUSD > 0 && (
-+            <span className="ml-1 text-[11px] text-[var(--color-text-tertiary)]">{formatCnyCost(stats.totalCostUSD)}</span>
++            <span className={`ml-1 mr-1 ${unitClass}`}>·</span>
++          )}
++          {stats.totalCostUSD !== null && stats.totalCostUSD > 0 && (
++            <span className={unitClass}>{formatCnyCost(stats.totalCostUSD)}</span>
 +          )}
          </div>
        </div>
@@ -101,7 +117,7 @@ index 8be4eacc..8e392439 100644
      expect(screen.getByTestId('session-cost')).toHaveTextContent('$1.23')
      expect(sessionsApiMock.getSessionUsage).toHaveBeenCalledWith('session-1', expect.anything())
 diff --git a/desktop/src/components/chat/ContextUsageIndicator.tsx b/desktop/src/components/chat/ContextUsageIndicator.tsx
-index 5b400140..d02fe6c2 100644
+index 5b400140..c7724dd9 100644
 --- a/desktop/src/components/chat/ContextUsageIndicator.tsx
 +++ b/desktop/src/components/chat/ContextUsageIndicator.tsx
 @@ -10,7 +10,7 @@ import type { ChatState } from '../../types/chat'
@@ -113,7 +129,18 @@ index 5b400140..d02fe6c2 100644
  import { MobileBottomSheet } from '@/components/ui/MobileBottomSheet'
  import {
    ContextUsageDetails,
-@@ -439,18 +439,32 @@ export function ContextUsageIndicator({
+@@ -49,7 +49,9 @@ const USAGE_POLL_MS = 3_000
+ // still be settling, so retry the event-driven refresh once.
+ const FORCED_REFRESH_RETRY_MS = 5_000
+ 
+-const POPOVER_WIDTH = 340
++// 372px (was 340): wide enough that a 6-digit cost ($123.45 · ¥888.84 ≈ 111px
++// at 13px mono) fits the widened cost column without truncation.
++const POPOVER_WIDTH = 372
+ const POPOVER_GAP = 8
+ const VIEWPORT_MARGIN = 16
+ // The collapsed panel is much shorter than the old always-expanded breakdown; the expanded
+@@ -439,18 +441,32 @@ export function ContextUsageIndicator({
    // Derived per render rather than memoized on `usage` alone: the session it belongs to lives in
    // a ref, so the guard has to run against the current sessionId every time.
    const displayUsage = usageSessionIdRef.current === sessionId ? usage : null
@@ -148,7 +175,7 @@ index 5b400140..d02fe6c2 100644
  
    const detailsBody = (
      <ContextUsageDetails
-@@ -476,8 +490,12 @@ export function ContextUsageIndicator({
+@@ -476,8 +492,12 @@ export function ContextUsageIndicator({
      const viewportWidth = window.innerWidth || document.documentElement.clientWidth
      const viewportHeight = window.innerHeight || document.documentElement.clientHeight
      const width = Math.min(POPOVER_WIDTH, Math.max(0, viewportWidth - VIEWPORT_MARGIN * 2))
@@ -162,7 +189,7 @@ index 5b400140..d02fe6c2 100644
        Math.max(VIEWPORT_MARGIN, viewportWidth - width - VIEWPORT_MARGIN),
      )
  
-@@ -532,8 +550,15 @@ export function ContextUsageIndicator({
+@@ -532,8 +552,15 @@ export function ContextUsageIndicator({
    }
  
    return (
@@ -179,7 +206,7 @@ index 5b400140..d02fe6c2 100644
          ref={triggerRef}
          type="button"
          aria-label={ariaLabel}
-@@ -568,6 +593,25 @@ export function ContextUsageIndicator({
+@@ -568,6 +595,25 @@ export function ContextUsageIndicator({
          </span>
          <span className="sr-only">{displayPercent}</span>
        </button>
@@ -205,6 +232,18 @@ index 5b400140..d02fe6c2 100644
  
        {!preferSheet && detailsOpen && popoverPosition && createPortal(
          <div
+@@ -575,7 +621,10 @@ export function ContextUsageIndicator({
+           role="dialog"
+           aria-label={t('contextIndicator.title')}
+           data-testid="context-usage-popover"
+-          className="fixed z-[var(--z-popover)] overflow-y-auto rounded-[var(--radius-xl)] border border-[var(--color-border)] bg-[var(--color-surface-container-lowest)] px-[22px] py-5 text-left shadow-[var(--shadow-overlay)]"
++          // 18px padding (not the usual 22) so the cost readout, which sits
++          // flush against the right content edge, keeps ~19px of breathing
++          // room to the card border.
++          className="fixed z-[var(--z-popover)] overflow-y-auto rounded-[var(--radius-xl)] border border-[var(--color-border)] bg-[var(--color-surface-container-lowest)] px-[18px] py-5 text-left shadow-[var(--shadow-overlay)]"
+           style={{
+             top: popoverPosition.top,
+             bottom: popoverPosition.bottom,
 diff --git a/desktop/src/components/chat/LocalSlashCommandPanel.tsx b/desktop/src/components/chat/LocalSlashCommandPanel.tsx
 index b47fe2a0..0084c69a 100644
 --- a/desktop/src/components/chat/LocalSlashCommandPanel.tsx

@@ -49,7 +49,9 @@ const USAGE_POLL_MS = 3_000
 // still be settling, so retry the event-driven refresh once.
 const FORCED_REFRESH_RETRY_MS = 5_000
 
-const POPOVER_WIDTH = 340
+// 372px (was 340): wide enough that a 6-digit cost ($123.45 · ¥888.84 ≈ 111px
+// at 13px mono) fits the widened cost column without truncation.
+const POPOVER_WIDTH = 372
 const POPOVER_GAP = 8
 const VIEWPORT_MARGIN = 16
 // The collapsed panel is much shorter than the old always-expanded breakdown; the expanded
@@ -619,7 +621,10 @@ export function ContextUsageIndicator({
           role="dialog"
           aria-label={t('contextIndicator.title')}
           data-testid="context-usage-popover"
-          className="fixed z-[var(--z-popover)] overflow-y-auto rounded-[var(--radius-xl)] border border-[var(--color-border)] bg-[var(--color-surface-container-lowest)] px-[22px] py-5 text-left shadow-[var(--shadow-overlay)]"
+          // 18px padding (not the usual 22) so the cost readout, which sits
+          // flush against the right content edge, keeps ~19px of breathing
+          // room to the card border.
+          className="fixed z-[var(--z-popover)] overflow-y-auto rounded-[var(--radius-xl)] border border-[var(--color-border)] bg-[var(--color-surface-container-lowest)] px-[18px] py-5 text-left shadow-[var(--shadow-overlay)]"
           style={{
             top: popoverPosition.top,
             bottom: popoverPosition.bottom,

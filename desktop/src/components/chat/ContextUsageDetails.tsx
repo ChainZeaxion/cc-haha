@@ -124,25 +124,32 @@ function SessionStatGrid({
   const labelClass = density === 'compact'
     ? 'text-[12.5px] text-[var(--color-text-tertiary)]'
     : 'text-xs text-[var(--color-text-tertiary)]'
-  const valueClass = 'mt-[3px] font-mono text-sm text-[var(--color-text-primary)]'
+  // 13/10px uniform across all three columns — the values read as an even row.
+  // A 6-digit cost ($123.45 · ¥888.84, 17 chars ≈ 111px at 13/10) does not fit
+  // the 100px cost column at the old 340px popover width, so the popover was
+  // widened to 372px and the cost column rebalanced wider (~110px) instead of
+  // shrinking the font per field.
+  const valueClass = 'mt-[3px] font-mono text-[13px] text-[var(--color-text-primary)]'
+  const unitClass = 'text-[10px] text-[var(--color-text-tertiary)]'
 
   return (
-    // The cost cell carries two currencies (USD + CNY), so it takes the widest
-    // third — a plain three-way split clipped the CNY readout to an ellipsis.
-    <div className="mt-4 grid grid-cols-[1fr_1fr_1.6fr] gap-3">
+    // Columns are sized so the longest live value fits at the popover's 372px
+    // width (content ≈ 332px after 18px padding): cost ≈ 110px, cache ≈ 100px,
+    // speed ≈ 92px. Values never wrap (whitespace-nowrap).
+    <div className="mt-4 grid grid-cols-[11fr_12fr_14fr] gap-3">
       <div>
         <div className={labelClass}>{labels.sessionSpeed}</div>
-        <div className={valueClass} data-testid="session-speed">
+        <div className={`${valueClass} whitespace-nowrap`} data-testid="session-speed">
           {formatTokensPerSecond(stats.tokensPerSecond ?? 0)}
           {stats.tokensPerSecond !== null && (
-            <span className="ml-1 text-[11px] text-[var(--color-text-tertiary)]">{labels.sessionSpeedUnit}</span>
+            <span className={`ml-1 ${unitClass}`}>{labels.sessionSpeedUnit}</span>
           )}
         </div>
       </div>
       <div>
         <div className={labelClass}>{labels.sessionCacheHit}</div>
         <div
-          className={`${valueClass} ${stats.cacheHitRate !== null ? 'text-[#ea580c]' : ''}`}
+          className={`${valueClass} whitespace-nowrap ${stats.cacheHitRate !== null ? 'text-[#ea580c]' : ''}`}
           data-testid="session-cache-hit"
           title={stats.cacheHitRate !== null && stats.cacheReadTokens > 0
             ? `${formatCacheHitRate(stats.cacheHitRate!)} · ${formatCompactTokens(stats.cacheReadTokens)}`
@@ -150,26 +157,26 @@ function SessionStatGrid({
         >
           {stats.cacheHitRate === null ? '--' : formatCacheHitRate(stats.cacheHitRate)}
           {stats.cacheHitRate !== null && stats.cacheReadTokens > 0 && (
-            <span className="ml-1 text-[11px] text-[var(--color-text-tertiary)]">{formatCompactTokens(stats.cacheReadTokens)}</span>
+            <span className={`ml-1 mr-1 ${unitClass}`}>·</span>
+          )}
+          {stats.cacheHitRate !== null && stats.cacheReadTokens > 0 && (
+            <span className={unitClass}>{formatCompactTokens(stats.cacheReadTokens)}</span>
           )}
         </div>
       </div>
-      <div
-        // The cost column is nudged right of its grid track so the two-currency
-        // readout sits away from the cache column. transform (not margin) keeps
-        // the 1fr/1fr/1.6fr track widths — which the other two columns rely on
-        // — untouched.
-        style={{ transform: 'translateX(20px)' }}
-      >
+      <div>
         <div className={labelClass}>{labels.sessionCost}</div>
         <div
-          className={valueClass}
+          className={`${valueClass} whitespace-nowrap`}
           data-testid="session-cost"
           title={stats.totalCostUSD !== null ? `${stats.costDisplay} · ${formatCnyCost(stats.totalCostUSD)}` : stats.costDisplay}
         >
           {stats.costDisplay}
           {stats.totalCostUSD !== null && stats.totalCostUSD > 0 && (
-            <span className="ml-1 text-[11px] text-[var(--color-text-tertiary)]">{formatCnyCost(stats.totalCostUSD)}</span>
+            <span className={`ml-1 mr-1 ${unitClass}`}>·</span>
+          )}
+          {stats.totalCostUSD !== null && stats.totalCostUSD > 0 && (
+            <span className={unitClass}>{formatCnyCost(stats.totalCostUSD)}</span>
           )}
         </div>
       </div>
