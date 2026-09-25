@@ -89,6 +89,7 @@ vi.mock('../../stores/chatStore', () => ({
     lastDataTime: () => 0,
     value: () => 0,
   }),
+  getSubordinateTpsMeters: () => [],
 }))
 
 vi.mock('../../hooks/useKeyboardShortcuts', () => ({

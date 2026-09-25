@@ -1,6 +1,6 @@
 diff --git a/desktop/src/components/ExportConversationDialog.tsx b/desktop/src/components/ExportConversationDialog.tsx
 new file mode 100644
-index 0000000..e18f3dd0
+index 00000000..e18f3dd0
 --- /dev/null
 +++ b/desktop/src/components/ExportConversationDialog.tsx
 @@ -0,0 +1,150 @@
@@ -155,7 +155,7 @@ index 0000000..e18f3dd0
 +  )
 +}
 diff --git a/desktop/src/components/layout/Sidebar.tsx b/desktop/src/components/layout/Sidebar.tsx
-index 91b16d89..729bd55b 100644
+index 91b16d89..346e5525 100644
 --- a/desktop/src/components/layout/Sidebar.tsx
 +++ b/desktop/src/components/layout/Sidebar.tsx
 @@ -15,6 +15,7 @@ import { GlobalSearchModal } from '../search/GlobalSearchModal'
@@ -174,7 +174,70 @@ index 91b16d89..729bd55b 100644
    const [projectContextMenu, setProjectContextMenu] = useState<{ key: string; x: number; y: number } | null>(null)
    const [projectHeaderMenu, setProjectHeaderMenu] = useState<{ type: SidebarHeaderMenuType; x: number; y: number } | null>(null)
    const [projectHeaderSubmenu, setProjectHeaderSubmenu] = useState<{ type: 'organize' | 'sort'; x: number; y: number } | null>(null)
-@@ -1493,6 +1495,16 @@ export function Sidebar({
+@@ -1038,36 +1040,32 @@ export function Sidebar({
+         >
+           {t('sidebar.newSession')}
+         </NavItem>
+-        {!isMobile && (
+-          <NavItem
+-            active={activeTabId === SCHEDULED_TAB_ID}
+-            collapsed={!expanded}
+-            label={t('sidebar.scheduled')}
+-            touchFriendly={isMobile}
+-            onClick={() => {
+-              useTabStore.getState().openTab(SCHEDULED_TAB_ID, t('sidebar.scheduled'), 'scheduled')
+-              closeMobileDrawer()
+-            }}
+-            icon={<ClockIcon />}
+-          >
+-            {t('sidebar.scheduled')}
+-          </NavItem>
+-        )}
+-        {!isMobile && (
+-          <NavItem
+-            active={activeTabId === MARKET_TAB_ID || activeTabId === CONNECTORS_TAB_ID}
+-            collapsed={!expanded}
+-            label={t('sidebar.extensions')}
+-            touchFriendly={isMobile}
+-            onClick={() => {
+-              useTabStore.getState().openTab(MARKET_TAB_ID, t('sidebar.extensions'), 'market')
+-              closeMobileDrawer()
+-            }}
+-            icon={<StorefrontIcon />}
+-          >
+-            {t('sidebar.extensions')}
+-          </NavItem>
+-        )}
++        <NavItem
++          active={activeTabId === SCHEDULED_TAB_ID}
++          collapsed={!expanded}
++          label={t('sidebar.scheduled')}
++          touchFriendly={isMobile}
++          onClick={() => {
++            useTabStore.getState().openTab(SCHEDULED_TAB_ID, t('sidebar.scheduled'), 'scheduled')
++            closeMobileDrawer()
++          }}
++          icon={<ClockIcon />}
++        >
++          {t('sidebar.scheduled')}
++        </NavItem>
++        <NavItem
++          active={activeTabId === MARKET_TAB_ID || activeTabId === CONNECTORS_TAB_ID}
++          collapsed={!expanded}
++          label={t('sidebar.extensions')}
++          touchFriendly={isMobile}
++          onClick={() => {
++            useTabStore.getState().openTab(MARKET_TAB_ID, t('sidebar.extensions'), 'market')
++            closeMobileDrawer()
++          }}
++          icon={<StorefrontIcon />}
++        >
++          {t('sidebar.extensions')}
++        </NavItem>
+ 
+       </div>
+ 
+@@ -1493,6 +1491,16 @@ export function Sidebar({
            >
              {t('common.rename')}
            </button>
@@ -191,7 +254,7 @@ index 91b16d89..729bd55b 100644
            <button
              onClick={() => handleDelete(contextMenu.id)}
              className="w-full px-4 py-2 text-left text-[13px] text-[var(--color-error)] transition-colors hover:bg-[var(--color-error-container)]"
-@@ -1502,6 +1514,15 @@ export function Sidebar({
+@@ -1502,6 +1510,15 @@ export function Sidebar({
          </div>
        )}
  
@@ -207,86 +270,9 @@ index 91b16d89..729bd55b 100644
        {projectContextMenu && (() => {
          const project = orderedProjectGroups.find((group) => group.key === projectContextMenu.key)
          if (!project) return null
-diff --git a/desktop/src/i18n/locales/en.ts b/desktop/src/i18n/locales/en.ts
-index 429d6f62..d4f65af7 100644
---- a/desktop/src/i18n/locales/en.ts
-+++ b/desktop/src/i18n/locales/en.ts
-@@ -3755,6 +3755,12 @@ Row 9, all 8 cells: continuing from straight down, turning left through lower-le
-   'workflows.history.agents': '{count} agents recorded',
-   'workflows.history.script': 'Script',
-   'workflows.launcher.argsPlaceholder': 'e.g. a question, or a list of paths',
-+  'session.export.title': 'Export conversation',
-+  'session.export.export': 'Export',
-+  'session.export.format': 'Export format',
-+  'session.export.range': 'Export range',
-+  'session.export.range.latest': 'Latest compact → newest (default)',
-+  'session.export.range.all': 'All messages',
- } as const
- 
- export type TranslationKey = keyof typeof en
-diff --git a/desktop/src/i18n/locales/jp.ts b/desktop/src/i18n/locales/jp.ts
-index b03a5509..86eec1a6 100644
---- a/desktop/src/i18n/locales/jp.ts
-+++ b/desktop/src/i18n/locales/jp.ts
-@@ -3757,4 +3757,10 @@ export const jp: Record<TranslationKey, string> = {
-   'workflows.history.agents': '{count} 個のエージェントを記録',
-   'workflows.history.script': 'スクリプト',
-   'workflows.launcher.argsPlaceholder': '例: 質問、またはパスのリスト',
-+  'session.export.title': '会話をエクスポート',
-+  'session.export.export': 'エクスポート',
-+  'session.export.format': 'エクスポート形式',
-+  'session.export.range': 'エクスポート範囲',
-+  'session.export.range.latest': '最新の圧縮 → 最新メッセージ（デフォルト）',
-+  'session.export.range.all': 'すべてのメッセージ',
- }
-diff --git a/desktop/src/i18n/locales/kr.ts b/desktop/src/i18n/locales/kr.ts
-index 61b6c538..79263822 100644
---- a/desktop/src/i18n/locales/kr.ts
-+++ b/desktop/src/i18n/locales/kr.ts
-@@ -3759,4 +3759,10 @@ export const kr: Record<TranslationKey, string> = {
-   'workflows.history.agents': '{count}개 에이전트 기록됨',
-   'workflows.history.script': '스크립트',
-   'workflows.launcher.argsPlaceholder': '예: 질문 또는 경로 목록',
-+  'session.export.title': '대화 내보내기',
-+  'session.export.export': '내보내기',
-+  'session.export.format': '내보내기 형식',
-+  'session.export.range': '내보내기 범위',
-+  'session.export.range.latest': '최근 압축 → 최신 메시지 (기본)',
-+  'session.export.range.all': '모든 메시지',
- }
-diff --git a/desktop/src/i18n/locales/zh-TW.ts b/desktop/src/i18n/locales/zh-TW.ts
-index a3e27185..1ebefbf1 100644
---- a/desktop/src/i18n/locales/zh-TW.ts
-+++ b/desktop/src/i18n/locales/zh-TW.ts
-@@ -3756,4 +3756,10 @@ export const zh: Record<TranslationKey, string> = {
-   'workflows.history.agents': '已記錄 {count} 個 agent',
-   'workflows.history.script': '腳本',
-   'workflows.launcher.argsPlaceholder': '例如一個問題，或一組路徑',
-+  'session.export.title': '匯出對話',
-+  'session.export.export': '匯出',
-+  'session.export.format': '匯出格式',
-+  'session.export.range': '匯出範圍',
-+  'session.export.range.latest': '最近一次壓縮 → 最新訊息（預設）',
-+  'session.export.range.all': '全部訊息',
- }
-diff --git a/desktop/src/i18n/locales/zh.ts b/desktop/src/i18n/locales/zh.ts
-index e09046c7..7b177de0 100644
---- a/desktop/src/i18n/locales/zh.ts
-+++ b/desktop/src/i18n/locales/zh.ts
-@@ -3755,4 +3755,10 @@ export const zh: Record<TranslationKey, string> = {
-   'workflows.history.agents': '已记录 {count} 个 agent',
-   'workflows.history.script': '脚本',
-   'workflows.launcher.argsPlaceholder': '例如一个问题，或一组路径',
-+  'session.export.title': '导出会话',
-+  'session.export.export': '导出',
-+  'session.export.format': '导出格式',
-+  'session.export.range': '导出范围',
-+  'session.export.range.latest': '最近一次压缩 → 最新消息（默认）',
-+  'session.export.range.all': '全部消息',
- }
 diff --git a/desktop/src/lib/sessionExport.ts b/desktop/src/lib/sessionExport.ts
 new file mode 100644
-index 0000000..cfe1ff6b
+index 00000000..cfe1ff6b
 --- /dev/null
 +++ b/desktop/src/lib/sessionExport.ts
 @@ -0,0 +1,248 @@
@@ -552,7 +538,7 @@ index 3ba309e0..d52ac21b 100644
    toolUseResult?: unknown
    timestamp: string
 diff --git a/src/server/services/sessionService.ts b/src/server/services/sessionService.ts
-index 182d1c1a..bc087973 100644
+index 182d1c1a..df57e890 100644
 --- a/src/server/services/sessionService.ts
 +++ b/src/server/services/sessionService.ts
 @@ -221,6 +221,8 @@ export type MessageEntry = {
@@ -564,7 +550,62 @@ index 182d1c1a..bc087973 100644
    content: unknown
    bodyTruncated?: boolean
    toolUseResult?: unknown
-@@ -5199,6 +5201,21 @@ export class SessionService {
+@@ -2646,6 +2648,10 @@ export class SessionService {
+                 sessionId,
+                 projectsRoot!,
+               )
++              // The index already validated this exact path, so one bounded read
++              // here only serves transcript-vs-placeholder ordering. The
++              // filesystem fallback below stays mtime-only because it runs on
++              // every reader call and must not do unbounded full reads.
+               const entries = await this.readJsonlFile(match.filePath)
+               hydratedMatches.push({
+                 ...match,
+@@ -2695,18 +2701,35 @@ export class SessionService {
+     const matches: Array<{ filePath: string; projectDir: string; mtimeMs: number; hasTranscript: boolean }> = []
+     for (const dir of projectDirs) {
+       const filePath = path.join(projectsDir, dir, `${sessionId}.jsonl`)
++      let stat: Awaited<ReturnType<typeof fs.stat>>
+       try {
+-        const stat = await fs.stat(filePath)
+-        const entries = await this.readJsonlFile(filePath)
+-        matches.push({
+-          filePath,
+-          projectDir: dir,
+-          mtimeMs: stat.mtimeMs,
+-          hasTranscript: this.hasConversationTranscript(entries),
+-        })
++        stat = await fs.stat(filePath)
+       } catch {
+         continue
+       }
++      matches.push({
++        filePath,
++        projectDir: dir,
++        mtimeMs: stat.mtimeMs,
++        hasTranscript: false,
++      })
++    }
++
++    // The transcript path is stable per session id, so an unbounded full read
++    // here would run on every reader call (inspection/history/subagent lookups).
++    // It is only ever needed to rank two files that share an id — a worktree
++    // transcript vs. the original placeholder — where the transcript must win
++    // even if its mtime is not strictly newer.
++    if (matches.length > 1) {
++      for (const match of matches) {
++        try {
++          match.hasTranscript = this.hasConversationTranscript(
++            await this.readJsonlFile(match.filePath),
++          )
++        } catch {
++          match.hasTranscript = false
++        }
++      }
+     }
+ 
+     return matches
+@@ -5199,6 +5222,21 @@ export class SessionService {
          continue
        }
  

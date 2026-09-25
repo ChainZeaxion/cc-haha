@@ -489,48 +489,6 @@ index 00000000..fb14c1ac
 +  }
 +  return terminalWsClient
 +}
-diff --git a/desktop/src/pages/settings/H5Settings.tsx b/desktop/src/pages/settings/H5Settings.tsx
-index 8043d219..3d3425e0 100644
---- a/desktop/src/pages/settings/H5Settings.tsx
-+++ b/desktop/src/pages/settings/H5Settings.tsx
-@@ -1,6 +1,7 @@
--import { useEffect, useRef } from 'react'
-+import { useEffect, useMemo, useRef } from 'react'
- import { useTranslation } from '@/i18n'
- import { useUIStore } from '@/stores/uiStore'
-+import { useSessionStore } from '@/stores/sessionStore'
- import { SettingsPageHeader, SettingsPill } from '@/components/settings/SettingsSection'
- import { SETTINGS_TABS } from '../Settings'
- import { ActivitySettings } from '../ActivitySettings'
-@@ -78,7 +79,7 @@ export function H5Settings() {
-         {selected === 'general' && <GeneralSettings />}
-         {selected === 'h5Access' && <H5AccessSettings />}
-         {selected === 'adapters' && <AdapterSettings />}
--        {selected === 'terminal' && <TerminalSettings showPreferences />}
-+        {selected === 'terminal' && <H5TerminalSettings />}
-         {selected === 'mcp' && <McpSettings />}
-         {selected === 'agents' && <AgentManager />}
-         {selected === 'skills' && <H5SkillSettings />}
-@@ -94,6 +95,19 @@ export function H5Settings() {
-   )
- }
- 
-+// H5 终端默认落在当前活动会话的工作目录，让手机端能直接操作那个项目；
-+// 无活动会话时不传 cwd，由服务端回落 CLAUDE_CONFIG_DIR/HOME。
-+function H5TerminalSettings() {
-+  const activeSessionId = useSessionStore((s) => s.activeSessionId)
-+  const sessions = useSessionStore((s) => s.sessions)
-+  const activeSession = useMemo(
-+    () => sessions.find((session) => session.id === activeSessionId),
-+    [activeSessionId, sessions],
-+  )
-+  const cwd = activeSession?.workDir ?? activeSession?.projectRoot ?? undefined
-+  return <TerminalSettings showPreferences cwd={cwd} />
-+}
-+
- // Same selected-detail pattern as the desktop Settings rail wrappers, but the
- // header copy matches what H5 users already see on this surface.
- function H5SkillSettings() {
 diff --git a/src/server/__tests__/terminal-service.test.ts b/src/server/__tests__/terminal-service.test.ts
 new file mode 100644
 index 00000000..d83aaf4d
@@ -826,99 +784,8 @@ index 00000000..79e45d61
 +    return errorResponse(error)
 +  }
 +}
-diff --git a/src/server/index.ts b/src/server/index.ts
-index 0389e304..73d91b1d 100644
---- a/src/server/index.ts
-+++ b/src/server/index.ts
-@@ -397,6 +397,41 @@ export function startServer(port = PORT, host = HOST) {
-           return new Response(null, { status: 204, headers: cors.headers })
-         }
- 
-+        // Dedicated terminal WebSocket channel for the H5 browser terminal.
-+        // The literal path /ws/terminal would otherwise be swallowed by the
-+        // generic /ws/{sessionId} branch below, so it must be routed first.
-+        if (url.pathname === '/ws/terminal') {
-+          if (cors.rejected) {
-+            return corsRejectedResponse(cors)
-+          }
-+
-+          if (!petAccessAuthorized && authRequired) {
-+            const authError = await requireH5Token(req, url.searchParams.get('token'))
-+            if (authError) {
-+              return withCors(authError, cors)
-+            }
-+          } else if (!petAccessAuthorized && forceAuth) {
-+            const authError = await requireAuth(req, url.searchParams.get('token'))
-+            if (authError) {
-+              return withCors(authError, cors)
-+            }
-+          }
-+
-+          const upgraded = server.upgrade(req, {
-+            data: {
-+              sessionId: 'terminal',
-+              connectedAt: Date.now(),
-+              channel: 'terminal',
-+              clientKind: 'full',
-+              sdkToken: null,
-+              serverPort,
-+              serverHost: localConnectHost,
-+            },
-+          })
-+          if (upgraded) return undefined
-+          return new Response('WebSocket upgrade failed', { status: 400 })
-+        }
-+
-         // WebSocket upgrade
-         if (url.pathname.startsWith('/ws/')) {
-           if (cors.rejected) {
-diff --git a/src/server/remoteBrowserPolicy.ts b/src/server/remoteBrowserPolicy.ts
-index 587c8415..6707fed2 100644
---- a/src/server/remoteBrowserPolicy.ts
-+++ b/src/server/remoteBrowserPolicy.ts
-@@ -33,12 +33,31 @@ export function remoteSettingsRouteAllowed(parts: string[], method: string): boo
-   return parts.length === 3 && parts[2] === 'user' && ['GET', 'PUT'].includes(method)
- }
- 
-+const DESKTOP_TERMINAL_SHELLS = ['', 'system', 'pwsh', 'powershell', 'cmd', 'custom']
-+
-+function isDesktopTerminalPatch(value: unknown): boolean {
-+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return false
-+  const entry = value as Record<string, unknown>
-+  if (entry.startupShell !== undefined && !DESKTOP_TERMINAL_SHELLS.includes(entry.startupShell as string)) return false
-+  if (entry.customShellPath !== undefined && entry.customShellPath !== null && typeof entry.customShellPath !== 'string') return false
-+  if (entry.startupShell === 'custom') {
-+    const customShellPath = typeof entry.customShellPath === 'string' ? entry.customShellPath.trim() : ''
-+    if (!customShellPath) return false
-+  }
-+  return true
-+}
-+
- export function projectRemoteSettings(settings: Record<string, unknown>) {
--  return Object.fromEntries(READ_SETTINGS.filter(key => ['string', 'boolean', 'number'].includes(typeof settings[key])).map(key => [key, settings[key]]))
-+  const result = Object.fromEntries(READ_SETTINGS.filter(key => ['string', 'boolean', 'number'].includes(typeof settings[key])).map(key => [key, settings[key]]))
-+  if (isDesktopTerminalPatch(settings.desktopTerminal)) {
-+    result.desktopTerminal = { ...(settings.desktopTerminal as Record<string, unknown>) }
-+  }
-+  return result
- }
- 
- export function validateRemoteSettingsPatch(input: Record<string, unknown>): boolean {
-   return Object.entries(input).every(([key, value]) => {
-+    if (key === 'desktopTerminal') return isDesktopTerminalPatch(value)
-     if (!WRITE_SETTINGS.has(key)) return false
-     if (key === 'language') return typeof value === 'string' && value.length <= 80
-     if (key === 'outputStyle') return typeof value === 'string' && ['default', 'Explanatory', 'Learning'].includes(value)
-@@ -46,7 +65,6 @@ export function validateRemoteSettingsPatch(input: Record<string, unknown>): boo
-     return typeof value === 'boolean'
-   })
- }
--
- export function projectRemoteProvider(provider: SavedProvider) {
-   const publicKeys = [
-     'id', 'presetId', 'name', 'authStrategy', 'baseUrl', 'apiFormat', 'runtimeKind', 'models',
 diff --git a/src/server/router.ts b/src/server/router.ts
-index ce5b7c23..4746f586 100644
+index ce5b7c23..86d43ece 100644
 --- a/src/server/router.ts
 +++ b/src/server/router.ts
 @@ -26,6 +26,7 @@ import { handleMcpApi } from './api/mcp.js'
@@ -929,7 +796,39 @@ index ce5b7c23..4746f586 100644
  import { handleActivityStatsApi } from './api/activityStats.js'
  import { handleOpenTargetsApi } from './api/open-targets.js'
  import { handleMemoryApi } from './api/memory.js'
-@@ -195,6 +196,9 @@ async function routeApiRequest(req: Request, url: URL): Promise<Response> {
+@@ -54,17 +55,20 @@ async function handleApiRequestWithoutPerformance(req: Request, url: URL, contex
+   const parts = url.pathname.split('/').filter(Boolean)
+   const isProvider = parts[1] === 'providers'
+   const isSettings = parts[1] === 'settings'
++  // Only /settings/user uses the General-settings field whitelist; the
++  // output-style and session-cleanup sub-routes validate their own bodies.
++  const isSettingsUser = isSettings && parts.length === 3 && parts[2] === 'user'
+   if (!isProvider && !isSettings) return routeApiRequest(req, url)
+   if ((isProvider && !remoteProviderRouteAllowed(parts, req.method)) || (isSettings && !remoteSettingsRouteAllowed(parts, req.method))) {
+     return Response.json({ error: 'Desktop-only capability' }, { status: 403 })
+   }
+   try {
+     const createsProvider = isProvider && parts.length === 2 && req.method === 'POST'
+-    if (createsProvider || (req.method === 'PUT' && (isSettings || (isProvider && parts.length === 3 && parts[2] !== 'reorder')))) {
++    if (createsProvider || (req.method === 'PUT' && (isSettingsUser || (isProvider && parts.length === 3 && parts[2] !== 'reorder')))) {
+       const body: unknown = await req.json()
+       if (!body || typeof body !== 'object' || Array.isArray(body)) return Response.json({ error: 'Object required' }, { status: 400 })
+       const input = { ...body } as Record<string, unknown>
+-      if (isSettings && !validateRemoteSettingsPatch(input)) return Response.json({ error: 'Unsupported General setting' }, { status: 400 })
++      if (isSettingsUser && !validateRemoteSettingsPatch(input)) return Response.json({ error: 'Unsupported General setting' }, { status: 400 })
+       if (isProvider) {
+         const saved = createsProvider ? undefined : await new ProviderService().getProvider(parts[2]!)
+         if (saved && remoteProviderNeedsCredentials(saved, input)) {
+@@ -89,7 +93,7 @@ async function handleApiRequestWithoutPerformance(req: Request, url: URL, contex
+     const response = await routeApiRequest(req, url)
+     if (!response.ok) return response
+     const body = await response.json() as Record<string, unknown>
+-    if (isSettings && req.method === 'GET') return Response.json(projectRemoteSettings(body))
++    if (isSettingsUser && req.method === 'GET') return Response.json(projectRemoteSettings(body))
+     if (isProvider) {
+       if (Array.isArray(body.providers)) body.providers = (body.providers as SavedProvider[]).map(projectRemoteProvider)
+       if (body.provider && typeof body.provider === 'object') body.provider = projectRemoteProvider(body.provider as SavedProvider)
+@@ -195,6 +199,9 @@ async function routeApiRequest(req: Request, url: URL): Promise<Response> {
      case 'h5-access':
        return handleH5AccessApi(req, url, segments)
  
@@ -1782,7 +1681,7 @@ index 00000000..9e5b00a1
 +  return terminalServiceSingleton
 +}
 diff --git a/src/server/ws/handler.ts b/src/server/ws/handler.ts
-index 97942514..e6857d6f 100644
+index 75ce5376..ffb44f03 100644
 --- a/src/server/ws/handler.ts
 +++ b/src/server/ws/handler.ts
 @@ -58,6 +58,7 @@ import {
@@ -1793,7 +1692,7 @@ index 97942514..e6857d6f 100644
  import {
    buildConversationTitleInput,
    deriveTitle,
-@@ -547,7 +548,9 @@ function translateCliUsage(usage: unknown): TokenUsage {
+@@ -549,7 +550,9 @@ function translateCliUsage(usage: unknown): TokenUsage {
  export type WebSocketData = {
    sessionId: string
    connectedAt: number
@@ -1804,7 +1703,7 @@ index 97942514..e6857d6f 100644
    clientKind?: 'full' | 'pet'
    sdkToken: string | null
    serverPort: number
-@@ -573,6 +576,14 @@ export const handleWebSocket = {
+@@ -575,6 +578,14 @@ export const handleWebSocket = {
    open(ws: SessionConnection) {
      const { sessionId, channel, sdkToken } = ws.data
  
@@ -1819,7 +1718,7 @@ index 97942514..e6857d6f 100644
      if (channel === 'sdk') {
        if (!conversationService.authorizeSdkConnection(sessionId, sdkToken)) {
          console.warn(`[WS] Rejected SDK connection for session: ${sessionId}`)
-@@ -637,6 +648,11 @@ export const handleWebSocket = {
+@@ -639,6 +650,11 @@ export const handleWebSocket = {
    },
  
    message(ws: SessionConnection, rawMessage: string | Buffer) {
@@ -1831,7 +1730,7 @@ index 97942514..e6857d6f 100644
      if (ws.data.channel === 'sdk') {
        const { sessionId, sdkToken } = ws.data
        if (!conversationService.authorizeSdkConnection(sessionId, sdkToken)) {
-@@ -758,6 +774,12 @@ export const handleWebSocket = {
+@@ -764,6 +780,12 @@ export const handleWebSocket = {
    close(ws: SessionConnection, code: number, reason: string) {
      const { sessionId, channel } = ws.data
  
@@ -1844,7 +1743,7 @@ index 97942514..e6857d6f 100644
      if (channel === 'sdk') {
        console.log(`[WS] SDK disconnected from session: ${sessionId} (${code}: ${reason})`)
        conversationService.detachSdkConnection(sessionId, ws)
-@@ -3960,6 +3982,114 @@ function sendMessage(ws: SessionConnection, message: ServerMessage) {
+@@ -3966,6 +3988,114 @@ function sendMessage(ws: SessionConnection, message: ServerMessage) {
    if (outgoing) ws.send(JSON.stringify(outgoing))
  }
  

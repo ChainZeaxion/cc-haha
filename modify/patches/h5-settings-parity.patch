@@ -249,15 +249,16 @@ index 991f72f7..2d5ea3da 100644
    render(<ProviderSettings browserMode={browserMode} />)
    fireEvent.click(await screen.findByRole('button', { name: 'Edit' }))
 diff --git a/desktop/src/pages/settings/H5Settings.tsx b/desktop/src/pages/settings/H5Settings.tsx
-index e6935e15..8043d219 100644
+index e6935e15..3d3425e0 100644
 --- a/desktop/src/pages/settings/H5Settings.tsx
 +++ b/desktop/src/pages/settings/H5Settings.tsx
-@@ -1,27 +1,144 @@
+@@ -1,27 +1,158 @@
 -import { useEffect } from 'react'
-+import { useEffect, useRef } from 'react'
++import { useEffect, useMemo, useRef } from 'react'
  import { useTranslation } from '@/i18n'
  import { useUIStore } from '@/stores/uiStore'
 -import { SettingsPill } from '@/components/settings/SettingsSection'
++import { useSessionStore } from '@/stores/sessionStore'
 +import { SettingsPageHeader, SettingsPill } from '@/components/settings/SettingsSection'
 +import { SETTINGS_TABS } from '../Settings'
 +import { ActivitySettings } from '../ActivitySettings'
@@ -347,7 +348,7 @@ index e6935e15..8043d219 100644
 +        {selected === 'general' && <GeneralSettings />}
 +        {selected === 'h5Access' && <H5AccessSettings />}
 +        {selected === 'adapters' && <AdapterSettings />}
-+        {selected === 'terminal' && <TerminalSettings showPreferences />}
++        {selected === 'terminal' && <H5TerminalSettings />}
 +        {selected === 'mcp' && <McpSettings />}
 +        {selected === 'agents' && <AgentManager />}
 +        {selected === 'skills' && <H5SkillSettings />}
@@ -361,6 +362,19 @@ index e6935e15..8043d219 100644
 +      </div>
 +    </div>
 +  )
++}
++
++// H5 终端默认落在当前活动会话的工作目录，让手机端能直接操作那个项目；
++// 无活动会话时不传 cwd，由服务端回落 CLAUDE_CONFIG_DIR/HOME。
++function H5TerminalSettings() {
++  const activeSessionId = useSessionStore((s) => s.activeSessionId)
++  const sessions = useSessionStore((s) => s.sessions)
++  const activeSession = useMemo(
++    () => sessions.find((session) => session.id === activeSessionId),
++    [activeSessionId, sessions],
++  )
++  const cwd = activeSession?.workDir ?? activeSession?.projectRoot ?? undefined
++  return <TerminalSettings showPreferences cwd={cwd} />
 +}
 +
 +// Same selected-detail pattern as the desktop Settings rail wrappers, but the
@@ -384,9 +398,10 @@ index e6935e15..8043d219 100644
 +        description={t('settings.skills.description')}
 +      />
 +      <SkillList />
-+    </div>
+     </div>
+-  </div>
 +  )
-+}
+ }
 +
 +function H5PluginSettings() {
 +  const selectedPlugin = usePluginStore((s) => s.selectedPlugin)
@@ -407,8 +422,7 @@ index e6935e15..8043d219 100644
 +        description={t('settings.plugins.description')}
 +      />
 +      <PluginList />
-     </div>
--  </div>
++    </div>
 +  )
- }
++}
 +

@@ -217,10 +217,10 @@ index 00000000..15a54dd3
 +  )
 +}
 diff --git a/desktop/src/components/layout/AppShell.test.tsx b/desktop/src/components/layout/AppShell.test.tsx
-index a4699c9e..669dea6b 100644
+index a4699c9e..08c80fa8 100644
 --- a/desktop/src/components/layout/AppShell.test.tsx
 +++ b/desktop/src/components/layout/AppShell.test.tsx
-@@ -84,6 +84,11 @@ vi.mock('../../stores/chatStore', () => ({
+@@ -84,6 +84,12 @@ vi.mock('../../stores/chatStore', () => ({
        connectToSession: mocks.connectToSession,
      }),
    },
@@ -229,116 +229,10 @@ index a4699c9e..669dea6b 100644
 +    lastDataTime: () => 0,
 +    value: () => 0,
 +  }),
++  getSubordinateTpsMeters: () => [],
  }))
  
  vi.mock('../../hooks/useKeyboardShortcuts', () => ({
-diff --git a/desktop/src/components/layout/AppShell.tsx b/desktop/src/components/layout/AppShell.tsx
-index bd4a3e27..6f08a93b 100644
---- a/desktop/src/components/layout/AppShell.tsx
-+++ b/desktop/src/components/layout/AppShell.tsx
-@@ -27,7 +27,9 @@ import {
- } from '../../stores/projectDisplayNameStore'
- import { openDesktopNotificationTarget } from '../../lib/desktopNotificationNavigation'
- import { TabBar } from './TabBar'
-+import { TpsIndicator } from '../chat/TpsIndicator'
- import { WorkspaceHeaderProvider } from './WorkspaceHeaderContext'
-+
- import { StartupErrorView } from './StartupErrorView'
- import { useTabStore, SETTINGS_TAB_ID } from '../../stores/tabStore'
- import { useChatStore } from '../../stores/chatStore'
-@@ -420,15 +422,18 @@ export function AppShell() {
-               </div>
-             ) : null}
-             {isActiveChatTab ? (
--              <IconButton
--                data-testid="session-manual-refresh-mobile"
--                icon={refreshingSession ? 'progress_activity' : 'refresh'}
--                label={t('chat.refreshSession')}
--                onClick={() => void handleManualRefresh()}
--                disabled={refreshingSession}
--                size="2xl"
--                aria-controls="content-area"
--              />
-+              <div className="flex shrink-0 items-center gap-1">
-+                {activeTabId ? <TpsIndicator sessionId={activeTabId} vertical /> : null}
-+                <IconButton
-+                  data-testid="session-manual-refresh-mobile"
-+                  icon={refreshingSession ? 'progress_activity' : 'refresh'}
-+                  label={t('chat.refreshSession')}
-+                  onClick={() => void handleManualRefresh()}
-+                  disabled={refreshingSession}
-+                  size="2xl"
-+                  aria-controls="content-area"
-+                />
-+              </div>
-             ) : null}
-           </div>
-         ) : null}
-diff --git a/desktop/src/i18n/locales/en.ts b/desktop/src/i18n/locales/en.ts
-index 114eb19b..bca7fbca 100644
---- a/desktop/src/i18n/locales/en.ts
-+++ b/desktop/src/i18n/locales/en.ts
-@@ -478,6 +478,8 @@ export const en = {
-   'chat.capabilities.managePlugins': 'Manage plugins',
-   'chat.capabilities.moreTools': 'More tools',
-   'chat.refreshSession': 'Refresh session',
-+  'chat.tpsSpeedTitle': 'Real-time decode speed (tokens/second)',
-+  'chat.tpsAggregateTitle': 'Real-time decode speed (tokens/second, including {count} subagent(s))',
-   'chat.referenceSearchHint': "Type to find sessions, skills, plugins and project files",
-   'chat.slashFrequent': 'Frequent commands',
-   'chat.slashSearchHint': 'Type to search commands, skills and plugins',
-diff --git a/desktop/src/i18n/locales/jp.ts b/desktop/src/i18n/locales/jp.ts
-index 1c06b89f..818d9067 100644
---- a/desktop/src/i18n/locales/jp.ts
-+++ b/desktop/src/i18n/locales/jp.ts
-@@ -480,6 +480,8 @@ export const jp: Record<TranslationKey, string> = {
-   'chat.capabilities.managePlugins': 'プラグインを管理',
-   'chat.capabilities.moreTools': 'その他のツール',
-   'chat.refreshSession': 'セッションを更新',
-+  'chat.tpsSpeedTitle': 'リアルタイムデコード速度（トークン/秒）',
-+  'chat.tpsAggregateTitle': 'リアルタイムデコード速度（トークン/秒、サブエージェント {count} 件を含む）',
-   'chat.referenceSearchHint': "入力してセッション、スキル、プラグイン、プロジェクトファイルを検索",
-   'chat.slashFrequent': 'よく使うコマンド',
-   'chat.slashSearchHint': '名前を入力してコマンド、スキル、プラグインを検索',
-diff --git a/desktop/src/i18n/locales/kr.ts b/desktop/src/i18n/locales/kr.ts
-index e22ba157..d04c2189 100644
---- a/desktop/src/i18n/locales/kr.ts
-+++ b/desktop/src/i18n/locales/kr.ts
-@@ -482,6 +482,8 @@ export const kr: Record<TranslationKey, string> = {
-   'chat.capabilities.managePlugins': '플러그인 관리',
-   'chat.capabilities.moreTools': '더 많은 도구',
-   'chat.refreshSession': '세션 새로고침',
-+  'chat.tpsSpeedTitle': '실시간 디코드 속도(토큰/초)',
-+  'chat.tpsAggregateTitle': '실시간 디코드 속도(토큰/초, 서브에이전트 {count}개 포함)',
-   'chat.referenceSearchHint': "입력하여 세션, 스킬, 플러그인 및 프로젝트 파일 검색",
-   'chat.slashFrequent': '자주 쓰는 명령',
-   'chat.slashSearchHint': '이름을 입력하여 명령, 스킬 및 플러그인 검색',
-diff --git a/desktop/src/i18n/locales/zh-TW.ts b/desktop/src/i18n/locales/zh-TW.ts
-index 36bfa944..c6be788e 100644
---- a/desktop/src/i18n/locales/zh-TW.ts
-+++ b/desktop/src/i18n/locales/zh-TW.ts
-@@ -480,6 +480,8 @@ export const zh: Record<TranslationKey, string> = {
-   'chat.capabilities.managePlugins': '管理外掛',
-   'chat.capabilities.moreTools': '更多工具',
-   'chat.refreshSession': '重新整理對話',
-+  'chat.tpsSpeedTitle': '即時解碼速度（token/秒）',
-+  'chat.tpsAggregateTitle': '即時解碼速度（token/秒，含 {count} 個子代理）',
-   'chat.referenceSearchHint': "輸入以尋找對話、技能、外掛程式及專案檔案",
-   'chat.slashFrequent': '常用指令',
-   'chat.slashSearchHint': '輸入名稱搜尋指令、技能和外掛',
-diff --git a/desktop/src/i18n/locales/zh.ts b/desktop/src/i18n/locales/zh.ts
-index 21cf4227..3e09e4ae 100644
---- a/desktop/src/i18n/locales/zh.ts
-+++ b/desktop/src/i18n/locales/zh.ts
-@@ -479,6 +479,8 @@ export const zh: Record<TranslationKey, string> = {
-   'chat.capabilities.managePlugins': '管理插件',
-   'chat.capabilities.moreTools': '更多工具',
-   'chat.refreshSession': '刷新会话',
-+  'chat.tpsSpeedTitle': '实时解码速度（token/秒）',
-+  'chat.tpsAggregateTitle': '实时解码速度（token/秒，含 {count} 个子代理）',
-   'chat.referenceSearchHint': "输入以查找会话、技能、插件和项目文件",
-   'chat.slashFrequent': '常用命令',
-   'chat.slashSearchHint': '输入名称搜索命令、技能和插件',
 diff --git a/desktop/src/lib/tpsMeter.test.ts b/desktop/src/lib/tpsMeter.test.ts
 new file mode 100644
 index 00000000..6db5d6e2
@@ -774,60 +668,8 @@ index 00000000..b724d25e
 +  }
 +  return cjk + nonCjk * NON_CJK_TOKEN_WEIGHT
 +}
-diff --git a/desktop/src/pages/ActiveSession.tsx b/desktop/src/pages/ActiveSession.tsx
-index 84246e79..c18a21e2 100644
---- a/desktop/src/pages/ActiveSession.tsx
-+++ b/desktop/src/pages/ActiveSession.tsx
-@@ -24,6 +24,7 @@ import {
- import { useWorkspaceContentStore } from '../stores/workspaceContentStore'
- import { useTranslation } from '../i18n'
- import { Button } from '@/components/ui/Button'
-+import { TpsIndicator } from '../components/chat/TpsIndicator'
- import { LoadingState } from '@/components/ui/LoadingState'
- import { Tooltip } from '@/components/ui/Tooltip'
- import { BrandSeal } from '@/components/composite/BrandSeal'
-@@ -855,21 +856,24 @@ export function ActiveSession() {
-                   compact={showRightPanel}
-                   metadata={headerMetadata}
-                   actions={
--                    <Button
--                      variant="ghost"
--                      size="sm"
--                      className="shrink-0"
--                      onClick={() => void handleManualRefresh()}
--                      disabled={refreshingSession}
--                      icon={
--                        <span className={`material-symbols-outlined text-[16px] ${refreshingSession ? 'animate-spin' : ''}`}>
--                          refresh
--                        </span>
--                      }
--                      data-testid="session-manual-refresh"
--                    >
--                      {t('chat.refreshSession')}
--                    </Button>
-+                    <>
-+                      {activeTabId ? <TpsIndicator sessionId={activeTabId} /> : null}
-+                      <Button
-+                        variant="ghost"
-+                        size="sm"
-+                        className="shrink-0"
-+                        onClick={() => void handleManualRefresh()}
-+                        disabled={refreshingSession}
-+                        icon={
-+                          <span className={`material-symbols-outlined text-[16px] ${refreshingSession ? 'animate-spin' : ''}`}>
-+                            refresh
-+                          </span>
-+                        }
-+                        data-testid="session-manual-refresh"
-+                      >
-+                        {t('chat.refreshSession')}
-+                      </Button>
-+                    </>
-                   }
-                 >
-                   {session && getSessionWorkspaceState(session) !== 'available' && (
 diff --git a/desktop/src/stores/chatStore.ts b/desktop/src/stores/chatStore.ts
-index 8f2d3d8c..8989f830 100644
+index efe6950d..7588d8b5 100644
 --- a/desktop/src/stores/chatStore.ts
 +++ b/desktop/src/stores/chatStore.ts
 @@ -19,6 +19,7 @@ import { randomSpinnerVerb } from '../config/spinnerVerbs'
@@ -838,7 +680,7 @@ index 8f2d3d8c..8989f830 100644
  import { t } from '../i18n'
  import {
    VISUAL_SELECTION_BATCH_PROMPT_HEADER,
-@@ -1005,6 +1006,37 @@ function markPendingToolUseMessagesStopped(messages: UIMessage[]): UIMessage[] {
+@@ -1006,6 +1007,37 @@ function markPendingToolUseMessagesStopped(messages: UIMessage[]): UIMessage[] {
    return changed ? stoppedMessages : messages
  }
  
@@ -876,7 +718,7 @@ index 8f2d3d8c..8989f830 100644
  // Streaming throttle for content_delta. Buffers must be per-session because
  // multiple desktop tabs can stream at the same time.
  const pendingDeltaBySession = new Map<string, string>()
-@@ -1028,8 +1060,12 @@ function appendPendingDelta(sessionId: string, text: string): void {
+@@ -1029,8 +1061,12 @@ function appendPendingDelta(sessionId: string, text: string): void {
      sessionId,
      `${pendingDeltaBySession.get(sessionId) ?? ''}${text}`,
    )
@@ -889,7 +731,7 @@ index 8f2d3d8c..8989f830 100644
  function clearPendingDelta(sessionId: string): void {
    const flushTimer = flushTimerBySession.get(sessionId)
    if (flushTimer) {
-@@ -1055,6 +1091,11 @@ function appendPendingToolInputDelta(sessionId: string, text: string): void {
+@@ -1056,6 +1092,11 @@ function appendPendingToolInputDelta(sessionId: string, text: string): void {
      sessionId,
      `${pendingToolInputDeltaBySession.get(sessionId) ?? ''}${text}`,
    )
@@ -901,7 +743,7 @@ index 8f2d3d8c..8989f830 100644
  }
  
  function clearPendingToolInputDelta(sessionId: string): void {
-@@ -3187,6 +3228,7 @@ export const useChatStore = create<ChatStore>((setState, get) => {
+@@ -3199,6 +3240,7 @@ export const useChatStore = create<ChatStore>((setState, get) => {
      clearPendingToolInputDelta(sessionId)
      clearPendingTaskToolUseIds(sessionId)
      clearPendingToolParentUseIds(sessionId)
@@ -909,7 +751,7 @@ index 8f2d3d8c..8989f830 100644
      advanceHistoryLifecycle(sessionId)
      wsManager.disconnect(sessionId)
      set((s) => {
-@@ -5098,7 +5140,16 @@ export const useChatStore = create<ChatStore>((setState, get) => {
+@@ -5126,7 +5168,16 @@ export const useChatStore = create<ChatStore>((setState, get) => {
              streamingResponseChars: s.streamingResponseChars + msg.text.length,
            }
          })
