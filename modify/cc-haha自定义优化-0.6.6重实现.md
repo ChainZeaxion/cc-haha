@@ -23,6 +23,7 @@
 | 移动端/H5 | 十一 H5 悬浮快捷入口（任务列表 / 终端 / 文件浏览 / 审查） | 旧§5.2 FAB（参考） | ✅ |
 | 工程/质量 | 十二 src/server 既有 22 条测试失败清零 | —（新增） | ✅ |
 | 上下文/压缩 | 十三 pi-vcc 算法压缩移植（transcript-preserving，无 LLM 调用）+ 双后端热切换 + vcc_recall 工具 | 新增（参考 @sting8k/pi-vcc 0.8.0） | ✅ |
+| 移动端/H5 | 十四 H5/移动端支持打开插件市场（技能·连接器） | —（新增） | ✅ |
 ## 📦 联动 Patches
 
 > 各优化项的实施 diff 以 patch 文件形式统一存放到本 `modify/` 目录（后期全部归档于此），与上文章节联动：每完成一项，patch 入库并在此登记；升级/重打基座时按本表逐个 `git apply` 重放。
@@ -52,6 +53,7 @@
 | `patches/server-test-baseline-zeroing.patch` | 十二 src/server 既有 22 条测试失败清零 | 6d4fd126 | ✅ |
 | `patches/h5-mobile-quick-actions.patch` | 十一 H5 悬浮快捷入口（任务/终端/文件/审查） | 447d03a7 | ✅ |
 | `patches/vcc-compactor.patch` | 十三 pi-vcc 算法压缩移植 + 双后端热切换 + vcc_recall | 2004cd16 | ✅ |
+| `patches/h5-mobile-market.patch` | 十四 H5/移动端支持打开插件市场 | 10d7d52a | ✅ |
 
 ### 移植通用注意事项- stale `.js` 孪生：改 `src/*.ts` 走 sidecar 打包路径时，须核对被改文件同名 `.js` 是否存在且同步（旧树 `.js` 优先加载坑）。
 - 0.6.6 已有对应能力需**融合**而非整块覆盖（如 H5 安全配对、缓存 token 显示、rewind 等），各章落地前先核对现状。
@@ -640,3 +642,24 @@ CLAUDE_H5_DIST_DIR=/home/zeaxion/myproject/cchaha-06scode/desktop/dist \
 - **15 链全验证**（`git worktree add --detach /tmp 2f8d819d` + 软链 node_modules，按序 `git apply` 全部 15 patch：14 既有 + `vcc-compactor`）：全干净；apply 后 57 个 VCC 文件逐字节=工作树（diff 全空，0 差异）。
 
 **patch**：`modify/patches/vcc-compactor.patch`（57 文件 5946 行，链位 15，基线 2004cd16）。
+
+## 十四、H5/移动端支持打开插件市场（✅ 2026-09-25）
+
+> 用户 verbatim：「还有，移动端需要能打开插件市场，这个也需要处理一下。也纳入H5访问优化内」。
+
+### 现状核对
+- 插件市场页面=`desktop/src/pages/ExtensionMarket.tsx`（tab 容器：plugins→`Connectors.tsx`、skills→`Market.tsx`），路由=tab 类型（`ContentRouter.tsx:39-40`，market/connectors→`<ExtensionMarket/>`）；入口=`Sidebar.tsx:1058` NavItem（`MARKET_TAB_ID`，i18n `sidebar.extensions`「技能·连接器」）+桌面 `TabBar.tsx` 标签。
+- 纯 HTTP 无宿主依赖：`api/market.ts`→`/api/market/*`，install 由服务端本机 fs 执行（`services/market/installService.ts`）；服务端 H5 白名单（`remoteBrowserPolicy.ts`）只 gate `/providers`、`/settings`，`/api/market` 直通无 403。
+- H5 被挡两点：①`Sidebar.tsx:1058` 市场 NavItem 包在 `{!isMobile && ...}` 内→移动端侧边栏抽屉无市场按钮；②`AppShell.tsx:275` 移动端 effect 早退条件不含 market→非 chat/settings 的 market tab 被强制踢回会话。
+
+### 实施方案（2 文件 3 处）
+1. `Sidebar.tsx`：市场 NavItem 移出 `{!isMobile}` 包裹（scheduled 仍隐藏）；
+2. `AppShell.tsx:275`：早退条件加 `|| activeTab?.type === 'market'`；
+3. `AppShell.tsx` mobile-session-header：market tab 标题分支（`t('sidebar.extensions')`，settings 分支范式）。
+
+### 验证
+- tsc exit 0；Sidebar/AppShell/ContentRouter 3 文件 135/135；全量前端 vitest 12300 pass/12 skip/0 fail（仅既有 MessageList 虚拟化负载 flaky，单跑 198/198）。
+- **live 7788 移动端（iPhone 14 390×844）**：侧边栏抽屉出现「技能·连接器」按钮→点击→header 标题「技能·连接器」+ 插件列表渲染（飞书/钉钉/企业微信等连接器卡片）。
+- **16 链全验证**（worktree@2f8d819d 顺序 apply 16 patch：15 既有 + `h5-mobile-market`）全干净；链上 Sidebar/AppShell 与工作树逐字节一致（已知非章 delta 不变：bun.lock、TerminalSettings.tsx、providerModels.ts、MessagePayloadRetention.test.tsx）。
+
+**patch**：`modify/patches/h5-mobile-market.patch`（2 文件 61 行，链位 16，基线 10d7d52a）。

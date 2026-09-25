@@ -1,0 +1,61 @@
+diff --git a/desktop/src/components/layout/AppShell.tsx b/desktop/src/components/layout/AppShell.tsx
+index d5581c5b..a4332bba 100644
+--- a/desktop/src/components/layout/AppShell.tsx
++++ b/desktop/src/components/layout/AppShell.tsx
+@@ -272,7 +272,7 @@ export function AppShell() {
+ 
+   useEffect(() => {
+     if (!ready || !isMobileShell) return
+-    if (isChatTab(activeTab) || activeTab?.type === 'settings' || (!activeTab && !activeTabId)) return
++    if (isChatTab(activeTab) || activeTab?.type === 'settings' || activeTab?.type === 'market' || (!activeTab && !activeTabId)) return
+     const nextChatTab = tabs.find(isChatTab)
+     if (nextChatTab) {
+       setActiveTab(nextChatTab.sessionId)
+@@ -395,6 +395,8 @@ export function AppShell() {
+             />
+             {activeTab?.type === 'settings' ? (
+               <h1 className="min-w-0 flex-1 truncate text-[15px] font-bold leading-tight text-[var(--color-text-primary)]">{t('sidebar.settings')}</h1>
++            ) : activeTab?.type === 'market' ? (
++              <h1 className="min-w-0 flex-1 truncate text-[15px] font-bold leading-tight text-[var(--color-text-primary)]">{t('sidebar.extensions')}</h1>
+             ) : isActiveChatTab ? (
+               <div className="min-w-0 flex-1">
+                 <h1 className="truncate text-[15px] font-bold leading-tight text-[var(--color-text-primary)]">
+diff --git a/desktop/src/components/layout/Sidebar.tsx b/desktop/src/components/layout/Sidebar.tsx
+index 729bd55b..f36d2b1a 100644
+--- a/desktop/src/components/layout/Sidebar.tsx
++++ b/desktop/src/components/layout/Sidebar.tsx
+@@ -1055,21 +1055,19 @@ export function Sidebar({
+             {t('sidebar.scheduled')}
+           </NavItem>
+         )}
+-        {!isMobile && (
+-          <NavItem
+-            active={activeTabId === MARKET_TAB_ID || activeTabId === CONNECTORS_TAB_ID}
+-            collapsed={!expanded}
+-            label={t('sidebar.extensions')}
+-            touchFriendly={isMobile}
+-            onClick={() => {
+-              useTabStore.getState().openTab(MARKET_TAB_ID, t('sidebar.extensions'), 'market')
+-              closeMobileDrawer()
+-            }}
+-            icon={<StorefrontIcon />}
+-          >
+-            {t('sidebar.extensions')}
+-          </NavItem>
+-        )}
++        <NavItem
++          active={activeTabId === MARKET_TAB_ID || activeTabId === CONNECTORS_TAB_ID}
++          collapsed={!expanded}
++          label={t('sidebar.extensions')}
++          touchFriendly={isMobile}
++          onClick={() => {
++            useTabStore.getState().openTab(MARKET_TAB_ID, t('sidebar.extensions'), 'market')
++            closeMobileDrawer()
++          }}
++          icon={<StorefrontIcon />}
++        >
++          {t('sidebar.extensions')}
++        </NavItem>
+ 
+       </div>
+ 

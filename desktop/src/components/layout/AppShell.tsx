@@ -272,7 +272,7 @@ export function AppShell() {
 
   useEffect(() => {
     if (!ready || !isMobileShell) return
-    if (isChatTab(activeTab) || activeTab?.type === 'settings' || (!activeTab && !activeTabId)) return
+    if (isChatTab(activeTab) || activeTab?.type === 'settings' || activeTab?.type === 'market' || (!activeTab && !activeTabId)) return
     const nextChatTab = tabs.find(isChatTab)
     if (nextChatTab) {
       setActiveTab(nextChatTab.sessionId)
@@ -395,6 +395,8 @@ export function AppShell() {
             />
             {activeTab?.type === 'settings' ? (
               <h1 className="min-w-0 flex-1 truncate text-[15px] font-bold leading-tight text-[var(--color-text-primary)]">{t('sidebar.settings')}</h1>
+            ) : activeTab?.type === 'market' ? (
+              <h1 className="min-w-0 flex-1 truncate text-[15px] font-bold leading-tight text-[var(--color-text-primary)]">{t('sidebar.extensions')}</h1>
             ) : isActiveChatTab ? (
               <div className="min-w-0 flex-1">
                 <h1 className="truncate text-[15px] font-bold leading-tight text-[var(--color-text-primary)]">
