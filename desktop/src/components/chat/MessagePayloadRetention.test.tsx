@@ -35,11 +35,6 @@ describe('complete message payloads', () => {
     expect(screen.getByText('notes.md')).toBeInTheDocument()
   })
 
-  // A 5000-line Edit renders a 5001-line word diff with per-line syntax
-  // highlighting — ~4s under jsdom, so the default 5s budget flips to a
-  // timeout under full-suite machine load. Bump the budget; the render cost is
-  // the point of this test (payload retention through a huge diff), not the
-  // default timeout.
   it('renders both sides of a large successful Edit', async () => {
     // Keep the payload above 64 KiB while limiting DOM rows: diff rendering
     // thousands of identical lines can exceed Vitest's timeout on CI workers.
