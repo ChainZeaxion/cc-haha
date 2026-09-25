@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
+import { afterEach, beforeEach, describe, expect, mock, test } from 'bun:test'
 import { get3PModelCapabilityOverride } from '../model/modelSupportOverrides.js'
 import { resolveSideQueryThinkingConfig } from '../sideQuery.js'
 import {
@@ -21,6 +21,7 @@ import {
   modelSupportsThinking,
   resolveModelThinkingEnabled,
   shouldSendExplicitDisabledThinking,
+  shouldSendThinkingToAPI,
 } from '../thinking.js'
 
 describe('provider-aware thinking support', () => {
@@ -262,3 +263,46 @@ function clearBetaCache() {
     cache?: { clear?: () => void }
   }).cache?.clear?.()
 }
+
+describe('shouldSendThinkingToAPI', () => {
+  const mockSettings: {
+    sendThinkingHistory?: boolean
+  } = {}
+
+  mock.module('../settings/settings.js', () => ({
+    getSettingsWithErrors: () => ({
+      settings: mockSettings,
+      errors: [],
+    }),
+  }))
+
+  beforeEach(() => {
+    delete process.env.CC_HAHA_SEND_THINKING_HISTORY
+  })
+
+  afterEach(() => {
+    mockSettings.sendThinkingHistory = undefined
+    restoreEnv('CC_HAHA_SEND_THINKING_HISTORY', undefined)
+  })
+
+  test('defaults to off when the setting is absent', () => {
+    expect(shouldSendThinkingToAPI()).toBe(false)
+  })
+
+  test('off when the setting is explicitly false', () => {
+    mockSettings.sendThinkingHistory = false
+    expect(shouldSendThinkingToAPI()).toBe(false)
+  })
+
+  test('on when the setting is explicitly true', () => {
+    mockSettings.sendThinkingHistory = true
+    expect(shouldSendThinkingToAPI()).toBe(true)
+  })
+
+  test('env forces on regardless of the setting', () => {
+    process.env.CC_HAHA_SEND_THINKING_HISTORY = '1'
+    expect(shouldSendThinkingToAPI()).toBe(true)
+    mockSettings.sendThinkingHistory = false
+    expect(shouldSendThinkingToAPI()).toBe(true)
+  })
+})

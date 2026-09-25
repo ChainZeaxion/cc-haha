@@ -159,6 +159,7 @@ export type UserSettings = {
   modelContext?: string
   effort?: EffortLevel
   alwaysThinkingEnabled?: boolean
+  sendThinkingHistory?: boolean
   workflowKeywordTriggerEnabled?: boolean
   agentTeamsEnabled?: boolean
   autoDreamEnabled?: boolean

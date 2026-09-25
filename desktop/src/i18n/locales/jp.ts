@@ -2232,6 +2232,8 @@ export const jp: Record<TranslationKey, string> = {
   'settings.general.thinkingDescription': '新しいセッションをモデルの思考を有効にして開始するかどうかを制御します。オフの場合、DeepSeek などの対応プロバイダーには明示的に非思考パラメーターが渡されます。',
   'settings.general.thinkingEnabled': '思考モードを有効にする',
   'settings.general.thinkingHint': '新しいセッションを --thinking 無効で開始するにはこれをオフにします。DeepSeek V4 Flash/Pro やその他の非思考ワークフローに便利です。',
+  'settings.general.thinkingSendBackTitle': '思考履歴をバックエンド API に送信する',
+  'settings.general.thinkingSendBackHint': 'オフの場合、直前の思考ブロックは API リクエストからのみ除去されます。ローカルのセッション履歴には保存され、会話内で引き続き閲覧できます。',
   'settings.general.defaultEditorTitle': '既定のエディタ',
   'settings.general.defaultEditorDescription': 'ファイルの「開く方法」メニューに表示するエディタ。このマシンで検出されたエディタのみ表示されます。',
   'settings.general.defaultEditorAuto': '自動',

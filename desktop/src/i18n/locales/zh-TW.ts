@@ -2231,6 +2231,8 @@ export const zh: Record<TranslationKey, string> = {
   'settings.general.thinkingDescription': '控制新會話是否啟用模型思考。關閉後，DeepSeek 等相容供應商會收到顯式非思考模式引數。',
   'settings.general.thinkingEnabled': '啟用思考模式',
   'settings.general.thinkingHint': '關閉後會以 --thinking disabled 啟動新會話；適合 DeepSeek V4 Flash/Pro 等需要非思考模式的模型。',
+  'settings.general.thinkingSendBackTitle': '將思考內容回傳後端 API',
+  'settings.general.thinkingSendBackHint': '關閉後，歷史中的思考內容只從發給後端的請求中剝離；本地會話歷史完整保留，仍可在會話中回看。',
   'settings.general.defaultEditorTitle': '預設編輯器',
   'settings.general.defaultEditorDescription': '檔案的「開啟方式」選單裡提供哪個編輯器。僅列出本機已偵測到的編輯器。',
   'settings.general.defaultEditorAuto': '自動選擇',

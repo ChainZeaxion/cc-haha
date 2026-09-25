@@ -17,7 +17,7 @@
 | 功能特性 | 五 文件下载桥接 | 旧§十二 | ✅ |
 | 功能特性 | 六 设置-关于-更新：禁止更新开关 | 旧§十三 | ✅ |
 | 计费/上下文 | 七 上下文缓存与计费显示（cache 命中率修正） | 旧§十四 | ✅ |
-| 功能特性 | 八 思考模式二级开关（think 是否回传后端） | 旧§二十五 | ⬜ |
+| 功能特性 | 八 思考模式二级开关（think 是否回传后端） | 旧§二十五 | ✅ |
 | 功能特性 | 九 H5 设置页与桌面端全 tab 对齐（放开浏览器「两 pill」围栏） | —（新增） | ✅ |
 | 工程/开发 | 十 本地开发模式注意事项（sidecar 开发模式跑通记录） | — | ✅ |
 | 移动端/H5 | 十一 H5 悬浮快捷入口（任务列表 / 文件浏览 / 审查） | 旧§5.2 FAB（参考） | ⬜ |
@@ -44,7 +44,7 @@
 | `patches/file-download.patch` | 五 文件下载桥接 | — | ✅ |
 | `patches/disable-updates.patch` | 六 禁止更新开关 | 4aaf425a | ✅ |
 | `patches/cache-billing.patch` | 七 上下文缓存与计费显示 | e49e0b7d | ✅ |
-| `patches/thinking-switch.patch` | 八 思考模式二级开关 | — | ⬜ |
+| `patches/thinking-switch.patch` | 八 思考模式二级开关 | 6cc24ac9 | ✅ |
 | `patches/h5-settings-parity.patch` | 九 H5 设置全 tab 对齐 | 2f8d819d (v0.6.6) | ✅ |
 | `patches/h5-mobile-quick-actions.patch` | 十一 H5 悬浮快捷入口（任务/文件/审查） | — | ⬜ |
 
@@ -360,15 +360,49 @@ H5 浏览器端打开文件链接时，`/local-file/<absPath>` 直接内联显�
 
 ---
 
-## 八、思考模式二级开关：think 是否回传后端 API（源§二十五）
+## 八、思考模式二级开关：think 是否回传后端 API（源§二十五，✅ 2026-09-26）
 
 ### 需求背景
 
+CC-HAHA 默认把上一轮 thinking 全文发回后端（Anthropic 格式原样透传，且 1P/Bedrock/Vertex 还发 `context_management clear_thinking keep:'all'` 显式要求服务端保留）。对自建 vLLM（无 1P 缓存保留机制）= 每轮实打实的额外 prefill token 开销。本项在「设置-通用-思考模式」下新增**二级开关**「将思考内容回传后端 API」：
+
+- **关（默认/缺省）**：构造 API 请求体时剥离上轮 assistant 的 `thinking` / `redacted_thinking` block，不再作为上下文发给后端。
+- **开（`sendThinkingHistory=true`）**：维持原行为（thinking 原样随 messages 回传）。
+- **本地留存不变**：无论开关状态，本地会话历史（内存滚动 / jsonl 落盘 / 会话内回看渲染）完整保留 thinking。
+
+设计意图：**升级后默认行为翻转**（thinking 不再回传省 token）。若发现模型质量回退，设置页打开二级开关或 `CC_HAHA_SEND_THINKING_HISTORY=1` 即恢复。
+
 ### 0.6.6 现状核对
+
+- settings schema：`src/utils/settings/types.ts` 顶层 `.passthrough()`(:1174) 但文件校验 `.strict()`(:193) → 新字段须进 schema，否则被 strip 掉。范式 `alwaysThinkingEnabled`(:746-752)。
+- thinking 工具：`src/utils/thinking.ts`（env 先例 `shouldSendExplicitDisabledThinking():220-222`）；`getSettingsWithErrors()` 已 import(:8)，返回 `{settings, errors}`。
+- 主 API 咽喉点：`src/utils/messages.ts:2022` `normalizeMessagesForAPI(messages, tools, currentModel)`（3 参），尾部清理链 :2393-2472。`isThinkingBlock`:5026（匹配 `thinking`/`redacted_thinking`）；`stripSignatureBlocks`:5321 成熟模式可复用。
+- 主路径挂载：`src/services/api/claude.ts:1417` 调用 + `getAPIContextManagement`:1837（局部 `hasThinking`:1721 另用于 temperature）。
+- OpenAI 路线：`src/server/proxy/handler.ts:706` `roundTripReasoningContent`（DeepSeek/opencode.ai 明文回传）；`src/services/openaiAuth/fetch.ts:225` 响应方向 `preserveOpenAIReasoning`（请求方向 :61 保持 `true`）。
+- **与老 fork 差异**：0.6.6 `normalizeMessagesForAPI` 是 **3 参**（本次加 options 成第 4 参）。0.6.6 有 `remoteBrowserPolicy.ts` 白名单（老 fork 无），新字段须同步 READ/WRITE 否则 H5 PUT 400 + 开关回弹（第六章坑）。0.6.6 `providers.test.ts` 有 2 个断言 DeepSeek `reasoning_content` 回传的用例（老 fork 无），门控默认关会让它们回归。
 
 ### 实施方案
 
+1. **`src/utils/settings/types.ts`**：`alwaysThinkingEnabled` 后加 `sendThinkingHistory: z.boolean().optional().describe(...)`（缺省/absent=false=不回传）。
+2. **`src/utils/thinking.ts`**：新增 `shouldSendThinkingToAPI(): boolean`——env `CC_HAHA_SEND_THINKING_HISTORY` 强开（`isEnvTruthy`，调试逃生门）→ `getSettingsWithErrors().settings.sendThinkingHistory === true`。
+3. **`src/utils/messages.ts`**：`normalizeMessagesForAPI` 加第 4 参 `options?: { stripThinking?: boolean }`；在尾部清理链 `relocated` 之后、`filterOrphanedThinkingOnlyMessages` 之前插入 `withStrippedThinking = options?.stripThinking ? stripThinkingBlocksForAPI(relocated) : relocated`（顺序约束：thinking-only 剥空由 `ensureNonEmptyAssistantContent` 占位兜底，API 400 不变式全保持）。新增 `stripThinkingBlocksForAPI`——map assistant 消息 `content.filter(block => !isThinkingBlock(block))`，复用 `stripSignatureBlocks` 模式。其余旁路调用方（token 估算/compact 等）不传参 → **零行为变化**。
+4. **`src/services/api/claude.ts`**：:1417 调用加第 4 参 `{ stripThinking: !shouldSendThinkingToAPI() }`（desktop/CLI/SDK 唯一 API 咽喉点）；`getAPIContextManagement` 改 `hasThinking: hasThinking && shouldSendThinkingToAPI()`（开关关时不发无意义的 `clear_thinking keep:'all'`；局部 `hasThinking` 仍用于 temperature 等）。
+5. **`src/services/openaiAuth/fetch.ts`**：仅**响应方向** :225 `preserveOpenAIReasoning: shouldSendThinkingToAPI()`（**请求方向 :61 保持 `true`**，忠实老 fork）。
+6. **`src/server/proxy/handler.ts`**：:706 `roundTripReasoningContent: (knownDeepSeekHost || reasoningProfile?.family === 'deepseek-v4') && shouldSendThinkingToAPI()`（其余 Chat 兼容商本就丢弃，不变）。
+7. **`src/tools/ConfigTool/supportedSettings.ts`**：白名单加 `sendThinkingHistory`（`{source:'settings',type:'boolean',description:...}`，无 appStateKey）。
+8. **`src/server/remoteBrowserPolicy.ts`**（0.6.6 特有）：`sendThinkingHistory` 加进 `READ_SETTINGS` 与 `WRITE_SETTINGS`（boolean 走默认校验）——H5 手机可读写（第六章坑）。
+9. **桌面端**：`desktop/src/types/settings.ts` 加 `sendThinkingHistory?: boolean`；`settingsStore.ts` 加 `thinkingSendBack`（默认 false、读 `=== true`、setter 乐观 set→`updateUser({sendThinkingHistory})`→catch 回滚）；`GeneralSettings.tsx` 思考卡片主 checkbox 后插二级 checkbox（`thinkingEnabled &&` 门控）。
+10. **i18n（5 语言）**：`settings.general.thinkingSendBackTitle` / `thinkingSendBackHint` 各 2 条（en/zh/zh-TW/jp/kr，插在 `thinkingHint` 后）。
+11. **测试**：`thinking.test.ts` +4（`mock.module('../settings/settings.js')` 范式；absent=false / false=false / true=true / env 强开覆盖 false setting）；`messages.test.ts` +3（默认保留 / 剥离 thinking+redacted 且 text、tool_use 保留 / thinking-only 消息无错，**4 参调用** `(...,[],undefined,{stripThinking:true})`）；`providers.test.ts` 2 个 DeepSeek round-trip 用例内显式 `CC_HAHA_SEND_THINKING_HISTORY=1`（门控默认关会让它们回归，测试本意=验证 round-trip 路径）。
+
 ### 验证
+
+- **server 全量零回归**：全量 `src/server` **3330 pass / 22 fail**，22 条失败名单与基线 worktree 逐条一致（含 2 条 DeepSeek round-trip 回归修好后）。`thinking.test.ts`+`messages.test.ts` 新增 7 用例全过（`thinking.test.ts` 既有 1 条 `shouldIncludeFirstPartyOnlyBetas` 环境依赖失败=基线既有，非本章引入）；`providers.test.ts` 142/142。
+- **桌面**：`tsc -b` exit 0；`H5Settings`+`SettingsOutputStyle` 10/10；全量前端 vitest **6146 pass / 0 fail**（1df6bf70 修复后基线，零回归）。
+- vite build → `App-Cl3KkIFE.js`（2201.04 kB，2.71s）。
+- **行为矩阵**（对齐源§二十五）：Anthropic 关=剥离 + `clear_thinking` 不发 / 开=原样 + `keep:'all'`；OpenAI Chat DeepSeek 关=不发 `reasoning_content` / 开=发明文；Codex OAuth 关=不发加密信封 / 开=发；其余商本就丢弃；本地历史始终完整保留。
+- **热更新**：开关在每次 API 请求时经 `getSettingsWithErrors` 读取（changeDetector 文件监听 + resetSettingsCache 既有机制），改完即对下一次请求生效，无需推控制消息。
+- **Patch**：`modify/patches/thinking-switch.patch`（19 文件 619 行，含 3 测试文件）。**11 patch 全链 `git apply` 干净（仅 h5-settings-parity 既有 EOF 空白 warning）且 thinking-switch 19 文件逐字节等于工作树（0 差异）**。
 
 ---
 

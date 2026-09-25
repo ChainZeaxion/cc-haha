@@ -2234,6 +2234,8 @@ export const kr: Record<TranslationKey, string> = {
   'settings.general.thinkingDescription': '새 세션을 모델 사고를 사용으로 시작할지 제어합니다. 꺼져 있으면 DeepSeek 같은 호환 공급자에 명시적인 비사고 매개변수가 전달됩니다.',
   'settings.general.thinkingEnabled': '사고 모드 사용',
   'settings.general.thinkingHint': '새 세션을 --thinking 비활성화로 시작하려면 이를 끄세요. DeepSeek V4 Flash/Pro 및 기타 비사고 워크플로에 유용합니다.',
+  'settings.general.thinkingSendBackTitle': '사고 기록을 백엔드 API로 보내기',
+  'settings.general.thinkingSendBackHint': '끄면 이전 사고 블록이 API 요청에서만 제거됩니다. 로컬 세션 기록에는 그대로 보관되어 대화에서 계속 볼 수 있습니다.',
   'settings.general.defaultEditorTitle': '기본 편집기',
   'settings.general.defaultEditorDescription': '파일의 연결 프로그램 메뉴에 표시할 편집기입니다. 이 컴퓨터에서 감지된 편집기만 나열됩니다.',
   'settings.general.defaultEditorAuto': '자동',

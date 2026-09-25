@@ -2231,7 +2231,10 @@ Row 9, all 8 cells: continuing from straight down, turning left through lower-le
   'settings.general.thinkingDescription': 'Controls whether new sessions start with model thinking enabled. When off, compatible providers such as DeepSeek receive an explicit non-thinking parameter.',
   'settings.general.thinkingEnabled': 'Enable thinking mode',
   'settings.general.thinkingHint': 'Turn this off to start new sessions with --thinking disabled; useful for DeepSeek V4 Flash/Pro and other non-thinking workflows.',
+  'settings.general.thinkingSendBackTitle': 'Send thinking history to the backend API',
+  'settings.general.thinkingSendBackHint': 'When off, prior thinking blocks are stripped from API requests only; they stay in your local session history and remain viewable in the conversation.',
   'settings.general.defaultEditorTitle': 'Default editor',
+
   'settings.general.defaultEditorDescription': 'Which editor the Open With menu offers for a file. Only editors found on this machine are listed.',
   'settings.general.defaultEditorAuto': 'Automatic',
   'settings.general.agentTeamsTitle': 'Agent Teams',

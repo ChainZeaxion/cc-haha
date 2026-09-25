@@ -60,6 +60,7 @@ type SettingsStore = {
   currentModel: ModelInfo | null
   effortLevel: EffortLevel
   thinkingEnabled: boolean
+  thinkingSendBack: boolean
   workflowKeywordTriggerEnabled: boolean
   agentTeamsEnabled: boolean
   autoDreamEnabled: boolean
@@ -107,6 +108,7 @@ type SettingsStore = {
   setModel: (modelId: string) => Promise<void>
   setEffort: (level: EffortLevel) => Promise<void>
   setThinkingEnabled: (enabled: boolean) => Promise<void>
+  setThinkingSendBack: (enabled: boolean) => Promise<void>
   setWorkflowKeywordTriggerEnabled: (enabled: boolean) => Promise<void>
   setAgentTeamsEnabled: (enabled: boolean) => Promise<void>
   setAutoDreamEnabled: (enabled: boolean) => Promise<void>
@@ -203,6 +205,7 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
   currentModel: null,
   effortLevel: 'max',
   thinkingEnabled: true,
+  thinkingSendBack: false,
   workflowKeywordTriggerEnabled: true,
   agentTeamsEnabled: true,
   autoDreamEnabled: false,
@@ -282,6 +285,7 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
         currentModel: model,
         effortLevel: level,
         thinkingEnabled: userSettings.alwaysThinkingEnabled !== false,
+        thinkingSendBack: userSettings.sendThinkingHistory === true,
         workflowKeywordTriggerEnabled: userSettings.workflowKeywordTriggerEnabled !== false,
         agentTeamsEnabled: userSettings.agentTeamsEnabled !== false,
         autoDreamEnabled: userSettings.autoDreamEnabled === true,
@@ -355,6 +359,16 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
       await settingsApi.updateUser({ alwaysThinkingEnabled: enabled })
     } catch {
       set({ thinkingEnabled: prev })
+    }
+  },
+
+  setThinkingSendBack: async (enabled) => {
+    const prev = get().thinkingSendBack
+    set({ thinkingSendBack: enabled })
+    try {
+      await settingsApi.updateUser({ sendThinkingHistory: enabled })
+    } catch {
+      set({ thinkingSendBack: prev })
     }
   },
 

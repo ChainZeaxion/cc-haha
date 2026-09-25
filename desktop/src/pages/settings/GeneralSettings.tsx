@@ -68,6 +68,8 @@ export function GeneralSettings() {
     setEffort,
     thinkingEnabled,
     setThinkingEnabled,
+    thinkingSendBack,
+    setThinkingSendBack,
     workflowKeywordTriggerEnabled,
     setWorkflowKeywordTriggerEnabled,
     agentTeamsEnabled,
@@ -1076,6 +1078,26 @@ export function GeneralSettings() {
             </div>
           </div>
         </label>
+        {thinkingEnabled && (
+          <label className="relative flex items-start gap-3 rounded-[var(--radius-xl)] border border-[var(--color-border)] bg-[var(--color-surface-container-low)] px-4 py-3 mt-3 cursor-pointer hover:border-[var(--color-border-focus)] transition-colors">
+            <input
+              type="checkbox"
+              aria-label={t('settings.general.thinkingSendBackTitle')}
+              checked={thinkingSendBack}
+              onChange={(e) => void setThinkingSendBack(e.target.checked)}
+              className={SETTINGS_CHECKBOX_INPUT_CLASS}
+            />
+            <SettingsCheckboxMark checked={thinkingSendBack} />
+            <div className="min-w-0">
+              <div className="text-sm font-medium text-[var(--color-text-primary)]">
+                {t('settings.general.thinkingSendBackTitle')}
+              </div>
+              <div className="text-xs text-[var(--color-text-tertiary)] mt-1 leading-5">
+                {t('settings.general.thinkingSendBackHint')}
+              </div>
+            </div>
+          </label>
+        )}
       </div>
 
       {/*

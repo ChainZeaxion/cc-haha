@@ -29,6 +29,7 @@ import { openaiChatStreamToAnthropic } from './streaming/openaiChatStreamToAnthr
 import { openaiResponsesStreamToAnthropic } from './streaming/openaiResponsesStreamToAnthropic.js'
 import type { AnthropicRequest } from './transform/types.js'
 import { getProxyFetchOptions } from '../../utils/proxy.js'
+import { shouldSendThinkingToAPI } from '../../utils/thinking.js'
 import {
   getNetworkProxyFetchOptions,
   loadNetworkSettings,
@@ -703,7 +704,11 @@ async function handleOpenaiChat(
   const reasoningProfile = resolveModelReasoningProfile(body.model, 'openai_chat')
   const transformed = anthropicToOpenaiChat(body, {
     ...requestOptions,
-    roundTripReasoningContent: knownDeepSeekHost || reasoningProfile?.family === 'deepseek-v4',
+    // Only round-trip reasoning content back to the API when thinking is being
+    // sent back at all; otherwise the previous turn's reasoning is dropped.
+    roundTripReasoningContent:
+      (knownDeepSeekHost || reasoningProfile?.family === 'deepseek-v4') &&
+      shouldSendThinkingToAPI(),
     passThinkingToggle: knownDeepSeekHost,
     imageContentMode: shouldUseTextOnlyOpenAIChatContent(baseUrl, body.model) ? 'text_only' : 'vision',
   })

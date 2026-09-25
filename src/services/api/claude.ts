@@ -97,6 +97,7 @@ import {
   type SystemPrompt,
 } from "../../utils/systemPromptType.js";
 import { tokenCountFromLastAPIResponse } from "../../utils/tokens.js";
+import { shouldSendThinkingToAPI } from "../../utils/thinking.js";
 import { getDynamicConfig_BLOCKS_ON_INIT } from "../analytics/growthbook.js";
 import {
   currentLimits,
@@ -1418,6 +1419,10 @@ async function* queryModel(
     messages,
     filteredTools,
     options.model,
+    // When the "send thinking back to the API" toggle is OFF (default),
+    // strip the previous turn's thinking blocks from the request body to
+    // save prefill tokens. Local history always keeps them.
+    { stripThinking: !shouldSendThinkingToAPI() },
   );
   queryCheckpoint("query_message_normalization_end");
 
@@ -1828,9 +1833,12 @@ async function* queryModel(
       }
     }
 
-    // Get API context management strategies if enabled
+    // Get API context management strategies if enabled. Only request the
+    // clear_thinking "keep:all" retention strategy when thinking is actually
+    // being sent back to the API — otherwise it's a pointless instruction to
+    // a backend that has no thinking blocks to retain.
     const contextManagement = getAPIContextManagement({
-      hasThinking,
+      hasThinking: hasThinking && shouldSendThinkingToAPI(),
       isRedactThinkingActive: betasParams.includes(REDACT_THINKING_BETA_HEADER),
       clearAllThinking: thinkingClearLatched,
     });

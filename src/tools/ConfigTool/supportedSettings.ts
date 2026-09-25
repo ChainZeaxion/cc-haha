@@ -110,6 +110,12 @@ export const SUPPORTED_SETTINGS: Record<string, SettingConfig> = {
     description: 'Enable extended thinking (false to disable)',
     appStateKey: 'thinkingEnabled',
   },
+  sendThinkingHistory: {
+    source: 'settings',
+    type: 'boolean',
+    description:
+      'Send prior thinking blocks back to the backend API as context (true to enable)',
+  },
   'permissions.defaultMode': {
     source: 'settings',
     type: 'string',
