@@ -273,8 +273,19 @@
 - **验证**：`bun /tmp/tps_check2.ts` 数值全对（稳态 80/s 停止后保持 84≈80、加速尾正确、thinking-fed 跟随不再冻结）；chatStore.test 347 + chatStore.golden 14 + tpsMeter.test 4 = **365/365**；全量前端 vitest **812 pass/2skip** + 12300 pass/12skip/0fail 零回归（基线）；tsc 仅 TS5096 非阻断；grep dist 确认 `FALLBACK_WINDOW_MS=500` 孪生已同步（.js 孪生坑照例 `tsc -p --noEmit false` 重发）。
 - **Patch 重生成**：`tps-indicator.patch` 12 文件 **654 行**（3 章内文件 hunks 更新，9 共享文件不变；3 文件不在后续 patch 中，19 链顺序 apply 全 OK，逐字节=工作树）。
 
-> 注：上下文面板「生成速度」口径修正（decode-only，分母用 `totalDecodeDuration` 而非 `totalAPIDuration`）归**第七章**（cache-billing.patch），见该章。
----
+### 子优化（2026-09-26）：子代理 TPS 汇聚到主会话显示
+
+- **需求**：会话并发跑子代理（Agent 工具）时，主会话 TPS 只反映主线程自身 decode；子代理输出应汇聚进同一指示器，并显式标注子代理数量。
+- **实现 4 文件**：
+  - **tpsMeter.ts**：新增 `aggregateMeterReadings(own: TpsMeter, subs: TpsMeter[], now: number, idleMs: number): {visible, tps, activeSubs}`——主会话速率 + 所有**窗口内仍有采样**（live）的子代理速率求和；已排空的子代理（结束）用自身 fallback 保持值不再计入（防膨胀），`activeSubs`=live 计数；idle（5min 无采样）整体隐藏。纯函数便于单测。
+  - **chatStore.ts**：`subordinateTpsMetersBySession` Map（sessionId→子代理 meter 数组），导出 `getSubordinateTpsMeters(sessionId)`；子代理会话的 content_delta/tool_input_delta 推入对应子 meter（经会话父子关系归属）。
+  - **TpsIndicator.tsx**：改用 `aggregateMeterReadings` 渲染；`activeSubs>0` 时显示 `Σn` 徽章（data-testid `tps-subagent-badge`），title 切换 `chat.tpsAggregateTitle`（含 `{count}` 占位）。
+  - **i18n**：5 语言新增 `chat.tpsAggregateTitle`（插在 `chat.tpsSpeedTitle` 行后）。
+- **验证**：tpsMeter.test（aggregate 4 用例：求和/排空子代理不计/单会话等价/idle 隐藏）+ TpsIndicator.test（新文件 3 用例：Σ 徽章/排空后消失/未流式隐藏）= **11/11**；chatStore 358/358；tsc exit 0；vite build `App-C1OyVXUg.js`（grep 确认 `tps-subagent-badge`/`tpsAggregateTitle` 入包）。
+- **Patch 重生成**：`tps-indicator.patch` 13 文件（含新测试文件 new file mode）929 行。因新 i18n 键插入在 `chat.tpsSpeedTitle` 后，**连锁重生成**下游锚定该区域的 `file-download.patch`（20 文件 951 行）与 `h5-mobile-quick-actions.patch`（9 文件 481 行）；19 链 worktree 顺序 apply 全 OK，与工作树逐字节一致（仅 5 已知非章 delta）。
+  - 坑：fd/mqa 重生成须以「工作树终态区块逐字取用」法（en/zh-TW 的 `chat.downloadableFiles`+`chat.downloadableMore` 同行双键、尾随空行都是工作树原貌）；以旧 commit（c1bacc0c）为基底会带入已删的 `chat.tpsLabel`。
+
+> 注：上下文面板「生成速度」口径修正（decode-only，分母用 `totalDecodeDuration` 而非 `totalAPIDuration`）归**第七章**（cache-billing.patch），见该章。---
 
 ## 五、文件下载桥接功能（源§十二，✅ 2026-09-24）
 
@@ -314,7 +325,7 @@ H5 浏览器端打开文件链接时，`/local-file/<absPath>` 直接内联显�
 - **坑（.js 孪生）**：仓内每个 `.ts/.tsx` 有一个 untracked 的 `.js` 孪生（tsc emit 风格，批量生成），Vite 默认 `resolve.extensions` 把 `.js` 排在 `.tsx` 前 → `vite build` 实际 bundle 旧的 `.js` 而非改过的 `.tsx`（症状=新 testid/字符串在 dist/ grep 0 命中）。修法=`tsc -p tsconfig.json --noEmit false` 同步全部 `.js`（TS5096 allowImportingTsExtensions 报错不阻断 emit）→ 清 `dist`+`node_modules/.vite` → `vite build`。`tsc -b`（noEmit:true）不生成孪生。`.js` 全 untracked 不入 git/patch。
 - **权威零回归（初版）**：全量 `src/server` bun test junit 比对基线 worktree（2f8d819d）——新增 1 条 `diagnostics API`，单独跑 3 次（当前树+基线各 37/37 全绿）确认负载 flaky，非引入。
 - 坑（初版）：`previewFs.ts` 0.6.6 缺 `downloadHeadersFor` 定义（仅老 fork 有）→ import 时报 `Export named 'downloadHeadersFor' not found`，需从老 fork 移植到 `serveFileWithRange` 后。
-- Patch：`modify/patches/file-download.patch`（**18 文件 905 行**，含 3 前端新文件 mode 100644 + 6 文件浏览下载入口文件）。**15 patch 全链 `git apply` 干净且逐字节等于工作树（18 文件 0 差异）**。
+- Patch：`modify/patches/file-download.patch`（**20 文件 951 行**，含 3 前端新文件 mode 100644 + 6 文件浏览下载入口文件；2026-09-26 因第四章子代理汇聚新增 i18n 键而连锁重生成）。**19 patch 全链 `git apply` 干净且逐字节等于工作树（仅 5 已知非章 delta）**。
 
 ---
 
