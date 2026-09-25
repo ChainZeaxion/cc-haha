@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
-import { getSessionTpsMeter } from '../../stores/chatStore'
-import { isTpsEnabled } from '../../lib/tpsMeter'
+import { getSessionTpsMeter, getSubordinateTpsMeters } from '../../stores/chatStore'
+import { aggregateMeterReadings, isTpsEnabled } from '../../lib/tpsMeter'
 import { useTranslation } from '../../i18n'
 
 /**
@@ -14,9 +14,13 @@ import { useTranslation } from '../../i18n'
  *    every poll; when decoding pauses it holds the last speed.
  *  - If no new data arrives for HIDE_AFTER_IDLE_MS (5 min) it hides again.
  *
- * Coloring: <27 red, <70 orange, >=70 green. Polled at POLL_MS (≈5-6 Hz).
- * Meter is per-session (see getSessionTpsMeter), so parallel sessions each
- * show their own decode speed.
+ * This session's own decode is aggregated with its subagents/team-members so
+ * the main view shows the team-wide total; a "Σn" badge appears while at least
+ * one subagent is actively emitting (see aggregateMeterReadings).
+ *
+ * Coloring: <27 red, <53 orange, <80 green, >=80 purple. Polled at POLL_MS
+ * (≈5-6 Hz). Meter is per-session (see getSessionTpsMeter), so parallel
+ * sessions each show their own decode speed.
  */
 
 const POLL_MS = 180
@@ -45,6 +49,7 @@ export function TpsIndicator({ sessionId, vertical = false }: { sessionId: strin
   const t = useTranslation()
   const [tps, setTps] = useState(0)
   const [visible, setVisible] = useState(false)
+  const [activeSubs, setActiveSubs] = useState(0)
 
   // Master switch: when disabled the indicator renders nothing and never polls
   // the meter (the meter itself is also not fed in the content_delta path).
@@ -53,18 +58,19 @@ export function TpsIndicator({ sessionId, vertical = false }: { sessionId: strin
   useEffect(() => {
     const meter = getSessionTpsMeter(sessionId)
     const tick = () => {
-      const streamed = meter.hasStreamed()
-      if (!streamed) {
+      // Own session + its subagent/team-member meters, folded into one
+      // team-wide reading (visibility/idle-hide judged across the whole group).
+      const { visible: shown, tps: value, activeSubs: subs } = aggregateMeterReadings(
+        meter,
+        getSubordinateTpsMeters(sessionId),
+        performance.now(),
+        HIDE_AFTER_IDLE_MS,
+      )
+      if (!shown) {
         setVisible(false)
         return
       }
-      const lastData = meter.lastDataTime()
-      const idleMs = lastData > 0 ? performance.now() - lastData : Number.POSITIVE_INFINITY
-      if (idleMs > HIDE_AFTER_IDLE_MS) {
-        setVisible(false)
-        return
-      }
-      const value = meter.value()
+      setActiveSubs(subs)
       // A near-zero read at a stream boundary (text↔thinking↔tool) is not a
       // real decode speed — hold the previous reading instead of flashing 0.
       setTps((prev) => {
@@ -83,6 +89,9 @@ export function TpsIndicator({ sessionId, vertical = false }: { sessionId: strin
   if (!visible) return null
   const tier = tierFor(tps)
   const style = TIER_STYLE[tier]
+  const title = activeSubs > 0
+    ? t('chat.tpsAggregateTitle', { count: String(activeSubs) })
+    : t('chat.tpsSpeedTitle')
 
   if (vertical) {
     return (
@@ -90,12 +99,17 @@ export function TpsIndicator({ sessionId, vertical = false }: { sessionId: strin
         data-testid="tps-indicator"
         className="inline-flex shrink-0 flex-col items-center justify-center rounded-full px-2 py-0.5 font-mono text-[10px] font-semibold leading-none tabular-nums"
         style={{ color: style.color, background: style.bg }}
-        title={t('chat.tpsSpeedTitle')}
+        title={title}
       >
         <span className="font-bold leading-none">TPS</span>
         <span className="mt-0.5 inline-block text-center leading-none">
           {tps.toFixed(0)}
         </span>
+        {activeSubs > 0 ? (
+          <span data-testid="tps-subagent-badge" className="mt-0.5 text-[9px] leading-none">
+            Σ{activeSubs}
+          </span>
+        ) : null}
       </span>
     )
   }
@@ -105,12 +119,17 @@ export function TpsIndicator({ sessionId, vertical = false }: { sessionId: strin
       data-testid="tps-indicator"
       className="inline-flex shrink-0 items-center gap-1 rounded-full px-2 py-0.5 font-mono text-[11px] font-semibold tabular-nums"
       style={{ color: style.color, background: style.bg }}
-      title={t('chat.tpsSpeedTitle')}
+      title={title}
     >
       <span className="inline-block min-w-[6ch] text-right">
         {tps.toFixed(0)}
       </span>
       <span>t/s</span>
+      {activeSubs > 0 ? (
+        <span data-testid="tps-subagent-badge" className="text-[10px]">
+          Σ{activeSubs}
+        </span>
+      ) : null}
     </span>
   )
 }

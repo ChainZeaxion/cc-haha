@@ -1019,6 +1019,24 @@ export function getSessionTpsMeter(sessionId: string): TpsMeter {
   return meter
 }
 
+/**
+ * Meters of the sessions a parent session owns — subagent runs and
+ * team-member runs are synthetic sessions whose `sourceSessionId` points at
+ * the session that launched them. Returned so the parent's TPS indicator can
+ * show the team-wide total (see aggregateMeterReadings).
+ */
+export function getSubordinateTpsMeters(sessionId: string): TpsMeter[] {
+  const meters: TpsMeter[] = []
+  for (const tab of useTabStore.getState().tabs) {
+    if (tab.sessionId === sessionId) continue
+    if (tab.type !== 'subagent' && tab.type !== 'team-member') continue
+    if (tab.sourceSessionId !== sessionId) continue
+    const meter = tpsMeterBySession.get(tab.sessionId)
+    if (meter?.hasStreamed()) meters.push(meter)
+  }
+  return meters
+}
+
 // Streaming throttle for content_delta. Buffers must be per-session because
 // multiple desktop tabs can stream at the same time.
 const pendingDeltaBySession = new Map<string, string>()

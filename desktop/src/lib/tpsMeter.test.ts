@@ -1,5 +1,5 @@
 import { describe, expect, it, vi, afterEach } from 'vitest'
-import { TpsMeter, estimateTokens } from './tpsMeter'
+import { TpsMeter, aggregateMeterReadings, estimateTokens } from './tpsMeter'
 
 describe('TpsMeter fallback', () => {
   afterEach(() => vi.restoreAllMocks())
@@ -84,5 +84,94 @@ describe('TpsMeter fallback', () => {
     // Empty / whitespace-only input never over-counts.
     expect(estimateTokens('')).toBe(0)
     expect(estimateTokens('   \n\t')).toBe(0)
+  })
+})
+
+describe('aggregateMeterReadings', () => {
+  afterEach(() => vi.restoreAllMocks())
+
+  // Push a steady ~60 tok/s stream into `meter` while advancing the fake clock.
+  function pump(meter: TpsMeter, nowRef: { t: number }, n = 10): void {
+    for (let i = 0; i < n; i++) {
+      nowRef.t += 100
+      meter.push('x'.repeat(6))
+    }
+  }
+
+  it('sums own + actively-emitting subagents and reports the active count', () => {
+    let now = 1_000_000
+    vi.spyOn(performance, 'now').mockImplementation(() => now)
+
+    const own = new TpsMeter(1500, 500)
+    const sub = new TpsMeter(1500, 500)
+    const ref = { t: now }
+    pump(own, ref)
+    pump(sub, ref) // both still inside the 1500ms window → both live
+
+    const r = aggregateMeterReadings(own, [sub], now, 5 * 60 * 1000)
+    expect(r.visible).toBe(true)
+    expect(r.activeSubs).toBe(1)
+    // Two comparable steady streams → total roughly 2x one.
+    const single = aggregateMeterReadings(own, [], now, 5 * 60 * 1000)
+    expect(r.tps).toBeGreaterThan(single.tps)
+  })
+
+  it('excludes a subagent whose window has drained (finished, held value must not leak)', () => {
+    let now = 1_000_000
+    vi.spyOn(performance, 'now').mockImplementation(() => now)
+
+    const own = new TpsMeter(1500, 500)
+    const sub = new TpsMeter(1500, 500)
+    const ref = { t: now }
+    pump(sub, ref)
+
+    // Sub stops; advance 10s so its 1500ms window drains (held speed stays
+    // non-zero via its own fallback, but it is no longer "live").
+    now += 10_000
+    pump(own, ref) // own is freshly emitting
+
+    const r = aggregateMeterReadings(own, [sub], now, 5 * 60 * 1000)
+    expect(r.visible).toBe(true)
+    expect(r.activeSubs).toBe(0)
+    // Must equal own-only (no inflated contribution from the drained sub).
+    const single = aggregateMeterReadings(own, [], now, 5 * 60 * 1000)
+    expect(r.tps).toBeCloseTo(single.tps, 5)
+  })
+
+  it('is unchanged for a lone main session (no subordinates)', () => {
+    let now = 1_000_000
+    vi.spyOn(performance, 'now').mockImplementation(() => now)
+
+    const own = new TpsMeter(1500, 500)
+    const ref = { t: now }
+    pump(own, ref)
+
+    // Live: aggregate === own live value, activeSubs 0.
+    let r = aggregateMeterReadings(own, [], now, 5 * 60 * 1000)
+    expect(r.visible).toBe(true)
+    expect(r.activeSubs).toBe(0)
+    expect(r.tps).toBeCloseTo(own.value(), 5)
+
+    // After the window drains, aggregate falls back to own held speed.
+    now += 10_000
+    r = aggregateMeterReadings(own, [], now, 5 * 60 * 1000)
+    expect(r.visible).toBe(true)
+    expect(r.tps).toBeCloseTo(own.value(), 5)
+  })
+
+  it('stays hidden before anything has streamed, and hides after the 5-min idle', () => {
+    let now = 1_000_000
+    vi.spyOn(performance, 'now').mockImplementation(() => now)
+
+    const own = new TpsMeter(1500, 500)
+    expect(aggregateMeterReadings(own, [], now, 5 * 60 * 1000).visible).toBe(false)
+
+    const ref = { t: now }
+    pump(own, ref)
+    expect(aggregateMeterReadings(own, [], now, 5 * 60 * 1000).visible).toBe(true)
+
+    // 5-min idle: even though the window is drained, nothing new arrived.
+    now += 6 * 60 * 1000
+    expect(aggregateMeterReadings(own, [], now, 5 * 60 * 1000).visible).toBe(false)
   })
 })

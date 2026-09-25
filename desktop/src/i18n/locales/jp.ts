@@ -486,6 +486,7 @@ export const jp: Record<TranslationKey, string> = {
   'chat.openFiles': 'ファイル閲覧',
   'chat.openReview': 'レビュー',
   'chat.tpsSpeedTitle': 'リアルタイムデコード速度（トークン/秒）',
+  'chat.tpsAggregateTitle': 'リアルタイムデコード速度（トークン/秒、サブエージェント {count} 件を含む）',
   'chat.downloadableFiles': 'ダウンロード可能なファイル',
   'chat.downloadableMore': 'さらに {count} 件表示',
   'chat.downloadableAll': 'すべて表示',

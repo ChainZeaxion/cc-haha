@@ -86,6 +86,17 @@ export class TpsMeter {
     return this.everStreamed
   }
 
+  /**
+   * True while the sliding window still holds fresh samples — i.e. this
+   * stream is actively emitting right now. Once the window drains, a
+   * finished session's held turn-ending speed must not keep feeding the
+   * aggregate (see aggregateMeterReadings).
+   */
+  hasLiveSamples(): boolean {
+    this.prune()
+    return this.samples.length > 0
+  }
+
   /** Epoch ms of the most recent streamed chunk (0 if never). */
   lastDataTime(): number {
     return this.lastPushAt
@@ -165,6 +176,62 @@ export class TpsMeter {
       this.samples.shift()
     }
   }
+}
+
+/**
+ * Aggregate reading for a session's TPS indicator. `tps` folds the main
+ * session together with its subagents so the main view shows the team-wide
+ * decode speed; `activeSubs` is the count of subagents currently emitting.
+ */
+export type TpsAggregate = {
+  visible: boolean
+  tps: number
+  /** Subagent meters with fresh samples in the window (emitting right now). */
+  activeSubs: number
+}
+
+/**
+ * Combine the session's own meter with its subordinate (subagent/team-member)
+ * meters into one reading.
+ *
+ *  - A meter only contributes while its sliding window still holds samples
+ *    (hasLiveSamples): a finished subagent's held turn-ending speed was
+ *    already counted while live and must not keep inflating the total.
+ *  - While nothing is decoding the reading falls back to the own session's
+ *    held speed — identical to the pre-aggregation single-session behavior,
+ *    so a lone main session is unaffected.
+ *  - Visibility / the 5-min idle hide rule considers the newest data from
+ *    the whole group, so a busy subagent keeps the main indicator alive.
+ */
+export function aggregateMeterReadings(
+  own: TpsMeter,
+  subordinates: TpsMeter[],
+  now: number,
+  hideAfterIdleMs: number,
+): TpsAggregate {
+  const everStreamed = own.hasStreamed() || subordinates.some((m) => m.hasStreamed())
+  if (!everStreamed) return { visible: false, tps: 0, activeSubs: 0 }
+
+  let lastData = own.lastDataTime()
+  for (const m of subordinates) {
+    if (m.lastDataTime() > lastData) lastData = m.lastDataTime()
+  }
+  if (lastData > 0 && now - lastData > hideAfterIdleMs) {
+    return { visible: false, tps: 0, activeSubs: 0 }
+  }
+
+  const liveSubs = subordinates.filter((m) => m.hasLiveSamples())
+  const liveOwn = own.hasLiveSamples()
+  if (!liveOwn && liveSubs.length === 0) {
+    // Nobody is decoding right now: hold the own turn-ending speed (the
+    // pre-aggregation behavior) instead of flashing 0 between turns.
+    if (!own.hasStreamed()) return { visible: false, tps: 0, activeSubs: 0 }
+    return { visible: true, tps: own.value(), activeSubs: 0 }
+  }
+
+  let tps = liveOwn ? own.value() : 0
+  for (const m of liveSubs) tps += m.value()
+  return { visible: true, tps, activeSubs: liveSubs.length }
 }
 
 export function estimateTokens(text: string): number {
