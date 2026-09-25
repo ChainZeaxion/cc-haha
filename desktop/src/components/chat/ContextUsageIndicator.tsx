@@ -490,8 +490,12 @@ export function ContextUsageIndicator({
     const viewportWidth = window.innerWidth || document.documentElement.clientWidth
     const viewportHeight = window.innerHeight || document.documentElement.clientHeight
     const width = Math.min(POPOVER_WIDTH, Math.max(0, viewportWidth - VIEWPORT_MARGIN * 2))
+    // The card's right edge sits 30px left of the ring's right edge: flush
+    // alignment made the panel read as part of the ring and the two-line
+    // session stats crowded against the composer.
+    const LEFT_NUDGE_PX = 30
     const left = Math.min(
-      Math.max(VIEWPORT_MARGIN, rect.right - width),
+      Math.max(VIEWPORT_MARGIN, rect.right - width - LEFT_NUDGE_PX),
       Math.max(VIEWPORT_MARGIN, viewportWidth - width - VIEWPORT_MARGIN),
     )
 

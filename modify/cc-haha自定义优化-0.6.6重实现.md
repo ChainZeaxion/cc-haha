@@ -364,6 +364,8 @@ H5 浏览器端打开文件链接时，`/local-file/<absPath>` 直接内联显�
 - vite build → App-C54fEqkT.js（2200.13 kB，2.66s）。
 - **dev 7788 live（127.0.0.1 agent-browser 进会话）**：header 费用徽标 `$0.87 · ¥6.27`（USD+CNY 双显示）+ 上下文指示器缓存尾巴 `96.7%`（`apiUsage` 有值时；estimate 路径 `apiUsage=undefined` 时尾巴隐藏、徽标仍显示 totalCost），console 无错。
 - **布局微调**（2026-09-25 追加，live 双端像素级验证）：缓存百分比尾巴相对触发**按钮**定位——桌面 32px 按钮/20px 可见圆环（6px padding）、移动 44px 触摸目标/22px 圆环（11px padding），同一 translate 值被移动端多出的 5px padding 吞掉（表现为"左挪无效"）。终值：尾巴 `transform: isMobileBrowser ? 'translate(-9px, 3px)' : 'translate(-4px, 3px)'`（两端均达「距可见圆环 2px + 下移 3px」）；整组（环+百分比）外层容器 `transform: translateX(15px)`（composer 工具栏右对齐，用 transform 而非 margin——首子项 margin-left 只加空 flex-1 间隙不挪元素；15px 使尾巴右缘与右侧 check 图标留 4.5px，不再贴死）。
+- **上下文浮动卡片微调**（2026-09-25 追加，live 1920 宽桌面浏览器验证）：①桌面 popover 卡（POPOVER_WIDTH=340，原右缘贴齐触发器右缘）整体**左移 30px**——`updatePopoverPosition` 加 `LEFT_NUDGE_PX=30`，`left = clamp(rect.right - width - 30)`，避免卡片与圆环/缓存尾巴视觉粘连（live 复测 gapRingToCardRight=30；初版 50px 用户觉得偏多，改 30）；②会话费用行双币种（`$2.00·¥14.42`）在 3 等分列下 CNY 被 `truncate` 截成省略号——`SessionStatGrid` 改 `grid-cols-[1fr_1fr_1.6fr]`（费用列加宽）+ 去费用值 `truncate`，1920 宽复测 scrollW=clientW=118 不再截断（title 保留完整双币兜底）；③费用列外层再 `transform: translateX(20px)` 右移 20px（transform 不动 grid track 宽），费用读数与缓存列拉开距离。
+- **第五章下载功能回归测试补齐**（随本次一并提交）：`6c7d4a62` 加下载项时漏改 3 处既有断言——WorkspaceFileOpenWith.test 菜单项数 4→5 + mock capabilities 补 `workspaceBrowser: true`（桌面宿主真实值，electronHost.ts:79，缺它则内置浏览器走 H5 兜底路径，2 条断言连带挂）；WorkspaceFileTreePane.test 键盘用例 `getByRole('menuitem')` 因新增下载项多匹配，加 `name: 'Add to chat'` 限定。全量 vitest 12298 pass / 2 fail=仅 MessageList 虚拟化用例负载 flaky（独立跑 198/198）。
 
 ### 子优化（2026-09-25）：上下文面板「生成速度」口径修正（decode-only）
 

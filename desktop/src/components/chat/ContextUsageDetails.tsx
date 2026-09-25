@@ -127,7 +127,9 @@ function SessionStatGrid({
   const valueClass = 'mt-[3px] font-mono text-sm text-[var(--color-text-primary)]'
 
   return (
-    <div className="mt-4 grid grid-cols-3 gap-3">
+    // The cost cell carries two currencies (USD + CNY), so it takes the widest
+    // third — a plain three-way split clipped the CNY readout to an ellipsis.
+    <div className="mt-4 grid grid-cols-[1fr_1fr_1.6fr] gap-3">
       <div>
         <div className={labelClass}>{labels.sessionSpeed}</div>
         <div className={valueClass} data-testid="session-speed">
@@ -152,10 +154,16 @@ function SessionStatGrid({
           )}
         </div>
       </div>
-      <div>
+      <div
+        // The cost column is nudged right of its grid track so the two-currency
+        // readout sits away from the cache column. transform (not margin) keeps
+        // the 1fr/1fr/1.6fr track widths — which the other two columns rely on
+        // — untouched.
+        style={{ transform: 'translateX(20px)' }}
+      >
         <div className={labelClass}>{labels.sessionCost}</div>
         <div
-          className={`${valueClass} truncate`}
+          className={valueClass}
           data-testid="session-cost"
           title={stats.totalCostUSD !== null ? `${stats.costDisplay} · ${formatCnyCost(stats.totalCostUSD)}` : stats.costDisplay}
         >

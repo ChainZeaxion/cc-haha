@@ -290,6 +290,21 @@ index 3c41234d..2f47d369 100644
    return <ExternalLink size={18} strokeWidth={1.9} />
  }
  
+diff --git a/desktop/src/components/workbench/WorkspaceFileTreePane.test.tsx b/desktop/src/components/workbench/WorkspaceFileTreePane.test.tsx
+index 045d5b09..70dd2fee 100644
+--- a/desktop/src/components/workbench/WorkspaceFileTreePane.test.tsx
++++ b/desktop/src/components/workbench/WorkspaceFileTreePane.test.tsx
+@@ -482,8 +482,9 @@ describe('file chat references', () => {
+     const file = screen.getByTestId('workspace-tree-row-README.md')
+     fireEvent.keyDown(file, { key: 'F10', shiftKey: true })
+     expect(screen.getByRole('menuitem', { name: 'Add to chat' })).toHaveFocus()
+-    fireEvent.keyDown(screen.getByRole('menuitem'), { key: 'Escape' })
++    fireEvent.keyDown(screen.getByRole('menuitem', { name: 'Add to chat' }), { key: 'Escape' })
+     expect(screen.queryByRole('menu')).toBeNull()
++
+     expect(useWorkspaceChatContextStore.getState().referencesBySession[SESSION]).toBeUndefined()
+   })
+ 
 diff --git a/desktop/src/components/workbench/WorkspaceFileTreePane.tsx b/desktop/src/components/workbench/WorkspaceFileTreePane.tsx
 index 74e1485b..f1050aeb 100644
 --- a/desktop/src/components/workbench/WorkspaceFileTreePane.tsx
@@ -338,6 +353,39 @@ index 74e1485b..f1050aeb 100644
      </div>
    )
  }
+diff --git a/desktop/src/components/workspace/WorkspaceFileOpenWith.test.tsx b/desktop/src/components/workspace/WorkspaceFileOpenWith.test.tsx
+index 234f7c33..ffd31c7d 100644
+--- a/desktop/src/components/workspace/WorkspaceFileOpenWith.test.tsx
++++ b/desktop/src/components/workspace/WorkspaceFileOpenWith.test.tsx
+@@ -64,6 +64,9 @@ describe('WorkspaceFileOpenWith', () => {
+       capabilities: {
+         ...browserHost.capabilities,
+         shell: true,
++        // Desktop hosts carry the multi-page in-app browser; the open-with
++        // wiring falls back to the system browser only when it is absent.
++        workspaceBrowser: true,
+       },
+       shell: {
+         ...browserHost.shell,
+@@ -78,14 +81,15 @@ describe('WorkspaceFileOpenWith', () => {
+     )
+ 
+     const labels = getAllByRole('menuitem').map((el) => el.textContent)
+-    expect(labels).toHaveLength(4)
++    expect(labels).toHaveLength(5)
+     expect(labels.some((l) => l?.includes('VS Code'))).toBe(true)
+     expect(labels.some((l) => l?.includes('workspace.files.openContainingFolder'))).toBe(true)
+     // This is now a standalone menu: there is no parent copy-path pair.
+     expect(labels).toContain('openWith.copyFileContent')
+     expect(labels).toContain('openWith.copyPath')
+-    expect(labels).not.toContain('openWith.systemDefault')
+-  })
++    // The download entry rides with the clipboard group as a plain file action.
++    expect(labels).toContain('workspace.download')
++    expect(labels).not.toContain('openWith.systemDefault')  })
+ 
+   it('clicking the IDE item calls openTarget and onAfterSelect', () => {
+     const onAfter = vi.fn()
 diff --git a/desktop/src/components/workspace/WorkspaceFileOpenWith.tsx b/desktop/src/components/workspace/WorkspaceFileOpenWith.tsx
 index 8cba9ddf..058eef65 100644
 --- a/desktop/src/components/workspace/WorkspaceFileOpenWith.tsx
