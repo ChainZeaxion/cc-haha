@@ -391,14 +391,16 @@ export function isH5AccessControlPath(pathname: string): boolean {
 }
 
 /**
- * Endpoints that irreversibly destroy user data in a single request. The H5
- * token is minted for a paired phone's convenience, not for bulk deletion, so
- * these require the desktop process token even though they sit under the
- * ordinary `/api` surface.
+ * Endpoints that require the desktop process token even though they sit under
+ * the ordinary `/api` surface.
+ *
+ * Previously `/api/settings/session-cleanup` (bulk transcript deletion) lived
+ * here so a paired phone's bearer token could not wipe the history. It now
+ * follows the rest of the General settings page — the H5 token is sufficient —
+ * so this set is empty, but the gate stays so the boundary can be re-added
+ * without plumbing changes.
  */
-const LOCAL_CREDENTIAL_ONLY_PATHS: ReadonlySet<string> = new Set([
-  '/api/settings/session-cleanup',
-])
+const LOCAL_CREDENTIAL_ONLY_PATHS: ReadonlySet<string> = new Set([])
 
 /**
  * Compare paths the way the router routes them (`split('/').filter(Boolean)`)

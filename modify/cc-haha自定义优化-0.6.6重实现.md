@@ -21,6 +21,7 @@
 | 功能特性 | 九 H5 设置页与桌面端全 tab 对齐（放开浏览器「两 pill」围栏） | —（新增） | ✅ |
 | 工程/开发 | 十 本地开发模式注意事项（sidecar 开发模式跑通记录） | — | ✅ |
 | 移动端/H5 | 十一 H5 悬浮快捷入口（任务列表 / 文件浏览 / 审查） | 旧§5.2 FAB（参考） | ⬜ |
+| 工程/质量 | 十二 src/server 既有 22 条测试失败清零 | —（新增） | ✅ |
 ## 📦 联动 Patches
 
 > 各优化项的实施 diff 以 patch 文件形式统一存放到本 `modify/` 目录（后期全部归档于此），与上文章节联动：每完成一项，patch 入库并在此登记；升级/重打基座时按本表逐个 `git apply` 重放。
@@ -46,6 +47,8 @@
 | `patches/cache-billing.patch` | 七 上下文缓存与计费显示 | e49e0b7d | ✅ |
 | `patches/thinking-switch.patch` | 八 思考模式二级开关 | 6cc24ac9 | ✅ |
 | `patches/h5-settings-parity.patch` | 九 H5 设置全 tab 对齐 | 2f8d819d (v0.6.6) | ✅ |
+| `patches/h5-settings-whitelist.patch` | 九 H5 设置项 400/403 修复（9.x，remoteBrowser 白名单） | 6d4fd126 | ✅ |
+| `patches/server-test-baseline-zeroing.patch` | 十二 src/server 既有 22 条测试失败清零 | 6d4fd126 | ✅ |
 | `patches/h5-mobile-quick-actions.patch` | 十一 H5 悬浮快捷入口（任务/文件/审查） | — | ⬜ |
 
 ### 移植通用注意事项- stale `.js` 孪生：改 `src/*.ts` 走 sidecar 打包路径时，须核对被改文件同名 `.js` 是否存在且同步（旧树 `.js` 优先加载坑）。
@@ -441,6 +444,22 @@ CC-HAHA 默认把上一轮 thinking 全文发回后端（Anthropic 格式原样�
 - **重 build + 重启 7788 dev**：`cd desktop && node ./node_modules/vite/bin/vite.js build` → 新 bundle `index-B_ViiZEH.js`（旧 `index-ZWgLHPz_.js`）；线上 App chunk 含新横向导航特征 class（`overflow-x-auto border-b`）2 处，确认新 H5 设置页已打包并伺服。
 - **patch 干净应用**：`modify/patches/h5-settings-parity.patch`（4 文件）经 `git apply --check` 验证可干净应用于 v0.6.6 基线 2f8d819d。
 - **待手机实测**：192.168.10.140 开 `http://192.168.10.43:7788` 确认 16 项可见可切换（含 H5 访问里的 requireToken 开关）。
+
+### 9.x H5 设置项 400/403 修复（remoteBrowser 白名单对齐，✅ 2026-09-27）
+
+**问题**：H5 放开全 tab 后，手机（LAN public 源）操作通用/网络等设置项大面积 400「Unsupported General setting」，部分子路由 403。loopback curl 全 200 不暴露——因为 `classifyH5Request`（`src/server/h5AccessPolicy.ts`）仅对 public 源（`h5-browser`）走 `validateRemoteSettingsPatch` 白名单（`src/server/router.ts:68`），loopback 属 local-trusted 直连 `handleUserSettings`（宽松，只查 JSON）。
+
+**根因**：`remoteBrowserPolicy.ts` 的 `READ_SETTINGS`/`WRITE_SETTINGS` 白名单是 H5 设置放开前的小集合（10/8 key），而桌面完整版 `GeneralSettings` 经 settingsStore 会写 16 个字段，其中 8 个不在 WRITE 白名单：`agentTeamsEnabled`/`autoDreamEnabled`/`skipWebFetchPreflight`/`desktopNotificationsEnabled`（bool）、`cleanupPeriodDays`（number 0–3650）、`webSearch`/`updateProxy`/`network`（对象）。另 `/api/settings` 子路由（output-styles、output-style、session-cleanup）不在 `remoteSettingsRouteAllowed`；`session-cleanup` 还被 `LOCAL_CREDENTIAL_ONLY_PATHS` 拦（设计=只许本地桌面进程调，用户拍板移除以完全对齐桌面）。
+
+**修复**（7 文件，全 src/server/）：
+1. `remoteBrowserPolicy.ts`：READ/WRITE 白名单 +8；新增形状校验器 `isValidWebSearch`（mode∈auto/anthropic/tavily/brave/disabled + 可选 apiKey 字符串）、`isValidUpdateProxy`（mode∈system/manual + url）、`isValidNetwork`（aiRequestTimeoutMs 30s–2^31ms + proxy.mode∈direct/system/manual + url）、`isValidCleanupPeriodDays`（int 0..3650）；`projectRemoteSettings` 重写为按 READ_SETTINGS 循环投影，4 个对象/数值字段校验后深拷贝（防 H5 刷新后对象值丢失回弹）；`remoteSettingsRouteAllowed` 扩：settings/user GET/PUT + output-styles GET + output-style PUT + session-cleanup POST。
+2. `router.ts`：字段白名单校验+GET 投影只 gate `/api/settings/user`（`parts[2]==='user'`），子路由 body 交 handler 自校验。
+3. `h5AccessPolicy.ts`：`LOCAL_CREDENTIAL_ONLY_PATHS` 清空（保留 gate 机制与注释）。
+4–7. 测试同步：`remoteBrowserPolicy.test.ts` +12 路由白名单断言；`router.remoteBrowser.test.ts` +子路由用例（200/403）；`h5-access-policy.test.ts` 反转 session-cleanup 断言（仍保留 /api/h5-access 本地限定）；`h5-access-auth.test.ts` preflight 403 列表去掉 session-cleanup。
+
+**验证**：live 7788 LAN（192.168.10.43 + H5 token）——8 字段 PUT 全 200、GET/PUT output-style(s) 200、POST session-cleanup 200、错误方法 403、`/project`/`/cli-launcher`/`/permission-mode` 仍 403、GET /user 投影回读 6 新字段全在、坏形状（mode:'bogus'/3651/-1）仍 400；3 测试文件 13/13；`src/server` 全量零回归。
+
+**patch**：`modify/patches/h5-settings-whitelist.patch`（7 文件 357 行，链位 12，基线 6d4fd126）。
 
 ---
 

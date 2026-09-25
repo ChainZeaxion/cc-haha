@@ -320,7 +320,9 @@ describe('remote H5 auth and CORS integration', () => {
       const response = await fetch(`${baseUrl}/api/settings`, { method: 'OPTIONS', headers: { ...headers, Origin: origin } })
       expect(response.status).toBe(403)
     }
-    for (const endpoint of ['/api/h5-access', '/api/h5-access/enable', '/api/settings/session-cleanup']) {
+    // The H5 access control plane rejects the dev renderer's preflight; it is
+    // the only surface that still demands the desktop process token.
+    for (const endpoint of ['/api/h5-access', '/api/h5-access/enable']) {
       const response = await fetch(`${baseUrl}${endpoint}`, { method: 'OPTIONS', headers })
       expect(response.status).toBe(403)
     }

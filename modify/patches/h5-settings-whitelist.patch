@@ -1,0 +1,357 @@
+diff --git a/src/server/__tests__/h5-access-auth.test.ts b/src/server/__tests__/h5-access-auth.test.ts
+index 10be4258..891ebc75 100644
+--- a/src/server/__tests__/h5-access-auth.test.ts
++++ b/src/server/__tests__/h5-access-auth.test.ts
+@@ -320,7 +320,9 @@ describe('remote H5 auth and CORS integration', () => {
+       const response = await fetch(`${baseUrl}/api/settings`, { method: 'OPTIONS', headers: { ...headers, Origin: origin } })
+       expect(response.status).toBe(403)
+     }
+-    for (const endpoint of ['/api/h5-access', '/api/h5-access/enable', '/api/settings/session-cleanup']) {
++    // The H5 access control plane rejects the dev renderer's preflight; it is
++    // the only surface that still demands the desktop process token.
++    for (const endpoint of ['/api/h5-access', '/api/h5-access/enable']) {
+       const response = await fetch(`${baseUrl}${endpoint}`, { method: 'OPTIONS', headers })
+       expect(response.status).toBe(403)
+     }
+diff --git a/src/server/__tests__/h5-access-policy.test.ts b/src/server/__tests__/h5-access-policy.test.ts
+index 5e0bad95..e67c5715 100644
+--- a/src/server/__tests__/h5-access-policy.test.ts
++++ b/src/server/__tests__/h5-access-policy.test.ts
+@@ -258,35 +258,33 @@ describe('h5AccessPolicy', () => {
+     expect(requiresLocalAccessCredential('/api/h5-access', { clientAddress: '127.0.0.1' })).toBe(false)
+   })
+ 
+-  test('keeps bulk session deletion off the H5 token', () => {
++  test('lets the H5 token drive bulk session deletion like the rest of General settings', () => {
+     const unauthorizedContext = {
+       clientAddress: '10.0.0.5',
+       localAccessTokenConfigured: true,
+       localAccessAuthorized: false,
+     }
+-    const authorizedContext = {
+-      ...unauthorizedContext,
+-      localAccessAuthorized: true,
+-    }
+ 
+-    // One request with days=0 wipes every transcript, so a paired phone's
+-    // bearer token is not a strong enough credential for it.
+-    expect(isLocalCredentialOnlyPath('/api/settings/session-cleanup')).toBe(true)
+-    expect(requiresLocalAccessCredential('/api/settings/session-cleanup', unauthorizedContext)).toBe(true)
+-    expect(requiresLocalAccessCredential('/api/settings/session-cleanup', authorizedContext)).toBe(false)
++    // session-cleanup used to sit in LOCAL_CREDENTIAL_ONLY_PATHS so a paired
++    // phone's bearer token could not wipe the history. It now follows the rest
++    // of the General page — the H5 token is sufficient.
++    expect(isLocalCredentialOnlyPath('/api/settings/session-cleanup')).toBe(false)
++    expect(requiresLocalAccessCredential('/api/settings/session-cleanup', unauthorizedContext)).toBe(false)
+ 
+-    // The router splits on '/' and filters empties, so these shapes all reach
+-    // the same handler and must be gated identically.
++    // The router splits on '/' and filters empties, so every shape reaches the
++    // same handler and stays un-gated.
+     for (const pathname of [
+       '/api/settings/session-cleanup/',
+       '/api/settings//session-cleanup',
+       '//api/settings/session-cleanup//',
+     ]) {
+-      expect(isLocalCredentialOnlyPath(pathname)).toBe(true)
+-      expect(requiresLocalAccessCredential(pathname, unauthorizedContext)).toBe(true)
++      expect(isLocalCredentialOnlyPath(pathname)).toBe(false)
++      expect(requiresLocalAccessCredential(pathname, unauthorizedContext)).toBe(false)
+     }
+ 
+-    // Neighbouring settings endpoints stay reachable from the phone.
++    // The control plane is still off-limits to a phone that lacks the process
++    // token, and the H5 token alone is never enough for it.
++    expect(requiresLocalAccessCredential('/api/h5-access', unauthorizedContext)).toBe(true)
+     expect(requiresLocalAccessCredential('/api/settings/user', unauthorizedContext)).toBe(false)
+     expect(isLocalCredentialOnlyPath('/api/settings/session-cleanup-extra')).toBe(false)
+   })
+diff --git a/src/server/h5AccessPolicy.ts b/src/server/h5AccessPolicy.ts
+index 7974c55f..603b3dd4 100644
+--- a/src/server/h5AccessPolicy.ts
++++ b/src/server/h5AccessPolicy.ts
+@@ -391,14 +391,16 @@ export function isH5AccessControlPath(pathname: string): boolean {
+ }
+ 
+ /**
+- * Endpoints that irreversibly destroy user data in a single request. The H5
+- * token is minted for a paired phone's convenience, not for bulk deletion, so
+- * these require the desktop process token even though they sit under the
+- * ordinary `/api` surface.
++ * Endpoints that require the desktop process token even though they sit under
++ * the ordinary `/api` surface.
++ *
++ * Previously `/api/settings/session-cleanup` (bulk transcript deletion) lived
++ * here so a paired phone's bearer token could not wipe the history. It now
++ * follows the rest of the General settings page — the H5 token is sufficient —
++ * so this set is empty, but the gate stays so the boundary can be re-added
++ * without plumbing changes.
+  */
+-const LOCAL_CREDENTIAL_ONLY_PATHS: ReadonlySet<string> = new Set([
+-  '/api/settings/session-cleanup',
+-])
++const LOCAL_CREDENTIAL_ONLY_PATHS: ReadonlySet<string> = new Set([])
+ 
+ /**
+  * Compare paths the way the router routes them (`split('/').filter(Boolean)`)
+diff --git a/src/server/remoteBrowserPolicy.test.ts b/src/server/remoteBrowserPolicy.test.ts
+index c1d278b0..7cbe2d74 100644
+--- a/src/server/remoteBrowserPolicy.test.ts
++++ b/src/server/remoteBrowserPolicy.test.ts
+@@ -5,6 +5,26 @@ import path from 'node:path'
+ import { createSandboxedTestEnvironment } from '../../scripts/pr/test-environment.js'
+ import { projectRemoteSettings, remoteProviderRouteAllowed, remoteSettingsRouteAllowed, validateRemoteSettingsPatch } from './remoteBrowserPolicy.js'
+ 
++test('remote settings routes permit the General sub-page endpoints and only those', () => {
++  const p = (pathname: string) => pathname.split('/').filter(Boolean)
++  // /user keeps GET+PUT
++  expect(remoteSettingsRouteAllowed(p('/api/settings/user'), 'GET')).toBe(true)
++  expect(remoteSettingsRouteAllowed(p('/api/settings/user'), 'PUT')).toBe(true)
++  expect(remoteSettingsRouteAllowed(p('/api/settings/user'), 'POST')).toBe(false)
++  // output-style picker + transcript retention are reachable from H5 General
++  expect(remoteSettingsRouteAllowed(p('/api/settings/output-styles'), 'GET')).toBe(true)
++  expect(remoteSettingsRouteAllowed(p('/api/settings/output-style'), 'PUT')).toBe(true)
++  expect(remoteSettingsRouteAllowed(p('/api/settings/session-cleanup'), 'POST')).toBe(true)
++  // wrong method on the new sub-routes stays blocked
++  expect(remoteSettingsRouteAllowed(p('/api/settings/output-styles'), 'PUT')).toBe(false)
++  expect(remoteSettingsRouteAllowed(p('/api/settings/output-style'), 'GET')).toBe(false)
++  expect(remoteSettingsRouteAllowed(p('/api/settings/session-cleanup'), 'GET')).toBe(false)
++  // other General sub-routes stay desktop-only
++  expect(remoteSettingsRouteAllowed(p('/api/settings/project'), 'GET')).toBe(false)
++  expect(remoteSettingsRouteAllowed(p('/api/settings/cli-launcher'), 'GET')).toBe(false)
++  expect(remoteSettingsRouteAllowed(p('/api/settings/output-style/extra'), 'PUT')).toBe(false)
++})
++
+ test('remote settings boundary permits only intended provider routes and General fields', () => {
+   const parts = (pathname: string) => pathname.split('/').filter(Boolean)
+   expect(remoteProviderRouteAllowed(parts('/api//providers/settings/'), 'GET')).toBe(false)
+@@ -20,6 +40,53 @@ test('remote settings boundary permits only intended provider routes and General
+   expect(projectRemoteSettings({ disableUpdates: true })).toEqual({ disableUpdates: true })
+ })
+ 
++test('General settings round-trip (H5 full GeneralSettings)', () => {
++  // booleans the General UI writes
++  expect(validateRemoteSettingsPatch({ agentTeamsEnabled: true })).toBe(true)
++  expect(validateRemoteSettingsPatch({ autoDreamEnabled: false })).toBe(true)
++  expect(validateRemoteSettingsPatch({ skipWebFetchPreflight: true })).toBe(true)
++  expect(validateRemoteSettingsPatch({ desktopNotificationsEnabled: true })).toBe(true)
++  expect(validateRemoteSettingsPatch({ agentTeamsEnabled: 'yes' })).toBe(false)
++  // webSearch shape + mode enum
++  expect(validateRemoteSettingsPatch({ webSearch: { mode: 'tavily', tavilyApiKey: 'k', braveApiKey: '' } })).toBe(true)
++  expect(validateRemoteSettingsPatch({ webSearch: { mode: 'auto' } })).toBe(true)
++  expect(validateRemoteSettingsPatch({ webSearch: { mode: 'bogus' } })).toBe(false)
++  expect(validateRemoteSettingsPatch({ webSearch: { mode: 'tavily', tavilyApiKey: 3 } })).toBe(false)
++  expect(validateRemoteSettingsPatch({ webSearch: 'tavily' })).toBe(false)
++  // updateProxy / network shapes
++  expect(validateRemoteSettingsPatch({ updateProxy: { mode: 'manual', url: 'http://p:1' } })).toBe(true)
++  expect(validateRemoteSettingsPatch({ updateProxy: { mode: 'system', url: '' } })).toBe(true)
++  expect(validateRemoteSettingsPatch({ updateProxy: { mode: 'x', url: '' } })).toBe(false)
++  expect(validateRemoteSettingsPatch({ updateProxy: { mode: 'manual' } })).toBe(false)
++  expect(validateRemoteSettingsPatch({ network: { aiRequestTimeoutMs: 60000, proxy: { mode: 'direct', url: '' } } })).toBe(true)
++  expect(validateRemoteSettingsPatch({ network: { aiRequestTimeoutMs: 29999, proxy: { mode: 'manual', url: '' } } })).toBe(false)
++  expect(validateRemoteSettingsPatch({ network: { aiRequestTimeoutMs: 60000, proxy: { mode: 'x', url: '' } } })).toBe(false)
++  expect(validateRemoteSettingsPatch({ network: { aiRequestTimeoutMs: 60000 } })).toBe(false)
++  // cleanupPeriodDays integer [0,3650]
++  expect(validateRemoteSettingsPatch({ cleanupPeriodDays: 30 })).toBe(true)
++  expect(validateRemoteSettingsPatch({ cleanupPeriodDays: 0 })).toBe(true)
++  expect(validateRemoteSettingsPatch({ cleanupPeriodDays: 3650 })).toBe(true)
++  expect(validateRemoteSettingsPatch({ cleanupPeriodDays: 3651 })).toBe(false)
++  expect(validateRemoteSettingsPatch({ cleanupPeriodDays: 1.5 })).toBe(false)
++  expect(validateRemoteSettingsPatch({ cleanupPeriodDays: '30' })).toBe(false)
++  // projection keeps object settings so the phone does not lose them on refresh
++  const projected = projectRemoteSettings({
++    webSearch: { mode: 'brave', tavilyApiKey: '', braveApiKey: 'b' },
++    updateProxy: { mode: 'manual', url: 'http://p:1' },
++    network: { aiRequestTimeoutMs: 90000, proxy: { mode: 'manual', url: 'http://n:2' } },
++    cleanupPeriodDays: 14,
++    desktopNotificationsEnabled: true,
++    agentTeamsEnabled: false,
++  })
++  expect(projected.webSearch).toEqual({ mode: 'brave', tavilyApiKey: '', braveApiKey: 'b' })
++  expect(projected.updateProxy).toEqual({ mode: 'manual', url: 'http://p:1' })
++  expect(projected.network).toEqual({ aiRequestTimeoutMs: 90000, proxy: { mode: 'manual', url: 'http://n:2' } })
++  expect(projected.cleanupPeriodDays).toBe(14)
++  expect(projected.desktopNotificationsEnabled).toBe(true)
++  expect(projected.agentTeamsEnabled).toBe(false)
++  expect('network' in projectRemoteSettings({ network: { aiRequestTimeoutMs: 1 } })).toBe(false)
++})
++
+ test('LAN and public provider CRUD redact and preserve keys; General edits isolate desktop secrets', async () => {
+   const home = mkdtempSync(path.join(os.tmpdir(), 'remote-settings-integration-'))
+   try {
+diff --git a/src/server/remoteBrowserPolicy.ts b/src/server/remoteBrowserPolicy.ts
+index f468ec05..bc23c677 100644
+--- a/src/server/remoteBrowserPolicy.ts
++++ b/src/server/remoteBrowserPolicy.ts
+@@ -1,12 +1,16 @@
+ import type { RequestCompatibility, SavedProvider } from './types/provider.js'
+ 
+ export type ApiRequestContext = { remoteBrowser?: boolean }
+-const READ_SETTINGS = ['alwaysThinkingEnabled', 'sendThinkingHistory', 'workflowKeywordTriggerEnabled', 'autoDreamEnabled', 'skipAutoPermissionPrompt', 'disableUpdates', 'chatSendBehavior', 'outputStyle', 'skipWebFetchPreflight', 'language']
++const READ_SETTINGS = ['alwaysThinkingEnabled', 'sendThinkingHistory', 'workflowKeywordTriggerEnabled', 'agentTeamsEnabled', 'autoDreamEnabled', 'skipAutoPermissionPrompt', 'disableUpdates', 'chatSendBehavior', 'outputStyle', 'skipWebFetchPreflight', 'desktopNotificationsEnabled', 'language', 'webSearch', 'updateProxy', 'network', 'cleanupPeriodDays']
+ // `skipAutoPermissionPrompt` is writable so the H5 "auto mode" opt-in dialog can
+ // persist from the phone; `disableUpdates` is writable so the H5 "disable updates"
+ // switch can persist the same way — both only flip a persistent userSettings
+-// boolean, same risk class as the other booleans below.
+-const WRITE_SETTINGS = new Set(['language', 'chatSendBehavior', 'alwaysThinkingEnabled', 'sendThinkingHistory', 'workflowKeywordTriggerEnabled', 'outputStyle', 'skipAutoPermissionPrompt', 'disableUpdates'])
++// boolean, same risk class as the other booleans below. The remaining General
++// settings (agent teams / auto dream / web-fetch preflight / notifications /
++// web search / update proxy / network / retention) are writable too: chapter 九
++// lets the H5 render the full GeneralSettings, so every field that UI can touch
++// must round-trip or the phone gets 400 "Unsupported General setting".
++const WRITE_SETTINGS = new Set(['language', 'chatSendBehavior', 'alwaysThinkingEnabled', 'sendThinkingHistory', 'workflowKeywordTriggerEnabled', 'outputStyle', 'skipAutoPermissionPrompt', 'disableUpdates', 'agentTeamsEnabled', 'autoDreamEnabled', 'skipWebFetchPreflight', 'desktopNotificationsEnabled', 'webSearch', 'updateProxy', 'network', 'cleanupPeriodDays'])
+ const RESERVED_PROVIDER_PATHS = new Set(['settings', 'cc-switch', 'test', 'models', 'presets', 'auth-status', 'official', 'reorder'])
+ const REMOTE_COMPATIBILITY_KEYS = new Set(['maxOutputTokens', 'outputTokenLimit', 'outputTokenField', 'sampling', 'reasoning', 'parallelTools', 'structuredOutput'])
+ 
+@@ -30,8 +34,17 @@ export function remoteProviderRouteAllowed(parts: string[], method: string): boo
+   return parts.length === 4 && !RESERVED_PROVIDER_PATHS.has(id) && parts[3] === 'activate' && method === 'POST'
+ }
+ 
++// The phone can reach `/settings/user` plus the two General-sub-page endpoints
++// the desktop UI drives from there: the output-style picker (its list read and
++// the style write) and transcript retention (`/session-cleanup`). Everything
++// else (project settings, CLI launcher, permission mode, …) stays desktop-only.
+ export function remoteSettingsRouteAllowed(parts: string[], method: string): boolean {
+-  return parts.length === 3 && parts[2] === 'user' && ['GET', 'PUT'].includes(method)
++  if (parts.length !== 3) return false
++  if (parts[2] === 'user') return ['GET', 'PUT'].includes(method)
++  if (parts[2] === 'output-styles') return method === 'GET'
++  if (parts[2] === 'output-style') return method === 'PUT'
++  if (parts[2] === 'session-cleanup') return method === 'POST'
++  return false
+ }
+ 
+ const DESKTOP_TERMINAL_SHELLS = ['', 'system', 'pwsh', 'powershell', 'cmd', 'custom']
+@@ -48,8 +61,49 @@ function isDesktopTerminalPatch(value: unknown): boolean {
+   return true
+ }
+ 
++const WEB_SEARCH_MODES = ['auto', 'anthropic', 'tavily', 'brave', 'disabled']
++const UPDATE_PROXY_MODES = ['system', 'manual']
++const NETWORK_PROXY_MODES = ['direct', 'system', 'manual']
++const MAX_CLEANUP_PERIOD_DAYS = 3650
++const NETWORK_TIMEOUT_MIN_MS = 30_000
++const NETWORK_TIMEOUT_MAX_MS = Math.floor(2_147_483_647 / 1000) * 1000
++
++function isObject(value: unknown): value is Record<string, unknown> {
++  return typeof value === 'object' && value !== null && !Array.isArray(value)
++}
++
++function isValidWebSearch(value: unknown): boolean {
++  if (!isObject(value)) return false
++  if (value.mode !== undefined && !(typeof value.mode === 'string' && WEB_SEARCH_MODES.includes(value.mode))) return false
++  if (value.tavilyApiKey !== undefined && typeof value.tavilyApiKey !== 'string') return false
++  if (value.braveApiKey !== undefined && typeof value.braveApiKey !== 'string') return false
++  return true
++}
++
++function isValidUpdateProxy(value: unknown): boolean {
++  return isObject(value) && typeof value.mode === 'string' && UPDATE_PROXY_MODES.includes(value.mode) && typeof value.url === 'string'
++}
++
++function isValidNetwork(value: unknown): boolean {
++  if (!isObject(value) || typeof value.aiRequestTimeoutMs !== 'number' || !Number.isFinite(value.aiRequestTimeoutMs) || value.aiRequestTimeoutMs < NETWORK_TIMEOUT_MIN_MS || value.aiRequestTimeoutMs > NETWORK_TIMEOUT_MAX_MS) return false
++  const proxy = value.proxy
++  return isObject(proxy) && typeof proxy.mode === 'string' && NETWORK_PROXY_MODES.includes(proxy.mode) && typeof proxy.url === 'string'
++}
++
++function isValidCleanupPeriodDays(value: unknown): boolean {
++  return typeof value === 'number' && Number.isInteger(value) && value >= 0 && value <= MAX_CLEANUP_PERIOD_DAYS
++}
++
+ export function projectRemoteSettings(settings: Record<string, unknown>) {
+-  const result = Object.fromEntries(READ_SETTINGS.filter(key => ['string', 'boolean', 'number'].includes(typeof settings[key])).map(key => [key, settings[key]]))
++  const result: Record<string, unknown> = {}
++  for (const key of READ_SETTINGS) {
++    const value = settings[key]
++    if (key === 'webSearch') { if (isValidWebSearch(value)) result[key] = { ...value } }
++    else if (key === 'updateProxy') { if (isValidUpdateProxy(value)) result[key] = { ...value } }
++    else if (key === 'network') { if (isValidNetwork(value)) result[key] = { ...value, proxy: { ...(value.proxy as Record<string, unknown>) } } }
++    else if (key === 'cleanupPeriodDays') { if (isValidCleanupPeriodDays(value)) result[key] = value }
++    else if (['string', 'boolean', 'number'].includes(typeof value)) result[key] = value
++  }
+   if (isDesktopTerminalPatch(settings.desktopTerminal)) {
+     result.desktopTerminal = { ...(settings.desktopTerminal as Record<string, unknown>) }
+   }
+@@ -63,6 +117,10 @@ export function validateRemoteSettingsPatch(input: Record<string, unknown>): boo
+     if (key === 'language') return typeof value === 'string' && value.length <= 80
+     if (key === 'outputStyle') return typeof value === 'string' && ['default', 'Explanatory', 'Learning'].includes(value)
+     if (key === 'chatSendBehavior') return value === 'enter' || value === 'modifierEnter'
++    if (key === 'webSearch') return isValidWebSearch(value)
++    if (key === 'updateProxy') return isValidUpdateProxy(value)
++    if (key === 'network') return isValidNetwork(value)
++    if (key === 'cleanupPeriodDays') return isValidCleanupPeriodDays(value)
+     return typeof value === 'boolean'
+   })
+ }
+diff --git a/src/server/router.remoteBrowser.test.ts b/src/server/router.remoteBrowser.test.ts
+index 1ea57784..beb24137 100644
+--- a/src/server/router.remoteBrowser.test.ts
++++ b/src/server/router.remoteBrowser.test.ts
+@@ -103,7 +103,9 @@ describe('remote browser API routing', () => {
+   })
+ 
+   test('general reads exclude secrets and valid edits including language reset keep exact requested fields', async () => {
+-    expect(await (await request('/api/settings/user')).json()).toEqual({ language: 'en', alwaysThinkingEnabled: true })
++    // agentTeamsEnabled is always injected by the GET handler (getAgentTeamsEnabled) and is now
++    // projected for H5 so the General teams toggle reflects its real state instead of reverting.
++    expect(await (await request('/api/settings/user')).json()).toEqual({ language: 'en', alwaysThinkingEnabled: true, agentTeamsEnabled: true })
+     const patch = { language: '', chatSendBehavior: 'modifierEnter', workflowKeywordTriggerEnabled: true, alwaysThinkingEnabled: false, outputStyle: 'Learning', skipAutoPermissionPrompt: true }
+     const response = await request('/api/settings/user', 'PUT', patch)
+     expect(response.status).toBe(200)
+@@ -127,6 +129,19 @@ describe('remote browser API routing', () => {
+     expect((await handleApiRequest(new Request(url, { method: 'PUT', body: '{broken' }), url, { remoteBrowser: true })).status).toBe(400)
+   })
+ 
++  test('allows the General sub-page endpoints (output-style + session-cleanup) from remote', async () => {
++    // The phone's General tab drives the output-style picker and transcript
++    // retention; both must survive the remote-settings route gate (no 403).
++    expect((await request('/api/settings/output-styles')).status).toBe(200)
++    expect((await request('/api/settings/output-style', 'PUT', { outputStyle: 'default' })).status).toBe(200)
++    expect(SettingsService.prototype.updateUserSettings).toHaveBeenLastCalledWith({ outputStyle: 'default' })
++    expect((await request('/api/settings/session-cleanup', 'POST', { days: 0, dryRun: true })).status).toBe(200)
++    // Wrong methods on those sub-routes are still blocked by the route gate.
++    expect((await request('/api/settings/output-styles', 'PUT', {})).status).toBe(403)
++    expect((await request('/api/settings/output-style', 'GET')).status).toBe(403)
++    expect((await request('/api/settings/session-cleanup', 'GET')).status).toBe(403)
++  })
++
+   test('forwards safe mutation results and preserves downstream validation errors', async () => {
+     expect((await request(`/api/providers/${provider.id}/activate`, 'POST', {})).status).toBe(200)
+     expect(ProviderService.prototype.activateProvider).toHaveBeenCalledWith(provider.id)
+diff --git a/src/server/router.ts b/src/server/router.ts
+index 4746f586..86d43ece 100644
+--- a/src/server/router.ts
++++ b/src/server/router.ts
+@@ -55,17 +55,20 @@ async function handleApiRequestWithoutPerformance(req: Request, url: URL, contex
+   const parts = url.pathname.split('/').filter(Boolean)
+   const isProvider = parts[1] === 'providers'
+   const isSettings = parts[1] === 'settings'
++  // Only /settings/user uses the General-settings field whitelist; the
++  // output-style and session-cleanup sub-routes validate their own bodies.
++  const isSettingsUser = isSettings && parts.length === 3 && parts[2] === 'user'
+   if (!isProvider && !isSettings) return routeApiRequest(req, url)
+   if ((isProvider && !remoteProviderRouteAllowed(parts, req.method)) || (isSettings && !remoteSettingsRouteAllowed(parts, req.method))) {
+     return Response.json({ error: 'Desktop-only capability' }, { status: 403 })
+   }
+   try {
+     const createsProvider = isProvider && parts.length === 2 && req.method === 'POST'
+-    if (createsProvider || (req.method === 'PUT' && (isSettings || (isProvider && parts.length === 3 && parts[2] !== 'reorder')))) {
++    if (createsProvider || (req.method === 'PUT' && (isSettingsUser || (isProvider && parts.length === 3 && parts[2] !== 'reorder')))) {
+       const body: unknown = await req.json()
+       if (!body || typeof body !== 'object' || Array.isArray(body)) return Response.json({ error: 'Object required' }, { status: 400 })
+       const input = { ...body } as Record<string, unknown>
+-      if (isSettings && !validateRemoteSettingsPatch(input)) return Response.json({ error: 'Unsupported General setting' }, { status: 400 })
++      if (isSettingsUser && !validateRemoteSettingsPatch(input)) return Response.json({ error: 'Unsupported General setting' }, { status: 400 })
+       if (isProvider) {
+         const saved = createsProvider ? undefined : await new ProviderService().getProvider(parts[2]!)
+         if (saved && remoteProviderNeedsCredentials(saved, input)) {
+@@ -90,7 +93,7 @@ async function handleApiRequestWithoutPerformance(req: Request, url: URL, contex
+     const response = await routeApiRequest(req, url)
+     if (!response.ok) return response
+     const body = await response.json() as Record<string, unknown>
+-    if (isSettings && req.method === 'GET') return Response.json(projectRemoteSettings(body))
++    if (isSettingsUser && req.method === 'GET') return Response.json(projectRemoteSettings(body))
+     if (isProvider) {
+       if (Array.isArray(body.providers)) body.providers = (body.providers as SavedProvider[]).map(projectRemoteProvider)
+       if (body.provider && typeof body.provider === 'object') body.provider = projectRemoteProvider(body.provider as SavedProvider)

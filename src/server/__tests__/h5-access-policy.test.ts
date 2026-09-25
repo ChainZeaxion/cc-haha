@@ -258,35 +258,33 @@ describe('h5AccessPolicy', () => {
     expect(requiresLocalAccessCredential('/api/h5-access', { clientAddress: '127.0.0.1' })).toBe(false)
   })
 
-  test('keeps bulk session deletion off the H5 token', () => {
+  test('lets the H5 token drive bulk session deletion like the rest of General settings', () => {
     const unauthorizedContext = {
       clientAddress: '10.0.0.5',
       localAccessTokenConfigured: true,
       localAccessAuthorized: false,
     }
-    const authorizedContext = {
-      ...unauthorizedContext,
-      localAccessAuthorized: true,
-    }
 
-    // One request with days=0 wipes every transcript, so a paired phone's
-    // bearer token is not a strong enough credential for it.
-    expect(isLocalCredentialOnlyPath('/api/settings/session-cleanup')).toBe(true)
-    expect(requiresLocalAccessCredential('/api/settings/session-cleanup', unauthorizedContext)).toBe(true)
-    expect(requiresLocalAccessCredential('/api/settings/session-cleanup', authorizedContext)).toBe(false)
+    // session-cleanup used to sit in LOCAL_CREDENTIAL_ONLY_PATHS so a paired
+    // phone's bearer token could not wipe the history. It now follows the rest
+    // of the General page — the H5 token is sufficient.
+    expect(isLocalCredentialOnlyPath('/api/settings/session-cleanup')).toBe(false)
+    expect(requiresLocalAccessCredential('/api/settings/session-cleanup', unauthorizedContext)).toBe(false)
 
-    // The router splits on '/' and filters empties, so these shapes all reach
-    // the same handler and must be gated identically.
+    // The router splits on '/' and filters empties, so every shape reaches the
+    // same handler and stays un-gated.
     for (const pathname of [
       '/api/settings/session-cleanup/',
       '/api/settings//session-cleanup',
       '//api/settings/session-cleanup//',
     ]) {
-      expect(isLocalCredentialOnlyPath(pathname)).toBe(true)
-      expect(requiresLocalAccessCredential(pathname, unauthorizedContext)).toBe(true)
+      expect(isLocalCredentialOnlyPath(pathname)).toBe(false)
+      expect(requiresLocalAccessCredential(pathname, unauthorizedContext)).toBe(false)
     }
 
-    // Neighbouring settings endpoints stay reachable from the phone.
+    // The control plane is still off-limits to a phone that lacks the process
+    // token, and the H5 token alone is never enough for it.
+    expect(requiresLocalAccessCredential('/api/h5-access', unauthorizedContext)).toBe(true)
     expect(requiresLocalAccessCredential('/api/settings/user', unauthorizedContext)).toBe(false)
     expect(isLocalCredentialOnlyPath('/api/settings/session-cleanup-extra')).toBe(false)
   })
