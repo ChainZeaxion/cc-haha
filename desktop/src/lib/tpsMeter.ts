@@ -11,9 +11,10 @@
  *  - hasStreamed() is true once any chunk arrived; the UI stays visible.
  *  - While decoding, value() returns the live window speed.
  *  - When decoding pauses / a turn ends, value() falls back to the average
- *    speed over the last FALLBACK_WINDOW_MS (2s) of streamed data, so the
- *    indicator keeps showing the turn-ending speed instead of dropping to 0
- *    (or disappearing) the moment the engine stops emitting.
+ *    speed over the last FALLBACK_WINDOW_MS (0.5s) of streamed data — i.e. the
+ *    speed at which the turn actually ended — so the indicator holds the
+ *    turn-ending speed instead of dropping to 0 (or disappearing) the moment
+ *    the engine stops emitting.
  *
  * Char→token heuristic calibrated for the local vLLM engines (Qwen / DeepSeek
  * tokenizers): CJK chars and full-width punctuation ≈ 1 token each, ASCII ≈ 1
@@ -22,7 +23,9 @@
  */
 
 const WINDOW_MS = 1500
-const FALLBACK_WINDOW_MS = 2000
+// Held value = average speed over the 0.5s immediately before the stream's last
+// emitted chunk, i.e. the speed at which the turn ended.
+const FALLBACK_WINDOW_MS = 500
 // Denominator floor for the live-window speed (ms). Mobile ws/event loops can
 // batch many content_delta chunks so the intra-window span collapses to near-zero
 // and total/span would read in the hundreds/thousands. A small floor (NOT the full
@@ -39,11 +42,10 @@ const NON_CJK_TOKEN_WEIGHT = 1 / 3.5
 // just-flushed window holds only a couple of sparse samples whose rate would
 // otherwise collapse toward 0. We hold the smoothed fallback instead.
 const SPARSE_SPEED_THRESHOLD = 5
-// The most recent slice of a stream is where message-type switching burns time
-// (buffering, block handoff). When computing the fallback average we skip the
-// last 0.3s of samples so the average reflects steady decoding, not the
-// switch overhead.
-const FALLBACK_SKIP_MS = 300
+// Tail skip when computing the held average. 0: the user wants the speed over
+// the 0.5s slice *immediately before* the last chunk, including the final
+// moments — so nothing is skipped.
+const FALLBACK_SKIP_MS = 0
 
 /**
  * Master switch for the TPS indicator. Set to false to disable the meter
@@ -114,8 +116,10 @@ export class TpsMeter {
     // is a stream switch, not slow decoding — hold the smoothed fallback and
     // do NOT let the sparse rate overwrite it.
     if (result < SPARSE_SPEED_THRESHOLD) return this.fallbackTps
-    // Keep the fallback fresh with the most recent live speed while decoding.
-    if (result > 0) this.fallbackTps = result
+    // The held (fallback) value is owned exclusively by push(): it is the
+    // average over the 0.5s before the last emitted chunk. Refreshing it here
+    // would let the shrinking, span-floored tail window (≤400ms) overwrite the
+    // requested turn-ending speed while the live window drains.
     return result
   }
 
@@ -133,10 +137,9 @@ export class TpsMeter {
   }
 
   private computeFallbackTps(now: number): number {
-    // Average token rate over the last fallbackWindowMs of streamed data, but
-    // skip the most recent FALLBACK_SKIP_MS — that slice is where a stream
-    // switch (text ↔ thinking ↔ tool-input) burns time, so excluding it keeps
-    // the average reflecting steady decode speed.
+    // Average token rate over the last fallbackWindowMs (0.5s) of streamed
+    // data — the speed at which the turn ended. FALLBACK_SKIP_MS trims the
+    // newest slice (0 by default).
     const windowEnd = now - FALLBACK_SKIP_MS
     const windowStart = windowEnd - this.fallbackWindowMs
     let total = 0

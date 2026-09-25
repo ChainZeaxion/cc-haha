@@ -93,7 +93,7 @@ export function TpsIndicator({ sessionId, vertical = false }: { sessionId: strin
         title={t('chat.tpsSpeedTitle')}
       >
         <span className="font-bold leading-none">TPS</span>
-        <span className="mt-0.5 inline-block min-w-[7ch] text-right leading-none">
+        <span className="mt-0.5 inline-block text-center leading-none">
           {tps.toFixed(0)}
         </span>
       </span>

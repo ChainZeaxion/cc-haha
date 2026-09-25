@@ -5122,7 +5122,16 @@ export const useChatStore = create<ChatStore>((setState, get) => {
             streamingResponseChars: s.streamingResponseChars + msg.text.length,
           }
         })
-        if (!skippedThinkingBlock) ensureElapsedTimer()
+        if (!skippedThinkingBlock) {
+          // thinking 流式片段同样是 decode 输出 token，必须喂 TPS 米表：不喂的话
+          // thinking 全程零采样，米表窗口排空后 UI 会冻结在正文结束前的旧速度上
+          // （稀疏边界守卫只保旧值不刷新）。skippedThinkingBlock 的整块重放
+          // （流式累积内容与 complete 块逐字相同）已在上层判重，不喂避免重复计数。
+          if (isTpsEnabled()) {
+            getSessionTpsMeter(sessionId).push(msg.text)
+          }
+          ensureElapsedTimer()
+        }
         break
       }
 
