@@ -274,13 +274,24 @@ H5 浏览器端打开文件链接时，`/local-file/<absPath>` 直接内联显�
 - **`ToolCallGroup.tsx` 接入**：import `TurnDownloadCard`；memory 分支（`MemoryToolActivityGroup` 后）与常规 return（`ToolCallGroupContent` 后）各插一处 `<TurnDownloadCard toolCalls={...} />`。
 - i18n：`chat.downloadableFiles`/`chat.downloadableMore`/`chat.downloadableAll`/`workspace.download` 5 语言，插在 `chat.tpsSpeedTitle` 行后。
 
+### 补全：文件浏览下载入口 + H5 内置浏览器提示（2026-09-25）
+
+初版只做了「会话内 Read 文件下载卡」，文件浏览（工作区文件树 / open-with 菜单）里仍只能「添加到对话」不能下载，且 H5 点「应用内浏览器」无提示。本次补 3 项（复用既有 `?download=1` 端点与已有 i18n 键 `workspace.download`/`workspace.browser.unavailableTitle`，零新 i18n 键）：
+
+- **A 文件树右键加「下载」**：`WorkspaceFileTreePane.tsx` 右键菜单「添加到对话」后加下载按钮（仅非目录行，`data-testid="workspace-tree-download"`），`resolveAbsoluteOpenPath(path, workDir)`（`systemFileOpen.ts:24`，path 已绝对/无 workDir 原样返回，否则 join）解析绝对路径后调共享下载入口。
+- **B open-with 菜单加「下载」**：`openWithItems.ts` `OpenWithIcon` 联合加 `'download'`、`OpenWithDeps` 加 `downloadFile?`、`buildOpenWithItems` 在 clipboard 组（copy 之后）推 `id:'download'` 行（label 复用 `workspace.download`）；`openWithMenuItems.ts` 绑定 `downloadFile=(p)=>downloadLocalFile(p)`（file context 块）；`OpenWithMenu.tsx` `ItemIcon` 加 `download`→lucide `Download` 图标分支；`WorkspaceFileOpenWith.tsx` 的 `filter` 放行 `item.id==='download'`。
+- **C H5 内置浏览器提示**：`openWithMenuItems.ts` `openInAppBrowser` 改——`!isWorkspaceBrowserAvailable()`（`workspace/browserHost.ts:37`）时 `addToast({type:'info', message:t('workspace.browser.unavailableTitle')})`（=「内置浏览器需要桌面版」）+ `window.open(url,'_blank','noopener,noreferrer')` 兜底，桌面版仍走 `workspaceOpen.browser`。
+- **共享下载入口**：`handlePreviewLink.ts` 新增 `export downloadLocalFile(absolutePath)`——临时 `<a href=localFileUrl(serverBase,absPath)?download=1 rel=noopener>` appendChild+click+remove（anchor 法而非 fetch：二进制直下 + 服务端 RFC5987 attachment 头定保存名，无需缓冲整文件或猜 MIME）。
+
 ### 验证
 
-- `desktop tsc -b` exit 0；`bun test src/server/api/__tests__/{localFile,previewFs}.test.ts` 45/45；`vitest chatBlocks.test.tsx` 44/44（含 ToolCallGroup）；全量前端 vitest **6141 pass / 2 fail**（2=基线既有 providerModels、MessagePayloadRetention，零回归）。
-- `vite build` 成功，新 bundle `App-mQlq5B0F.js`。
-- **权威零回归**：全量 `src/server` bun test junit 比对基线 worktree（2f8d819d）——新增 1 条 `diagnostics API`，单独跑 3 次（当前树+基线各 37/37 全绿）确认负载 flaky，非引入。
-- 坑：`previewFs.ts` 0.6.6 缺 `downloadHeadersFor` 定义（仅老 fork 有）→ import 时报 `Export named 'downloadHeadersFor' not found`，需从老 fork 移植到 `serveFileWithRange` 后。
-- Patch：`modify/patches/file-download.patch`（12 文件 698 行，3 新文件 mode 100644）。**8 patch 全链 `git apply` 干净且逐字节等于工作树（56 文件 0 差异）**。
+- `desktop tsc -b` exit 0；6 受影响测试文件 **149/149**（openWithItems 54/handlePreviewLink 34/OpenWithMenu 17/openWithMenuItems 3/WorkspaceFileOpenWith 10/WorkspaceFileTreePane 31）；全量前端 vitest **12300 pass / 12 skip / 0 fail**（零回归，对齐基线）。
+- `vite build` 成功，新 bundle `App-48eEOxTf.js`。
+- **live 7788 H5 全确认**：A 文件树右键含「添加到对话/下载」；B 文件 tab 右上角 split-button open-with 下拉含「…复制文件内容/下载/刷新工作区」；C open-with 点「应用内浏览器」→ toast「内置浏览器需要桌面版」+ 系统浏览器打开。
+- **坑（.js 孪生）**：仓内每个 `.ts/.tsx` 有一个 untracked 的 `.js` 孪生（tsc emit 风格，批量生成），Vite 默认 `resolve.extensions` 把 `.js` 排在 `.tsx` 前 → `vite build` 实际 bundle 旧的 `.js` 而非改过的 `.tsx`（症状=新 testid/字符串在 dist/ grep 0 命中）。修法=`tsc -p tsconfig.json --noEmit false` 同步全部 `.js`（TS5096 allowImportingTsExtensions 报错不阻断 emit）→ 清 `dist`+`node_modules/.vite` → `vite build`。`tsc -b`（noEmit:true）不生成孪生。`.js` 全 untracked 不入 git/patch。
+- **权威零回归（初版）**：全量 `src/server` bun test junit 比对基线 worktree（2f8d819d）——新增 1 条 `diagnostics API`，单独跑 3 次（当前树+基线各 37/37 全绿）确认负载 flaky，非引入。
+- 坑（初版）：`previewFs.ts` 0.6.6 缺 `downloadHeadersFor` 定义（仅老 fork 有）→ import 时报 `Export named 'downloadHeadersFor' not found`，需从老 fork 移植到 `serveFileWithRange` 后。
+- Patch：`modify/patches/file-download.patch`（**18 文件 905 行**，含 3 前端新文件 mode 100644 + 6 文件浏览下载入口文件）。**15 patch 全链 `git apply` 干净且逐字节等于工作树（18 文件 0 差异）**。
 
 ---
 

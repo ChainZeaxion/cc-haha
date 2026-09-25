@@ -270,6 +270,87 @@ index 7b5db470..78749636 100644
    )
  })
  
+diff --git a/desktop/src/components/composite/OpenWithMenu.tsx b/desktop/src/components/composite/OpenWithMenu.tsx
+index 3c41234d..2f47d369 100644
+--- a/desktop/src/components/composite/OpenWithMenu.tsx
++++ b/desktop/src/components/composite/OpenWithMenu.tsx
+@@ -1,6 +1,6 @@
+ import { createPortal } from 'react-dom'
+ import { Fragment, useCallback, useRef } from 'react'
+-import { Globe, ExternalLink, FileText, Copy } from 'lucide-react'
++import { Globe, ExternalLink, FileText, Copy, Download } from 'lucide-react'
+ import { useAnchoredPosition } from '@/hooks/useAnchoredPosition'
+ import { useDismissable } from '@/hooks/useDismissable'
+ import { TargetIcon } from './TargetIcon'
+@@ -21,6 +21,7 @@ function ItemIcon({ item }: { item: OpenWithItem }) {
+   if (item.icon === 'in-app-browser') return <Globe size={18} strokeWidth={1.9} />
+   if (item.icon === 'preview') return <FileText size={18} strokeWidth={1.9} />
+   if (item.icon === 'copy') return <Copy size={18} strokeWidth={1.9} />
++  if (item.icon === 'download') return <Download size={18} strokeWidth={1.9} />
+   return <ExternalLink size={18} strokeWidth={1.9} />
+ }
+ 
+diff --git a/desktop/src/components/workbench/WorkspaceFileTreePane.tsx b/desktop/src/components/workbench/WorkspaceFileTreePane.tsx
+index 74e1485b..f1050aeb 100644
+--- a/desktop/src/components/workbench/WorkspaceFileTreePane.tsx
++++ b/desktop/src/components/workbench/WorkspaceFileTreePane.tsx
+@@ -13,6 +13,8 @@ import { useWorkspaceChatContextStore } from '@/stores/workspaceChatContextStore
+ import { useDismissable } from '@/hooks/useDismissable'
+ import { useAnchoredPosition } from '@/hooks/useAnchoredPosition'
+ import { useMenuKeyboard } from '@/components/workbench/menuKeyboard'
++import { downloadLocalFile } from '@/lib/handlePreviewLink'
++import { resolveAbsoluteOpenPath } from '@/lib/systemFileOpen'
+ 
+ export type WorkspaceFileTreePaneProps = {
+   sessionId: string
+@@ -46,6 +48,10 @@ export function WorkspaceFileTreePane({
+   autoFocus = false,
+ }: WorkspaceFileTreePaneProps) {
+   const t = useTranslation()
++  // Tree paths are workspace-relative; downloading resolves them to an absolute
++  // path against the session's working directory, the same way the open-with
++  // menu does. Read from the store here rather than threaded as a prop.
++  const workDir = useWorkspaceContentStore((state) => state.statusBySession[sessionId]?.workDir) ?? null
+   const [contextMenu, setContextMenu] = useState<{ sessionId: string; row: TreeRow; x: number; y: number } | null>(null)
+   const menu = contextMenu?.sessionId === sessionId ? contextMenu : null
+   const menuRef = useRef<HTMLDivElement>(null)
+@@ -390,8 +396,21 @@ export function WorkspaceFileTreePane({
+           }}>
+             {t('workspace.addSelectionToChat')}
+           </Button>
+-        </div>
+-      ) : null}
++          {!menu.row.isDirectory ? (
++            <Button
++              role="menuitem"
++              variant="ghost"
++              size="sm"
++              data-testid="workspace-tree-download"
++              onClick={() => {
++                downloadLocalFile(resolveAbsoluteOpenPath(menu.row.path, workDir ?? undefined))
++                closeMenu()
++              }}
++            >
++              {t('workspace.download')}
++            </Button>
++          ) : null}
++        </div>      ) : null}
+     </div>
+   )
+ }
+diff --git a/desktop/src/components/workspace/WorkspaceFileOpenWith.tsx b/desktop/src/components/workspace/WorkspaceFileOpenWith.tsx
+index 8cba9ddf..058eef65 100644
+--- a/desktop/src/components/workspace/WorkspaceFileOpenWith.tsx
++++ b/desktop/src/components/workspace/WorkspaceFileOpenWith.tsx
+@@ -27,7 +27,7 @@ export function WorkspaceFileOpenWith({ absolutePath, sessionId, workspacePath,
+     : { kind: 'file' as const, absolutePath, previewable: false }
+   const actions = buildOpenWithMenuItems(context, targets, {
+     sessionId: sessionId ?? '', t: (key, vars) => t(key as TranslationKey, vars),
+-  }).filter((item) => item.icon === 'copy' || item.id === 'in-app' || item.id === 'preview')
++  }).filter((item) => item.icon === 'copy' || item.id === 'in-app' || item.id === 'preview' || item.id === 'download')
+   // Previewing again inside an already-open file has no effect. HTML browser
+   // and clipboard actions remain available because they have distinct results.
+   const usefulActions = actions.filter((item) => item.id !== 'preview' || suppliedTargets === undefined)
 diff --git a/desktop/src/i18n/locales/en.ts b/desktop/src/i18n/locales/en.ts
 index 4dda127a..f27b6d22 100644
 --- a/desktop/src/i18n/locales/en.ts
@@ -524,6 +605,132 @@ index 00000000..a057fed0
 +    // ignore
 +  }
 +}
+diff --git a/desktop/src/lib/handlePreviewLink.ts b/desktop/src/lib/handlePreviewLink.ts
+index 861ec5f1..fce69c48 100644
+--- a/desktop/src/lib/handlePreviewLink.ts
++++ b/desktop/src/lib/handlePreviewLink.ts
+@@ -1,5 +1,6 @@
+ import { classifyPreviewLink } from './previewLinkRouter'
+ import { shouldOfferStaticHtmlPreview } from './htmlPreviewPolicy'
++import { getServerBaseUrl } from './desktopRuntime'
+ 
+ export type PreviewLinkReveal = { line: number; column?: number }
+ 
+@@ -60,8 +61,26 @@ export function localFileUrl(base: string, absPath: string): string {
+   return `${base.replace(/\/$/, '')}/local-file${encoded}`
+ }
+ 
++/**
++ * Download a file through the local server's `/local-file/<abs-path>?download=1`
++ * route, which streams it with an RFC 5987 `Content-Disposition: attachment`
++ * header. A temporary anchor is used rather than `fetch` so the browser
++ * downloads the binary as-is (no need to buffer the whole file or guess a
++ * `Blob` MIME type) and the server's attachment header drives the saved name.
++ */
++export function downloadLocalFile(absolutePath: string): void {
++  const url = `${localFileUrl(getServerBaseUrl(), absolutePath)}?download=1`
++  const anchor = document.createElement('a')
++  anchor.href = url
++  anchor.rel = 'noopener'
++  document.body.appendChild(anchor)
++  anchor.click()
++  anchor.remove()
++}
++
+ /** Returns true if handled (caller should preventDefault). */
+ export function handlePreviewLink(href: string, deps: PreviewLinkDeps): boolean {
++
+   const cls = classifyPreviewLink(href)
+   const reveal: PreviewLinkReveal | undefined = cls.line
+     ? { line: cls.line, ...(cls.column ? { column: cls.column } : {}) }
+diff --git a/desktop/src/lib/openWithItems.ts b/desktop/src/lib/openWithItems.ts
+index bb50afa0..57d2e77d 100644
+--- a/desktop/src/lib/openWithItems.ts
++++ b/desktop/src/lib/openWithItems.ts
+@@ -45,7 +45,7 @@ export function isPreviewableChangedFile(path: string): boolean {
+ 
+ // ─── Open-with items ──────────────────────────────────────────────────────────
+ 
+-export type OpenWithIcon = 'in-app-browser' | 'system' | 'application' | 'ide' | 'file-manager' | 'preview' | 'copy'
++export type OpenWithIcon = 'in-app-browser' | 'system' | 'application' | 'ide' | 'file-manager' | 'preview' | 'copy' | 'download'
+ 
+ export type OpenWithItem = {
+   id: string
+@@ -65,6 +65,9 @@ export type OpenWithDeps = {
+   /** Omit to leave the copy entries out (a URL context has nothing to copy). */
+   copyPath?: (absolutePath: string) => void
+   copyFileContent?: (path: string) => void
++  /** Omit to leave the download entry out (a URL context has no file to save). */
++  downloadFile?: (absolutePath: string) => void
++
+   /**
+    * Which editor gets the single top-level slot. Falls back to the first one
+    * detected — the point is that the slot is predictable, so it must not be
+@@ -192,6 +195,13 @@ export function buildOpenWithItems(ctx: OpenWithContext, targets: OpenTarget[],
+     const readPath = ctx.relPath ?? ctx.absolutePath
+     clipboard.push({ id: 'copy-content', label: deps.t('openWith.copyFileContent'), icon: 'copy', onSelect: () => copyFileContent(readPath) })
+   }
++  // Download saves the file to the user's machine through the local server's
++  // attachment route; it is a plain file action (no target), so it rides with the
++  // clipboard group rather than the "open in…" application list.
++  if (deps.downloadFile) {
++    const downloadFile = deps.downloadFile
++    clipboard.push({ id: 'download', label: deps.t('workspace.download'), icon: 'download', onSelect: () => downloadFile(ctx.absolutePath) })
++  }
+   pushGroup(items, clipboard)
+ 
+   pushGroup(items, targets
+diff --git a/desktop/src/lib/openWithMenuItems.ts b/desktop/src/lib/openWithMenuItems.ts
+index 34d7272e..0d85d6c7 100644
+--- a/desktop/src/lib/openWithMenuItems.ts
++++ b/desktop/src/lib/openWithMenuItems.ts
+@@ -11,8 +11,11 @@ import { copyTextToClipboard } from './clipboard'
+ import { sessionsApi } from '../api/sessions'
+ import type { OpenTarget } from '../stores/openTargetStore'
+ import { workspaceOpen } from './workspace/openTarget'
++import { isWorkspaceBrowserAvailable } from './workspace/browserHost'
+ import { useOpenTargetStore } from '../stores/openTargetStore'
++import { useUIStore } from '../stores/uiStore'
+ import { reportOpenFailure } from './systemFileOpen'
++import { downloadLocalFile } from './handlePreviewLink'
+ 
+ type Translate = (key: string, vars?: Record<string, string>) => string
+ 
+@@ -44,7 +47,20 @@ export function openWithMenuDeps(
+   { sessionId, t, omitCopyPath }: OpenWithMenuOptions,
+ ): OpenWithDeps {
+   return {
+-    openInAppBrowser: (url) => { workspaceOpen.browser(sessionId, url) },
++    openInAppBrowser: (url) => {
++      if (!isWorkspaceBrowserAvailable()) {
++        // The built-in browser only exists in the desktop app. On the H5/remote
++        // surface there is no in-app browser tab, so open in the system browser
++        // and tell the user the built-in one needs the desktop version.
++        useUIStore.getState().addToast({
++          type: 'info',
++          message: t('workspace.browser.unavailableTitle'),
++        })
++        window.open(url, '_blank', 'noopener,noreferrer')
++        return
++      }
++      workspaceOpen.browser(sessionId, url)
++    },
+     openSystem: (target) => {
+       void getDesktopHost().shell.openPath(target).catch(() => window.open(target, '_blank'))
+     },
+@@ -78,6 +94,12 @@ export function openWithMenuDeps(
+               await copyTextToClipboard(result.content)
+             })().catch(() => {})
+           },
++          // A file is the only context with something to save; the download goes
++          // through the local server's attachment route so the browser streams it
++          // and the server's header fixes the saved name.
++          downloadFile: (absolutePath: string) => {
++            downloadLocalFile(absolutePath)
++          },
+         }
+       : {}),
+     t,
 diff --git a/src/server/api/localFile.ts b/src/server/api/localFile.ts
 index c24e66fa..df0fa3c2 100644
 --- a/src/server/api/localFile.ts
