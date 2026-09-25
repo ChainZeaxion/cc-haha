@@ -377,6 +377,7 @@ describe('ChatInput file mentions', () => {
     render(<ChatInput />)
 
     const editor = screen.getByRole('textbox')
+    expect(editor).toHaveClass('chat-reading-text')
     expect(editor).toHaveAttribute(
       'data-placeholder',
       'This temporary workspace was cleaned up. Start a new session in the original project to continue.',
@@ -520,6 +521,27 @@ describe('ChatInput file mentions', () => {
     await waitFor(() => {
       expect(getComposerText()).toBe('history tab draft')
     })
+  })
+
+  it('keeps a retained conversation draft when settings becomes the selected tab', () => {
+    useTabStore.setState((state) => ({
+      tabs: [...state.tabs, { sessionId: '__settings__', title: 'Settings', type: 'settings', status: 'idle' }],
+    }))
+    const { rerender } = render(<ChatInput sessionId={sessionId} />)
+    setComposerText('keep this draft', 15)
+    act(() => getComposerElement().focus())
+    expect(getComposerElement()).toHaveFocus()
+
+    act(() => useTabStore.getState().setActiveTab('__settings__'))
+    rerender(<ChatInput sessionId={sessionId} visible={false} />)
+
+    expect(getComposerText()).toBe('keep this draft')
+    expect(getComposerElement()).not.toHaveFocus()
+    expect(useChatStore.getState().sessions['__settings__']).toBeUndefined()
+
+    act(() => useTabStore.getState().setActiveTab(sessionId))
+    rerender(<ChatInput sessionId={sessionId} visible />)
+    expect(getComposerText()).toBe('keep this draft')
   })
 
   it('keeps the unsent draft when switching project on an empty active session', async () => {
@@ -2592,6 +2614,16 @@ describe('ChatInput file mentions', () => {
     const wrapper = getComposerElement().parentElement
     expect(wrapper).toHaveClass('flex-1')
     expect(wrapper).toHaveClass('min-w-0')
+    expect(getComposerElement()).toHaveClass('chat-reading-text')
+  })
+
+  it.each([false, true])('shares the transcript reading width with compact=%s', (compact) => {
+    const { container } = render(<ChatInput compact={compact} />)
+    const readingColumn = Array.from(container.querySelectorAll('div')).find((element) =>
+      element.classList.contains('max-w-[var(--chat-content-max-width)]'))
+    expect(readingColumn).toBeTruthy()
+    expect(readingColumn?.contains(getComposerElement())).toBe(true)
+    expect(getComposerElement()).toHaveClass('chat-reading-text')
   })
 
   it('uses Shift+Enter for a newline when Enter is the configured send shortcut', async () => {
@@ -2780,6 +2812,19 @@ describe('ChatInput file mentions', () => {
       sessionId,
       expect.objectContaining({ type: 'user_message' }),
     )
+  })
+
+  it('submits /clear from an active session instead of completing it to /goal', async () => {
+    render(<ChatInput />)
+
+    setComposerText('/clear', 6)
+    expect(await screen.findByRole('option', { name: '/clear' })).toBeInTheDocument()
+    expect(screen.queryByRole('option', { name: '/goal' })).not.toBeInTheDocument()
+
+    act(() => fireEvent.keyDown(getComposerElement(), { key: 'Enter' }))
+    expect(mocks.wsSend).toHaveBeenCalledWith(sessionId, {
+      type: 'user_message', content: '/clear', attachments: [],
+    })
   })
 
   it('prioritizes active-session slash commands by command name when filtering', async () => {

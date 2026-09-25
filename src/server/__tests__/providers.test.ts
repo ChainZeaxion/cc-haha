@@ -7,6 +7,7 @@ import * as fs from 'fs/promises'
 import * as path from 'path'
 import * as os from 'os'
 import { ProviderService } from '../services/providerService.js'
+import { readActiveProviderManagedEnv } from '../services/providerRuntimeEnv.js'
 import { handleProvidersApi } from '../api/providers.js'
 import { handleProxyRequest } from '../proxy/handler.js'
 import {
@@ -421,6 +422,40 @@ describe('ProviderService', () => {
       expect(runtimeEnv.ANTHROPIC_DEFAULT_HAIKU_MODEL).toBe('claude-haiku-4-5')
       expect(runtimeEnv.ANTHROPIC_DEFAULT_SONNET_MODEL).toBe('claude-sonnet-4-6[1m]')
       expect(runtimeEnv.ANTHROPIC_DEFAULT_OPUS_MODEL).toBe('claude-opus-4-7[1m]')
+    })
+
+    test('preserves a Fable-only 1M setting after saving and reloading a provider', async () => {
+      const svc = new ProviderService()
+      const provider = await svc.addProvider(sampleInput({
+        models: {
+          main: 'claude-sonnet-4-6',
+          fable: 'claude-opus-4-7',
+          haiku: 'claude-haiku-4-5',
+          sonnet: 'claude-sonnet-4-6',
+          opus: 'claude-opus-4-7',
+        },
+        model1mSupport: {
+          main: false,
+          fable: true,
+          haiku: false,
+          sonnet: false,
+          opus: false,
+        },
+      }))
+
+      const initiallySaved = await readProvidersConfig()
+      const initialProvider = (initiallySaved.providers as Array<{ model1mSupport?: { fable?: boolean } }>)[0]
+      expect(initialProvider.model1mSupport?.fable).toBe(true)
+      await svc.activateProvider(provider.id)
+
+      const saved = await readProvidersConfig()
+      const savedProvider = (saved.providers as Array<{ model1mSupport?: { fable?: boolean } }>)[0]
+      expect(savedProvider.model1mSupport?.fable).toBe(true)
+
+      const reloaded = await new ProviderService().getProvider(provider.id)
+      expect(reloaded.model1mSupport?.fable).toBe(true)
+      expect(readActiveProviderManagedEnv(tmpDir)?.ANTHROPIC_DEFAULT_FABLE_MODEL)
+        .toBe('claude-opus-4-7[1m]')
     })
 
     test('DeepSeek preset follows the global thinking toggle instead of forcing disabled thinking', async () => {
@@ -2262,6 +2297,29 @@ describe('ProviderService', () => {
         ],
       }])
       expect(JSON.stringify(body)).not.toContain('Image omitted:')
+    })
+
+    test.each(['user', 'tool'] as const)('forwards Kimi K3 images through OpenCode Go from %s content (#1368)', async (contentSource) => {
+      const body = await captureOpenAIChatRequest({
+        baseUrl: 'https://opencode.ai/zen/go/v1',
+        model: 'kimi-k3',
+        contentSource,
+        content: [
+          { type: 'text', text: 'Describe these pictures.' },
+          { type: 'image', source: { type: 'base64', media_type: 'image/png', data: 'k3-picture-one' } },
+          { type: 'image', source: { type: 'base64', media_type: 'image/png', data: 'k3-picture-two' } },
+        ],
+      })
+
+      const images = ['one', 'two'].map(suffix => ({
+        type: 'image_url', image_url: { url: `data:image/png;base64,k3-picture-${suffix}` },
+      }))
+      expect(body.messages).toEqual(contentSource === 'user'
+        ? [{ role: 'user', content: [{ type: 'text', text: 'Describe these pictures.' }, ...images] }]
+        : [
+            { role: 'tool', tool_call_id: 'computer_1', content: 'Describe these pictures.' },
+            { role: 'user', content: [{ type: 'text', text: '[Media content for tool call computer_1]' }, ...images] },
+          ])
     })
 
     test('keeps generic OpenAI Chat providers vision-capable by default', async () => {

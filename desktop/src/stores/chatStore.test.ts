@@ -3,6 +3,7 @@ import type { AgentTaskNotification, UIMessage } from '../types/chat'
 import type { MessageEntry, SessionListItem } from '../types/session'
 import type { SessionHistoryPage } from '../api/sessions'
 import type { SavedProvider } from '../types/provider'
+import type { Tab } from './tabStore'
 import {
   buildMainSessionActivityModel,
   buildSessionActivityModel,
@@ -36,6 +37,7 @@ const {
   connectionStateHandlers,
   sendSubagentMessageMock,
   tabStoreSnapshot,
+  tabStoreListeners,
   providerStoreSnapshot,
 } = vi.hoisted(() => ({
   sendMock: vi.fn(),
@@ -76,7 +78,8 @@ const {
   },
   connectionStateHandlers: new Map<string, (state: 'connecting' | 'connected' | 'reconnecting' | 'disconnected') => void>(),
   sendSubagentMessageMock: vi.fn(async () => ({ ok: true })),
-  tabStoreSnapshot: { tabs: [] as Array<Record<string, unknown>> },
+  tabStoreSnapshot: { tabs: [] as Tab[], activeTabId: null as string | null },
+  tabStoreListeners: new Set<(state: any, previous: any) => void>(),
   providerStoreSnapshot: { providers: [] as SavedProvider[], activeId: null as string | null },
 }))
 
@@ -136,9 +139,14 @@ vi.mock('./tabStore', () => ({
   useTabStore: {
     getState: () => ({
       tabs: tabStoreSnapshot.tabs,
+      activeTabId: tabStoreSnapshot.activeTabId,
       updateTabStatus: updateTabStatusMock,
       updateTabTitle: updateTabTitleMock,
     }),
+    subscribe: (listener: (state: any, previous: any) => void) => {
+      tabStoreListeners.add(listener)
+      return () => tabStoreListeners.delete(listener)
+    },
   },
 }))
 
@@ -840,6 +848,24 @@ describe('chatStore history mapping', () => {
       toolUseId: 'ask-1',
       content: {
         answers: { 'Pick one?': 'A' },
+      },
+    })
+
+    const automaticallyAnswered = mapHistoryMessagesToUiMessages([
+      messages[0]!,
+      {
+        ...messages[1]!,
+        toolUseResult: {
+          ...messages[1]!.toolUseResult as Record<string, unknown>,
+          selectionSource: 'automatic',
+        },
+      },
+    ])
+    expect(automaticallyAnswered[1]).toMatchObject({
+      type: 'tool_result',
+      content: {
+        answers: { 'Pick one?': 'A' },
+        selectionSource: 'automatic',
       },
     })
   })
@@ -5265,7 +5291,7 @@ describe('chatStore history mapping', () => {
       id: 'provider-1', presetId: 'custom', name: 'DeepSeek', apiKey: 'fixture',
       baseUrl: 'http://127.0.0.1:1', apiFormat: 'anthropic',
       models: { main: model, haiku: '', sonnet: '', opus: '' },
-      model1mSupport: { main: enabled, haiku: false, sonnet: false, opus: false },
+      model1mSupport: { main: enabled, fable: false, haiku: false, sonnet: false, opus: false },
     }]
     const staleSelection = { providerId: 'provider-1', modelId: `${model}${enabled ? '' : '[1m]'}`, effortLevel: 'high' as const }
     const expectedSelection = { ...staleSelection, modelId: `${model}${enabled ? '[1m]' : ''}` }
@@ -5290,7 +5316,7 @@ describe('chatStore history mapping', () => {
       id: 'provider-1', presetId: 'custom', name: 'DeepSeek', apiKey: 'fixture',
       baseUrl: 'http://127.0.0.1:1', apiFormat: 'anthropic',
       models: { main: 'deepseek-v4.1', haiku: '', sonnet: '', opus: '' },
-      model1mSupport: { main: true, haiku: false, sonnet: false, opus: false },
+      model1mSupport: { main: true, fable: false, haiku: false, sonnet: false, opus: false },
     }]
     useChatStore.getState().sendMessage(TEST_SESSION_ID, 'continue')
     expect(sendMock.mock.calls.slice(0, 2)).toEqual([
@@ -14792,7 +14818,9 @@ describe('chatStore history mapping', () => {
     const subagentSessionId = '__subagent__parent-session__tool-agent-1'
     tabStoreSnapshot.tabs = [{
       sessionId: subagentSessionId,
+      title: 'Subagent',
       type: 'subagent',
+      status: 'idle',
       sourceSessionId: 'parent-session',
       subagentToolUseId: 'tool-agent-1',
       subagentTaskId: 'agent-1',
@@ -15267,6 +15295,60 @@ describe('chatStore activity state survival across reload paths', () => {
     const session = useChatStore.getState().sessions[TEST_SESSION_ID]
     expect(session?.backgroundAgentTasks?.['agent-task-1']).toMatchObject({ status: 'running' })
     expect(session?.agentTaskNotifications).toEqual(notifications)
+  })
+
+  it.each(['loadHistory', 'reloadHistory'] as const)('keeps stopped live output and tool context when %s omits oversized records', async (method) => {
+    useChatStore.getState().disconnectSession(TEST_SESSION_ID)
+    const original: UIMessage[] = [
+      { id: 'user', type: 'user_text', content: 'Read the file', timestamp: 1 },
+      { id: 'tool', type: 'tool_use', toolUseId: 'read-1', toolName: 'Read', input: { file_path: '/fixture/large.txt' }, isPending: false, timestamp: 2 },
+      { id: 'result', type: 'tool_result', toolUseId: 'read-1', content: 'file contents', isError: false, timestamp: 3 },
+    ]
+    useChatStore.setState({ sessions: { [TEST_SESSION_ID]: makeSession({
+      messages: original, historyHydrated: true, historyStatus: 'ready',
+      chatState: 'thinking', streamingText: 'Partial answer before stop',
+    }) } })
+    useChatStore.getState().stopGeneration(TEST_SESSION_ID)
+    const stopped = useChatStore.getState().sessions[TEST_SESSION_ID]!.messages
+    vi.mocked(sessionsApi.getFullHistory).mockResolvedValueOnce({
+      messages: [{ id: 'result', type: 'user', timestamp: new Date(3).toISOString(), content: [{ type: 'tool_result', tool_use_id: 'read-1', content: 'file contents' }] }],
+      page: { nextCursor: null, hasMore: false, historyComplete: false, sourceVersion: 'oversized-fixture', scannedBytes: 10_000_000, omittedOversizedEntries: 1 },
+    })
+
+    await useChatStore.getState()[method](TEST_SESSION_ID)
+
+    const session = useChatStore.getState().sessions[TEST_SESSION_ID]!
+    expect(session.chatState).toBe('idle')
+    expect(session.messages.map(message => message.type)).toEqual(stopped.map(message => message.type))
+    expect(session.messages).toEqual(expect.arrayContaining([
+      expect.objectContaining({ type: 'user_text', content: 'Read the file' }),
+      expect.objectContaining({ type: 'tool_use', toolUseId: 'read-1', toolName: 'Read' }),
+      expect.objectContaining({ type: 'assistant_text', content: 'Partial answer before stop' }),
+    ]))
+    expect(session.historyPage?.nextCursor).toBeNull()
+    expect(session.historyWindowed).toBe(true)
+  })
+
+  it('does not duplicate stopped text when repeatedly reloading incomplete history', async () => {
+    useChatStore.getState().disconnectSession(TEST_SESSION_ID)
+    useChatStore.setState({ sessions: { [TEST_SESSION_ID]: makeSession({
+      historyHydrated: true, historyStatus: 'ready', chatState: 'thinking', streamingText: 'Stopped answer',
+      messages: [{ id: 'user-live', type: 'user_text', content: 'Continue', timestamp: 1 }],
+    }) } })
+    useChatStore.getState().stopGeneration(TEST_SESSION_ID)
+    vi.mocked(sessionsApi.getFullHistory).mockResolvedValue({
+      messages: [
+        { id: 'user-disk', type: 'user', content: 'Continue', timestamp: new Date(1).toISOString() },
+        { id: 'answer-disk', type: 'assistant', content: 'Stopped answer', timestamp: new Date(2).toISOString() },
+      ],
+      page: { nextCursor: null, hasMore: false, historyComplete: false, sourceVersion: 'omitted-earlier-tool', scannedBytes: 10, omittedOversizedEntries: 1 },
+    })
+    await useChatStore.getState().reloadHistory(TEST_SESSION_ID)
+    await useChatStore.getState().reloadHistory(TEST_SESSION_ID)
+    expect(useChatStore.getState().sessions[TEST_SESSION_ID]!.messages).toMatchObject([
+      { type: 'user_text', content: 'Continue', transcriptMessageId: 'user-disk' },
+      { type: 'assistant_text', content: 'Stopped answer', transcriptMessageId: 'answer-disk' },
+    ])
   })
 
   it('shows a bounded page immediately and restores state independently without treating the tail as authoritative', async () => {
@@ -15873,9 +15955,11 @@ describe('chatStore inactive complete-page retention', () => {
     const { readFileSync } = await import('node:fs')
     imageData = `data:image/png;base64,${readFileSync('src/assets/pets/action-sheet-guide.zh.png').toString('base64')}`
     const { useTabStore } = await import('./tabStore')
+    tabStoreSnapshot.tabs = []
+    tabStoreSnapshot.activeTabId = null
     const tabState = useTabStore.getState()
     activeSessionId = 'image-cache-0'
-    const spy = vi.spyOn(useTabStore, 'getState').mockImplementation(() => ({ ...tabState, activeTabId: activeSessionId }))
+    const spy = vi.spyOn(useTabStore, 'getState').mockImplementation(() => ({ ...tabState, tabs: tabStoreSnapshot.tabs, activeTabId: activeSessionId }))
     restoreTabState = () => spy.mockRestore()
     getMemberBySessionIdMock.mockReturnValue(null)
     vi.mocked(sessionsApi.getFullHistory).mockReset()
@@ -15885,7 +15969,45 @@ describe('chatStore inactive complete-page retention', () => {
 
   afterEach(() => {
     restoreTabState()
+    tabStoreSnapshot.tabs = []
+    tabStoreSnapshot.activeTabId = null
     useChatStore.setState({ ...initialState, sessions: {} })
+  })
+
+  it('keeps the last open chat history when a settings or other page takes focus', () => {
+    const sessions = imageSessions()
+    const recentId = 'image-cache-4'
+    for (const [id, session] of Object.entries(sessions)) {
+      useChatStore.getState().markHistoryRowsDurable(id, session.messages)
+    }
+    const sessionTab: Tab = { sessionId: recentId, type: 'session', title: 'Recent', status: 'idle' }
+    const settingsTab: Tab = { sessionId: '__settings__', type: 'settings', title: 'Settings', status: 'idle' }
+    const marketTab: Tab = { sessionId: '__market__', type: 'market', title: 'Market', status: 'idle' }
+    const previous = { tabs: [sessionTab], activeTabId: recentId }
+    const settings = { tabs: [sessionTab, settingsTab], activeTabId: settingsTab.sessionId }
+    tabStoreSnapshot.tabs = settings.tabs
+    activeSessionId = settings.activeTabId
+    for (const listener of tabStoreListeners) listener(settings, previous)
+
+    useChatStore.getState().applyBoundedUpdate(() => ({ sessions }))
+    expect(useChatStore.getState().sessions[recentId]!.messages).toHaveLength(1)
+    expect(useChatStore.getState().sessions['image-cache-0']!.messages).toHaveLength(0)
+
+    const market = { tabs: [...settings.tabs, marketTab], activeTabId: marketTab.sessionId }
+    tabStoreSnapshot.tabs = market.tabs
+    activeSessionId = market.activeTabId
+    for (const listener of tabStoreListeners) listener(market, settings)
+    useChatStore.getState().applyBoundedUpdate(state => ({ sessions: { ...state.sessions } }))
+    expect(useChatStore.getState().sessions[recentId]!.messages).toHaveLength(1)
+
+    const closed = { tabs: [settingsTab, marketTab], activeTabId: marketTab.sessionId }
+    tabStoreSnapshot.tabs = closed.tabs
+    for (const listener of tabStoreListeners) listener(closed, market)
+    for (const [id, session] of Object.entries(sessions)) {
+      useChatStore.getState().markHistoryRowsDurable(id, session.messages)
+    }
+    useChatStore.getState().applyBoundedUpdate(() => ({ sessions }))
+    expect(useChatStore.getState().sessions[recentId]!.messages).toHaveLength(0)
   })
 
   it('keeps live rows intact while an idle-tab eviction would drop durable pages', () => {

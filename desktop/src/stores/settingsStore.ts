@@ -38,6 +38,11 @@ import {
 } from '../lib/appZoom'
 import { useUIStore } from './uiStore'
 import {
+  DEFAULT_AUTO_QUESTION_SETTINGS,
+  normalizeAutoQuestionSettings,
+  type AutoQuestionSettings,
+} from '../../../src/shared/autoQuestionSettings'
+import {
   applyDocumentLocale,
   getInitialLocale,
   LOCALE_STORAGE_KEY,
@@ -66,6 +71,7 @@ type SettingsStore = {
   agentTeamsEnabled: boolean
   autoDreamEnabled: boolean
   disableUpdates: boolean
+  autoQuestion: AutoQuestionSettings
   autoModeOptInAccepted: boolean
 
   availableModels: ModelInfo[]
@@ -115,7 +121,7 @@ type SettingsStore = {
   setAgentTeamsEnabled: (enabled: boolean) => Promise<void>
   setAutoDreamEnabled: (enabled: boolean) => Promise<void>
   setDisableUpdates: (enabled: boolean) => Promise<void>
-  acceptAutoModeOptIn: () => Promise<void>
+  setAutoQuestion: (settings: AutoQuestionSettings) => Promise<void>  acceptAutoModeOptIn: () => Promise<void>
   setLocale: (locale: Locale) => void
   setTheme: (theme: ThemeMode) => Promise<void>
   setChatSendBehavior: (behavior: ChatSendBehavior) => Promise<void>
@@ -201,6 +207,7 @@ const DEFAULT_TRACE_CAPTURE_SETTINGS: TraceCaptureSettings = {
 
 const initialLocale = getInitialLocale()
 applyDocumentLocale(initialLocale)
+let autoQuestionUpdateQueue: Promise<unknown> = Promise.resolve()
 
 export const useSettingsStore = create<SettingsStore>((set, get) => ({
   permissionMode: 'default',
@@ -213,6 +220,7 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
   agentTeamsEnabled: true,
   autoDreamEnabled: false,
   disableUpdates: false,
+  autoQuestion: DEFAULT_AUTO_QUESTION_SETTINGS,
   autoModeOptInAccepted: false,
   availableModels: [],
   activeProviderName: null,
@@ -295,6 +303,7 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
         agentTeamsEnabled: userSettings.agentTeamsEnabled !== false,
         autoDreamEnabled: userSettings.autoDreamEnabled === true,
         disableUpdates: userSettings.disableUpdates === true,
+        autoQuestion: normalizeAutoQuestionSettings(userSettings.autoQuestion),
         autoModeOptInAccepted: userSettings.skipAutoPermissionPrompt === true,
         chatSendBehavior: normalizeChatSendBehavior(userSettings.chatSendBehavior),
         outputStyle: normalizeOutputStyle(userSettings.outputStyle),
@@ -427,6 +436,19 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
       await settingsApi.updateUser({ disableUpdates: enabled })
     } catch (error) {
       set({ disableUpdates: prev })
+      throw error
+    }
+  },
+  setAutoQuestion: async (settings) => {
+    const previous = get().autoQuestion
+    const next = normalizeAutoQuestionSettings(settings)
+    set({ autoQuestion: next })
+    const save = autoQuestionUpdateQueue.then(() => settingsApi.updateUser({ autoQuestion: next }))
+    autoQuestionUpdateQueue = save.catch(() => {})
+    try {
+      await save
+    } catch (error) {
+      if (get().autoQuestion === next) set({ autoQuestion: previous })
       throw error
     }
   },

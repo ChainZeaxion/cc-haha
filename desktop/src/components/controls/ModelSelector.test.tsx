@@ -79,7 +79,7 @@ describe('ModelSelector', () => {
         id: 'provider-1m', presetId: 'custom', name: 'Provider 1M',
         apiFormat: 'anthropic', apiKey: 'fixture', baseUrl: 'http://127.0.0.1:9999',
         models: { main: 'main-model', haiku: 'haiku-model', sonnet: 'sonnet-model', opus: 'opus-model' },
-        model1mSupport: { main: enabled, haiku: enabled, sonnet: enabled, opus: enabled },
+        model1mSupport: { main: enabled, fable: enabled, haiku: enabled, sonnet: enabled, opus: enabled },
       }],
     })
     const runtimeChange = vi.fn()
@@ -164,13 +164,14 @@ describe('ModelSelector', () => {
     await clickByRole(/Opus 4\.7/i)
 
     expect(screen.getByRole('button', { name: /Fable 5\.1/ })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: /Opus 5/ })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /Opus 5\.5/ })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /^Opus 5 / })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /Opus 4\.8/ })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /Sonnet 5/ })).toBeInTheDocument()
     expect(screen.getAllByRole('button', { name: /Opus 4\.7/ }).length).toBeGreaterThan(0)
-    await clickByRole(/Opus 5/)
+    await clickByRole(/Opus 5\.5/)
     expect(onRuntimeChange).toHaveBeenCalledWith(expect.objectContaining({
-      providerId: null, modelId: 'claude-opus-5',
+      providerId: null, modelId: 'claude-opus-5-5',
     }))
   })
 

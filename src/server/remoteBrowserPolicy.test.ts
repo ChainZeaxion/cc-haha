@@ -93,6 +93,10 @@ test('General settings round-trip (H5 full GeneralSettings)', () => {
   expect(projected.vccCompactBackend).toBe('llm')
   expect(projectRemoteSettings({ vccCompactBackend: 'bogus' }).vccCompactBackend).toBe('bogus')
   expect('network' in projectRemoteSettings({ network: { aiRequestTimeoutMs: 1 } })).toBe(false)
+  // autoQuestion nested object (upstream)
+  expect(validateRemoteSettingsPatch({ autoQuestion: { enabled: true, timeoutMinutes: 5 } })).toBe(true)
+  expect(validateRemoteSettingsPatch({ autoQuestion: { enabled: true, timeoutMinutes: 3 } })).toBe(false)
+  expect(validateRemoteSettingsPatch({ autoQuestion: { enabled: true, timeoutMinutes: 5, future: true } })).toBe(false)
 })
 
 test('LAN and public provider CRUD redact and preserve keys; General edits isolate desktop secrets', async () => {

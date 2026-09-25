@@ -1,4 +1,5 @@
 import type { RequestCompatibility, SavedProvider } from './types/provider.js'
+import { AUTO_QUESTION_TIMEOUT_OPTIONS, normalizeAutoQuestionSettings } from '../shared/autoQuestionSettings.js'
 
 export type ApiRequestContext = { remoteBrowser?: boolean }
 const READ_SETTINGS = ['alwaysThinkingEnabled', 'sendThinkingHistory', 'vccCompactBackend', 'workflowKeywordTriggerEnabled', 'agentTeamsEnabled', 'autoDreamEnabled', 'skipAutoPermissionPrompt', 'disableUpdates', 'chatSendBehavior', 'outputStyle', 'skipWebFetchPreflight', 'desktopNotificationsEnabled', 'language', 'webSearch', 'updateProxy', 'network', 'cleanupPeriodDays']
@@ -10,7 +11,8 @@ const READ_SETTINGS = ['alwaysThinkingEnabled', 'sendThinkingHistory', 'vccCompa
 // web search / update proxy / network / retention) are writable too: chapter 九
 // lets the H5 render the full GeneralSettings, so every field that UI can touch
 // must round-trip or the phone gets 400 "Unsupported General setting".
-const WRITE_SETTINGS = new Set(['language', 'chatSendBehavior', 'alwaysThinkingEnabled', 'sendThinkingHistory', 'vccCompactBackend', 'workflowKeywordTriggerEnabled', 'outputStyle', 'skipAutoPermissionPrompt', 'disableUpdates', 'agentTeamsEnabled', 'autoDreamEnabled', 'skipWebFetchPreflight', 'desktopNotificationsEnabled', 'webSearch', 'updateProxy', 'network', 'cleanupPeriodDays'])
+// `autoQuestion` (upstream) is a nested object, projected/validated via its normalizer.
+const WRITE_SETTINGS = new Set(['language', 'chatSendBehavior', 'alwaysThinkingEnabled', 'sendThinkingHistory', 'vccCompactBackend', 'workflowKeywordTriggerEnabled', 'outputStyle', 'skipAutoPermissionPrompt', 'disableUpdates', 'agentTeamsEnabled', 'autoDreamEnabled', 'skipWebFetchPreflight', 'desktopNotificationsEnabled', 'webSearch', 'updateProxy', 'network', 'cleanupPeriodDays', 'autoQuestion'])
 const RESERVED_PROVIDER_PATHS = new Set(['settings', 'cc-switch', 'test', 'models', 'presets', 'auth-status', 'official', 'reorder'])
 const REMOTE_COMPATIBILITY_KEYS = new Set(['maxOutputTokens', 'outputTokenLimit', 'outputTokenField', 'sampling', 'reasoning', 'parallelTools', 'structuredOutput'])
 
@@ -104,6 +106,9 @@ export function projectRemoteSettings(settings: Record<string, unknown>) {
     else if (key === 'cleanupPeriodDays') { if (isValidCleanupPeriodDays(value)) result[key] = value }
     else if (['string', 'boolean', 'number'].includes(typeof value)) result[key] = value
   }
+  if (settings.autoQuestion !== undefined) {
+    result.autoQuestion = normalizeAutoQuestionSettings(settings.autoQuestion)
+  }
   if (isDesktopTerminalPatch(settings.desktopTerminal)) {
     result.desktopTerminal = { ...(settings.desktopTerminal as Record<string, unknown>) }
   }
@@ -122,7 +127,11 @@ export function validateRemoteSettingsPatch(input: Record<string, unknown>): boo
     if (key === 'updateProxy') return isValidUpdateProxy(value)
     if (key === 'network') return isValidNetwork(value)
     if (key === 'cleanupPeriodDays') return isValidCleanupPeriodDays(value)
-    return typeof value === 'boolean'
+    if (key === 'autoQuestion') return value !== null && typeof value === 'object' &&
+      !Array.isArray(value) && Object.keys(value).length === 2 &&
+      Object.keys(value).every((field) => field === 'enabled' || field === 'timeoutMinutes') &&
+      typeof (value as Record<string, unknown>).enabled === 'boolean' &&
+      AUTO_QUESTION_TIMEOUT_OPTIONS.some((minutes) => minutes === (value as Record<string, unknown>).timeoutMinutes)    return typeof value === 'boolean'
   })
 }
 export function projectRemoteProvider(provider: SavedProvider) {
