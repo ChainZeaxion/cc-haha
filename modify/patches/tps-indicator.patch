@@ -1,6 +1,6 @@
 diff --git a/desktop/src/components/chat/TpsIndicator.tsx b/desktop/src/components/chat/TpsIndicator.tsx
 new file mode 100644
-index 00000000..da2136ba
+index 00000000..ada8b29f
 --- /dev/null
 +++ b/desktop/src/components/chat/TpsIndicator.tsx
 @@ -0,0 +1,116 @@
@@ -99,7 +99,7 @@ index 00000000..da2136ba
 +        title={t('chat.tpsSpeedTitle')}
 +      >
 +        <span className="font-bold leading-none">TPS</span>
-+        <span className="mt-0.5 inline-block min-w-[7ch] text-right leading-none">
++        <span className="mt-0.5 inline-block text-center leading-none">
 +          {tps.toFixed(0)}
 +        </span>
 +      </span>
@@ -334,10 +334,10 @@ index 00000000..00c845f6
 +})
 diff --git a/desktop/src/lib/tpsMeter.ts b/desktop/src/lib/tpsMeter.ts
 new file mode 100644
-index 00000000..a69b02e4
+index 00000000..4b2972fb
 --- /dev/null
 +++ b/desktop/src/lib/tpsMeter.ts
-@@ -0,0 +1,176 @@
+@@ -0,0 +1,179 @@
 +/**
 + * Real-time decode-speed (TPS) meter.
 + *
@@ -351,9 +351,10 @@ index 00000000..a69b02e4
 + *  - hasStreamed() is true once any chunk arrived; the UI stays visible.
 + *  - While decoding, value() returns the live window speed.
 + *  - When decoding pauses / a turn ends, value() falls back to the average
-+ *    speed over the last FALLBACK_WINDOW_MS (2s) of streamed data, so the
-+ *    indicator keeps showing the turn-ending speed instead of dropping to 0
-+ *    (or disappearing) the moment the engine stops emitting.
++ *    speed over the last FALLBACK_WINDOW_MS (0.5s) of streamed data — i.e. the
++ *    speed at which the turn actually ended — so the indicator holds the
++ *    turn-ending speed instead of dropping to 0 (or disappearing) the moment
++ *    the engine stops emitting.
 + *
 + * Char→token heuristic calibrated for the local vLLM engines (Qwen / DeepSeek
 + * tokenizers): CJK chars and full-width punctuation ≈ 1 token each, ASCII ≈ 1
@@ -362,7 +363,9 @@ index 00000000..a69b02e4
 + */
 +
 +const WINDOW_MS = 1500
-+const FALLBACK_WINDOW_MS = 2000
++// Held value = average speed over the 0.5s immediately before the stream's last
++// emitted chunk, i.e. the speed at which the turn ended.
++const FALLBACK_WINDOW_MS = 500
 +// Denominator floor for the live-window speed (ms). Mobile ws/event loops can
 +// batch many content_delta chunks so the intra-window span collapses to near-zero
 +// and total/span would read in the hundreds/thousands. A small floor (NOT the full
@@ -379,11 +382,10 @@ index 00000000..a69b02e4
 +// just-flushed window holds only a couple of sparse samples whose rate would
 +// otherwise collapse toward 0. We hold the smoothed fallback instead.
 +const SPARSE_SPEED_THRESHOLD = 5
-+// The most recent slice of a stream is where message-type switching burns time
-+// (buffering, block handoff). When computing the fallback average we skip the
-+// last 0.3s of samples so the average reflects steady decoding, not the
-+// switch overhead.
-+const FALLBACK_SKIP_MS = 300
++// Tail skip when computing the held average. 0: the user wants the speed over
++// the 0.5s slice *immediately before* the last chunk, including the final
++// moments — so nothing is skipped.
++const FALLBACK_SKIP_MS = 0
 +
 +/**
 + * Master switch for the TPS indicator. Set to false to disable the meter
@@ -454,8 +456,10 @@ index 00000000..a69b02e4
 +    // is a stream switch, not slow decoding — hold the smoothed fallback and
 +    // do NOT let the sparse rate overwrite it.
 +    if (result < SPARSE_SPEED_THRESHOLD) return this.fallbackTps
-+    // Keep the fallback fresh with the most recent live speed while decoding.
-+    if (result > 0) this.fallbackTps = result
++    // The held (fallback) value is owned exclusively by push(): it is the
++    // average over the 0.5s before the last emitted chunk. Refreshing it here
++    // would let the shrinking, span-floored tail window (≤400ms) overwrite the
++    // requested turn-ending speed while the live window drains.
 +    return result
 +  }
 +
@@ -473,10 +477,9 @@ index 00000000..a69b02e4
 +  }
 +
 +  private computeFallbackTps(now: number): number {
-+    // Average token rate over the last fallbackWindowMs of streamed data, but
-+    // skip the most recent FALLBACK_SKIP_MS — that slice is where a stream
-+    // switch (text ↔ thinking ↔ tool-input) burns time, so excluding it keeps
-+    // the average reflecting steady decode speed.
++    // Average token rate over the last fallbackWindowMs (0.5s) of streamed
++    // data — the speed at which the turn ended. FALLBACK_SKIP_MS trims the
++    // newest slice (0 by default).
 +    const windowEnd = now - FALLBACK_SKIP_MS
 +    const windowStart = windowEnd - this.fallbackWindowMs
 +    let total = 0
@@ -567,7 +570,7 @@ index 84246e79..c18a21e2 100644
                  >
                    {session && getSessionWorkspaceState(session) !== 'available' && (
 diff --git a/desktop/src/stores/chatStore.ts b/desktop/src/stores/chatStore.ts
-index 8f2d3d8c..acab5942 100644
+index 8f2d3d8c..01f3bfce 100644
 --- a/desktop/src/stores/chatStore.ts
 +++ b/desktop/src/stores/chatStore.ts
 @@ -19,6 +19,7 @@ import { randomSpinnerVerb } from '../config/spinnerVerbs'
@@ -631,3 +634,21 @@ index 8f2d3d8c..acab5942 100644
      advanceHistoryLifecycle(sessionId)
      wsManager.disconnect(sessionId)
      set((s) => {
+@@ -5098,7 +5122,16 @@ export const useChatStore = create<ChatStore>((setState, get) => {
+             streamingResponseChars: s.streamingResponseChars + msg.text.length,
+           }
+         })
+-        if (!skippedThinkingBlock) ensureElapsedTimer()
++        if (!skippedThinkingBlock) {
++          // thinking 流式片段同样是 decode 输出 token，必须喂 TPS 米表：不喂的话
++          // thinking 全程零采样，米表窗口排空后 UI 会冻结在正文结束前的旧速度上
++          // （稀疏边界守卫只保旧值不刷新）。skippedThinkingBlock 的整块重放
++          // （流式累积内容与 complete 块逐字相同）已在上层判重，不喂避免重复计数。
++          if (isTpsEnabled()) {
++            getSessionTpsMeter(sessionId).push(msg.text)
++          }
++          ensureElapsedTimer()
++        }
+         break
+       }
+ 
