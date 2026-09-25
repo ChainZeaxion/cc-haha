@@ -1,5 +1,5 @@
 diff --git a/desktop/src/components/chat/ContextUsageDetails.tsx b/desktop/src/components/chat/ContextUsageDetails.tsx
-index 36f33198..767cf6cd 100644
+index 36f33198..804c3567 100644
 --- a/desktop/src/components/chat/ContextUsageDetails.tsx
 +++ b/desktop/src/components/chat/ContextUsageDetails.tsx
 @@ -2,6 +2,7 @@ import { useState } from 'react'
@@ -38,21 +38,22 @@ index 36f33198..767cf6cd 100644
      ? 'text-[12.5px] text-[var(--color-text-tertiary)]'
      : 'text-xs text-[var(--color-text-tertiary)]'
 -  const valueClass = 'mt-[3px] font-mono text-sm text-[var(--color-text-primary)]'
-+  // 13/10px uniform across all three columns — the values read as an even row.
-+  // A 6-digit cost ($123.45 · ¥888.84, 17 chars ≈ 111px at 13/10) does not fit
-+  // the 100px cost column at the old 340px popover width, so the popover was
-+  // widened to 372px and the cost column rebalanced wider (~110px) instead of
-+  // shrinking the font per field.
++  // 13/10px uniform — the values read as an even row.
 +  const valueClass = 'mt-[3px] font-mono text-[13px] text-[var(--color-text-primary)]'
 +  const unitClass = 'text-[10px] text-[var(--color-text-tertiary)]'
  
    return (
 -    <div className="mt-4 grid grid-cols-3 gap-3">
-+    // Columns are sized so the longest live value fits at the popover's 372px
-+    // width (content ≈ 332px after 18px padding): cost ≈ 110px, cache ≈ 100px,
-+    // speed ≈ 92px. Values never wrap (whitespace-nowrap).
-+    <div className="mt-4 grid grid-cols-[11fr_12fr_14fr] gap-3">
-       <div>
+-      <div>
++    // Flex with justify-evenly (not a fixed-width grid): each stat group sizes
++    // to its own content and the browser distributes the leftover width into
++    // exactly equal gaps — including the outer margins — so the three fields
++    // stay 间距匀称 no matter how long the live values are (an idle "--" speed
++    // no longer leaves a dead column, a 6-digit cost no longer crowds its
++    // neighbor). Values never wrap (whitespace-nowrap); the 384px popover has
++    // room for the worst cases ($9999.99 · ¥71999.93 ≈ 125px).
++    <div className="mt-4 flex items-start justify-evenly">
++      <div className="flex flex-col items-center">
          <div className={labelClass}>{labels.sessionSpeed}</div>
 -        <div className={valueClass} data-testid="session-speed">
 +        <div className={`${valueClass} whitespace-nowrap`} data-testid="session-speed">
@@ -63,7 +64,8 @@ index 36f33198..767cf6cd 100644
            )}
          </div>
        </div>
-       <div>
+-      <div>
++      <div className="flex flex-col items-center">
          <div className={labelClass}>{labels.sessionCacheHit}</div>
 -        <div className={valueClass} data-testid="session-cache-hit">
 +        <div
@@ -82,7 +84,8 @@ index 36f33198..767cf6cd 100644
 +          )}
          </div>
        </div>
-       <div>
+-      <div>
++      <div className="flex flex-col items-center">
          <div className={labelClass}>{labels.sessionCost}</div>
 -        <div className={`${valueClass} truncate`} data-testid="session-cost" title={stats.costDisplay}>
 +        <div
@@ -117,7 +120,7 @@ index 8be4eacc..8e392439 100644
      expect(screen.getByTestId('session-cost')).toHaveTextContent('$1.23')
      expect(sessionsApiMock.getSessionUsage).toHaveBeenCalledWith('session-1', expect.anything())
 diff --git a/desktop/src/components/chat/ContextUsageIndicator.tsx b/desktop/src/components/chat/ContextUsageIndicator.tsx
-index 5b400140..c7724dd9 100644
+index 5b400140..19f4b46a 100644
 --- a/desktop/src/components/chat/ContextUsageIndicator.tsx
 +++ b/desktop/src/components/chat/ContextUsageIndicator.tsx
 @@ -10,7 +10,7 @@ import type { ChatState } from '../../types/chat'
@@ -129,18 +132,19 @@ index 5b400140..c7724dd9 100644
  import { MobileBottomSheet } from '@/components/ui/MobileBottomSheet'
  import {
    ContextUsageDetails,
-@@ -49,7 +49,9 @@ const USAGE_POLL_MS = 3_000
+@@ -49,7 +49,10 @@ const USAGE_POLL_MS = 3_000
  // still be settling, so retry the event-driven refresh once.
  const FORCED_REFRESH_RETRY_MS = 5_000
  
 -const POPOVER_WIDTH = 340
-+// 372px (was 340): wide enough that a 6-digit cost ($123.45 · ¥888.84 ≈ 111px
-+// at 13px mono) fits the widened cost column without truncation.
-+const POPOVER_WIDTH = 372
++// 384px (was 340): wide enough that a 6-digit cost ($123.45 · ¥888.84 ≈ 111px
++// at 13px mono) fits the cost column without truncation, and roomy enough that
++// the three stat groups read as evenly spaced when centered in their columns.
++const POPOVER_WIDTH = 384
  const POPOVER_GAP = 8
  const VIEWPORT_MARGIN = 16
  // The collapsed panel is much shorter than the old always-expanded breakdown; the expanded
-@@ -439,18 +441,32 @@ export function ContextUsageIndicator({
+@@ -439,18 +442,32 @@ export function ContextUsageIndicator({
    // Derived per render rather than memoized on `usage` alone: the session it belongs to lives in
    // a ref, so the guard has to run against the current sessionId every time.
    const displayUsage = usageSessionIdRef.current === sessionId ? usage : null
@@ -175,7 +179,7 @@ index 5b400140..c7724dd9 100644
  
    const detailsBody = (
      <ContextUsageDetails
-@@ -476,8 +492,12 @@ export function ContextUsageIndicator({
+@@ -476,8 +493,12 @@ export function ContextUsageIndicator({
      const viewportWidth = window.innerWidth || document.documentElement.clientWidth
      const viewportHeight = window.innerHeight || document.documentElement.clientHeight
      const width = Math.min(POPOVER_WIDTH, Math.max(0, viewportWidth - VIEWPORT_MARGIN * 2))
@@ -189,7 +193,7 @@ index 5b400140..c7724dd9 100644
        Math.max(VIEWPORT_MARGIN, viewportWidth - width - VIEWPORT_MARGIN),
      )
  
-@@ -532,8 +552,15 @@ export function ContextUsageIndicator({
+@@ -532,8 +553,15 @@ export function ContextUsageIndicator({
    }
  
    return (
@@ -206,7 +210,7 @@ index 5b400140..c7724dd9 100644
          ref={triggerRef}
          type="button"
          aria-label={ariaLabel}
-@@ -568,6 +595,25 @@ export function ContextUsageIndicator({
+@@ -568,6 +596,25 @@ export function ContextUsageIndicator({
          </span>
          <span className="sr-only">{displayPercent}</span>
        </button>
@@ -232,7 +236,7 @@ index 5b400140..c7724dd9 100644
  
        {!preferSheet && detailsOpen && popoverPosition && createPortal(
          <div
-@@ -575,7 +621,10 @@ export function ContextUsageIndicator({
+@@ -575,7 +622,10 @@ export function ContextUsageIndicator({
            role="dialog"
            aria-label={t('contextIndicator.title')}
            data-testid="context-usage-popover"

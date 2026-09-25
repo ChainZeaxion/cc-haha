@@ -124,20 +124,20 @@ function SessionStatGrid({
   const labelClass = density === 'compact'
     ? 'text-[12.5px] text-[var(--color-text-tertiary)]'
     : 'text-xs text-[var(--color-text-tertiary)]'
-  // 13/10px uniform across all three columns — the values read as an even row.
-  // A 6-digit cost ($123.45 · ¥888.84, 17 chars ≈ 111px at 13/10) does not fit
-  // the 100px cost column at the old 340px popover width, so the popover was
-  // widened to 372px and the cost column rebalanced wider (~110px) instead of
-  // shrinking the font per field.
+  // 13/10px uniform — the values read as an even row.
   const valueClass = 'mt-[3px] font-mono text-[13px] text-[var(--color-text-primary)]'
   const unitClass = 'text-[10px] text-[var(--color-text-tertiary)]'
 
   return (
-    // Columns are sized so the longest live value fits at the popover's 372px
-    // width (content ≈ 332px after 18px padding): cost ≈ 110px, cache ≈ 100px,
-    // speed ≈ 92px. Values never wrap (whitespace-nowrap).
-    <div className="mt-4 grid grid-cols-[11fr_12fr_14fr] gap-3">
-      <div>
+    // Flex with justify-evenly (not a fixed-width grid): each stat group sizes
+    // to its own content and the browser distributes the leftover width into
+    // exactly equal gaps — including the outer margins — so the three fields
+    // stay 间距匀称 no matter how long the live values are (an idle "--" speed
+    // no longer leaves a dead column, a 6-digit cost no longer crowds its
+    // neighbor). Values never wrap (whitespace-nowrap); the 384px popover has
+    // room for the worst cases ($9999.99 · ¥71999.93 ≈ 125px).
+    <div className="mt-4 flex items-start justify-evenly">
+      <div className="flex flex-col items-center">
         <div className={labelClass}>{labels.sessionSpeed}</div>
         <div className={`${valueClass} whitespace-nowrap`} data-testid="session-speed">
           {formatTokensPerSecond(stats.tokensPerSecond ?? 0)}
@@ -146,7 +146,7 @@ function SessionStatGrid({
           )}
         </div>
       </div>
-      <div>
+      <div className="flex flex-col items-center">
         <div className={labelClass}>{labels.sessionCacheHit}</div>
         <div
           className={`${valueClass} whitespace-nowrap ${stats.cacheHitRate !== null ? 'text-[#ea580c]' : ''}`}
@@ -164,7 +164,7 @@ function SessionStatGrid({
           )}
         </div>
       </div>
-      <div>
+      <div className="flex flex-col items-center">
         <div className={labelClass}>{labels.sessionCost}</div>
         <div
           className={`${valueClass} whitespace-nowrap`}

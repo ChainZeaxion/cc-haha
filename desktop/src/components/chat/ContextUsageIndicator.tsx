@@ -49,9 +49,10 @@ const USAGE_POLL_MS = 3_000
 // still be settling, so retry the event-driven refresh once.
 const FORCED_REFRESH_RETRY_MS = 5_000
 
-// 372px (was 340): wide enough that a 6-digit cost ($123.45 · ¥888.84 ≈ 111px
-// at 13px mono) fits the widened cost column without truncation.
-const POPOVER_WIDTH = 372
+// 384px (was 340): wide enough that a 6-digit cost ($123.45 · ¥888.84 ≈ 111px
+// at 13px mono) fits the cost column without truncation, and roomy enough that
+// the three stat groups read as evenly spaced when centered in their columns.
+const POPOVER_WIDTH = 384
 const POPOVER_GAP = 8
 const VIEWPORT_MARGIN = 16
 // The collapsed panel is much shorter than the old always-expanded breakdown; the expanded
