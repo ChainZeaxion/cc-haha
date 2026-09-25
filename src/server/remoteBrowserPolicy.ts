@@ -131,7 +131,8 @@ export function validateRemoteSettingsPatch(input: Record<string, unknown>): boo
       !Array.isArray(value) && Object.keys(value).length === 2 &&
       Object.keys(value).every((field) => field === 'enabled' || field === 'timeoutMinutes') &&
       typeof (value as Record<string, unknown>).enabled === 'boolean' &&
-      AUTO_QUESTION_TIMEOUT_OPTIONS.some((minutes) => minutes === (value as Record<string, unknown>).timeoutMinutes)    return typeof value === 'boolean'
+      AUTO_QUESTION_TIMEOUT_OPTIONS.some((minutes) => minutes === (value as Record<string, unknown>).timeoutMinutes)
+    return typeof value === 'boolean'
   })
 }
 export function projectRemoteProvider(provider: SavedProvider) {

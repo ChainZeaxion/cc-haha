@@ -130,7 +130,10 @@ describe('remote browser API routing', () => {
       autoQuestion: { enabled: true, timeoutMinutes: 10 },
       env: { API_KEY: 'fake-never-expose' },
     })
+    // agentTeamsEnabled is in our chapter-九 READ_SETTINGS whitelist and the GET
+    // handler always injects it, so the projection surfaces it alongside autoQuestion.
     expect(await (await request('/api/settings/user')).json()).toEqual({
+      agentTeamsEnabled: true,
       autoQuestion: { enabled: true, timeoutMinutes: 10 },
     })
   })

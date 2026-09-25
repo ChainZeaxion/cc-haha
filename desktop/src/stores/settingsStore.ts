@@ -121,7 +121,8 @@ type SettingsStore = {
   setAgentTeamsEnabled: (enabled: boolean) => Promise<void>
   setAutoDreamEnabled: (enabled: boolean) => Promise<void>
   setDisableUpdates: (enabled: boolean) => Promise<void>
-  setAutoQuestion: (settings: AutoQuestionSettings) => Promise<void>  acceptAutoModeOptIn: () => Promise<void>
+  setAutoQuestion: (settings: AutoQuestionSettings) => Promise<void>
+  acceptAutoModeOptIn: () => Promise<void>
   setLocale: (locale: Locale) => void
   setTheme: (theme: ThemeMode) => Promise<void>
   setChatSendBehavior: (behavior: ChatSendBehavior) => Promise<void>
