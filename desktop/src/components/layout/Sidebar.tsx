@@ -1040,21 +1040,19 @@ export function Sidebar({
         >
           {t('sidebar.newSession')}
         </NavItem>
-        {!isMobile && (
-          <NavItem
-            active={activeTabId === SCHEDULED_TAB_ID}
-            collapsed={!expanded}
-            label={t('sidebar.scheduled')}
-            touchFriendly={isMobile}
-            onClick={() => {
-              useTabStore.getState().openTab(SCHEDULED_TAB_ID, t('sidebar.scheduled'), 'scheduled')
-              closeMobileDrawer()
-            }}
-            icon={<ClockIcon />}
-          >
-            {t('sidebar.scheduled')}
-          </NavItem>
-        )}
+        <NavItem
+          active={activeTabId === SCHEDULED_TAB_ID}
+          collapsed={!expanded}
+          label={t('sidebar.scheduled')}
+          touchFriendly={isMobile}
+          onClick={() => {
+            useTabStore.getState().openTab(SCHEDULED_TAB_ID, t('sidebar.scheduled'), 'scheduled')
+            closeMobileDrawer()
+          }}
+          icon={<ClockIcon />}
+        >
+          {t('sidebar.scheduled')}
+        </NavItem>
         <NavItem
           active={activeTabId === MARKET_TAB_ID || activeTabId === CONNECTORS_TAB_ID}
           collapsed={!expanded}

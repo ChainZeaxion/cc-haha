@@ -1,0 +1,90 @@
+diff --git a/desktop/src/components/layout/AppShell.tsx b/desktop/src/components/layout/AppShell.tsx
+index a4332bba..c8613d06 100644
+--- a/desktop/src/components/layout/AppShell.tsx
++++ b/desktop/src/components/layout/AppShell.tsx
+@@ -272,7 +272,7 @@ export function AppShell() {
+ 
+   useEffect(() => {
+     if (!ready || !isMobileShell) return
+-    if (isChatTab(activeTab) || activeTab?.type === 'settings' || activeTab?.type === 'market' || (!activeTab && !activeTabId)) return
++    if (isChatTab(activeTab) || activeTab?.type === 'settings' || activeTab?.type === 'market' || activeTab?.type === 'scheduled' || (!activeTab && !activeTabId)) return
+     const nextChatTab = tabs.find(isChatTab)
+     if (nextChatTab) {
+       setActiveTab(nextChatTab.sessionId)
+@@ -397,6 +397,8 @@ export function AppShell() {
+               <h1 className="min-w-0 flex-1 truncate text-[15px] font-bold leading-tight text-[var(--color-text-primary)]">{t('sidebar.settings')}</h1>
+             ) : activeTab?.type === 'market' ? (
+               <h1 className="min-w-0 flex-1 truncate text-[15px] font-bold leading-tight text-[var(--color-text-primary)]">{t('sidebar.extensions')}</h1>
++            ) : activeTab?.type === 'scheduled' ? (
++              <h1 className="min-w-0 flex-1 truncate text-[15px] font-bold leading-tight text-[var(--color-text-primary)]">{t('sidebar.scheduled')}</h1>
+             ) : isActiveChatTab ? (
+               <div className="min-w-0 flex-1">
+                 <h1 className="truncate text-[15px] font-bold leading-tight text-[var(--color-text-primary)]">
+diff --git a/desktop/src/components/layout/Sidebar.test.tsx b/desktop/src/components/layout/Sidebar.test.tsx
+index 5ec9ff57..43b06079 100644
+--- a/desktop/src/components/layout/Sidebar.test.tsx
++++ b/desktop/src/components/layout/Sidebar.test.tsx
+@@ -2176,8 +2176,9 @@ describe('Sidebar', () => {
+ 
+     render(<Sidebar isMobile onRequestClose={onRequestClose} />)
+ 
+-    expect(screen.queryByRole('button', { name: 'Scheduled' })).not.toBeInTheDocument()
+-    expect(screen.queryByRole('button', { name: 'Extension Market' })).not.toBeInTheDocument()
++    // market + scheduled are intentionally exposed on mobile (H5 access)
++    expect(screen.getByRole('button', { name: 'Scheduled' })).toBeInTheDocument()
++    expect(screen.getByRole('button', { name: 'Extension Market' })).toBeInTheDocument()
+     expect(screen.getByRole('button', { name: 'Settings' })).toBeInTheDocument()
+     fireEvent.click(screen.getByRole('button', { name: 'Settings' }))
+     expect(useTabStore.getState().activeTabId).toBe('__settings__')
+diff --git a/desktop/src/components/layout/Sidebar.tsx b/desktop/src/components/layout/Sidebar.tsx
+index f36d2b1a..346e5525 100644
+--- a/desktop/src/components/layout/Sidebar.tsx
++++ b/desktop/src/components/layout/Sidebar.tsx
+@@ -1040,21 +1040,19 @@ export function Sidebar({
+         >
+           {t('sidebar.newSession')}
+         </NavItem>
+-        {!isMobile && (
+-          <NavItem
+-            active={activeTabId === SCHEDULED_TAB_ID}
+-            collapsed={!expanded}
+-            label={t('sidebar.scheduled')}
+-            touchFriendly={isMobile}
+-            onClick={() => {
+-              useTabStore.getState().openTab(SCHEDULED_TAB_ID, t('sidebar.scheduled'), 'scheduled')
+-              closeMobileDrawer()
+-            }}
+-            icon={<ClockIcon />}
+-          >
+-            {t('sidebar.scheduled')}
+-          </NavItem>
+-        )}
++        <NavItem
++          active={activeTabId === SCHEDULED_TAB_ID}
++          collapsed={!expanded}
++          label={t('sidebar.scheduled')}
++          touchFriendly={isMobile}
++          onClick={() => {
++            useTabStore.getState().openTab(SCHEDULED_TAB_ID, t('sidebar.scheduled'), 'scheduled')
++            closeMobileDrawer()
++          }}
++          icon={<ClockIcon />}
++        >
++          {t('sidebar.scheduled')}
++        </NavItem>
+         <NavItem
+           active={activeTabId === MARKET_TAB_ID || activeTabId === CONNECTORS_TAB_ID}
+           collapsed={!expanded}
+diff --git a/desktop/src/pages/ScheduledTasks.tsx b/desktop/src/pages/ScheduledTasks.tsx
+index 78bbd8df..d2b7dc85 100644
+--- a/desktop/src/pages/ScheduledTasks.tsx
++++ b/desktop/src/pages/ScheduledTasks.tsx
+@@ -21,7 +21,7 @@ export function ScheduledTasks() {
+ 
+   return (
+     <div className="flex-1 overflow-y-auto">
+-      <div className="animate-screen-pop mx-auto max-w-[1180px] px-11 pb-12 pt-8">
++      <div className="animate-screen-pop mx-auto max-w-[1180px] px-4 pb-12 pt-8 lg:px-11">
+         {/* Header */}
+         <div className="flex items-start justify-between gap-4">
+           <div className="min-w-0">
