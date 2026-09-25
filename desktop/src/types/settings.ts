@@ -160,6 +160,8 @@ export type UserSettings = {
   effort?: EffortLevel
   alwaysThinkingEnabled?: boolean
   sendThinkingHistory?: boolean
+  /** Context-compaction engine: 'algorithm' (pi-vcc, default) or 'llm'. */
+  vccCompactBackend?: 'algorithm' | 'llm'
   workflowKeywordTriggerEnabled?: boolean
   agentTeamsEnabled?: boolean
   autoDreamEnabled?: boolean

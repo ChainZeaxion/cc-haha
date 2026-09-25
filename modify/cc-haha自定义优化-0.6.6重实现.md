@@ -22,6 +22,7 @@
 | 工程/开发 | 十 本地开发模式注意事项（sidecar 开发模式跑通记录） | — | ✅ |
 | 移动端/H5 | 十一 H5 悬浮快捷入口（任务列表 / 终端 / 文件浏览 / 审查） | 旧§5.2 FAB（参考） | ✅ |
 | 工程/质量 | 十二 src/server 既有 22 条测试失败清零 | —（新增） | ✅ |
+| 上下文/压缩 | 十三 pi-vcc 算法压缩移植（transcript-preserving，无 LLM 调用）+ 双后端热切换 + vcc_recall 工具 | 新增（参考 @sting8k/pi-vcc 0.8.0） | ✅ |
 ## 📦 联动 Patches
 
 > 各优化项的实施 diff 以 patch 文件形式统一存放到本 `modify/` 目录（后期全部归档于此），与上文章节联动：每完成一项，patch 入库并在此登记；升级/重打基座时按本表逐个 `git apply` 重放。
@@ -50,6 +51,7 @@
 | `patches/h5-settings-whitelist.patch` | 九 H5 设置项 400/403 修复（9.x，remoteBrowser 白名单） | 6d4fd126 | ✅ |
 | `patches/server-test-baseline-zeroing.patch` | 十二 src/server 既有 22 条测试失败清零 | 6d4fd126 | ✅ |
 | `patches/h5-mobile-quick-actions.patch` | 十一 H5 悬浮快捷入口（任务/终端/文件/审查） | 447d03a7 | ✅ |
+| `patches/vcc-compactor.patch` | 十三 pi-vcc 算法压缩移植 + 双后端热切换 + vcc_recall | 2004cd16 | ✅ |
 
 ### 移植通用注意事项- stale `.js` 孪生：改 `src/*.ts` 走 sidecar 打包路径时，须核对被改文件同名 `.js` 是否存在且同步（旧树 `.js` 优先加载坑）。
 - 0.6.6 已有对应能力需**融合**而非整块覆盖（如 H5 安全配对、缓存 token 显示、rewind 等），各章落地前先核对现状。
@@ -590,3 +592,33 @@ CLAUDE_H5_DIST_DIR=/home/zeaxion/myproject/cchaha-06scode/desktop/dist \
 **patch**：`modify/patches/server-test-baseline-zeroing.patch`（8 文件 324 行，链位 13，基线 6d4fd126）。
 
 **13 链全验证**（`git worktree add --detach /tmp 2f8d819d` + 软链 node_modules，按序 `git apply` 全部 13 patch）：全干净；apply 后 vs 工作树仅 4 处已知非章 delta（`bun.lock`、`desktop/src/pages/TerminalSettings.tsx`、`desktop/src/lib/providerModels.ts`、`desktop/src/components/chat/MessagePayloadRetention.test.tsx`——均属独立 commit 的非章改动）。
+
+## 十三、pi-vcc 算法压缩移植 + 双后端热切换 + vcc_recall 工具（参考 @sting8k/pi-vcc 0.8.0，✅ 2026-09-25）
+
+> 移植 [pi-vcc](https://github.com/sting8k/pi-vcc)（"Algorithmic conversation compactor — transcript-preserving structured summaries, no LLM calls"）到 cc-haha。核心动机：现有 `/compact` 与 auto-compact 全走 **LLM 摘要**（`streamCompactSummary`，一轮完整模型调用，token 成本 + 延迟高，且摘要有丢失/幻觉风险）。pi-vcc 用**纯算法**（零 LLM）从消息窗口编译出 5 个语义 section + 一份 brief transcript，原始细节**不另存**——依赖已有 session JSONL 持久化，`vcc_recall` 工具按全局 message index（`#N`）无损检索回被压细节。
+
+### 需求背景
+- 用户拍板（AskUserQuestion）：范围=**核心压缩 + recall 工具 + 双后端 UI**；挂接=**旁路摘要步、可切换后端**；默认=**默认算法压缩接管全部，设置中可手动更换，且运行中可直接切换（热切换）**。
+- 参考移植范例：`/tmp/opencode-vcc`（rumisle/opencode-vcc）——逐字 vendor pi-vcc 0.8.0 core + OpenCode↔pi 消息 adapter，是最佳跨框架移植范例。
+
+### 0.6.6 现状核对
+- LLM 摘要替换点=`src/services/compact/compact.ts` 的 `compactConversation`（:534 起 `streamCompactSummary` + `PROMPT_TOO_LONG` 重试循环）；下游消费（`buildPostCompactMessages` :362-370、`annotateBoundaryWithPreservedSegment` :381-399、`query.ts`/`autoCompact.ts`/`inProcessRunner.ts`/`commands/compact/compact.ts`/`REPL.tsx partialCompact` 读 `result.messagesToKeep`）均经 `CompactionResult` 字段，VCC 字段天然兼容。
+- 设置 8 步链范本=`sendThinkingHistory`（第八章）。`src/types/message.ts` 是 @generated Proxy stub，`Message` 类型宽松（判别字段 `.type`）。
+
+### 实施方案（57 文件，5316 增 / 34 删）
+1. **算法核心移植** `src/services/compact/vcc/`（38 个 .ts，逐字 vendor pi-vcc 0.8.0）：
+   - `vendor/core/`：`summarize`（`compile`/`compileRanked`+`mergePrevious` 逐 header 合并）、`brief`（tool_result 省略、连续相同 tool 行折叠 xN、bash heredoc 体删+pipe-tail 剥 `BASH_CAP=240`）、`build-sections`（Session Goal / Files And Changes / Commits / Outstanding Context / User Preferences 5 段 + `extractOutstandingContext` blocker 正则）、`format`（`BRIEF_MAX_LINES=120` 保尾部、`wrapLongLines` 120ch、`RECALL_NOTE`）、`rank`（`scoreBlock` recency*12/user+18/assistant+10/edit-tool+34/非零退出+24/trivial-bash-16 + `boostAdjacency`）、`search-entries`（BM25-lite K=1.2 B=0.75 + regex 双路 + drill-down `#N:path:full`）、`global-indices`/`jsonl`（0.8.0 新增，#N 计数 + 分块流读）。
+   - `vendor/extract/`：`goals`/`files`/`preferences`/`commits`。
+   - **cc-haha 适配层**（非 vendor）：`adapter.ts`（cc 消息→pi NormalizedBlock）、`ccGlobalIndex.ts`（`buildCcGlobalIndexByUuid` 保 `#N` 跨压缩稳定）、`vccCompact.ts`（`runVccCompaction` 主入口，文件不可读时 `buildIndexFromMessages` 兜底）、`engine.ts`、`pi-ai.ts`（pi Message 类型 shim）、`recallLoader.ts`（`loadCcSessionFile` 复用 adapter 保 #N 对齐）、`recallDrillDown.ts`（`full` cap 50KB / preview 30 行）。
+   - 编译产物 `.js`（38 个）是 tsc 输出，**不入 patch**（只取 .ts 源）。
+2. **vcc_recall 工具** `src/tools/VccRecallTool/`：`VccRecallTool.ts`（query / drill-down / touched / expand / page 五模式，`PAGE_SIZE=5`、`maxResultSizeChars=100_000`、`isReadOnly`）+ `prompt.ts` + `UI.tsx`；在 `src/tools.ts` `getAllBaseTools()` 注册（无 feature gate，工具计数 36→37）。
+3. **双后端设置链**（8 步，`vccCompactBackend='algorithm'|'llm'` 默认 algorithm）：`src/utils/compactionBackend.ts`（`getCompactionBackend`——**热切换：compaction 时实时读设置**）、`settings/types.ts` z.enum、`desktop` types/settings + settingsStore 5 处（乐观 setter `setVccCompactBackend`）、`GeneralSettings.tsx` `COMPACTION_BACKEND_ITEMS` + Context compaction 区块（Dropdown，responseLanguage 范式）、i18n 5 语言 6 key、`remoteBrowserPolicy.ts` READ+WRITE 白名单+枚举校验器（**H5 必须同步否则 PUT 400**）、`supportedSettings.ts`、`remoteBrowserPolicy.test.ts` +6 断言。
+4. **旁路接线** `src/services/compact/compact.ts`：新增 `maybeVccCompact`（`getCompactionBackend!=='algorithm'`→null 回落 LLM 路径），`compactConversation` 在 `getCompactPrompt` 前调用，VCC 命中时跳过 LLM 循环、`messagesToKeep` 走 `buildPostCompactMessages` 保留 tail、`annotateBoundaryWithPreservedSegment` 标注保留段；`logEvent('tengu_compact')` 加 `compactionBackend` 字段。
+
+### 验证
+- 单测：`VccRecallTool.test.ts` 10/10、`remoteBrowserPolicy.test.ts` 4/4（62 expect）、`compact`/`autoCompact` 26 pass / 76 expect。
+- runtime probe（合成 8 条 cc 消息窗口）：`keptUserTurns=2/total=3`、5 section 编译、`messagesToKeep` 保 tail、`previousSummaryUsed=true` 且 merge 后文件去重。
+- **全量零回归**：前端 `desktop vitest` **12300 pass / 12 skip / 0 fail**；server `bun test` .ts 全量 2871 pass / 1 fail——该 1 条为 `cron-scheduler-launcher`（proxy 固定端口 3456 漂移 flaky，单文件复跑 12/0 通过；VCC 未触碰 cron/proxy）。全量 `bun test src/server`（含 .js 孪生 6792 用例）9 条失败全在 VCC 未触碰的 proxy/端口竞态族（`h5-access-auth` 单文件 53/0、`cron-scheduler-launcher` 单文件 12/0 均通过）。
+- **15 链全验证**（`git worktree add --detach /tmp 2f8d819d` + 软链 node_modules，按序 `git apply` 全部 15 patch：14 既有 + `vcc-compactor`）：全干净；apply 后 57 个 VCC 文件逐字节=工作树（diff 全空，0 差异）。
+
+**patch**：`modify/patches/vcc-compactor.patch`（57 文件 5946 行，链位 15，基线 2004cd16）。

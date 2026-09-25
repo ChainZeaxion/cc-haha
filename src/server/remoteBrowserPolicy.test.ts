@@ -62,6 +62,11 @@ test('General settings round-trip (H5 full GeneralSettings)', () => {
   expect(validateRemoteSettingsPatch({ network: { aiRequestTimeoutMs: 29999, proxy: { mode: 'manual', url: '' } } })).toBe(false)
   expect(validateRemoteSettingsPatch({ network: { aiRequestTimeoutMs: 60000, proxy: { mode: 'x', url: '' } } })).toBe(false)
   expect(validateRemoteSettingsPatch({ network: { aiRequestTimeoutMs: 60000 } })).toBe(false)
+  // vccCompactBackend string enum
+  expect(validateRemoteSettingsPatch({ vccCompactBackend: 'algorithm' })).toBe(true)
+  expect(validateRemoteSettingsPatch({ vccCompactBackend: 'llm' })).toBe(true)
+  expect(validateRemoteSettingsPatch({ vccCompactBackend: 'bogus' })).toBe(false)
+  expect(validateRemoteSettingsPatch({ vccCompactBackend: 1 })).toBe(false)
   // cleanupPeriodDays integer [0,3650]
   expect(validateRemoteSettingsPatch({ cleanupPeriodDays: 30 })).toBe(true)
   expect(validateRemoteSettingsPatch({ cleanupPeriodDays: 0 })).toBe(true)
@@ -77,6 +82,7 @@ test('General settings round-trip (H5 full GeneralSettings)', () => {
     cleanupPeriodDays: 14,
     desktopNotificationsEnabled: true,
     agentTeamsEnabled: false,
+    vccCompactBackend: 'llm',
   })
   expect(projected.webSearch).toEqual({ mode: 'brave', tavilyApiKey: '', braveApiKey: 'b' })
   expect(projected.updateProxy).toEqual({ mode: 'manual', url: 'http://p:1' })
@@ -84,6 +90,8 @@ test('General settings round-trip (H5 full GeneralSettings)', () => {
   expect(projected.cleanupPeriodDays).toBe(14)
   expect(projected.desktopNotificationsEnabled).toBe(true)
   expect(projected.agentTeamsEnabled).toBe(false)
+  expect(projected.vccCompactBackend).toBe('llm')
+  expect(projectRemoteSettings({ vccCompactBackend: 'bogus' }).vccCompactBackend).toBe('bogus')
   expect('network' in projectRemoteSettings({ network: { aiRequestTimeoutMs: 1 } })).toBe(false)
 })
 

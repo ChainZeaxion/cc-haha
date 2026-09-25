@@ -2239,6 +2239,13 @@ export const jp: Record<TranslationKey, string> = {
   'settings.general.thinkingHint': '新しいセッションを --thinking 無効で開始するにはこれをオフにします。DeepSeek V4 Flash/Pro やその他の非思考ワークフローに便利です。',
   'settings.general.thinkingSendBackTitle': '思考履歴をバックエンド API に送信する',
   'settings.general.thinkingSendBackHint': 'オフの場合、直前の思考ブロックは API リクエストからのみ除去されます。ローカルのセッション履歴には保存され、会話内で引き続き閲覧できます。',
+  'settings.general.compactionTitle': 'コンテキスト圧縮',
+  'settings.general.compactionDescription': 'コンテキストが逼迫した際の会話圧縮に使うエンジンを指定します。変更は次回圧縮時に反映されます。',
+  'settings.general.compactionBackend.algorithm.label': 'アルゴリズム（VCC）',
+  'settings.general.compactionBackend.algorithm.description': 'トランスクリプト保持の構造化要約で、LLM 呼び出しなし。元のメッセージは vcc_recall で検索可能。',
+  'settings.general.compactionBackend.llm.label': 'LLM サマリー',
+  'settings.general.compactionBackend.llm.description': '従来のモデル駆動の要約。各圧縮で追加トークンとモデル呼び出しを消費します。',
+
   'settings.general.defaultEditorTitle': '既定のエディタ',
   'settings.general.defaultEditorDescription': 'ファイルの「開く方法」メニューに表示するエディタ。このマシンで検出されたエディタのみ表示されます。',
   'settings.general.defaultEditorAuto': '自動',

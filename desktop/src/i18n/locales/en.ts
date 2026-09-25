@@ -2238,6 +2238,12 @@ Row 9, all 8 cells: continuing from straight down, turning left through lower-le
   'settings.general.thinkingHint': 'Turn this off to start new sessions with --thinking disabled; useful for DeepSeek V4 Flash/Pro and other non-thinking workflows.',
   'settings.general.thinkingSendBackTitle': 'Send thinking history to the backend API',
   'settings.general.thinkingSendBackHint': 'When off, prior thinking blocks are stripped from API requests only; they stay in your local session history and remain viewable in the conversation.',
+  'settings.general.compactionTitle': 'Context compaction',
+  'settings.general.compactionDescription': 'Choose which engine compacts the conversation when context runs low. Changes take effect on the next compaction.',
+  'settings.general.compactionBackend.algorithm.label': 'Algorithmic (VCC)',
+  'settings.general.compactionBackend.algorithm.description': 'Transcript-preserving structured summary, no LLM call. Original messages stay retrievable via vcc_recall.',
+  'settings.general.compactionBackend.llm.label': 'LLM summary',
+  'settings.general.compactionBackend.llm.description': 'The original model-driven summary. Uses extra tokens and a model call each time.',
   'settings.general.defaultEditorTitle': 'Default editor',
 
   'settings.general.defaultEditorDescription': 'Which editor the Open With menu offers for a file. Only editors found on this machine are listed.',

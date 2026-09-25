@@ -2237,6 +2237,12 @@ export const zh: Record<TranslationKey, string> = {
   'settings.general.thinkingHint': '关闭后会以 --thinking disabled 启动新会话；适合 DeepSeek V4 Flash/Pro 等需要非思考模式的模型。',
   'settings.general.thinkingSendBackTitle': '将思考内容回传后端 API',
   'settings.general.thinkingSendBackHint': '关闭后，历史中的思考内容只从发给后端的请求中剥离；本地会话历史完整保留，仍可在会话中回看。',
+  'settings.general.compactionTitle': '上下文压缩',
+  'settings.general.compactionDescription': '选择上下文用尽时压缩会话的引擎。更改在下一次压缩时生效。',
+  'settings.general.compactionBackend.algorithm.label': '算法压缩（VCC）',
+  'settings.general.compactionBackend.algorithm.description': '保留转录的结构化摘要，不调用 LLM。原始消息仍可通过 vcc_recall 检索。',
+  'settings.general.compactionBackend.llm.label': 'LLM 摘要',
+  'settings.general.compactionBackend.llm.description': '原有的模型驱动摘要，每次压缩都会消耗额外 token 并发起一次模型调用。',
   'settings.general.defaultEditorTitle': '默认编辑器',
 
   'settings.general.defaultEditorDescription': '文件的「打开方式」菜单里提供哪个编辑器。只列出本机已检测到的编辑器。',

@@ -61,6 +61,7 @@ type SettingsStore = {
   effortLevel: EffortLevel
   thinkingEnabled: boolean
   thinkingSendBack: boolean
+  vccCompactBackend: 'algorithm' | 'llm'
   workflowKeywordTriggerEnabled: boolean
   agentTeamsEnabled: boolean
   autoDreamEnabled: boolean
@@ -109,6 +110,7 @@ type SettingsStore = {
   setEffort: (level: EffortLevel) => Promise<void>
   setThinkingEnabled: (enabled: boolean) => Promise<void>
   setThinkingSendBack: (enabled: boolean) => Promise<void>
+  setVccCompactBackend: (backend: 'algorithm' | 'llm') => Promise<void>
   setWorkflowKeywordTriggerEnabled: (enabled: boolean) => Promise<void>
   setAgentTeamsEnabled: (enabled: boolean) => Promise<void>
   setAutoDreamEnabled: (enabled: boolean) => Promise<void>
@@ -206,6 +208,7 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
   effortLevel: 'max',
   thinkingEnabled: true,
   thinkingSendBack: false,
+  vccCompactBackend: 'algorithm',
   workflowKeywordTriggerEnabled: true,
   agentTeamsEnabled: true,
   autoDreamEnabled: false,
@@ -286,6 +289,8 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
         effortLevel: level,
         thinkingEnabled: userSettings.alwaysThinkingEnabled !== false,
         thinkingSendBack: userSettings.sendThinkingHistory === true,
+        vccCompactBackend:
+          userSettings.vccCompactBackend === 'llm' ? 'llm' : 'algorithm',
         workflowKeywordTriggerEnabled: userSettings.workflowKeywordTriggerEnabled !== false,
         agentTeamsEnabled: userSettings.agentTeamsEnabled !== false,
         autoDreamEnabled: userSettings.autoDreamEnabled === true,
@@ -369,6 +374,16 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
       await settingsApi.updateUser({ sendThinkingHistory: enabled })
     } catch {
       set({ thinkingSendBack: prev })
+    }
+  },
+
+  setVccCompactBackend: async (backend) => {
+    const prev = get().vccCompactBackend
+    set({ vccCompactBackend: backend })
+    try {
+      await settingsApi.updateUser({ vccCompactBackend: backend })
+    } catch {
+      set({ vccCompactBackend: prev })
     }
   },
 

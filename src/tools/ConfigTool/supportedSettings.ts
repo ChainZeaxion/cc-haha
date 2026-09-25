@@ -116,6 +116,13 @@ export const SUPPORTED_SETTINGS: Record<string, SettingConfig> = {
     description:
       'Send prior thinking blocks back to the backend API as context (true to enable)',
   },
+  vccCompactBackend: {
+    source: 'settings',
+    type: 'string',
+    description:
+      'Context compaction engine: "algorithm" (pi-vcc, no LLM call) or "llm" (original summary)',
+    options: ['algorithm', 'llm'],
+  },
   'permissions.defaultMode': {
     source: 'settings',
     type: 'string',
