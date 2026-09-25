@@ -26,6 +26,7 @@
 | 移动端/H5 | 十四 H5/移动端支持打开插件市场（技能·连接器） | —（新增） | ✅ |
 | 移动端/H5 | 十五 H5/移动端支持打开计划任务（定时任务）页 | —（新增） | ✅ |
 | 连接器/平台 | 十六 连接器目录 Linux 平台支持（x64/arm64，服务端 H5 场景生效） | —（新增） | ✅ |
+| 移动端/H5 | 十七 H5/移动端 技能市场页 header 布局适配（副标题不再折多行） | —（新增） | ✅ |
 ## 📦 联动 Patches
 
 > 各优化项的实施 diff 以 patch 文件形式统一存放到本 `modify/` 目录（后期全部归档于此），与上文章节联动：每完成一项，patch 入库并在此登记；升级/重打基座时按本表逐个 `git apply` 重放。
@@ -58,6 +59,7 @@
 | `patches/h5-mobile-market.patch` | 十四 H5/移动端支持打开插件市场 | 10d7d52a | ✅ |
 | `patches/h5-mobile-scheduled.patch` | 十五 H5/移动端支持打开计划任务（定时任务）页 | cc88daa5 | ✅ |
 | `patches/connector-linux-platform.patch` | 十六 连接器目录 Linux 平台支持（x64/arm64） | cc88daa5 | ✅ |
+| `patches/h5-mobile-market-layout.patch` | 十七 H5/移动端 技能市场页 header 布局适配 | 48769016 | ✅ |
 
 
 ### 移植通用注意事项- stale `.js` 孪生：改 `src/*.ts` 走 sidecar 打包路径时，须核对被改文件同名 `.js` 是否存在且同步（旧树 `.js` 优先加载坑）。
@@ -719,3 +721,23 @@ CLAUDE_H5_DIST_DIR=/home/zeaxion/myproject/cchaha-06scode/desktop/dist \
 - **18 链全验证**：同十五章（worktree@2f8d819d 顺序 apply 18 patch 全干净，8 文件逐字节=工作树）。
 
 **patch**：`modify/patches/connector-linux-platform.patch`（4 文件 105 行，链位 18，基线 cc88daa5）。
+
+## 十七、H5/移动端 技能市场页 header 布局适配（✅ 2026-09-26）
+
+> 用户反馈（verbatim）：「主要是技能市场，该页面内大标题下面的文字排成了9行，这相当不合理。」
+
+### 现状核对
+- 移动端（390px）打开「技能」tab（`MarketHome`）实测：header 是 `flex flex-wrap`，三子项=图标 56px（`flex-shrink-0`）+ 标题/副标题列（`min-w-0 flex-1`）+ 右侧集群（`SourceStatusBar` 228px + 「已安装技能」按钮 146px）。390px 减 padding 后可用 342px，被图标+右侧集群 min-content 挤死，**标题列只剩 16px**：副标题「浏览、预览并安装来自 ClawHub 与 SkillHub 的技能。」折 **15 行**（用户设备更宽折 9 行），标题「技能市场」一字一行，header 总高 **508px ≈ 屏幕 60%**。
+- 桌面（≥1024px）同布局无此问题（空间充足，右侧集群同行右对齐）。
+
+### 实施方案（1 文件 1 行，纯响应式 CSS）
+- `desktop/src/components/market/MarketHome.tsx:121` 右侧集群容器加 `max-lg:items-start max-lg:basis-full`：窄屏（<1024px）换行独占一行（`basis-full` 强制 100% 宽），标题列拿满剩余宽度；桌面端 `max-lg:` 不生效，布局零变化。
+- 无新 i18n 键、无组件结构改动、无逻辑改动。
+
+### 验证
+- **live 7788 移动端 390×844**：副标题 15 行→**2 行**（宽 262px），标题 1 行，header 508px→**158px**；右侧集群（来源状态 + 已安装技能按钮）落到标题行下方，信息全保留。
+- **桌面 1280px**：header 74px，按钮与标题同行（`sameRow=true`），副标题 1 行 594px——桌面布局零变化。
+- **tsc exit 0**；市场+页面 vitest 872/872；**全量前端 vitest 12300 pass / 12 skip / 0 fail**（=基线零回归）。
+- **19 链全验证**（worktree@2f8d819d 顺序 apply 19 patch：18 既有 + `h5-mobile-market-layout`）全干净；`MarketHome.tsx` 与工作树逐字节一致（全树 diff 仅 4 个已知非章 delta：bun.lock、TerminalSettings.tsx、providerModels.ts、MessagePayloadRetention.test.tsx）。
+
+**patch**：`modify/patches/h5-mobile-market-layout.patch`（1 文件 1 行，链位 19，基线 48769016）。
