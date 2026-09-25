@@ -84,35 +84,72 @@ index 0c6cbf84..36c9eafc 100644
    'settings.general.defaultEditorTitle': '默认编辑器',
  
    'settings.general.defaultEditorDescription': '文件的「打开方式」菜单里提供哪个编辑器。只列出本机已检测到的编辑器。',
+diff --git a/desktop/src/pages/settings/GeneralSettings.compaction.test.tsx b/desktop/src/pages/settings/GeneralSettings.compaction.test.tsx
+new file mode 100644
+index 00000000..823ba83b
+--- /dev/null
++++ b/desktop/src/pages/settings/GeneralSettings.compaction.test.tsx
+@@ -0,0 +1,47 @@
++import { cleanup, fireEvent, render, screen } from '@testing-library/react'
++import '@testing-library/jest-dom'
++import { afterEach, beforeEach, expect, it, vi } from 'vitest'
++import { useSettingsStore } from '@/stores/settingsStore'
++import { GeneralSettings } from './GeneralSettings'
++
++// The full settings panel pulls in many stores and host APIs; stub the heavy
++// leaf components and host calls so this test can mount the real page and
++// exercise just the context-compaction dropdown.
++vi.mock('../../components/controls/PermissionModeSelector', () => ({ PermissionModeSelector: () => null }))
++vi.mock('../../lib/desktopNotifications', () => ({
++  getDesktopNotificationPermission: () => Promise.resolve('default'),
++  notifyDesktop: () => undefined,
++  getDesktopNotificationPlatform: () => 'linux',
++  openDesktopNotificationSettings: () => undefined,
++  requestDesktopNotificationPermission: () => Promise.resolve('default'),
++}))
++
++beforeEach(() => {
++  useSettingsStore.setState({ locale: 'zh', vccCompactBackend: 'algorithm' })
++  vi.spyOn(useSettingsStore.getState(), 'fetchAppMode').mockResolvedValue()
++  vi.spyOn(useSettingsStore.getState(), 'fetchAll').mockResolvedValue()
++  vi.spyOn(useSettingsStore.getState(), 'fetchOutputStyles').mockResolvedValue()
++})
++
++afterEach(() => {
++  cleanup()
++  vi.restoreAllMocks()
++})
++
++it('renders the compaction dropdown options with translated labels, not raw i18n keys', async () => {
++  render(<GeneralSettings />)
++
++  const trigger = screen.getByRole('button', { name: '上下文压缩' })
++  fireEvent.click(trigger)
++
++  // Both options open with their Chinese label + description.
++  expect(await screen.findByRole('option', { name: /算法压缩（VCC）/ })).toBeInTheDocument()
++  const llmOption = screen.getByRole('option', { name: /LLM 摘要/ })
++  expect(llmOption).toBeInTheDocument()
++
++  // The raw i18n key must no longer leak into the option text.
++  const listbox = screen.getByRole('listbox')
++  expect(listbox.textContent).not.toContain('settings.general.compactionBackend')
++  expect(listbox.textContent).not.toContain('Algorithmic')
++})
++
 diff --git a/desktop/src/pages/settings/GeneralSettings.tsx b/desktop/src/pages/settings/GeneralSettings.tsx
-index baca685b..0b3cb7b5 100644
+index baca685b..3f4a9c87 100644
 --- a/desktop/src/pages/settings/GeneralSettings.tsx
 +++ b/desktop/src/pages/settings/GeneralSettings.tsx
-@@ -61,6 +61,23 @@ const BUILT_IN_OUTPUT_STYLE_TRANSLATION_KEYS = {
-   },
+@@ -62,6 +62,7 @@ const BUILT_IN_OUTPUT_STYLE_TRANSLATION_KEYS = {
  } satisfies Record<string, { label: TranslationKey; description: TranslationKey }>
  
-+const COMPACTION_BACKEND_ITEMS: Array<{
-+  value: 'algorithm' | 'llm'
-+  label: TranslationKey
-+  description: TranslationKey
-+}> = [
-+  {
-+    value: 'algorithm',
-+    label: 'settings.general.compactionBackend.algorithm.label',
-+    description: 'settings.general.compactionBackend.algorithm.description',
-+  },
-+  {
-+    value: 'llm',
-+    label: 'settings.general.compactionBackend.llm.label',
-+    description: 'settings.general.compactionBackend.llm.description',
-+  },
-+]
-+
  export function GeneralSettings() {
++
    const {
      currentModel,
-@@ -70,6 +87,8 @@ export function GeneralSettings() {
+     effortLevel,
+@@ -70,6 +71,8 @@ export function GeneralSettings() {
      setThinkingEnabled,
      thinkingSendBack,
      setThinkingSendBack,
@@ -121,39 +158,64 @@ index baca685b..0b3cb7b5 100644
      workflowKeywordTriggerEnabled,
      setWorkflowKeywordTriggerEnabled,
      agentTeamsEnabled,
-@@ -1100,6 +1119,36 @@ export function GeneralSettings() {
+@@ -124,6 +127,22 @@ export function GeneralSettings() {
+   const activeSessionId = useSessionStore((s) => s.activeSessionId)
+   const sessions = useSessionStore((s) => s.sessions)
+   const t = useTranslation()
++  const COMPACTION_BACKEND_ITEMS: Array<{
++    value: 'algorithm' | 'llm'
++    label: string
++    description: string
++  }> = [
++    {
++      value: 'algorithm',
++      label: t('settings.general.compactionBackend.algorithm.label'),
++      description: t('settings.general.compactionBackend.algorithm.description'),
++    },
++    {
++      value: 'llm',
++      label: t('settings.general.compactionBackend.llm.label'),
++      description: t('settings.general.compactionBackend.llm.description'),
++    },
++  ]
+   const [webSearchDraft, setWebSearchDraft] = useState(webSearch)
+   const [networkDraft, setNetworkDraft] = useState(network)
+   const [networkTimeoutInput, setNetworkTimeoutInput] = useState(String(Math.round(network.aiRequestTimeoutMs / 1000)))
+@@ -1100,6 +1119,38 @@ export function GeneralSettings() {
          )}
        </div>
  
-+      {/* Context compaction */}
-+      <h2 className="text-[16.5px] font-semibold leading-tight text-[var(--color-text-primary)] mb-1" style={{ fontFamily: 'var(--font-headline)' }}>{t('settings.general.compactionTitle')}</h2>
-+      <p className="text-sm text-[var(--color-text-tertiary)] mb-3">{t('settings.general.compactionDescription')}</p>
-+      <Dropdown<'algorithm' | 'llm'>
-+        items={COMPACTION_BACKEND_ITEMS}
-+        value={vccCompactBackend}
-+        onChange={(value) => void setVccCompactBackend(value)}
-+        width="100%"
-+        maxHeight={240}
-+        className="mb-8 block w-full"
-+        trigger={
-+          <Button
-+            variant="secondary"
-+            size="md"
-+            block
-+            className="h-10 gap-3"
-+            aria-label={t('settings.general.compactionTitle')}
-+          >
-+            <span className="min-w-0 flex-1 truncate text-left">
-+              {t(
-+                vccCompactBackend === 'llm'
-+                  ? 'settings.general.compactionBackend.llm.label'
-+                  : 'settings.general.compactionBackend.algorithm.label',
-+              )}
-+            </span>
-+            <span className="material-symbols-outlined flex-shrink-0 text-[18px] text-[var(--color-text-secondary)]">expand_more</span>
-+          </Button>
-+        }
-+      />
++      <div className="mt-8">
++        {/* Context compaction */}
++        <h2 className="text-[16.5px] font-semibold leading-tight text-[var(--color-text-primary)] mb-1" style={{ fontFamily: 'var(--font-headline)' }}>{t('settings.general.compactionTitle')}</h2>
++        <p className="text-sm text-[var(--color-text-tertiary)] mb-3">{t('settings.general.compactionDescription')}</p>
++        <Dropdown<'algorithm' | 'llm'>
++          items={COMPACTION_BACKEND_ITEMS}
++          value={vccCompactBackend}
++          onChange={(value) => void setVccCompactBackend(value)}
++          width="100%"
++          maxHeight={240}
++          className="block w-full"
++          trigger={
++            <Button
++              variant="secondary"
++              size="md"
++              block
++              className="h-10 gap-3"
++              aria-label={t('settings.general.compactionTitle')}
++            >
++              <span className="min-w-0 flex-1 truncate text-left">
++                {t(
++                  vccCompactBackend === 'llm'
++                    ? 'settings.general.compactionBackend.llm.label'
++                    : 'settings.general.compactionBackend.algorithm.label',
++                )}
++              </span>
++              <span className="material-symbols-outlined flex-shrink-0 text-[18px] text-[var(--color-text-secondary)]">expand_more</span>
++            </Button>
++          }
++        />
++      </div>
 +
        {/*
          Only the editors we detect, never every installed application: the menu

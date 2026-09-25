@@ -662,10 +662,16 @@ CLAUDE_H5_DIST_DIR=/home/zeaxion/myproject/cchaha-06scode/desktop/dist \
 - **全量零回归**：前端 `desktop vitest` **12300 pass / 12 skip / 0 fail**；server `bun test` .ts 全量 2871 pass / 1 fail——该 1 条为 `cron-scheduler-launcher`（proxy 固定端口 3456 漂移 flaky，单文件复跑 12/0 通过；VCC 未触碰 cron/proxy）。全量 `bun test src/server`（含 .js 孪生 6792 用例）9 条失败全在 VCC 未触碰的 proxy/端口竞态族（`h5-access-auth` 单文件 53/0、`cron-scheduler-launcher` 单文件 12/0 均通过）。
 - **15 链全验证**（`git worktree add --detach /tmp 2f8d819d` + 软链 node_modules，按序 `git apply` 全部 15 patch：14 既有 + `vcc-compactor`）：全干净；apply 后 57 个 VCC 文件逐字节=工作树（diff 全空，0 差异）。
 
-**patch**：`modify/patches/vcc-compactor.patch`（57 文件 5946 行，链位 15，基线 2004cd16）。
+**patch**：`modify/patches/vcc-compactor.patch`（原 57 文件 5946 行；2026-09-26 子优化后重生成 **58 文件 6008 行**，链位 15，基线 2004cd16）。
+
+### 子优化（2026-09-26）：设置页「上下文压缩」区块排版 + 下拉选项语言
+- **用户反馈（verbatim）**：「设置项中，上下文压缩 字段内容和上面的思考内容紧贴在一起，需要先换行成独立小标题，另外里面的选项还是英文，选定后收起下拉列表看到的又是中文，也需要处理一下」。
+- **根因 1（排版）**：`GeneralSettings.tsx` 的 compaction 区块（h2+描述+Dropdown）裸挂在 thinking 区块的 `</div>` 之后，没有像其他所有区块那样的 `<div className="mt-8">` 容器→与「思考」内容视觉上紧贴。
+- **根因 2（选项英文）**：`COMPACTION_BACKEND_ITEMS` 是**模块级 const**，label/description 存的是 i18n **key 字符串**；而 `Dropdown` 组件（`ui/Dropdown.tsx:271/273`）对 `item.label`/`item.description` 按**裸字符串**渲染、不做 `t()`——于是展开的选项显示原始 key（`settings.general.compactionBackend.algorithm.label` 这类英文串）；收起后的 trigger 是手工 `t()` 的→中文。两者语言不一致。
+- **修复**（2 处）：①compaction 区块包进标准 `<div className="mt-8">` 独立小节（Dropdown 自身的 `mb-8` 去重）；②`COMPACTION_BACKEND_ITEMS` 移入组件内、label/description 改为 `t(...)` 实时翻译（与同文件 `RESPONSE_LANGUAGES`/`outputStyleItems` 的 `t()` 范式一致）。i18n 键本身 5 语言早已齐备，无需加键。
+- **验证**：tsc exit 0；新增回归测试 `GeneralSettings.compaction.test.tsx`（zh locale 挂载真实 GeneralSettings→点开 compaction 下拉→断言两选项均渲染中文 label、listbox 内不出现原始 key）1/1 过；settings 族 3 文件 10/10；**全量前端 vitest 12302 pass / 12 skip / 0 fail**（=基线 12300+新增 2 条孪生用例，零回归）；**19 链全验证**：`vcc-compactor.patch` 重生成（57→58 文件，基线 2004cd16，worktree@A 态叠加法）后 fresh worktree@2f8d819d 顺序 apply 19 patch 全干净，`GeneralSettings.tsx`+测试与工作树逐字节一致（全树 diff 仅 5 个已知非章 delta：bun.lock、TerminalSettings.tsx、providerModels.ts、MessagePayloadRetention.test.tsx、preview-agent.js）。
 
 ## 十四、H5/移动端支持打开插件市场（✅ 2026-09-25）
-
 > 用户 verbatim：「还有，移动端需要能打开插件市场，这个也需要处理一下。也纳入H5访问优化内」。
 
 ### 现状核对
