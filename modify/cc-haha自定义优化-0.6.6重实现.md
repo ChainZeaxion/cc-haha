@@ -20,7 +20,7 @@
 | 功能特性 | 八 思考模式二级开关（think 是否回传后端） | 旧§二十五 | ✅ |
 | 功能特性 | 九 H5 设置页与桌面端全 tab 对齐（放开浏览器「两 pill」围栏） | —（新增） | ✅ |
 | 工程/开发 | 十 本地开发模式注意事项（sidecar 开发模式跑通记录） | — | ✅ |
-| 移动端/H5 | 十一 H5 悬浮快捷入口（任务列表 / 文件浏览 / 审查） | 旧§5.2 FAB（参考） | ⬜ |
+| 移动端/H5 | 十一 H5 悬浮快捷入口（任务列表 / 文件浏览 / 审查） | 旧§5.2 FAB（参考） | ✅ |
 | 工程/质量 | 十二 src/server 既有 22 条测试失败清零 | —（新增） | ✅ |
 ## 📦 联动 Patches
 
@@ -49,7 +49,7 @@
 | `patches/h5-settings-parity.patch` | 九 H5 设置全 tab 对齐 | 2f8d819d (v0.6.6) | ✅ |
 | `patches/h5-settings-whitelist.patch` | 九 H5 设置项 400/403 修复（9.x，remoteBrowser 白名单） | 6d4fd126 | ✅ |
 | `patches/server-test-baseline-zeroing.patch` | 十二 src/server 既有 22 条测试失败清零 | 6d4fd126 | ✅ |
-| `patches/h5-mobile-quick-actions.patch` | 十一 H5 悬浮快捷入口（任务/文件/审查） | — | ⬜ |
+| `patches/h5-mobile-quick-actions.patch` | 十一 H5 悬浮快捷入口（任务/文件/审查） | 447d03a7 | ✅ |
 
 ### 移植通用注意事项- stale `.js` 孪生：改 `src/*.ts` 走 sidecar 打包路径时，须核对被改文件同名 `.js` 是否存在且同步（旧树 `.js` 优先加载坑）。
 - 0.6.6 已有对应能力需**融合**而非整块覆盖（如 H5 安全配对、缓存 token 显示、rewind 等），各章落地前先核对现状。
@@ -534,7 +534,7 @@ CLAUDE_H5_DIST_DIR=/home/zeaxion/myproject/cchaha-06scode/desktop/dist \
 
 ---
 
-## 十一、H5 悬浮快捷入口（任务列表 / 文件浏览 / 审查）（源参考：旧§5.2 移动端 FAB，⬜ 待实施）
+## 十一、H5 悬浮快捷入口（任务列表 / 文件浏览 / 审查）（源参考：旧§5.2 移动端 FAB，✅ 2026-09-27）
 
 **需求**：移动端（H5 手机浏览器）会话页右上角缺少桌面端的任务列表 / 文件浏览 / 审查入口（0.6.6 现状：`AppShell.tsx:406` 移动端不渲染 TabBar；三面板均硬编码 `!isMobileLayout` 禁用）。需为移动端提供悬浮（FAB）快捷入口，点击展开菜单打开对应面板，面板以全屏 overlay 呈现。
 
@@ -545,13 +545,24 @@ CLAUDE_H5_DIST_DIR=/home/zeaxion/myproject/cchaha-06scode/desktop/dist \
 
 **与旧版的差异（本次范围）**：
 - 入口 3 项 = **任务列表 / 文件浏览 / 审查**（旧版是 任务列表/终端/文件浏览；终端已有独立设置 tab 入口 + H5 终端桥接，本次以「审查」替代——审查 = 文件浏览面板的 review tab，`workspaceReviewStore`，i18n `workspace.reviewTabTitle`「审查」）。
-- 0.6.6 组件名/结构待调研确认（旧版基于 2026-08 fork，0.6.6 可能已重构：ChatInput 容器、store 名、panel 组件均须以 0.6.6 实际代码为准）。
 
-**待办**：
-- [ ] 调研 0.6.6 现状（面板 store/组件、移动端布局判定、ActiveSession 结构）
-- [ ] 实施 MobileQuickActions + 面板全屏 overlay
-- [ ] i18n 5 语言
-- [ ] 验证 + patch `h5-mobile-quick-actions.patch`
+## ✅ 实施（2026-09-27，patch `h5-mobile-quick-actions.patch`，9 文件 432 行）
+
+**0.6.6 现状核对（调研结论）**：
+- 任务列表已有移动端 overlay 先例：`ActiveSession.tsx:971-983` 在 `isMobileLayout` 下渲染 `SessionActivityPanel placement="overlay"`（需 `hasVisibleActivity` 才出现）；FAB 回调只需 `activityPanelStore.open(activeTabId)`（即 `openActivityPanel`）。
+- 文件/审查无独立面板 store——0.6.6 已并入 `useWorkspaceStore`：`openTarget(sessionId, target)`（`kind:'file' path:''` = 文件树+空 pane，`kind:'review'` = review tab）；封装 `openWorkspaceTarget(request)`（`lib/workspace/openTarget.ts:26`）。**移动端硬禁**在 `ActiveSession.tsx:373-375` `workspaceEnabled = ... && !isMobileLayout`（side dock 因此不渲染）→ 本章新设计点=移动端用全屏 overlay 呈现 workspace。
+- FAB 锚点：0.6.6 `ActiveSession.tsx` 渲染处是裸 `<ChatInput/>`，无旧 fork 的 `<div className="relative">` 包裹 → 本次恢复该 relative 包裹，FAB `absolute -top-[14px] right-2.5` 半重叠挂输入框右上。
+- overlay 先例：`MobileBottomSheet.tsx`（createPortal + `--z-sheet` backdrop）+ `SessionActivityPanel placement='overlay'`。
+
+**实现**：
+1. **`desktop/src/components/chat/MobileQuickActions.tsx`（新增，移植旧 fork 模式）**：props `{onOpenTasks, onOpenFiles, onOpenReview}`；`useState` open + `containerRef`；`useDismissable({open, refs:[containerRef], onDismiss:()=>setOpen(false), stopEscapePropagation:true})`（点外部/Esc 收起）；`run(action)`=先 `setOpen(false)` 再执行 action（点项立即收起菜单）；3 胶囊按钮 icons `assignment`/`folder`/`rate_review`（16px）+ i18n `chat.openTasks/openFiles/openReview`；FAB `h-[39px] w-[39px] rounded-full`、`bolt` 23px、open 时 `rotate-45`、`aria-label`/`aria-expanded`（`chat.quickActions`）；容器 `pointer-events-none absolute -top-[14px] right-2.5 z-[var(--z-dropdown)]`，`data-testid="mobile-quick-actions"`。
+2. **`desktop/src/pages/ActiveSession.tsx`**：① 新增 import（`openWorkspaceTarget`/`MobileQuickActions`/`IconButton`）；② `workspaceIsGitRepo` 后加移动端状态——`memberInfo`/`isMemberSession`（复用 composer 门控：`useTeamStore.getMemberBySessionId` 或 `activeTabType==='subagent'`）、**本地 `mobileWorkspaceOpen` useState**（而非派生 store layout——后台 `openTarget` 不得弹 overlay，仅 FAB 显式点按才弹）、`mobileLayout` selector、派生 `mobileWorkspaceVisible`（`isMobileLayout && !isMemberSession && activeTabId && isSessionTabState && mobileWorkspaceOpen && layout!=='hidden'`）、`useEffect` 随 `activeTabId` 变化重置、`handleMobileOpenWorkspace`（`openWorkspaceTarget` + `preview:true`（file）+ `setOpen true`）、`handleMobileCloseWorkspace`（`setOpen false` + `setLayout hidden`）；③ JSX 加移动端全屏 overlay（`fixed inset-0 z-[var(--z-sheet)]`，顶栏 `workspace.panelLabel` + `IconButton close` `data-testid="mobile-workspace-close"`，内容 `WorkspaceSurface dock="side"`，`reviewUnavailableReason` 依 `workspaceIsGitRepo===false`）+ 恢复 `<div className="relative">` 包裹 `ChatInput` 并挂 `MobileQuickActions`（门控 `isMobileLayout && !mobileWorkspaceVisible && activeTabId && !isMemberSession && isSessionTabState`）。
+3. **i18n 5 语言**（`en/zh/zh-TW/jp/kr.ts`，插 `chat.refreshSession` 后）：`chat.quickActions`（Quick actions/快捷功能/快捷功能/クイック操作/빠른 작업）、`chat.openTasks`（Tasks/任务列表/任務列表/タスク一覧/작업 목록）、`chat.openFiles`（Files/文件浏览/檔案瀏覽/ファイル閲覧/파일 탐색）、`chat.openReview`（Review/审查/審查/レビュー/검토）。
+
+**验证**：
+- 单测：新增 `MobileQuickActions.test.tsx` 3 用例（默认折叠无 3 项 / 点 FAB 展开 3 项+`aria-expanded` / 点 Files 触发 `onOpenFiles` 一次其余零次+折叠）；`ActiveSession.test.tsx` 既有移动测试补「后台 openTarget 不弹 overlay 但 FAB 在」+ 新用例「点 Files 打开全屏 overlay（`workspace-surface-side` 在、`workbench-panel` 不在）→ 关闭后 overlay 卸载且 `layout==='hidden'`」。
+- `tsc -b` exit 0；受影响 `MobileQuickActions`+`ActiveSession`+`AppShell` 58/58；**全量前端 vitest 6150 pass / 0 fail / 6 skipped**（基线 6146，+4 新用例，零回归）；`vite build` App-DMDs5MZr.js。
+- **live 7788 iPhone 14（390×844 @3x）全验证**：FAB「快捷功能」展开 3 项（任务列表/文件浏览/审查）；点「文件浏览」→ overlay 全屏 `0,0,390×844` 完美覆盖 + 文件树正常渲染（项目文件列表+内容面板+底部标签条）；点「审查」→ overlay 正确渲染 review tab（比较范围/未暂存/还原全部/暂存全部 + 文件 diff 列表）；点关闭 → overlay 卸载、正常回到会话页、FAB 复现。
 
 ---
 

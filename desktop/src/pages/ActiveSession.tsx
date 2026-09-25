@@ -22,10 +22,14 @@ import {
   useWorkspaceStore,
 } from '../stores/workspaceStore'
 import { useWorkspaceContentStore } from '../stores/workspaceContentStore'
+import { openWorkspaceTarget } from '../lib/workspace/openTarget'
 import { useTranslation } from '../i18n'
 import { Button } from '@/components/ui/Button'
 import { TpsIndicator } from '../components/chat/TpsIndicator'
 import { SessionCostBadge } from '../components/chat/SessionCostBadge'
+import { MobileQuickActions } from '../components/chat/MobileQuickActions'
+import { IconButton } from '@/components/ui/IconButton'
+
 import { LoadingState } from '@/components/ui/LoadingState'
 import { Tooltip } from '@/components/ui/Tooltip'
 import { BrandSeal } from '@/components/composite/BrandSeal'
@@ -395,6 +399,44 @@ export function ActiveSession() {
   const workspaceIsGitRepo = useWorkspaceContentStore((state) =>
     activeTabId ? state.statusBySession[activeTabId]?.isGitRepo : undefined,
   )
+  // Mobile quick actions need a member-session check (subagent/team tabs have
+  // their own entry points). Mirror the composer's own gate.
+  const memberInfo = useTeamStore((s) => activeTabId ? s.getMemberBySessionId(activeTabId) : null)
+  const isMemberSession = Boolean(memberInfo) || activeTabType === 'subagent'
+  // The side dock is hard-disabled on mobile by `workspaceEnabled` above, so
+  // files / review opened from the quick actions render a full-screen overlay.
+  // "Overlay open" is local state (not derived from the store layout): a
+  // background open from chat must not pop the panel over the composer, only an
+  // explicit quick-action tap should. The layout itself is the authoritative
+  // "is there something to show" signal, so the overlay stays in sync with it.
+  const [mobileWorkspaceOpen, setMobileWorkspaceOpen] = useState(false)
+  const mobileLayout = useWorkspaceStore((state) =>
+    isMobileLayout && activeTabId ? state.bySession[activeTabId]?.layout ?? 'hidden' : 'hidden',
+  )
+  const mobileWorkspaceVisible = isMobileLayout &&
+    !isMemberSession &&
+    Boolean(activeTabId) &&
+    isSessionTabState(activeTabId, activeTabType) &&
+    mobileWorkspaceOpen &&
+    mobileLayout !== 'hidden'
+  // Reset the flag when the active task changes so the next task starts closed.
+  useEffect(() => { setMobileWorkspaceOpen(false) }, [activeTabId])
+  // `path: ''` is the launcher form: it opens the file tree with an empty
+  // content pane, exactly like the workspace launcher's "Files" entry, and the
+  // preview flag keeps it replaceable by a real file pick.
+  const handleMobileOpenWorkspace = useCallback((target: { kind: 'file'; path: string } | { kind: 'review' }) => {
+    if (!activeTabId) return
+    openWorkspaceTarget({
+      sessionId: activeTabId,
+      target,
+      ...(target.kind === 'file' ? { preview: true } : {}),
+    })
+    setMobileWorkspaceOpen(true)
+  }, [activeTabId])
+  const handleMobileCloseWorkspace = useCallback(() => {
+    setMobileWorkspaceOpen(false)
+    if (activeTabId) useWorkspaceStore.getState().setLayout(activeTabId, 'hidden')
+  }, [activeTabId])
   const activityVisibilityBySessionRef = useRef<Record<string, { hadAutoOpenActivity: boolean }>>({})
 
   useEffect(() => {
@@ -940,10 +982,54 @@ export function ActiveSession() {
             />
           ) : null}
 
-          <ChatInput
-            variant={isEmpty && !showRightPanel ? 'hero' : 'default'}
-            compact={showRightPanel}
-          />
+          {/*
+            Mobile workspace overlay: the side dock is disabled on mobile, so
+            files / review opened from the quick actions render full-screen
+            here. `--z-sheet` (65) sits above the activity overlay's scrim (40)
+            and the FAB row's dropdown (70) below the mobile header.
+          */}
+          {mobileWorkspaceVisible && isMobileLayout && activeTabId ? (
+            <div
+              data-testid="mobile-workspace-overlay"
+              className="fixed inset-0 z-[var(--z-sheet)] flex flex-col bg-[var(--color-surface)]"
+            >
+              <div className="flex shrink-0 items-center justify-between border-b border-[var(--color-border)] px-2 py-1.5">
+                <span className="text-[13px] font-semibold text-[var(--color-text-primary)]">
+                  {t('workspace.panelLabel')}
+                </span>
+                <IconButton
+                  data-testid="mobile-workspace-close"
+                  icon="close"
+                  label={t('common.close')}
+                  onClick={handleMobileCloseWorkspace}
+                  size="2xl"
+                />
+              </div>
+              <div className="min-h-0 flex-1">
+                <WorkspaceSurface
+                  sessionId={activeTabId}
+                  dock="side"
+                  cwd={getSessionTerminalCwd(session) ?? ''}
+                  reviewUnavailableReason={workspaceIsGitRepo === false ? t('workspace.launcher.reviewNeedsGit') : null}
+                />
+              </div>
+            </div>
+          ) : null}
+
+          <div className="relative">
+            <ChatInput
+              variant={isEmpty && !showRightPanel ? 'hero' : 'default'}
+              compact={showRightPanel}
+            />
+            {isMobileLayout && !mobileWorkspaceVisible && activeTabId && !isMemberSession && isSessionTabState(activeTabId, activeTabType) ? (
+              <MobileQuickActions
+                onOpenTasks={() => openActivityPanel(activeTabId)}
+                onOpenFiles={() => handleMobileOpenWorkspace({ kind: 'file', path: '' })}
+                onOpenReview={() => handleMobileOpenWorkspace({ kind: 'review' })}
+              />
+            ) : null}
+          </div>
+
 
           {hasBottomTerminals && activeTabId ? (
             <div
