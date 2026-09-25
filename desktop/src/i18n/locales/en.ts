@@ -480,6 +480,7 @@ export const en = {
   'chat.refreshSession': 'Refresh session',
   'chat.quickActions': 'Quick actions',
   'chat.openTasks': 'Tasks',
+  'chat.openTerminal': 'Terminal',
   'chat.openFiles': 'Files',
   'chat.openReview': 'Review',
   'chat.tpsSpeedTitle': 'Real-time decode speed (tokens/second)',

@@ -484,6 +484,7 @@ export const kr: Record<TranslationKey, string> = {
   'chat.refreshSession': '세션 새로고침',
   'chat.quickActions': '빠른 작업',
   'chat.openTasks': '작업 목록',
+  'chat.openTerminal': '터미널',
   'chat.openFiles': '파일 탐색',
   'chat.openReview': '검토',
   'chat.tpsSpeedTitle': '실시간 디코드 속도(토큰/초)',

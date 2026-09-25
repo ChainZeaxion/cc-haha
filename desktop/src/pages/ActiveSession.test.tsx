@@ -2205,10 +2205,24 @@ describe('ActiveSession task polling', () => {
 
     fireEvent.click(fab)
     expect(screen.getByRole('button', { name: 'Files' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Terminal' })).toBeInTheDocument()
+
+    // Tapping "Terminal" opens a terminal tab in the side-dock surface.
+    fireEvent.click(screen.getByRole('button', { name: 'Terminal' }))
+    expect(screen.getByTestId('mobile-workspace-overlay')).toBeInTheDocument()
+    expect(screen.getAllByTestId(/^workspace-terminal-/).length).toBeGreaterThan(0)
+    fireEvent.click(screen.getByTestId('mobile-workspace-close'))
+    await waitFor(() => {
+      expect(screen.queryByTestId('mobile-workspace-overlay')).not.toBeInTheDocument()
+    })
+
+    // The FAB is back so the next entry can be opened the same way.
+    fireEvent.click(screen.getByRole('button', { name: 'Quick actions' }))
 
     // Tapping "Files" opens a side-dock file tab and lifts it into the
     // full-screen overlay (the side dock itself stays mobile-hidden).
     fireEvent.click(screen.getByRole('button', { name: 'Files' }))
+
     expect(screen.getByTestId('mobile-workspace-overlay')).toBeInTheDocument()
     expect(screen.getByTestId('workspace-surface-side')).toBeInTheDocument()
     expect(screen.queryByTestId('workbench-panel')).not.toBeInTheDocument()

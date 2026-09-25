@@ -1,9 +1,9 @@
 diff --git a/desktop/src/components/chat/MobileQuickActions.test.tsx b/desktop/src/components/chat/MobileQuickActions.test.tsx
 new file mode 100644
-index 00000000..8786a015
+index 00000000..5a5ce644
 --- /dev/null
 +++ b/desktop/src/components/chat/MobileQuickActions.test.tsx
-@@ -0,0 +1,44 @@
+@@ -0,0 +1,61 @@
 +import { describe, expect, it, vi } from 'vitest'
 +import { fireEvent, render, screen } from '@testing-library/react'
 +import '@testing-library/jest-dom'
@@ -14,35 +14,52 @@ index 00000000..8786a015
 +
 +import { MobileQuickActions } from './MobileQuickActions'
 +
++const noop = () => {}
++const baseProps = {
++  onOpenTasks: noop,
++  onOpenTerminal: noop,
++  onOpenFiles: noop,
++  onOpenReview: noop,
++}
++
 +describe('MobileQuickActions', () => {
 +  it('renders the collapsed FAB with no entry items by default', () => {
-+    render(<MobileQuickActions onOpenTasks={() => {}} onOpenFiles={() => {}} onOpenReview={() => {}} />)
++    render(<MobileQuickActions {...baseProps} />)
 +    const fab = screen.getByRole('button', { name: 'chat.quickActions' })
 +    expect(fab).toHaveAttribute('aria-expanded', 'false')
 +    expect(screen.queryByRole('button', { name: 'chat.openTasks' })).not.toBeInTheDocument()
++    expect(screen.queryByRole('button', { name: 'chat.openTerminal' })).not.toBeInTheDocument()
 +    expect(screen.queryByRole('button', { name: 'chat.openFiles' })).not.toBeInTheDocument()
 +    expect(screen.queryByRole('button', { name: 'chat.openReview' })).not.toBeInTheDocument()
 +  })
 +
-+  it('expands three entries when the FAB is tapped', () => {
-+    render(<MobileQuickActions onOpenTasks={() => {}} onOpenFiles={() => {}} onOpenReview={() => {}} />)
++  it('expands four entries when the FAB is tapped', () => {
++    render(<MobileQuickActions {...baseProps} />)
 +    const fab = screen.getByRole('button', { name: 'chat.quickActions' })
 +    fireEvent.click(fab)
 +    expect(fab).toHaveAttribute('aria-expanded', 'true')
 +    expect(screen.getByRole('button', { name: 'chat.openTasks' })).toBeInTheDocument()
++    expect(screen.getByRole('button', { name: 'chat.openTerminal' })).toBeInTheDocument()
 +    expect(screen.getByRole('button', { name: 'chat.openFiles' })).toBeInTheDocument()
 +    expect(screen.getByRole('button', { name: 'chat.openReview' })).toBeInTheDocument()
 +  })
 +
 +  it('fires the matching action and collapses when an entry is tapped', () => {
 +    const onOpenTasks = vi.fn()
++    const onOpenTerminal = vi.fn()
 +    const onOpenFiles = vi.fn()
 +    const onOpenReview = vi.fn()
-+    render(<MobileQuickActions onOpenTasks={onOpenTasks} onOpenFiles={onOpenFiles} onOpenReview={onOpenReview} />)
++    render(<MobileQuickActions
++      onOpenTasks={onOpenTasks}
++      onOpenTerminal={onOpenTerminal}
++      onOpenFiles={onOpenFiles}
++      onOpenReview={onOpenReview}
++    />)
 +    fireEvent.click(screen.getByRole('button', { name: 'chat.quickActions' }))
 +    fireEvent.click(screen.getByRole('button', { name: 'chat.openFiles' }))
 +    expect(onOpenFiles).toHaveBeenCalledTimes(1)
 +    expect(onOpenTasks).not.toHaveBeenCalled()
++    expect(onOpenTerminal).not.toHaveBeenCalled()
 +    expect(onOpenReview).not.toHaveBeenCalled()
 +    // run() closes the row before dispatching the action.
 +    expect(screen.getByRole('button', { name: 'chat.quickActions' })).toHaveAttribute('aria-expanded', 'false')
@@ -50,30 +67,30 @@ index 00000000..8786a015
 +})
 diff --git a/desktop/src/components/chat/MobileQuickActions.tsx b/desktop/src/components/chat/MobileQuickActions.tsx
 new file mode 100644
-index 00000000..6bebe1f3
+index 00000000..289d48c8
 --- /dev/null
 +++ b/desktop/src/components/chat/MobileQuickActions.tsx
-@@ -0,0 +1,91 @@
+@@ -0,0 +1,100 @@
 +import { useCallback, useRef, useState } from 'react'
 +import { useTranslation } from '../../i18n'
 +import { useDismissable } from '@/hooks/useDismissable'
 +
 +type Props = {
 +  onOpenTasks: () => void
++  onOpenTerminal: () => void
 +  onOpenFiles: () => void
 +  onOpenReview: () => void
 +}
 +
 +/**
 + * Floating action button anchored at the top-right of the mobile composer.
-+ * Tapping it expands a horizontal row of three entries (tasks / files /
-+ * review); tapping the FAB again or outside dismisses it.
++ * Tapping it expands a horizontal row of four entries (tasks / terminal /
++ * files / review); tapping the FAB again or outside dismisses it.
 + *
-+ * Ported from the older fork's tasks/terminal/files set; terminal is replaced
-+ * by review because the H5 terminal already has its own settings entry, while
-+ * review (a git worktree comparison) has no mobile entry point otherwise.
++ * Ported from the older fork's tasks/terminal/files set, with review (a git
++ * worktree comparison) added because it has no other mobile entry point.
 + */
-+export function MobileQuickActions({ onOpenTasks, onOpenFiles, onOpenReview }: Props) {
++export function MobileQuickActions({ onOpenTasks, onOpenTerminal, onOpenFiles, onOpenReview }: Props) {
 +  const t = useTranslation()
 +  const [open, setOpen] = useState(false)
 +  const containerRef = useRef<HTMLDivElement>(null)
@@ -113,6 +130,15 @@ index 00000000..6bebe1f3
 +          <button
 +            type="button"
 +            className={itemClass}
++            onClick={() => run(onOpenTerminal)}
++            aria-label={t('chat.openTerminal')}
++          >
++            <span className="material-symbols-outlined text-[16px] text-[var(--color-text-secondary)]">terminal</span>
++            {t('chat.openTerminal')}
++          </button>
++          <button
++            type="button"
++            className={itemClass}
 +            onClick={() => run(onOpenFiles)}
 +            aria-label={t('chat.openFiles')}
 +          >
@@ -146,85 +172,90 @@ index 00000000..6bebe1f3
 +}
 +
 diff --git a/desktop/src/i18n/locales/en.ts b/desktop/src/i18n/locales/en.ts
-index 7e81623d..e4d0018a 100644
+index 7e81623d..70e63d6d 100644
 --- a/desktop/src/i18n/locales/en.ts
 +++ b/desktop/src/i18n/locales/en.ts
-@@ -478,6 +478,10 @@ export const en = {
+@@ -478,6 +478,11 @@ export const en = {
    'chat.capabilities.managePlugins': 'Manage plugins',
    'chat.capabilities.moreTools': 'More tools',
    'chat.refreshSession': 'Refresh session',
 +  'chat.quickActions': 'Quick actions',
 +  'chat.openTasks': 'Tasks',
++  'chat.openTerminal': 'Terminal',
 +  'chat.openFiles': 'Files',
 +  'chat.openReview': 'Review',
    'chat.tpsSpeedTitle': 'Real-time decode speed (tokens/second)',
    'chat.downloadableFiles': 'Downloadable files',
    'chat.downloadableMore': 'Show {count} more',
 diff --git a/desktop/src/i18n/locales/jp.ts b/desktop/src/i18n/locales/jp.ts
-index 72914015..ed4bceea 100644
+index 72914015..7fdb8d07 100644
 --- a/desktop/src/i18n/locales/jp.ts
 +++ b/desktop/src/i18n/locales/jp.ts
-@@ -480,6 +480,10 @@ export const jp: Record<TranslationKey, string> = {
+@@ -480,6 +480,11 @@ export const jp: Record<TranslationKey, string> = {
    'chat.capabilities.managePlugins': 'プラグインを管理',
    'chat.capabilities.moreTools': 'その他のツール',
    'chat.refreshSession': 'セッションを更新',
 +  'chat.quickActions': 'クイック操作',
 +  'chat.openTasks': 'タスク一覧',
++  'chat.openTerminal': 'ターミナル',
 +  'chat.openFiles': 'ファイル閲覧',
 +  'chat.openReview': 'レビュー',
    'chat.tpsSpeedTitle': 'リアルタイムデコード速度（トークン/秒）',
    'chat.downloadableFiles': 'ダウンロード可能なファイル',
    'chat.downloadableMore': 'さらに {count} 件表示',
 diff --git a/desktop/src/i18n/locales/kr.ts b/desktop/src/i18n/locales/kr.ts
-index 4aa9540e..a6c0dae9 100644
+index 4aa9540e..e5ca246b 100644
 --- a/desktop/src/i18n/locales/kr.ts
 +++ b/desktop/src/i18n/locales/kr.ts
-@@ -482,6 +482,10 @@ export const kr: Record<TranslationKey, string> = {
+@@ -482,6 +482,11 @@ export const kr: Record<TranslationKey, string> = {
    'chat.capabilities.managePlugins': '플러그인 관리',
    'chat.capabilities.moreTools': '더 많은 도구',
    'chat.refreshSession': '세션 새로고침',
 +  'chat.quickActions': '빠른 작업',
 +  'chat.openTasks': '작업 목록',
++  'chat.openTerminal': '터미널',
 +  'chat.openFiles': '파일 탐색',
 +  'chat.openReview': '검토',
    'chat.tpsSpeedTitle': '실시간 디코드 속도(토큰/초)',
    'chat.downloadableFiles': '다운로드 가능한 파일',
    'chat.downloadableMore': '더 {count}개 보기',
 diff --git a/desktop/src/i18n/locales/zh-TW.ts b/desktop/src/i18n/locales/zh-TW.ts
-index e8fc335c..ed41c50b 100644
+index e8fc335c..78b6d22f 100644
 --- a/desktop/src/i18n/locales/zh-TW.ts
 +++ b/desktop/src/i18n/locales/zh-TW.ts
-@@ -480,6 +480,10 @@ export const zh: Record<TranslationKey, string> = {
+@@ -480,6 +480,11 @@ export const zh: Record<TranslationKey, string> = {
    'chat.capabilities.managePlugins': '管理外掛',
    'chat.capabilities.moreTools': '更多工具',
    'chat.refreshSession': '重新整理對話',
 +  'chat.quickActions': '快捷功能',
 +  'chat.openTasks': '任務列表',
++  'chat.openTerminal': '終端',
 +  'chat.openFiles': '檔案瀏覽',
 +  'chat.openReview': '審查',
    'chat.tpsSpeedTitle': '即時解碼速度（token/秒）',
    'chat.downloadableFiles': '可下載檔案',
    'chat.downloadableMore': '查看更多 ({count})',
 diff --git a/desktop/src/i18n/locales/zh.ts b/desktop/src/i18n/locales/zh.ts
-index 9f242b18..f3125efa 100644
+index 9f242b18..0c6cbf84 100644
 --- a/desktop/src/i18n/locales/zh.ts
 +++ b/desktop/src/i18n/locales/zh.ts
-@@ -479,6 +479,10 @@ export const zh: Record<TranslationKey, string> = {
+@@ -479,6 +479,11 @@ export const zh: Record<TranslationKey, string> = {
    'chat.capabilities.managePlugins': '管理插件',
    'chat.capabilities.moreTools': '更多工具',
    'chat.refreshSession': '刷新会话',
 +  'chat.quickActions': '快捷功能',
 +  'chat.openTasks': '任务列表',
++  'chat.openTerminal': '终端',
 +  'chat.openFiles': '文件浏览',
 +  'chat.openReview': '审查',
    'chat.tpsSpeedTitle': '实时解码速度（token/秒）',
    'chat.downloadableFiles': '可下载文件',
    'chat.downloadableMore': '查看更多 ({count})',
 diff --git a/desktop/src/pages/ActiveSession.test.tsx b/desktop/src/pages/ActiveSession.test.tsx
-index 4351378b..f4a9b727 100644
+index 4351378b..ac3e1df9 100644
 --- a/desktop/src/pages/ActiveSession.test.tsx
 +++ b/desktop/src/pages/ActiveSession.test.tsx
-@@ -2143,6 +2143,82 @@ describe('ActiveSession task polling', () => {
+@@ -2143,6 +2143,96 @@ describe('ActiveSession task polling', () => {
      expect(screen.queryByTestId('workspace-resize-handle')).not.toBeInTheDocument()
      expect(screen.queryByTestId('session-terminal-panel')).not.toBeInTheDocument()
      expect(screen.queryByTestId('terminal-resize-handle')).not.toBeInTheDocument()
@@ -290,10 +321,24 @@ index 4351378b..f4a9b727 100644
 +
 +    fireEvent.click(fab)
 +    expect(screen.getByRole('button', { name: 'Files' })).toBeInTheDocument()
++    expect(screen.getByRole('button', { name: 'Terminal' })).toBeInTheDocument()
++
++    // Tapping "Terminal" opens a terminal tab in the side-dock surface.
++    fireEvent.click(screen.getByRole('button', { name: 'Terminal' }))
++    expect(screen.getByTestId('mobile-workspace-overlay')).toBeInTheDocument()
++    expect(screen.getAllByTestId(/^workspace-terminal-/).length).toBeGreaterThan(0)
++    fireEvent.click(screen.getByTestId('mobile-workspace-close'))
++    await waitFor(() => {
++      expect(screen.queryByTestId('mobile-workspace-overlay')).not.toBeInTheDocument()
++    })
++
++    // The FAB is back so the next entry can be opened the same way.
++    fireEvent.click(screen.getByRole('button', { name: 'Quick actions' }))
 +
 +    // Tapping "Files" opens a side-dock file tab and lifts it into the
 +    // full-screen overlay (the side dock itself stays mobile-hidden).
 +    fireEvent.click(screen.getByRole('button', { name: 'Files' }))
++
 +    expect(screen.getByTestId('mobile-workspace-overlay')).toBeInTheDocument()
 +    expect(screen.getByTestId('workspace-surface-side')).toBeInTheDocument()
 +    expect(screen.queryByTestId('workbench-panel')).not.toBeInTheDocument()
@@ -308,7 +353,7 @@ index 4351378b..f4a9b727 100644
  
    it('renders a bottom terminal panel in the current session cwd and can promote it to a tab', async () => {
 diff --git a/desktop/src/pages/ActiveSession.tsx b/desktop/src/pages/ActiveSession.tsx
-index e9c78203..8e102a91 100644
+index e9c78203..31cbcdcf 100644
 --- a/desktop/src/pages/ActiveSession.tsx
 +++ b/desktop/src/pages/ActiveSession.tsx
 @@ -22,10 +22,14 @@ import {
@@ -326,7 +371,7 @@ index e9c78203..8e102a91 100644
  import { LoadingState } from '@/components/ui/LoadingState'
  import { Tooltip } from '@/components/ui/Tooltip'
  import { BrandSeal } from '@/components/composite/BrandSeal'
-@@ -395,6 +399,44 @@ export function ActiveSession() {
+@@ -395,6 +399,47 @@ export function ActiveSession() {
    const workspaceIsGitRepo = useWorkspaceContentStore((state) =>
      activeTabId ? state.statusBySession[activeTabId]?.isGitRepo : undefined,
    )
@@ -354,16 +399,19 @@ index e9c78203..8e102a91 100644
 +  useEffect(() => { setMobileWorkspaceOpen(false) }, [activeTabId])
 +  // `path: ''` is the launcher form: it opens the file tree with an empty
 +  // content pane, exactly like the workspace launcher's "Files" entry, and the
-+  // preview flag keeps it replaceable by a real file pick.
-+  const handleMobileOpenWorkspace = useCallback((target: { kind: 'file'; path: string } | { kind: 'review' }) => {
++  // preview flag keeps it replaceable by a real file pick. A terminal opens in
++  // the side dock (the overlay renders the same side-dock surface).
++  const handleMobileOpenWorkspace = useCallback((target: { kind: 'file'; path: string } | { kind: 'terminal' } | { kind: 'review' }) => {
 +    if (!activeTabId) return
 +    openWorkspaceTarget({
 +      sessionId: activeTabId,
-+      target,
++      target: target.kind === 'terminal'
++        ? { kind: 'terminal', cwd: getSessionTerminalCwd(session) ?? '', dock: 'side' }
++        : target,
 +      ...(target.kind === 'file' ? { preview: true } : {}),
 +    })
 +    setMobileWorkspaceOpen(true)
-+  }, [activeTabId])
++  }, [activeTabId, session])
 +  const handleMobileCloseWorkspace = useCallback(() => {
 +    setMobileWorkspaceOpen(false)
 +    if (activeTabId) useWorkspaceStore.getState().setLayout(activeTabId, 'hidden')
@@ -371,7 +419,7 @@ index e9c78203..8e102a91 100644
    const activityVisibilityBySessionRef = useRef<Record<string, { hadAutoOpenActivity: boolean }>>({})
  
    useEffect(() => {
-@@ -940,10 +982,54 @@ export function ActiveSession() {
+@@ -940,10 +985,55 @@ export function ActiveSession() {
              />
            ) : null}
  
@@ -421,6 +469,7 @@ index e9c78203..8e102a91 100644
 +            {isMobileLayout && !mobileWorkspaceVisible && activeTabId && !isMemberSession && isSessionTabState(activeTabId, activeTabType) ? (
 +              <MobileQuickActions
 +                onOpenTasks={() => openActivityPanel(activeTabId)}
++                onOpenTerminal={() => handleMobileOpenWorkspace({ kind: 'terminal' })}
 +                onOpenFiles={() => handleMobileOpenWorkspace({ kind: 'file', path: '' })}
 +                onOpenReview={() => handleMobileOpenWorkspace({ kind: 'review' })}
 +              />

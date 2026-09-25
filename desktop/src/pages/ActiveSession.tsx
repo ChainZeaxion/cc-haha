@@ -423,16 +423,19 @@ export function ActiveSession() {
   useEffect(() => { setMobileWorkspaceOpen(false) }, [activeTabId])
   // `path: ''` is the launcher form: it opens the file tree with an empty
   // content pane, exactly like the workspace launcher's "Files" entry, and the
-  // preview flag keeps it replaceable by a real file pick.
-  const handleMobileOpenWorkspace = useCallback((target: { kind: 'file'; path: string } | { kind: 'review' }) => {
+  // preview flag keeps it replaceable by a real file pick. A terminal opens in
+  // the side dock (the overlay renders the same side-dock surface).
+  const handleMobileOpenWorkspace = useCallback((target: { kind: 'file'; path: string } | { kind: 'terminal' } | { kind: 'review' }) => {
     if (!activeTabId) return
     openWorkspaceTarget({
       sessionId: activeTabId,
-      target,
+      target: target.kind === 'terminal'
+        ? { kind: 'terminal', cwd: getSessionTerminalCwd(session) ?? '', dock: 'side' }
+        : target,
       ...(target.kind === 'file' ? { preview: true } : {}),
     })
     setMobileWorkspaceOpen(true)
-  }, [activeTabId])
+  }, [activeTabId, session])
   const handleMobileCloseWorkspace = useCallback(() => {
     setMobileWorkspaceOpen(false)
     if (activeTabId) useWorkspaceStore.getState().setLayout(activeTabId, 'hidden')
@@ -1024,6 +1027,7 @@ export function ActiveSession() {
             {isMobileLayout && !mobileWorkspaceVisible && activeTabId && !isMemberSession && isSessionTabState(activeTabId, activeTabType) ? (
               <MobileQuickActions
                 onOpenTasks={() => openActivityPanel(activeTabId)}
+                onOpenTerminal={() => handleMobileOpenWorkspace({ kind: 'terminal' })}
                 onOpenFiles={() => handleMobileOpenWorkspace({ kind: 'file', path: '' })}
                 onOpenReview={() => handleMobileOpenWorkspace({ kind: 'review' })}
               />

@@ -482,6 +482,7 @@ export const zh: Record<TranslationKey, string> = {
   'chat.refreshSession': '重新整理對話',
   'chat.quickActions': '快捷功能',
   'chat.openTasks': '任務列表',
+  'chat.openTerminal': '終端',
   'chat.openFiles': '檔案瀏覽',
   'chat.openReview': '審查',
   'chat.tpsSpeedTitle': '即時解碼速度（token/秒）',

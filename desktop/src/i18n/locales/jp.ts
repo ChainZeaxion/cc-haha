@@ -482,6 +482,7 @@ export const jp: Record<TranslationKey, string> = {
   'chat.refreshSession': 'セッションを更新',
   'chat.quickActions': 'クイック操作',
   'chat.openTasks': 'タスク一覧',
+  'chat.openTerminal': 'ターミナル',
   'chat.openFiles': 'ファイル閲覧',
   'chat.openReview': 'レビュー',
   'chat.tpsSpeedTitle': 'リアルタイムデコード速度（トークン/秒）',

@@ -4,20 +4,20 @@ import { useDismissable } from '@/hooks/useDismissable'
 
 type Props = {
   onOpenTasks: () => void
+  onOpenTerminal: () => void
   onOpenFiles: () => void
   onOpenReview: () => void
 }
 
 /**
  * Floating action button anchored at the top-right of the mobile composer.
- * Tapping it expands a horizontal row of three entries (tasks / files /
- * review); tapping the FAB again or outside dismisses it.
+ * Tapping it expands a horizontal row of four entries (tasks / terminal /
+ * files / review); tapping the FAB again or outside dismisses it.
  *
- * Ported from the older fork's tasks/terminal/files set; terminal is replaced
- * by review because the H5 terminal already has its own settings entry, while
- * review (a git worktree comparison) has no mobile entry point otherwise.
+ * Ported from the older fork's tasks/terminal/files set, with review (a git
+ * worktree comparison) added because it has no other mobile entry point.
  */
-export function MobileQuickActions({ onOpenTasks, onOpenFiles, onOpenReview }: Props) {
+export function MobileQuickActions({ onOpenTasks, onOpenTerminal, onOpenFiles, onOpenReview }: Props) {
   const t = useTranslation()
   const [open, setOpen] = useState(false)
   const containerRef = useRef<HTMLDivElement>(null)
@@ -53,6 +53,15 @@ export function MobileQuickActions({ onOpenTasks, onOpenFiles, onOpenReview }: P
           >
             <span className="material-symbols-outlined text-[16px] text-[var(--color-text-secondary)]">assignment</span>
             {t('chat.openTasks')}
+          </button>
+          <button
+            type="button"
+            className={itemClass}
+            onClick={() => run(onOpenTerminal)}
+            aria-label={t('chat.openTerminal')}
+          >
+            <span className="material-symbols-outlined text-[16px] text-[var(--color-text-secondary)]">terminal</span>
+            {t('chat.openTerminal')}
           </button>
           <button
             type="button"
