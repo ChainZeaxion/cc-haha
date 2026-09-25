@@ -27,6 +27,7 @@
 | 移动端/H5 | 十五 H5/移动端支持打开计划任务（定时任务）页 | —（新增） | ✅ |
 | 连接器/平台 | 十六 连接器目录 Linux 平台支持（x64/arm64，服务端 H5 场景生效） | —（新增） | ✅ |
 | 移动端/H5 | 十七 H5/移动端 技能市场页 header 布局适配（副标题不再折多行） | —（新增） | ✅ |
+| 平台/功能 | 十八 Computer Use 解锁 Linux（X11）平台 | —（新增） | ⬜ |
 ## 📦 联动 Patches
 
 > 各优化项的实施 diff 以 patch 文件形式统一存放到本 `modify/` 目录（后期全部归档于此），与上文章节联动：每完成一项，patch 入库并在此登记；升级/重打基座时按本表逐个 `git apply` 重放。
@@ -58,6 +59,9 @@
 | `patches/vcc-compactor.patch` | 十三 pi-vcc 算法压缩移植 + 双后端热切换 + vcc_recall | 2004cd16 | ✅ |
 | `patches/h5-mobile-market.patch` | 十四 H5/移动端支持打开插件市场 | 10d7d52a | ✅ |
 | `patches/h5-mobile-scheduled.patch` | 十五 H5/移动端支持打开计划任务（定时任务）页 | cc88daa5 | ✅ |
+| `patches/h5-mobile-market-layout.patch` | 十七 H5/移动端 技能市场页 header 布局适配 | 48769016 | ✅ |
+| `patches/connector-linux-platform.patch` | 十六 连接器目录 Linux 平台支持 | 861bbb87 | ✅ |
+| `patches/computer-use-linux-x11.patch` | 十八 Computer Use 解锁 Linux（X11） | 待实施 | ⬜ |
 | `patches/connector-linux-platform.patch` | 十六 连接器目录 Linux 平台支持（x64/arm64） | cc88daa5 | ✅ |
 | `patches/h5-mobile-market-layout.patch` | 十七 H5/移动端 技能市场页 header 布局适配 | 48769016 | ✅ |
 
@@ -258,6 +262,16 @@
 - **i18n**：5 语言（en/zh/zh-TW/jp/kr.ts）删无引用的 `chat.tpsLabel` 行。
 - 验证：tsc -b exit 0；全量前端 vitest 6144 pass / 2 fail（2=既有，零回归）；vite build `App-CJApNwcB.js`。
 - Patch 重生成：`tps-indicator.patch` 12 文件 633 行（含子优化终态）。
+
+### 子优化（2026-09-26）：thinking 计入 TPS + 保持值口径改为正文结束前 0.5s 平均 + 数字行居中
+
+- **问题（用户反馈：「总显示在不对的速度上一动不动」+「thinking 没计入 TPS」）**：①thinking 走独立 WS 事件（handler.ts:3584 `thinking_delta`→`{type:'thinking',text}`），前端 `case 'thinking'`（chatStore.ts:5068）从不喂 TpsMeter → 整段思考零采样；②正文结束→窗口排空→稀疏守卫 `result<SPARSE_SPEED_THRESHOLD(5)` 冻结→fallback 停在正文结束前旧值（`value()` 里 `if(result>0) this.fallbackTps=result` 死代码分支让 shrinking 窗口持续覆盖保持值，是卡住的帮凶）。
+- **修复 3 文件**：
+  - **chatStore.ts `case 'thinking'` 末尾**：`skippedThinkingBlock===false && isTpsEnabled()` 时 `getSessionTpsMeter(sessionId).push(msg.text)`——thinking 也是 decode 输出 token；整块重放（skipped）路径不喂避免重复计数。
+  - **tpsMeter.ts 保持值口径**：`FALLBACK_WINDOW_MS` 2000→**500**、`FALLBACK_SKIP_MS` 300→**0**，即保持值=最后一个 chunk 前 0.5s 的平均速度（用户指定口径）；删 `value()` 里 shrinking 窗口覆盖 `fallbackTps` 的分支，保持值现只由 `push()` 刷新。其余常量不变（WINDOW_MS=1500、BURST_FLOOR_MS=400、SPARSE_SPEED_THRESHOLD=5、CJK 1:1/ASCII 1:3.5）。
+  - **TpsIndicator.tsx**：vertical 数字行 `min-w-[7ch] text-right`→`text-center`（与 TPS 标签共享中心轴，对齐修复）。
+- **验证**：`bun /tmp/tps_check2.ts` 数值全对（稳态 80/s 停止后保持 84≈80、加速尾正确、thinking-fed 跟随不再冻结）；chatStore.test 347 + chatStore.golden 14 + tpsMeter.test 4 = **365/365**；全量前端 vitest **812 pass/2skip** + 12300 pass/12skip/0fail 零回归（基线）；tsc 仅 TS5096 非阻断；grep dist 确认 `FALLBACK_WINDOW_MS=500` 孪生已同步（.js 孪生坑照例 `tsc -p --noEmit false` 重发）。
+- **Patch 重生成**：`tps-indicator.patch` 12 文件 **654 行**（3 章内文件 hunks 更新，9 共享文件不变；3 文件不在后续 patch 中，19 链顺序 apply 全 OK，逐字节=工作树）。
 
 > 注：上下文面板「生成速度」口径修正（decode-only，分母用 `totalDecodeDuration` 而非 `totalAPIDuration`）归**第七章**（cache-billing.patch），见该章。
 ---
@@ -739,5 +753,51 @@ CLAUDE_H5_DIST_DIR=/home/zeaxion/myproject/cchaha-06scode/desktop/dist \
 - **桌面 1280px**：header 74px，按钮与标题同行（`sameRow=true`），副标题 1 行 594px——桌面布局零变化。
 - **tsc exit 0**；市场+页面 vitest 872/872；**全量前端 vitest 12300 pass / 12 skip / 0 fail**（=基线零回归）。
 - **19 链全验证**（worktree@2f8d819d 顺序 apply 19 patch：18 既有 + `h5-mobile-market-layout`）全干净；`MarketHome.tsx` 与工作树逐字节一致（全树 diff 仅 4 个已知非章 delta：bun.lock、TerminalSettings.tsx、providerModels.ts、MessagePayloadRetention.test.tsx）。
+---
+
+## 十八、Computer Use 解锁 Linux（X11）平台（✅ 2026-09-26）
+
+### 需求背景
+
+Computer Use（电脑操作）功能此前仅对 macOS（`darwin`）与 Windows（`win32`）开放：Linux 上设置页/会话侧看不到入口、MCP 工具不暴露、模型不知道会用。目标：让 **Linux（X11 桌面）** 走 Windows 同款的「像素面」兼容路线（screenshot/点击/键入/滚动 等 legacy pixel 工具 + Python helper），把 Computer Use 在 H5/服务端 Linux 场景解锁。
+
+### 0.6.6 现状核对（调研结论）
+
+- 平台判定是**分散内联**的，没有单一共享 platform 类型；`'darwin' | 'win32'` 联合类型在 **9 处生产代码** + 若干测试里内联出现（`common.ts`、`gates.ts`、`skillGate.ts`、`executor.ts`、`helperBridge.ts`、`pythonBridge.ts`、`mcpServer.ts`、`tools.ts`、`keyBlocklist.ts`、`computer-use.ts`、`computerUse.ts`(skills) 等）。
+- **核心路由缝**在 `src/utils/computerUse/helperBridge.ts`：darwin→原生 `cu-helper` Swift daemon（AF_UNIX）；**else 分支（现仅 win32）→ `callPythonHelper`**。Linux 天然落入 else→Python 路线，无需新通道。
+- **工具面选择**在 `src/vendor/computer-use-mcp/mcpServer.ts`：`caps.platform === 'win32'` → `buildLegacyComputerUseTools`（像素工具集）；darwin → 语义工具过滤到 `js`/`js_reset`。Linux 应路由到**像素面**，故 `mcpServer.ts:113` 与 `:190`（`legacyPixelFace`）需加 `|| platform === 'linux'`。
+- **服务端能力映射** `resolveComputerUseCapability`（`computer-use.ts:247-314`）：win32→`windows-compat`、darwin→版本门控 `macos-native`、其余（含 linux）→`{supported:false, engine:'unsupported'}`。Linux 需新 engine 值（如 `linux-x11`）。
+- **Python helper 目录** `runtime/`：现有 `win_helper.py` + `requirements-win.txt`，**无 linux helper**。Linux 需新增 `linux_helper.py`（mss 截图 + pyautogui 输入 + **python-xlib** 窗口枚举/前台/open_app）+ `requirements-linux.txt`（mss/Pillow/pyautogui/python-xlib；无 pywin32）。
+- **UI** 不自己判平台，全靠服务端 `status.engine`/`status.platform` 分支（`ComputerUseSettings.tsx`）：`engine==='unsupported'`→不支持页；`'macos-native'`→原生页；否则→Windows 兼容 Python 安装流。Linux 走 else 的 Python 流即可，仅需 `PYTHON_DOWNLOAD_URLS` 与 `ComputerUseEnableDialog` 的 platform prop 补 linux 分支。
+- 已有先例：`growthbook.ts:36`、`platform.ts:7`、`env.ts:11`、`openTargetService.ts` 的 platform 联合类型**已含 linux**——只是 computer-use 子系统自己没跟上。
+- 测试现状：`common.test.ts`、`gates.test.ts`、`computer-use-api.test.ts` 等多处**断言 linux 当前 unsupported**，加分支后需同步更新（不是回归，是预期行为变更）。
+
+### 实施方案（分两批，先门控/状态，后 helper）
+
+**批次 A——门控放宽 + 状态页（让 Linux 可见、可进设置流）**
+- `common.ts`：`isComputerUseSupportedPlatform` 返回 `platform is 'darwin'|'win32'|'linux'`；`getCliComputerUseCapabilities` 加 linux 分支（`screenshotFiltering:'none'`, `platform:'linux'`）。
+- `gates.ts`：`shouldExposeComputerUseMcp` 加 `|| platform === 'linux'`（Linux 无原生二进制门控，直通）。
+- `skillGate.ts:55`：`!== 'darwin' && !== 'win32'` 判定补 linux。
+- `computer-use.ts`：`resolveComputerUseCapability` 加 linux→`{supported:true, engine:'linux-x11'}`；`checkStatus`/`openComputerUseSettings`/`supportedPlatform` 等处补 linux 分支（open-settings 可返回 null=无系统设置面板，或 xsettingsd 等）。
+- `desktop/src/api/computerUse.ts`：`engine` 联合类型加 `'linux-x11'`。
+- `ComputerUseSettings.tsx`：`PYTHON_DOWNLOAD_URLS` 补 linux URL；`ComputerUseEnableDialog` 的 `platform` prop 补 linux。
+- 9 处内联 `'darwin'|'win32'` 联合类型逐一补 `'linux'`（mcpServer/tools/keyBlocklist/toolCalls/executor/windowsLegacyTools/skills）。
+- **工具面**：`mcpServer.ts` 像素面选择改 `platform === 'win32' || platform === 'linux'`。
+
+**批次 B——Linux 像素 helper（真正能操作桌面）**
+- 新增 `runtime/linux_helper.py`：复用 win_helper 的 mss（截图）/pyautogui（鼠标键盘）骨架，窗口枚举/前台化/`open_application` 用 **python-xlib**（X11），`open_settings`/权限用 xrandr/xprop 探测；输入走 XTEST。
+- 新增 `runtime/requirements-linux.txt`：`mss>=9.0.2,<10` / `Pillow>=11.3.0,<12` / `pyautogui>=0.9.54` / `python-xlib>=0.33`。
+- `pythonBridge.ts`：helper 文件名/requirements 按平台选择（linux→linux_helper.py + requirements-linux.txt）；venv 用 `bin/python3`（unix 分支已有）。
+- `computer-use.ts`：embedded runtime 常量导入补 linux 两份文件；`ensureRuntimeFiles` 按平台写。
+- 系统依赖（文档记录，非代码）：X11 桌面 + `xdotool`/`xclip`（剪贴板）可选；XWayland 下部分 pyautogui 能力受限，需在状态页给提示。
+
+### 验证（实施时逐批跑）
+
+- 单测：computer-use 全族（`src/utils/computerUse/*.test.ts` + `src/vendor/computer-use-mcp/*.test.ts` + `src/server/__tests__/computer-use-*.test.ts`）；新增 linux 分支用例（linux→supported/像素面/linux-x11）。
+- 前端：`ComputerUseSettings`/`computerUse` vitest + 全量前端（基线 12300 pass/12 skip/0 fail）。
+- **live 7788 Linux 服务端**：`GET /api/computer-use/status` 应回 `{platform:'linux', supported:true, engine:'linux-x11'}`；设置页进入 Python 安装流而非「不支持」页。
+- X11 实机冒烟（如有）：screenshot 能回图、left_click/type 生效。
+
+> 状态：⬜待实施（调研已闭环，实施批次 A→B 待排期）。
 
 **patch**：`modify/patches/h5-mobile-market-layout.patch`（1 文件 1 行，链位 19，基线 48769016）。
