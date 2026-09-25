@@ -2648,6 +2648,10 @@ export class SessionService {
                 sessionId,
                 projectsRoot!,
               )
+              // The index already validated this exact path, so one bounded read
+              // here only serves transcript-vs-placeholder ordering. The
+              // filesystem fallback below stays mtime-only because it runs on
+              // every reader call and must not do unbounded full reads.
               const entries = await this.readJsonlFile(match.filePath)
               hydratedMatches.push({
                 ...match,
@@ -2697,17 +2701,34 @@ export class SessionService {
     const matches: Array<{ filePath: string; projectDir: string; mtimeMs: number; hasTranscript: boolean }> = []
     for (const dir of projectDirs) {
       const filePath = path.join(projectsDir, dir, `${sessionId}.jsonl`)
+      let stat: Awaited<ReturnType<typeof fs.stat>>
       try {
-        const stat = await fs.stat(filePath)
-        const entries = await this.readJsonlFile(filePath)
-        matches.push({
-          filePath,
-          projectDir: dir,
-          mtimeMs: stat.mtimeMs,
-          hasTranscript: this.hasConversationTranscript(entries),
-        })
+        stat = await fs.stat(filePath)
       } catch {
         continue
+      }
+      matches.push({
+        filePath,
+        projectDir: dir,
+        mtimeMs: stat.mtimeMs,
+        hasTranscript: false,
+      })
+    }
+
+    // The transcript path is stable per session id, so an unbounded full read
+    // here would run on every reader call (inspection/history/subagent lookups).
+    // It is only ever needed to rank two files that share an id — a worktree
+    // transcript vs. the original placeholder — where the transcript must win
+    // even if its mtime is not strictly newer.
+    if (matches.length > 1) {
+      for (const match of matches) {
+        try {
+          match.hasTranscript = this.hasConversationTranscript(
+            await this.readJsonlFile(match.filePath),
+          )
+        } catch {
+          match.hasTranscript = false
+        }
       }
     }
 

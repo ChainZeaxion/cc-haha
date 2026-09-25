@@ -552,3 +552,30 @@ CLAUDE_H5_DIST_DIR=/home/zeaxion/myproject/cchaha-06scode/desktop/dist \
 - [ ] 实施 MobileQuickActions + 面板全屏 overlay
 - [ ] i18n 5 语言
 - [ ] 验证 + patch `h5-mobile-quick-actions.patch`
+
+---
+
+## 十二、src/server 既有 22 条测试失败清零（✅ 2026-09-27）
+
+> 基线 2f8d819d 上 `bun test src/server` 存在 22 条既有失败（与本次优化无关、纯基线遗留）。本项将其**全部清零**（3396 pass / 0 fail / 0 error），达成「零失败」基线，后续任何回归都能被立刻发现。
+
+**根因分类**（8 文件，4 修代码 + 4 修测试）：
+
+| 簇 | 条数 | 根因 | 修法 |
+|---|---|---|---|
+| git locale（workspace×5 + sessions×2） | 7 | `getGitRepoInfo` 用英文 stderr 子串 `not a git repository` 判非 git 仓库；本机 git 中文 locale 输出 `不是 git 仓库` → 误判 `state:'error'` | **修代码** `workspaceService.ts`：移植 `reviewService.ts` 的退出码探针 `git rev-parse --is-inside-work-tree`（`isNotAGitRepository`），`runGit` 加 `failedToRun` 区分「git 没跑起来」vs「跑了但拒绝」；一处修复覆盖 7 条 |
+| ambient env 泄漏（conversation×4 + e2e×1） | 5 | 测试非 hermetic：本机 dev shell 导出的 `CLAUDE_CODE_EMIT_SESSION_STATE_EVENTS`/`CLAUDE_STREAM_FIRST_TOKEN_TIMEOUT_MS`/`CC_HAHA_*_ACCESS_TOKEN` 泄漏进 `buildChildEnv`/CORS 判定 | **修测试**：`conversation-service.test.ts` #1033 补清 `EMIT_SESSION_STATE_EVENTS`、#1307 补清 `FIRST_TOKEN_TIMEOUT_MS`；`full-flow.test.ts` 加 `TOKEN_ENV_KEYS` 保存/删除/恢复 |
+| findSessionFile 无界全文读（sessions×2 + recovery×1 + subagent×1） | 4 | `findSessionFilesFromFiles` 对每个候选文件 `readJsonlFile` 全文解析仅为排序优先级；mock throw 被吞 → 返回 null，破坏 inspection coalescing/launchInfo/subagent lookup | **修代码** `sessionService.ts`：文件系统回退路径改 mtime-only 排序；**仅当同 id 有 ≥2 个候选文件**（worktree transcript vs 占位符）才做 transcript 偏好读（`matches.length > 1`），单文件场景零读 |
+| 协作游标 depth 计数 | 1 | `sessionCollaborationService` 同物理页内 `end` 游标前进也 `depth+1`，8 页上限截断 130→80 条 | **修代码**：`depth` 仅在跨物理页（`page.page.nextCursor`）时递增，同页 `end` 游标保持 depth |
+| 缺依赖 500（h5-access-auth×2） | 2 | `@whiskeysockets/baileys` 仅声明于 `adapters/package.json` 未装根 node_modules；`adapters/whatsapp/session.ts` 顶层静态 import → `/api/adapters` 500 | **修代码** `adapters/whatsapp/session.ts`：改动态 `import()`（懒加载意图），顶层只留 `import type`；缺依赖只在真正 login 时失败 |
+| 平台耦合测试（connector×1 + workspaceWatch×1） | 2 | connector legacy 版本正则只认 `darwin\|win32`（本机 linux 夹具 `0.9.0-linux-x64` 失配 → 回落 1.0.0）；workspaceWatch 等 rename 后的**新名** `b.ts`（inotify 只报旧名 `a.ts`） | **修测试**：`connectorService.ts` 正则放宽平台 token 为 `[a-z]+`；`workspaceWatch.test.ts` 等待各平台都会产生的 `a.ts`（写操作触发） |
+
+**验证**：
+- `bun test src/server` 全量 **3396 pass / 0 fail / 0 error**（基线 22 条全清，零新增）。
+- 逐簇回归：conversation-service 75/75、sessions 315/315、workspace-service 20/20、historyRecovery 8/8、subagent 44/44、collaboration 4/4、connectorService 24/24、workspaceWatch 10/10、h5-access-auth 53/53、adapters 41/41。
+- 重点语义改动（协作游标）额外跑通全部协作相关测试（api/sessionCollaboration、e2e/session-collaboration、CollaborationService 39/39、CollaborationHost、CollaborationAuth 等）。
+- `desktop tsc -b` exit 0。
+
+**patch**：`modify/patches/server-test-baseline-zeroing.patch`（8 文件 324 行，链位 13，基线 6d4fd126）。
+
+**13 链全验证**（`git worktree add --detach /tmp 2f8d819d` + 软链 node_modules，按序 `git apply` 全部 13 patch）：全干净；apply 后 vs 工作树仅 4 处已知非章 delta（`bun.lock`、`desktop/src/pages/TerminalSettings.tsx`、`desktop/src/lib/providerModels.ts`、`desktop/src/components/chat/MessagePayloadRetention.test.tsx`——均属独立 commit 的非章改动）。
