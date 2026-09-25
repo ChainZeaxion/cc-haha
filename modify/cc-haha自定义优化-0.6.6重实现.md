@@ -1,6 +1,7 @@
 # cc-haha 自定义优化（0.6.6 基座重实现）
 
 > 本文件以 v0.6.6（2f8d819d，本仓库）为基座，重实现旧基座（v0.5.3，`/home/zeaxion/myproject/CC-HAHA-Scode` 分支 `perf/transcript-chunked-recovery`）上已验证的优化项。
+> **2026-09-26 起基座更新**：上游 main（`068b3ebd`，2026-09-25，含 pending 问题超时自动回答、聊天外观偏好、CORS 门控重做等 20 个 commit）已融入 `custom-066`（merge commit `4e25e022` + 修复合并 `005684ea`），全部 patch 重基到 `068b3ebd`（见下方 Patch 清单说明）。
 > 需求权威源：`CC-HAHA-Scode/cc-haha自定义优化.md`（下文「源章节」均指该文件）。
 > 状态图例：⬜待实施 · 🕓待实施/规划 · 🔍调研 · ✅已实施
 > 当前为**骨架版**：仅保留章节结构与标题，实施时逐节填充（问题背景 / 0.6.6 现状核对 / 实施方案 / 验证）。
@@ -31,39 +32,39 @@
 ## 📦 联动 Patches
 
 > 各优化项的实施 diff 以 patch 文件形式统一存放到本 `modify/` 目录（后期全部归档于此），与上文章节联动：每完成一项，patch 入库并在此登记；升级/重打基座时按本表逐个 `git apply` 重放。
+>
+> **2026-09-26 重基**：全部 19 patch 重基到上游 `068b3ebd`（origin/main 2026-09-25，含 20 个新 commit：CORS 门控重做/切 tab 保视图/历史不全保聊天/内存保存竞态两修/pending 问题超时自动回答/聊天外观偏好/OAuth 2.1.281 对齐/agent-teams/Kimi K3 图片透传/定时任务持久化串行化）。应用方式=按下表从上到下逐章 `git apply --allow-empty`（17 实 patch + 2 空 patch）。空 patch（h5-settings-whitelist、h5-mobile-market）内容已被后续章节的共享文件覆盖，apply 后无变化。已验证 19/19 全干净，终态与工作树逐字节一致（仅 4 已知非章 delta：bun.lock、TerminalSettings.tsx、providerModels.ts、preview-agent.js）。
 
 ### 命名与存放约定
 - 存放：`modify/patches/`（patch 文件统一子目录）
 - 命名：**按优化项语义归类，不用数字编号**——`<优化项短名>.patch`，短名直接取自该优化项的英文关键词（如 `h5-require-token.patch`、`session-export.patch`），一眼可读、与章节标题对应
-- 生成：`git diff <基线> -- <涉及路径> > modify/patches/<优化项短名>.patch`，基线为应用该 patch 前的 commit
+- 生成（2026-09-26 起重基法）：`git diff <上一章链 commit> <本章链 commit> > patch`，链起点=`068b3ebd`，每章 patch 相对上一章终态
 - 每章完成后在此表登记状态；冲突时以「该章节最新实施记录」为准重新出 patch
 
 ### Patch 清单
 
-| Patch 文件 | 对应优化项（章节） | 基线 commit | 状态 |
+| # | Patch 文件 | 对应优化项（章节） | 状态 |
 |---|---|---|---|
-| `patches/h5-require-token.patch` | 一 H5 令牌开关 + 免令牌豁免 | 2f8d819d (v0.6.6) | ✅ |
-| `patches/h5-auto-mode-optin.patch` | 一 H5 选「自动模式」400 修复（1.1） | 2f8d819d (v0.6.6) | ✅ |
-| `patches/h5-terminal-bridge.patch` | 一 H5 终端桥接（1.2） | 2f8d819d (v0.6.6) | ✅ |
-| `patches/session-export.patch` | 二 会话导出 | 2f8d819d (v0.6.6) | ✅ |
-| `patches/session-refresh.patch` | 三 会话刷新按钮 | 2f8d819d (v0.6.6) | ✅ |
-| `patches/tps-indicator.patch` | 四 TPS 指示器 + 两行 | 2f8d819d (v0.6.6) | ✅ |
-| `patches/file-download.patch` | 五 文件下载桥接 | — | ✅ |
-| `patches/disable-updates.patch` | 六 禁止更新开关 | 4aaf425a | ✅ |
-| `patches/cache-billing.patch` | 七 上下文缓存与计费显示 | e49e0b7d | ✅ |
-| `patches/thinking-switch.patch` | 八 思考模式二级开关 | 6cc24ac9 | ✅ |
-| `patches/h5-settings-parity.patch` | 九 H5 设置全 tab 对齐 | 2f8d819d (v0.6.6) | ✅ |
-| `patches/h5-settings-whitelist.patch` | 九 H5 设置项 400/403 修复（9.x，remoteBrowser 白名单） | 6d4fd126 | ✅ |
-| `patches/server-test-baseline-zeroing.patch` | 十二 src/server 既有 22 条测试失败清零 | 6d4fd126 | ✅ |
-| `patches/h5-mobile-quick-actions.patch` | 十一 H5 悬浮快捷入口（任务/终端/文件/审查） | 447d03a7 | ✅ |
-| `patches/vcc-compactor.patch` | 十三 pi-vcc 算法压缩移植 + 双后端热切换 + vcc_recall | 2004cd16 | ✅ |
-| `patches/h5-mobile-market.patch` | 十四 H5/移动端支持打开插件市场 | 10d7d52a | ✅ |
-| `patches/h5-mobile-scheduled.patch` | 十五 H5/移动端支持打开计划任务（定时任务）页 | cc88daa5 | ✅ |
-| `patches/h5-mobile-market-layout.patch` | 十七 H5/移动端 技能市场页 header 布局适配 | 48769016 | ✅ |
-| `patches/connector-linux-platform.patch` | 十六 连接器目录 Linux 平台支持 | 861bbb87 | ✅ |
-| `patches/computer-use-linux-x11.patch` | 十八 Computer Use 解锁 Linux（X11） | 待实施 | ⬜ |
-| `patches/connector-linux-platform.patch` | 十六 连接器目录 Linux 平台支持（x64/arm64） | cc88daa5 | ✅ |
-| `patches/h5-mobile-market-layout.patch` | 十七 H5/移动端 技能市场页 header 布局适配 | 48769016 | ✅ |
+| 1 | `patches/h5-require-token.patch` | 一 H5 令牌开关 + 免令牌豁免 | ✅ |
+| 2 | `patches/h5-auto-mode-optin.patch` | 一 H5 选「自动模式」400 修复（1.1） | ✅ |
+| 3 | `patches/session-export.patch` | 二 会话导出 | ✅ |
+| 4 | `patches/h5-settings-parity.patch` | 九 H5 设置全 tab 对齐 | ✅ |
+| 5 | `patches/h5-terminal-bridge.patch` | 一 H5 终端桥接（1.2） | ✅ |
+| 6 | `patches/session-refresh.patch` | 三 会话刷新按钮 | ✅ |
+| 7 | `patches/tps-indicator.patch` | 四 TPS 指示器 + 两行 + 子代理汇聚 | ✅ |
+| 8 | `patches/file-download.patch` | 五 文件下载桥接（含右键/菜单下载 + H5 内置浏览器提示） | ✅ |
+| 9 | `patches/disable-updates.patch` | 六 禁止更新开关 | ✅ |
+| 10 | `patches/cache-billing.patch` | 七 上下文缓存与计费显示 | ✅ |
+| 11 | `patches/thinking-switch.patch` | 八 思考模式二级开关 | ✅ |
+| 12 | `patches/h5-settings-whitelist.patch` | 九 H5 设置项 400/403 修复（9.x，remoteBrowser 白名单）— 重基后空 patch（内容被前序共享文件覆盖） | ✅ |
+| 13 | `patches/server-test-baseline-zeroing.patch` | 十二 src/server 既有 22 条测试失败清零 | ✅ |
+| 14 | `patches/h5-mobile-quick-actions.patch` | 十一 H5 悬浮快捷入口（任务/终端/文件/审查） | ✅ |
+| 15 | `patches/vcc-compactor.patch` | 十三 pi-vcc 算法压缩移植 + 双后端热切换 + vcc_recall | ✅ |
+| 16 | `patches/h5-mobile-market.patch` | 十四 H5/移动端支持打开插件市场 — 重基后空 patch（同上） | ✅ |
+| 17 | `patches/h5-mobile-scheduled.patch` | 十五 H5/移动端支持打开计划任务（定时任务）页 | ✅ |
+| 18 | `patches/connector-linux-platform.patch` | 十六 连接器目录 Linux 平台支持（x64/arm64） | ✅ |
+| 19 | `patches/h5-mobile-market-layout.patch` | 十七 H5/移动端 技能市场页 header 布局适配 | ✅ |
+| — | `patches/computer-use-linux-x11.patch` | 十八 Computer Use 解锁 Linux（X11） | ⬜ 待实施 |
 
 
 ### 移植通用注意事项- stale `.js` 孪生：改 `src/*.ts` 走 sidecar 打包路径时，须核对被改文件同名 `.js` 是否存在且同步（旧树 `.js` 优先加载坑）。
