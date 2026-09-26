@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 
+import { isolateModelDefaultsEnv } from '../../testUtils/modelEnv.js'
 import { getBundledSkills } from '../bundledSkills.js'
 import { buildPlatformComputerUseTools } from '../../vendor/computer-use-mcp/mcpServer.js'
 import {
@@ -7,6 +8,8 @@ import {
   getComputerUseToolAllowlist,
   registerComputerUseSkill,
 } from './computerUse.js'
+
+isolateModelDefaultsEnv()
 
 /**
  * Asserting on prose is unusual, but this prose is load-bearing twice over: it
