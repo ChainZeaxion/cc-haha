@@ -925,23 +925,35 @@ Computer Use（电脑操作）功能此前仅对 macOS（`darwin`）与 Windows�
 
 ---
 
-## 二十一、每次思考耗时记录并在对话记录展示（⬜ 待办，暂不推进）
+## 二十一、每次思考 token 用量与耗时记录并在对话记录展示（⬜ 待办，暂不推进）
 
-### 需求背景（用户 2026-09-26 verbatim）
+### 需求背景（用户 2026-09-26 verbatim，两次）
 
-「新增一项优化项，作为待办事项，暂不推进。记录每次思考耗时，并在对话记录里体现，类似工具执行耗时在横条右端末尾记录耗时。」
+1. 「新增一项优化项，作为待办事项，暂不推进。记录每次思考耗时，并在对话记录里体现，类似工具执行耗时在横条右端末尾记录耗时。」
+2. 「新增的第二十一项优化项，更改为记录思考消耗 token 用量和耗时，think 横条右侧末尾显示 xx.xk 小数点两位多少 k 的 token 消耗，xs/xmxs/xhxm 多少秒/几分几秒/几小时几分不带秒。」
+
+### 展示规格（定稿）
+
+- **位置**=思考横条（ThinkingBlock 相关横条/块）右侧末尾，与工具执行耗时同款 mono tabular-nums 样式；
+- **token 用量格式**=`xx.xk`，保留两位小数（例 `1.23k`、`12.50k`）；
+- **耗时格式**=三档阶梯：
+  - `<60s`：`xs`（秒，一位小数，例 `12.3s`）；
+  - `60s~1h`：`xm xs`（几分几秒不带小数，例 `3m05s`）；
+  - `≥1h`：`xh xm`（几小时几分不带秒，例 `2h05m`）。
 
 ### 锚点（实施时参考，已核对存在）
 
 - **参照展示=工具执行耗时**：`desktop/src/components/chat/ActivityGroup.tsx` 横条（header 行）右端 `durationLabel`——`:109` `elapsed = activityDurationMs(steps, resultMap)`（`desktop/src/components/chat/activityGroupModel.ts`），`:143-144` 横条右端渲染 `<span className="whitespace-nowrap font-mono tabular-nums">{durationLabel}</span>`；单工具耗时=`ToolCallBlock.tsx` 的 `toolCallDurationMs`→`formatDuration`（:774，ms→`1.2s`/`3s`/`1m05s` 阶梯）。
 - **思考块展示点**：`desktop/src/components/chat/ThinkingBlock.tsx`（思考内容折叠块）。
 - **计时数据源候选**（实施时定夺）：①流式首/末事件时间戳差（thinking delta 起→止）；②transcript 中 assistant 消息已有 timestamp 字段（思考块首尾消息差）；③服务端 streaming 管线记录（`sessionService`/`claude.ts` 流事件）。
+- **token 数据源**：Anthropic API usage 无独立 thinking_tokens 字段（src/bridge/bridgeMessaging.ts 仅有 set_max_thinking_tokens 控制，无返回计数）；实施候选=①流式 thinking_delta 段内 usage 增量累计（thinking 起止间 output_tokens 差）；②transcript assistant 消息 usage 按 thinking 段归属切分；③CJK/ASCII 混合估算（tpsMeter.ts 同款 chars/cpt 口径）兜底。
 
 ### 方案要点（实施时细化）
 
-- 记录每次 thinking 段耗时（与工具执行耗时同款 `formatDuration` 展示格式）；
-- 展示位置=思考相关横条/块的右端末尾（对齐 ActivityGroup 横条右端样式，mono tabular-nums）；
-- 需 i18n 新键（若展示标签需要）；
+- 每次 thinking 段记录 `{durationMs, thinkingTokens}`，持久化到 transcript（assistant 消息 meta）或会话级 usage 快照，重开会话可回显；
+- 展示=思考横条右端 `1.23k · 12.3s`（token 与耗时并排，mono tabular-nums）；
+- 格式函数新建（token `xx.xk` 两位小数 + 耗时三档），不复用工具耗时的 `formatDuration`（阶梯不同：秒档要一位小数、小时档不带秒）；
+- 需 i18n 新键（若展示标签需要，纯数字展示可免）；
 - 暂不推进，等排期。
 
 ### 状态
