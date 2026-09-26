@@ -1997,6 +1997,11 @@ async function* queryModel(
   let stopReason: BetaStopReason | null = null;
   const completedBlockIndexes = new Set<number>();
   const completedToolUseIds = new Set<string>();
+  // Per-block wall-clock start for thinking blocks: content_block_start fires
+  // right before the first thinking delta, so block_start -> block_stop is the
+  // block's pure generation span. Persisted as thinkingDurationMs on the
+  // transcript line so a reopened session can re-show the per-thought timing.
+  const thinkingStartedAtByIndex = new Map<number, number>();
   const handledStopReasons = new Set<BetaStopReason>();
   let incompleteStream = false;
   let didFallBackToNonStreaming = false;
@@ -2412,6 +2417,7 @@ async function* queryModel(
                   // initialize signature to ensure field exists even if signature_delta never arrives
                   signature: "",
                 };
+                thinkingStartedAtByIndex.set(part.index, Date.now());
                 break;
               default:
                 // even more awkwardly, the sdk mutates the contents of text blocks
@@ -2589,6 +2595,16 @@ async function* queryModel(
               type: "assistant",
               uuid: randomUUID(),
               timestamp: new Date().toISOString(),
+              ...(contentBlock.type === "thinking" &&
+                (() => {
+                  const startedAt = thinkingStartedAtByIndex.get(part.index);
+                  thinkingStartedAtByIndex.delete(part.index);
+                  const durationMs =
+                    typeof startedAt === "number"
+                      ? Math.max(0, Date.now() - startedAt)
+                      : 0;
+                  return { thinkingDurationMs: durationMs };
+                })()),
               ...(process.env.USER_TYPE === "ant" &&
                 research !== undefined && { research }),
               ...(advisorModel && { advisorModel }),

@@ -188,6 +188,7 @@ import {
   registerAgentRunSession,
   reconstructAgentNotifications,
   reconstructRunActivityFromTranscript,
+  settleThinkingDurations,
   stripGeneratedImageMetadataLines,
   type PerSessionState,
   useChatStore,
@@ -243,6 +244,41 @@ describe('stripGeneratedImageMetadataLines', () => {
 
   it('returns empty string when the text is only metadata', () => {
     expect(stripGeneratedImageMetadataLines('[Image source: /tmp/x.png]')).toBe('')
+  })
+})
+
+describe('settleThinkingDurations', () => {
+  it('stamps the elapsed span onto each unsettled thinking block and leaves others alone', () => {
+    const now = 1_000_000
+    const input = [
+      { id: 'a', type: 'thinking', content: 'one', timestamp: now - 2000 },
+      { id: 'b', type: 'assistant_text', content: 'text', timestamp: now - 1000 },
+      { id: 'c', type: 'thinking', content: 'two', timestamp: now - 5000 },
+    ] as const
+    const settled = settleThinkingDurations([...input] as any[], now)
+    expect(settled[0]).toMatchObject({ type: 'thinking', thinkingDurationMs: 2000 })
+    expect(settled[1]).toEqual(input[1])
+    expect(settled[2]).toMatchObject({ type: 'thinking', thinkingDurationMs: 5000 })
+  })
+
+  it('never overwrites a duration that was already settled', () => {
+    const input = [
+      { id: 'a', type: 'thinking', content: 'one', timestamp: 100, thinkingDurationMs: 777 },
+    ] as const
+    const settled = settleThinkingDurations([...input] as any[], 999_999)
+    expect(settled[0]).toMatchObject({ thinkingDurationMs: 777 })
+  })
+
+  it('clamps a negative span (clock skew) to zero and returns the same array when nothing changes', () => {
+    const skew = [
+      { id: 'a', type: 'thinking', content: 'one', timestamp: 5000 },
+    ] as const
+    expect(settleThinkingDurations([...skew] as any[], 4000)[0]).toMatchObject({ thinkingDurationMs: 0 })
+
+    const done = [
+      { id: 'a', type: 'thinking', content: 'one', timestamp: 100, thinkingDurationMs: 1 },
+    ] as UIMessage[]
+    expect(settleThinkingDurations(done, 200)).toBe(done)
   })
 })
 

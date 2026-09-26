@@ -6,12 +6,15 @@ import { ThinkingBlock } from './ThinkingBlock'
 import {
   activityDurationMs,
   activityStepToolCalls,
+  activityTokenLabel,
+  activityTokenUsage,
   buildActivitySegments,
   countFailedToolCalls,
   hasUnresolvedToolCalls,
   toolCallDurationMs,
   type ActivityStep,
 } from './activityGroupModel'
+
 import { useTranslation } from '../../i18n'
 import type { UIMessage } from '../../types/chat'
 
@@ -108,6 +111,7 @@ export const ActivityGroup = memo(function ActivityGroup({
   const segments = buildActivitySegments(steps, t)
   const elapsed = activityDurationMs(steps, resultMap)
   const durationLabel = !isRunning && typeof elapsed === 'number' ? formatDuration(elapsed) : ''
+  const tokenLabel = !isRunning ? activityTokenLabel(activityTokenUsage(steps, resultMap)) : ''
   const summaryText = segments.map((segment) => segment.label).join(', ')
 
   return (
@@ -143,8 +147,15 @@ export const ActivityGroup = memo(function ActivityGroup({
             {durationLabel && (
               <span className="whitespace-nowrap font-mono tabular-nums">{durationLabel}</span>
             )}
-            <span aria-hidden="true" className={`w-3 text-center text-[8px] ${collapsed ? '' : 'rotate-90'}`}>▸</span>
-          </span>
+            {tokenLabel && (
+              <span
+                data-activity-tokens="true"
+                className="whitespace-nowrap font-mono tabular-nums text-[var(--color-text-tertiary)]"
+              >
+                {tokenLabel}
+              </span>
+            )}
+            <span aria-hidden="true" className={`w-3 text-center text-[8px] ${collapsed ? '' : 'rotate-90'}`}>▸</span>          </span>
         </button>
 
         {/* Rows hang off the summary that names them, so they take the guide
@@ -157,8 +168,9 @@ export const ActivityGroup = memo(function ActivityGroup({
                 key={step.message.id}
                 content={step.message.content}
                 isActive={step.message.id === activeThinkingId}
-              />
-            ) : (
+                thinkingDurationMs={step.message.thinkingDurationMs}
+                liveStartAt={step.message.timestamp}
+              />            ) : (
               <ActivityToolRow
                 key={step.toolCall.id}
                 toolCall={step.toolCall}

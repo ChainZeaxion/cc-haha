@@ -238,14 +238,20 @@ export type MessageEntry = {
    * the line carries no message id, which by the same convention means "always count it".
    */
   usageKey?: string
+  /**
+   * Wall-clock ms this thinking block spent generating (content_block_start →
+   * content_block_stop), persisted on the transcript line by the SDK stream.
+   * Only present on assistant lines whose single content block is a thinking
+   * block; lets a reopened session re-show the per-thought timing.
+   */
+  thinkingDurationMs?: number
   parentUuid?: string
   parentToolUseId?: string
   isSidechain?: boolean
   cwd?: string
 }
 
-export type SessionMessagesWithEvidence = {
-  messages: MessageEntry[]
+export type SessionMessagesWithEvidence = {  messages: MessageEntry[]
   transcriptEvidenceComplete: boolean
 }
 
@@ -1909,6 +1915,11 @@ export class SessionService {
       model: msg.model,
       ...(usage ? { usage } : {}),
       ...(usageKey ? { usageKey } : {}),
+      ...(typeof entry.thinkingDurationMs === 'number' &&
+      Number.isFinite(entry.thinkingDurationMs) &&
+      entry.thinkingDurationMs >= 0
+        ? { thinkingDurationMs: entry.thinkingDurationMs }
+        : {}),
       parentUuid: entry.parentUuid ?? undefined,
       parentToolUseId,
       isSidechain: entry.isSidechain,

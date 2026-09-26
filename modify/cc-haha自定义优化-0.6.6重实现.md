@@ -31,7 +31,9 @@
 | 平台/功能 | 十八 Computer Use 解锁 Linux（X11）平台 | —（新增） | ✅ |
 | 上下文/压缩 | 十九 bc 压缩后 context usage 不收敛（显示总量改 usage 锚口径） | —（新增） | ✅ |
 | 性能/传输 | 二十 H5 远端 API 响应 gzip 压缩传输（非本机默认开启，省 68% 带宽） | —（新增） | ✅ |
-| 功能特性/显示 | 二十一 每次思考耗时记录并在对话记录展示（仿工具执行耗时横条右端） | —（新增） | ⬜ 待办 |
+| 功能特性/显示 | 二十一 思考计时与工具计时综合优化（思考 token+耗时 badge、收纳栏总计时+token） | —（新增） | ✅ |
+| 性能/历史 | 二十二 历史记录膨胀（`toolUseResult.originalFile`）致大体积会话打不开 | —（新增） | 🔍 调研+方案 |
+| 性能/显示 | 二十三 子代理内容实时反馈（opencode 式，替代当前间隔刷新） | —（新增） | ⬜ 待办（仅登记，不推进） |
 
 ## 📦 联动 Patches
 
@@ -39,8 +41,7 @@
 >
 > **2026-09-26 重基**：全部 patch 重基到上游 `068b3ebd`（origin/main 2026-09-25，含 20 个新 commit：CORS 门控重做/切 tab 保视图/历史不全保聊天/内存保存竞态两修/pending 问题超时自动回答/聊天外观偏好/OAuth 2.1.281 对齐/agent-teams/Kimi K3 图片透传/定时任务持久化串行化）。应用方式=按下表从上到下逐章 `git apply --allow-empty`。空 patch（h5-settings-whitelist、h5-mobile-market）内容已被后续章节的共享文件覆盖，apply 后无变化。
 >
-> **当前链规模（2026-09-26 #85 章十九实施后）**：共 **22 patch**（20 实 + 2 空）。新增 `context-usage-anchor.patch`（4 文件 166 行，章十九 #85）后跑 **22 链全验证**：068b3ebd 基线顺序 apply 22 patch FAIL=0，章十九 4 文件逐字节=工作树，树级 delta 仅已知非章 WIP（#83 测试修复族 + 既有 bun.lock/TerminalSettings.tsx/providerModels.ts）。新增章（十八 computer-use-linux-x11、十九 context-usage-anchor、二十 h5-gzip-transport）已在链内。
-
+> **当前链规模（2026-09-26 章二十一实施后）**：共 **23 patch**（21 实 + 2 空）。新增 `thinking-tool-timing.patch`（19 文件，章二十一）后跑 **23 链全验证**：068b3ebd 基线顺序 apply 23 patch FAIL=0，章二十一文件逐字节=工作树。
 ### 命名与存放约定
 - 存放：`modify/patches/`（patch 文件统一子目录）
 - 命名：**按优化项语义归类，不用数字编号**——`<优化项短名>.patch`，短名直接取自该优化项的英文关键词（如 `h5-require-token.patch`、`session-export.patch`），一眼可读、与章节标题对应
@@ -73,6 +74,7 @@
 | 20 | `patches/computer-use-linux-x11.patch` | 十八 Computer Use 解锁 Linux（X11） | ✅ |
 | 21 | `patches/context-usage-anchor.patch` | 十九 bc 压缩后 context usage 不收敛（显示总量 usage 锚口径 + projector metadata 上限加固） | ✅ |
 | 22 | `patches/h5-gzip-transport.patch` | 二十 H5 远端 API 响应 gzip 压缩传输 | ✅ |
+| 23 | `patches/thinking-tool-timing.patch` | 二十一 思考计时与工具计时综合优化（思考 badge+收纳栏总计时+token） | ✅ |
 
 ### 移植通用注意事项- stale `.js` 孪生：改 `src/*.ts` 走 sidecar 打包路径时，须核对被改文件同名 `.js` 是否存在且同步（旧树 `.js` 优先加载坑）。
 - 0.6.6 已有对应能力需**融合**而非整块覆盖（如 H5 安全配对、缓存 token 显示、rewind 等），各章落地前先核对现状。
@@ -961,40 +963,132 @@ Computer Use（电脑操作）功能此前仅对 macOS（`darwin`）与 Windows�
 
 ---
 
-## 二十一、每次思考 token 用量与耗时记录并在对话记录展示（⬜ 待办，暂不推进）
+## 二十一、思考计时与工具计时综合优化：思考 token 用量/耗时 + 收纳栏总计时 + 收纳栏 token 用量（✅ 2026-09-26）
 
-### 需求背景（用户 2026-09-26 verbatim，两次）
+### 需求背景（用户 2026-09-26 verbatim，多次递进）
 
 1. 「新增一项优化项，作为待办事项，暂不推进。记录每次思考耗时，并在对话记录里体现，类似工具执行耗时在横条右端末尾记录耗时。」
 2. 「新增的第二十一项优化项，更改为记录思考消耗 token 用量和耗时，think 横条右侧末尾显示 xx.xk 小数点两位多少 k 的 token 消耗，xs/xmxs/xhxm 多少秒/几分几秒/几小时几分不带秒。」
+3. 「think 不同于工具，工具一般很快就执行完成，所以 think 要从一开始就持续展示耗时。我觉得应该以 server 收到 think 字段开始的时间做记录，然后每隔 3 秒刷新一次。think 完成后的计时采用结束时间减去开始时间予以固定。」
+4. 「思考完成后，把『思考+工具收纳栏』（ActivityGroup 摘要行）的计时也改成『思考+工具总计时』；收纳栏 token 统计里『工具』部分按结果内容估算。」
+
+→ 本章范围综合为三块：**①单条思考 badge（token+耗时，实时 3s 刷新）②收纳栏总计时（分段求和）③收纳栏 token 用量（思考+工具）**。
 
 ### 展示规格（定稿）
 
-- **位置**=思考横条（ThinkingBlock 相关横条/块）右侧末尾，与工具执行耗时同款 mono tabular-nums 样式；
-- **token 用量格式**=`xx.xk`，保留两位小数（例 `1.23k`、`12.50k`）；
-- **耗时格式**=三档阶梯：
-  - `<60s`：`xs`（秒，一位小数，例 `12.3s`）；
-  - `60s~1h`：`xm xs`（几分几秒不带小数，例 `3m05s`）；
-  - `≥1h`：`xh xm`（几小时几分不带秒，例 `2h05m`）。
+- **单条思考 badge**=思考横条（ThinkingBlock）右侧末尾，与工具执行耗时同款 mono tabular-nums 样式；
+  - **token 用量格式**=`xx.xk`，保留两位小数（例 `1.23k`、`12.50k`）；
+  - **耗时格式**=三档阶梯：`<60s`→`12.3s`（一位小数秒）；`60s~1h`→`3m05s`（整分+补零秒，不带小数）；`≥1h`→`2h05m`（不带秒）；
+  - **实时性**：进行中从「server 收到 think 块起点」开始计时，每 3s 刷新；结束后固定为结束−开始；
+- **收纳栏（ActivityGroup 摘要行）**：
+  - **总计时**=分段求和（Σ思考耗时 + Σ工具执行耗时），替代原墙钟跨度；
+  - **token 用量**=思考内容估算 + 工具结果内容估算；估算口径显示 `思考Xk + 工具Yk`（思考在前、`+` 分隔），真实回传口径显示合并总数。
 
-### 锚点（实施时参考，已核对存在）
+### 实施（2026-09-26，19 文件，526 增/51 删）
 
-- **参照展示=工具执行耗时**：`desktop/src/components/chat/ActivityGroup.tsx` 横条（header 行）右端 `durationLabel`——`:109` `elapsed = activityDurationMs(steps, resultMap)`（`desktop/src/components/chat/activityGroupModel.ts`），`:143-144` 横条右端渲染 `<span className="whitespace-nowrap font-mono tabular-nums">{durationLabel}</span>`；单工具耗时=`ToolCallBlock.tsx` 的 `toolCallDurationMs`→`formatDuration`（:774，ms→`1.2s`/`3s`/`1m05s` 阶梯）。
-- **思考块展示点**：`desktop/src/components/chat/ThinkingBlock.tsx`（思考内容折叠块）。
-- **计时数据源候选**（实施时定夺）：①流式首/末事件时间戳差（thinking delta 起→止）；②transcript 中 assistant 消息已有 timestamp 字段（思考块首尾消息差）；③服务端 streaming 管线记录（`sessionService`/`claude.ts` 流事件）。
-- **token 数据源**：Anthropic API usage 无独立 thinking_tokens 字段（src/bridge/bridgeMessaging.ts 仅有 set_max_thinking_tokens 控制，无返回计数）；实施候选=①流式 thinking_delta 段内 usage 增量累计（thinking 起止间 output_tokens 差）；②transcript assistant 消息 usage 按 thinking 段归属切分；③CJK/ASCII 混合估算（tpsMeter.ts 同款 chars/cpt 口径）兜底。
+**① 计时数据链路（SDK→WS→客户端）**
 
-### 方案要点（实施时细化）
+- `src/services/api/claude.ts`：`content_block_start(thinking)` 时按 block index 记 `thinkingStartedAtByIndex`；thinking 块生成完毕落 transcript 行时算 `thinkingDurationMs` 并写入 assistant 消息 meta（持久化，重开会话可回显）；
+- `src/server/ws/streamBlocks.ts` + `handler.ts`：`thinkingBlockStarts` Map 记录每开块 `content_block_start` 时刻（比首个 delta 更早、更准，差 <100ms）；`thinking_delta` 事件携带 `serverStart`（每 delta 都带，幂等）；`content_block_stop` 清理；
+- `src/server/ws/events.ts` + `desktop/src/types/chat.ts`：`ServerMessage/AgentRunStreamMessage` 的 `thinking` 事件加 `serverStart?`；
+- `src/server/services/sessionService.ts`：`MessageEntry.thinkingDurationMs` 透传（history 回放路径）；
 
-- 每次 thinking 段记录 `{durationMs, thinkingTokens}`，持久化到 transcript（assistant 消息 meta）或会话级 usage 快照，重开会话可回显；
-- 展示=思考横条右端 `1.23k · 12.3s`（token 与耗时并排，mono tabular-nums）；
-- 格式函数新建（token `xx.xk` 两位小数 + 耗时三档），不复用工具耗时的 `formatDuration`（阶梯不同：秒档要一位小数、小时档不带秒）；
-- 需 i18n 新键（若展示标签需要，纯数字展示可免）；
-- 暂不推进，等排期。
+**② 客户端 settle + 渲染**
+
+- `chatStore.ts`：`settleThinkingDurations()`——`activeThinkingId` 清空点（text/tool_use block_start、message_complete 两处、api_retry）把 `now - timestamp` 盖到 `thinkingDurationMs`；历史映射 `pushAssistantHistoryThinking` 从 transcript 取 `thinkingDurationMs`（前缀增长取新值、相邻块合并求和）；
+- `ThinkingBlock.tsx`：`thinkingBadgeLabel()`/`formatThinkingTokens()`/`formatThinkingDuration()` 纯函数 + 3s `setInterval` 实时 tick（锚定 `serverStart`，非客户端接收时刻）；
+- **无耗时记录的已结束块**（旧会话历史回放）badge 单显 token `xx.xk`（不拼 `· xs`），避免整条消失——这是 H5「token 显示没了」的修复点；
+- `ActivityGroup.tsx` + `activityGroupModel.ts`：`activityDurationMs` 改分段求和（纯思考回合、以思考结尾的回合原口径不显示/少算）；新增 `activityTokenUsage()`（`estimateTokens` 思考内容 + `extractTextContent` 工具结果）与 `activityTokenLabel()`（估算→`Xk + Yk`，真实→合并总数）；
+
+**③ 测试（40 条新增/更新，全绿）**
+
+- ThinkingBlock 22 例（badge 实时 tick/结束固定/无锚点隐藏/无耗时长单显 token/三档格式函数）；
+- ActivityGroup 16 例（分段求和、尾思考计入、token 标签两段/单值）；
+- chatStore `settleThinkingDurations` 4 例（盖值、不覆盖已 settle、负跨度 clamp 0、无变化返回同引用）；
+- server 侧 golden/ws-memory/agentRunMessage 适配 `serverStart` 透传。
+
+### 验证
+
+- tsc 0 错；前端相关家族 444/444 绿（ThinkingBlock 22 + ActivityGroup 16 + chatBlocks 44 + chatStore 354 + tpsMeter 8）；server 3 测试家族 65/65 绿。
+- **H5 实测坑**：H5 服务 `desktop/dist`（`CLAUDE_H5_DIST_DIR`），服务端改动 bun sidecar 直跑源码即生效，但前端渲染必须重新 `vite build`——15:49 旧 dist 无 badge 代码，H5 思考行 token 消失即此因；重构建后 `data-thinking-usage` 入新 App chunk，H5 handler 每请求读盘无需重启。
+
+### 踩坑记录
+
+1. **H5 与桌面共用 `desktop/dist`**：服务端（bun 跑源码）改了立即生效、前端（静态 bundle）必须重建，两者节奏不同步会让 H5 看起来"改了没生效"。
+2. **无耗时记录的旧会话**：`thinkingDurationMs === undefined` 时原实现直接返回空 badge——历史会话整条消失；修为单显 token。
+3. **分段求和 vs 墙钟跨度**：旧 `activityDurationMs` 用首步→末结果跨度，含空闲间隙且纯思考/尾思考回合无"终点"；改 Σ分段后「以思考结尾」的回合也正确显示。
+4. **`serverStart` 锚点选 `content_block_start` 而非首个 delta**：更早（比 delta 早 <100ms）且必然存在；每 delta 重复携带保证幂等（delta 可能丢/重放）。
+5. **settle 点必须覆盖全部 `activeThinkingId` 清空路径**：text/tool_use 的 block_start、message_complete、api_retry 三处，漏一处该思考块永远停在实时 tick。
 
 ### 状态
 
-⬜ 待办（2026-09-26 登记，暂不推进）；无 patch。
+✅ 已实施（2026-09-26）；patch `patches/thinking-tool-timing.patch`（第 23 位入库）。
+
+---
+
+## 二十二、历史记录膨胀（`toolUseResult.originalFile`）致大体积会话打不开（🔍 调研，2026-09-26）
+
+> **完整调研报告另立**：`modify/reports/历史记录膨胀致大体积会话打不开-调研报告.md`
+> 本节仅登记结论与去向，实施细节以报告为准。
+
+### 需求背景
+
+- 远端 H5 打开会话「优化小批量 GEMM 推理吞吐」（`db39b34d-420a-4151-a3a1-77e5d48635e4`）**一片空白、无任何历史消息**；本地桌面同样长时间无内容。
+- 用户初步判断为「升级 0.6.6 后会话记录丢失」。
+
+### 结论摘要
+
+1. **数据未丢失**：文件 114.3 MB / 6891 行 / 坏行 **0**，索引在册，端点 `summary`/`messages`/`mode=full` 全 200——与「升级丢数据」无关。
+2. **膨胀源**=`toolUseResult.originalFile`（Edit/Write 落盘的**改前整文件**）：本会话 20 条 >1MB 记录共 78.6 MB（占 66%），其中 `originalFile` 独占 **76.1 MB**；全局 518 个 transcript 共 **3.0 GB**。**且与 file-history 备份内容重复**（本会话 86 MB / 全局 550 MB，已有 `readBackupFileSafely` 可安全取回）。
+3. **白屏真因（v2 修正）**：客户端首个 `mode=full` 请求撞 **120 s 超时**（诊断日志 `timed out after 120s` × **12**，含仅 13.6 MB 的 `4e1f6c0c`）→ 阻塞式 `await getFullHistory`（`chatStore.ts:2318`）永不 resolve → 不 apply → 白屏。**v1 的「翻完才渲染置空 messages」判断已证伪**（置空的是派生状态；时间线用 `uiMessages`）。体积是放大器：超预算记录独占一页 → 实测 152 页未完成。
+
+### 优化方向（详见报告第七节）
+
+| 序 | 层 | 做法 | 数据变更 |
+|---|---|---|---|
+| **A** | 读取层 | 主历史路径套有界 preview（`displayPreview` 同款） | 无 |
+| **B** | 客户端层 | 首屏渐进渲染 + `projectContext:false` 绕开 context lane（cap=1 全文件重建）+ 超时兜底 | 无 |
+| **C** | 写入层（根治） | 落盘收口（`cleanMessagesForLogging`）裁 `originalFile` 为有界预览 + 新增 `originalFileTruncated/Bytes/Ref` 键，**保留 `structuredPatch`** | 无（只影响新写入） |
+| **D** | 读取层 | 新增按需端点：`file-history/content` → `readBackupFileSafely` 取回原文 | 无 |
+| **E** | 存储层 | file-history `-completed-*` 去重/变动才建/版本上限（550 MB 冗余） | 无 |
+| **F** | 存量 | 改写历史 jsonl 回收空间 | ⚠️ **须用户确认** |
+
+### 硬约束（方案可行性前提，详见报告第六节）
+
+- **`originalFile` 是 schema 必填 `z.string()`** + `FileEditTool/UI.tsx:90` 无保护 `.split` ⇒ **只能裁成字符串预览，不能删字段**（删则 `safeParse` 失败、结果完全不渲染）；
+- **`toolUseResult` 对象不可整体删除**（被 `isHumanTurn` 等当「非人类消息」判别位）；
+- **新增键只能进 `toolUseResult` 内部**（顶层键序被 transcript 解析优化依赖）；
+- ⚠️ **展示层裁剪切忌置 `bodyTruncated`**——会翻转 `historyComplete=false` → 触发 recovery 循环 + `historyWindowed` 横幅误显（最易踩的坑）；
+- recovery / 语义归约路径必须保留原文。
+
+### 状态
+
+🔍 调研完成 + 可行性方案定稿（2026-09-26，报告 v2）；A–F 待裁决，**F 须用户确认**；尚无 patch。
+
+---
+
+## 二十三、子代理内容实时反馈（opencode 式，替代当前间隔刷新）（⬜ 待办，仅登记，2026-09-26）
+
+### 需求背景（用户 2026-09-26 verbatim）
+
+「子会话的子代理think、思考的内容改为实时反馈（类似 opencode 的样式），而不是间隔刷新。此作为新增优化项，仅做记录，暂时不做处理。」
+
+### 现状
+
+- 主会话流式 thinking/正文逐 delta 实时渲染（`content_delta`/`thinking` WS 事件 → chatStore 即时 append）；
+- 子代理（Agent 工具派生的 run）内容经 `agent_run_event` 路由到子会话，**展示为间隔刷新**（子会话事件批量落地/整块落盘后统一映射，非逐 delta 跟随）；
+- 参照物=opencode：子代理输出与主会话同级逐 token 流式呈现。
+
+### 方案要点（实施时细化）
+
+- 子会话流事件（thinking/content_delta）逐条透传渲染，复用主会话既有 merge 路径（`findStreamMergeTargetIndex`/`joinThinkingContent`）；
+- 需核对 `agent_run_event` 批量缓冲（`pendingAgentRunEvents`/`bufferAgentRunEvent`）是否在实时路径上造成合并粒度变粗；
+- 子代理卡片（Agent 工具行）内嵌实时预览 vs 子会话页实时，二选一或双通道（实施时定）；
+- 与章二十一 badge 机制正交（badge 读 `thinkingDurationMs`，实时反馈只改渲染粒度）。
+
+### 状态
+
+⬜ 待办（2026-09-26 登记，**仅记录暂不推进**）；无 patch。
 
 ---
 

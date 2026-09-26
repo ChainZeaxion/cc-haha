@@ -2996,6 +2996,7 @@ function getStreamState(sessionId: string): SessionStreamState {
       activeMessageIdsByScope: new Map(),
       activeBlockScopesByIndex: new Map(),
       activeBlockTypes: new Map(),
+      thinkingBlockStarts: new Map(),
       activeToolBlocks: new Map(),
       pendingLocalCommand: undefined,
       pendingToolBlocks: new Map(),
@@ -3562,6 +3563,11 @@ export function translateCliMessage(cliMsg: any, sessionId: string): ServerMessa
 
           if (contentBlock.type === 'thinking' || contentBlock.type === 'redacted_thinking') {
             streamState.activeBlockTypes.set(blockKey, 'thinking')
+            // content_block_start is the earliest point the server knows the
+            // thought is generating; anchor the block's wall clock here so the
+            // client can show the elapsed time from the first moment, not from
+            // whenever the first delta happens to arrive.
+            streamState.thinkingBlockStarts.set(blockKey, Date.now())
             return [{ type: 'status', state: 'thinking', verb: 'Thinking' }]
           }
 
@@ -3588,7 +3594,12 @@ export function translateCliMessage(cliMsg: any, sessionId: string): ServerMessa
             return [{ type: 'content_delta', toolInput: delta.partial_json }]
           }
           if (delta.type === 'thinking_delta' && delta.thinking) {
-            return [{ type: 'thinking', text: delta.thinking }]
+            const index = event.index ?? 0
+            const activeBlock = resolveActiveBlockKey(streamState, cliMsg, index)
+            const serverStart = activeBlock
+              ? streamState.thinkingBlockStarts.get(activeBlock.key)
+              : undefined
+            return [{ type: 'thinking', text: delta.thinking, ...(serverStart !== undefined ? { serverStart } : {}) }]
           }
           return []
         }
@@ -3599,6 +3610,7 @@ export function translateCliMessage(cliMsg: any, sessionId: string): ServerMessa
           if (!activeBlock) return []
           const blockType = streamState.activeBlockTypes.get(activeBlock.key)
           streamState.activeBlockTypes.delete(activeBlock.key)
+          streamState.thinkingBlockStarts.delete(activeBlock.key)
           forgetActiveBlockScope(streamState, index, activeBlock.scope)
 
           if (blockType === 'tool_use') {

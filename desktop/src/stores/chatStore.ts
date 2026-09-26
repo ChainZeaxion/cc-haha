@@ -4923,6 +4923,7 @@ export const useChatStore = create<ChatStore>((setState, get) => {
         }
         if (msg.blockType === 'text') {
           update((s) => ({
+            messages: settleThinkingDurations(s.messages, Date.now()),
             ...(pendingText !== s.streamingText ? { streamingText: pendingText } : {}),
             chatState: 'streaming',
             activeThinkingId: null,
@@ -4930,6 +4931,7 @@ export const useChatStore = create<ChatStore>((setState, get) => {
             streamingFallback: null,
           }))
         } else if (msg.blockType === 'tool_use') {
+
           clearPendingToolInputDelta(sessionId)
           rememberPendingToolParentUseId(sessionId, msg.toolUseId, msg.parentToolUseId)
           const toolUseId = msg.toolUseId ?? null
@@ -4937,20 +4939,24 @@ export const useChatStore = create<ChatStore>((setState, get) => {
           update((s) => ({
             ...(toolUseId
               ? {
-                  messages: upsertToolUseMessage(s.messages, toolUseId, (existing) => ({
-                    id: existing?.id ?? nextId(),
-                    type: 'tool_use',
-                    toolName,
+                  messages: upsertToolUseMessage(
+                    settleThinkingDurations(s.messages, Date.now()),
                     toolUseId,
-                    originalToolUseId: msg.originalToolUseId ?? existing?.originalToolUseId,
-                    input: existing?.input ?? {},
-                    timestamp: existing?.timestamp ?? Date.now(),
-                    parentToolUseId: msg.parentToolUseId ?? existing?.parentToolUseId,
-                    isPending: true,
-                    partialInput: existing?.partialInput ?? '',
-                  })),
+                    (existing) => ({
+                      id: existing?.id ?? nextId(),
+                      type: 'tool_use',
+                      toolName,
+                      toolUseId,
+                      originalToolUseId: msg.originalToolUseId ?? existing?.originalToolUseId,
+                      input: existing?.input ?? {},
+                      timestamp: existing?.timestamp ?? Date.now(),
+                      parentToolUseId: msg.parentToolUseId ?? existing?.parentToolUseId,
+                      isPending: true,
+                      partialInput: existing?.partialInput ?? '',
+                    }),
+                  ),
                 }
-              : {}),
+              : { messages: settleThinkingDurations(s.messages, Date.now()) }),
             activeToolUseId: toolUseId,
             activeToolName: toolName,
             streamingToolInput: '',
@@ -4969,6 +4975,7 @@ export const useChatStore = create<ChatStore>((setState, get) => {
         const maxRetries = Math.max(attempt, Math.trunc(msg.maxRetries))
         const retryDelayMs = Math.max(0, Math.trunc(msg.retryDelayMs))
         update((session) => ({
+          messages: settleThinkingDurations(session.messages, Date.now()),
           apiRetry: {
             attempt,
             maxRetries,
@@ -5161,13 +5168,16 @@ export const useChatStore = create<ChatStore>((setState, get) => {
           }
           const id = nextId()
           return {
-            messages: [...base, { id, type: 'thinking', content: msg.text, timestamp: Date.now() }],
+            // Anchor the block's clock to the server's first sight of the block
+            // (serverStart) rather than the client's receive moment, so the
+            // ticking elapsed time starts from "generation began", not from
+            // network arrival.
+            messages: [...base, { id, type: 'thinking', content: msg.text, timestamp: typeof msg.serverStart === 'number' ? msg.serverStart : Date.now() }],
             chatState: 'thinking',
             activeThinkingId: id,
             streamingText: '',
             streamingResponseChars: s.streamingResponseChars + msg.text.length,
-          }
-        })
+          }        })
         if (!skippedThinkingBlock) {
           // thinking 流式片段同样是 decode 输出 token，必须喂 TPS 米表：不喂的话
           // thinking 全程零采样，米表窗口排空后 UI 会冻结在正文结束前的旧速度上
@@ -5464,6 +5474,7 @@ export const useChatStore = create<ChatStore>((setState, get) => {
           if (session.elapsedTimer) clearInterval(session.elapsedTimer)
           const hasRunningBackgroundAgents = hasRunningBackgroundTasks(session.backgroundAgentTasks)
           update((current) => ({
+            messages: settleThinkingDurations(current.messages, Date.now()),
             tokenUsage: msg.usage,
             chatState: 'idle',
             activeThinkingId: null,
@@ -5505,7 +5516,10 @@ export const useChatStore = create<ChatStore>((setState, get) => {
           update(() => ({ streamingText: text }))
         }
         const appendedCompletionMessage = completionMessages !== session.messages
-        const finalMessages = markPendingToolUseMessagesStopped(completionMessages)
+        const finalMessages = settleThinkingDurations(
+          markPendingToolUseMessagesStopped(completionMessages),
+          completedAt,
+        )
         const hasRunningBackgroundAgents = hasRunningBackgroundTasks(session.backgroundAgentTasks)
         if (session.elapsedTimer) clearInterval(session.elapsedTimer)
         update((current) => ({
@@ -7222,11 +7236,34 @@ export function joinThinkingContent(previous: string, next: string, nextIsWholeB
   return `${previous}\n\n${next}`
 }
 
+/**
+ * Stamp the settled duration onto a finished thinking block.
+ *
+ * A thinking UIMessage's `timestamp` is its first delta (the block's start), so
+ * `now - timestamp` at the moment the block stops growing is its wall-clock
+ * thinking span — the same "time the user waited" reading the tool-duration
+ * badge uses. Called at the settle points where `activeThinkingId` is cleared
+ * (a text/tool_use block_start, or message_complete), so a still-growing block
+ * is never frozen with a partial number. Already-settled blocks keep their
+ * value, which matters for turns that interleave several thinking blocks.
+ */
+export function settleThinkingDurations(messages: UIMessage[], now: number): UIMessage[] {
+  let changed = false
+  const next = messages.map((message) => {
+    if (message.type !== 'thinking' || message.thinkingDurationMs !== undefined) return message
+    changed = true
+    const elapsed = now - message.timestamp
+    return { ...message, thinkingDurationMs: Number.isFinite(elapsed) && elapsed >= 0 ? elapsed : 0 }
+  })
+  return changed ? next : messages
+}
+
 function pushAssistantHistoryThinking(
   messages: UIMessage[],
   id: string,
   content: string,
   timestamp: number,
+  thinkingDurationMs?: number,
 ): void {
   // 与流式路径（case 'thinking'）保持同等防护：纯空白块不产生空壳气泡。
   if (!content.trim()) return
@@ -7238,14 +7275,24 @@ function pushAssistantHistoryThinking(
     // 合并时保留首个块的确定性 id，保证轮询重映射时 React key 稳定。
     if (last.content === content) return
     if (content.startsWith(last.content)) {
+      // 同一块的前缀增长快照：耗时取新值（新快照是该块完整生成后的时长）。
       last.content = content
+      if (thinkingDurationMs !== undefined) last.thinkingDurationMs = thinkingDurationMs
       return
     }
+    // 相邻的不同思考块合并：各自的生成时长求和。
     last.content = joinThinkingContent(last.content, content, true)
+    if (thinkingDurationMs !== undefined) {
+      last.thinkingDurationMs = (last.thinkingDurationMs ?? 0) + thinkingDurationMs
+    }
     return
   }
 
-  messages.push({ id, type: 'thinking', content, timestamp })
+  if (thinkingDurationMs !== undefined) {
+    messages.push({ id, type: 'thinking', content, timestamp, thinkingDurationMs })
+  } else {
+    messages.push({ id, type: 'thinking', content, timestamp })
+  }
 }
 
 type HistoryMappingOptions = {
@@ -7881,7 +7928,7 @@ export function mapHistoryMessagesToUiMessages(
     }
     if ((msg.type === 'assistant' || msg.type === 'tool_use') && Array.isArray(msg.content)) {
       for (const [blockIndex, block] of (msg.content as AssistantHistoryBlock[]).entries()) {
-        if (block.type === 'thinking' && block.thinking) pushAssistantHistoryThinking(uiMessages, `${msg.id}-block-${blockIndex}`, block.thinking, timestamp)
+        if (block.type === 'thinking' && block.thinking) pushAssistantHistoryThinking(uiMessages, `${msg.id}-block-${blockIndex}`, block.thinking, timestamp, msg.thinkingDurationMs)
         else if (block.type === 'text' && block.text) {
           pushAssistantHistoryText(
             uiMessages,

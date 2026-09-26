@@ -132,10 +132,11 @@ export type ServerMessage =
   | { type: 'user_message_replay'; content: string; sessionReferences?: Array<{ sessionId: string }>; collaboration?: { sourceSessionId: string; messageId?: string } }
   | { type: 'message_complete'; usage: TokenUsage; timing?: TurnTiming }
   /** `complete` marks a whole thinking block; without it `text` is a stream fragment. */
-  | { type: 'thinking'; text: string; complete?: boolean }
+  | { type: 'thinking'; text: string; complete?: boolean; /** Epoch ms the server first saw this thinking block; anchors the live elapsed-time tick to "generation began". */ serverStart?: number }
   | { type: 'status'; state: ChatState; verb?: string; attemptStart?: boolean }
   | {
       type: 'runtime_config_applied'
+
       providerId: string | null
       modelId: string
       effortLevel?: string
@@ -170,7 +171,7 @@ export type AgentRunStreamMessage =
   | { type: 'content_delta'; text?: string; toolInput?: string }
   | { type: 'tool_use_complete'; toolName: string; toolUseId: string; originalToolUseId?: string; input: unknown; parentToolUseId?: string }
   | { type: 'tool_result'; toolUseId: string; originalToolUseId?: string; content: unknown; isError: boolean; parentToolUseId?: string }
-  | { type: 'thinking'; text: string; complete?: boolean }
+  | { type: 'thinking'; text: string; complete?: boolean; /** Epoch ms the server first saw this thinking block; anchors the live elapsed-time tick to "generation began". */ serverStart?: number }
   | { type: 'status'; state: ChatState; verb?: string; attemptStart?: boolean }
   | { type: 'api_retry'; attempt: number; maxRetries: number; retryDelayMs: number; errorStatus: number | null; errorType?: string; errorMessage?: string }
   | { type: 'streaming_fallback'; cause: StreamingFallbackCause }
@@ -348,7 +349,7 @@ export type UIMessage =
    */
   | { id: string; type: 'user_text'; content: string; sessionReferences?: Array<{ sessionId: string }>; collaboration?: { sourceSessionId: string; messageId?: string }; modelContent?: string; transcriptMessageId?: string; timestamp: number; attachments?: UIAttachment[]; pending?: boolean; optimisticQueued?: boolean; teammateFrom?: string }
   | { id: string; type: 'assistant_text'; content: string; transcriptMessageId?: string; timestamp: number; model?: string }
-  | { id: string; type: 'thinking'; content: string; timestamp: number }
+  | { id: string; type: 'thinking'; content: string; timestamp: number; /** Wall-clock ms this block spent generating; set on completion (live) or mapped from the transcript (history). */ thinkingDurationMs?: number }
   | {
       id: string
       type: 'tool_use'
