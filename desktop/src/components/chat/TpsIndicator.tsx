@@ -18,9 +18,11 @@ import { useTranslation } from '../../i18n'
  * the main view shows the team-wide total; a "Σn" badge appears while at least
  * one subagent is actively emitting (see aggregateMeterReadings).
  *
- * Coloring: <27 red, <53 orange, <80 green, >=80 purple. Polled at POLL_MS
- * (≈5-6 Hz). Meter is per-session (see getSessionTpsMeter), so parallel
- * sessions each show their own decode speed.
+ * Rendered as plain text `TPS {n}t/s` (no pill background) — the chat header
+ * stacks it under the cost badge in a two-line block. Coloring: <27 red, <53
+ * orange, <80 green, >=80 purple. Polled at POLL_MS (≈5-6 Hz). Meter is
+ * per-session (see getSessionTpsMeter), so parallel sessions each show their
+ * own decode speed.
  */
 
 const POLL_MS = 180
@@ -38,11 +40,11 @@ function tierFor(tps: number): TpsTier {
   return 'purple'
 }
 
-const TIER_STYLE: Record<TpsTier, { color: string; bg: string }> = {
-  red: { color: 'var(--color-error)', bg: 'var(--color-error-container)' },
-  orange: { color: '#f59e0b', bg: 'rgba(245,158,11,0.14)' },
-  green: { color: 'var(--color-success)', bg: 'var(--color-success-container)' },
-  purple: { color: '#a855f7', bg: 'rgba(168,85,247,0.16)' },
+const TIER_STYLE: Record<TpsTier, { color: string }> = {
+  red: { color: 'var(--color-error)' },
+  orange: { color: '#f59e0b' },
+  green: { color: 'var(--color-success)' },
+  purple: { color: '#a855f7' },
 }
 
 export function TpsIndicator({ sessionId, vertical = false }: { sessionId: string; vertical?: boolean }) {
@@ -97,16 +99,15 @@ export function TpsIndicator({ sessionId, vertical = false }: { sessionId: strin
     return (
       <span
         data-testid="tps-indicator"
-        className="inline-flex shrink-0 flex-col items-center justify-center rounded-full px-2 py-0.5 font-mono text-[10px] font-semibold leading-none tabular-nums"
-        style={{ color: style.color, background: style.bg }}
+        className="inline-flex shrink-0 flex-col items-center justify-center font-mono text-[10px] font-semibold leading-none tabular-nums"
+        style={{ color: style.color }}
         title={title}
       >
-        <span className="font-bold leading-none">TPS</span>
-        <span className="mt-0.5 inline-block text-center leading-none">
-          {tps.toFixed(0)}
+        <span className="inline-block text-center leading-none">
+          TPS{tps.toFixed(0)}t/s
         </span>
         {activeSubs > 0 ? (
-          <span data-testid="tps-subagent-badge" className="mt-0.5 text-[9px] leading-none">
+          <span data-testid="tps-subagent-badge" className="mt-0.5 leading-none">
             Σ{activeSubs}
           </span>
         ) : null}
@@ -117,16 +118,13 @@ export function TpsIndicator({ sessionId, vertical = false }: { sessionId: strin
   return (
     <span
       data-testid="tps-indicator"
-      className="inline-flex shrink-0 items-center gap-1 rounded-full px-2 py-0.5 font-mono text-[11px] font-semibold tabular-nums"
-      style={{ color: style.color, background: style.bg }}
+      className="inline-flex shrink-0 items-center font-mono text-[10px] font-semibold leading-tight tabular-nums"
+      style={{ color: style.color }}
       title={title}
     >
-      <span className="inline-block min-w-[6ch] text-right">
-        {tps.toFixed(0)}
-      </span>
-      <span>t/s</span>
+      <span className="inline-block">TPS {tps.toFixed(0)}t/s</span>
       {activeSubs > 0 ? (
-        <span data-testid="tps-subagent-badge" className="text-[10px]">
+        <span data-testid="tps-subagent-badge" className="ml-1">
           Σ{activeSubs}
         </span>
       ) : null}

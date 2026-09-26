@@ -428,10 +428,16 @@ export function AppShell() {
             ) : null}
             {isActiveChatTab ? (
               <div className="flex shrink-0 items-center gap-1">
-                {activeTabId ? <TpsIndicator sessionId={activeTabId} vertical /> : null}
-                {activeTabId ? (
-                  <SessionCostBadge sessionId={activeTabId} active={activeTab?.status === 'running'} compact />
-                ) : null}
+                <div className="flex h-[36px] shrink-0 flex-col items-end justify-center gap-0.5">
+                  <div className="flex h-[15px] items-center">
+                    {activeTabId ? (
+                      <SessionCostBadge sessionId={activeTabId} active={activeTab?.status === 'running'} compact />
+                    ) : null}
+                  </div>
+                  <div className="flex h-[13px] items-center">
+                    {activeTabId ? <TpsIndicator sessionId={activeTabId} vertical /> : null}
+                  </div>
+                </div>
                 <IconButton
                   data-testid="session-manual-refresh-mobile"
                   icon={refreshingSession ? 'progress_activity' : 'refresh'}
