@@ -2953,6 +2953,8 @@ export class SessionService {
     const promptTokens = latest.inputTokens + latest.cacheReadInputTokens + latest.cacheCreationInputTokens
     const providerTokens = promptTokens + latest.outputTokens
     const hasProviderUsage = providerTokens > 0
+    // estimatedTokens 仍用全量 rough 累加（媒体信任启发式需要「内容估计」为
+    // 正且小于窗口才能触发），显示总量单独走 usage 锚口径（见 totalTokens）。
     const estimatedTokens = estimatedTokensFromMessages || promptTokens
     const contextBudget = calculateContextBudget({
       estimatedTokens,
@@ -2968,15 +2970,13 @@ export class SessionService {
       }),
       hasMediaInput: transcriptHasMediaInput,
     })
+    // 显示总量走 usage 锚口径（与 auto-compact 的 tokenCountWithEstimation
+    // 同口径）：最后一条真实 usage 总量 + 其后 rough 累加。bc 中间件压缩后
+    // usage 回落 → 百分比收敛，不再被自 boundary 的全量累加钉死 100%。
+    // 低信任+媒体的可疑 usage 尖峰仍走估计口径（ignoredUsageReason 分支）。
     const totalTokens =
       hasProviderUsage && !contextBudget.ignoredUsageReason
-        ? Math.min(
-            Math.max(
-              contextBudget.usedTokens,
-              providerTokens + estimatedTokensAfterUsage,
-            ),
-            rawMaxTokens,
-          )
+        ? Math.min(providerTokens + estimatedTokensAfterUsage, rawMaxTokens)
         : contextBudget.usedTokens
     const percentage = rawMaxTokens > 0 ? Math.round((totalTokens / rawMaxTokens) * 100) : 0
     const usageCategories: TranscriptContextEstimate['categories'] = [
