@@ -29,7 +29,7 @@
 | 连接器/平台 | 十六 连接器目录 Linux 平台支持（x64/arm64，服务端 H5 场景生效） | —（新增） | ✅ |
 | 移动端/H5 | 十七 H5/移动端 技能市场页 header 布局适配（副标题不再折多行） | —（新增） | ✅ |
 | 平台/功能 | 十八 Computer Use 解锁 Linux（X11）平台 | —（新增） | ✅ |
-| 上下文/压缩 | 十九 bc 压缩后 context usage 不收敛（调研完成，待实施） | —（新增） | ⬜ |
+| 上下文/压缩 | 十九 bc 压缩后 context usage 不收敛（显示总量改 usage 锚口径） | —（新增） | ✅ |
 | 性能/传输 | 二十 H5 远端 API 响应 gzip 压缩传输（非本机默认开启，省 68% 带宽） | —（新增） | ✅ |
 | 功能特性/显示 | 二十一 每次思考耗时记录并在对话记录展示（仿工具执行耗时横条右端） | —（新增） | ⬜ 待办 |
 
@@ -39,7 +39,7 @@
 >
 > **2026-09-26 重基**：全部 patch 重基到上游 `068b3ebd`（origin/main 2026-09-25，含 20 个新 commit：CORS 门控重做/切 tab 保视图/历史不全保聊天/内存保存竞态两修/pending 问题超时自动回答/聊天外观偏好/OAuth 2.1.281 对齐/agent-teams/Kimi K3 图片透传/定时任务持久化串行化）。应用方式=按下表从上到下逐章 `git apply --allow-empty`。空 patch（h5-settings-whitelist、h5-mobile-market）内容已被后续章节的共享文件覆盖，apply 后无变化。
 >
-> **当前链规模（2026-09-26 #90 重生成后）**：共 **21 patch**（19 实 + 2 空）。#90 重生成 tps-indicator.patch（8 文件 839 行）后跑 **21 链全验证**：068b3ebd 基线顺序 apply 21 patch FAIL=0，8 个 tps 章文件逐字节=工作树，树级 delta 仅已知非章 WIP（#83 测试修复族 + #85 WIP sessionProjector/sessionService + 既有 bun.lock/TerminalSettings.tsx/providerModels.ts）。新增章（十八 computer-use-linux-x11、二十 h5-gzip-transport）已在链内。
+> **当前链规模（2026-09-26 #85 章十九实施后）**：共 **22 patch**（20 实 + 2 空）。新增 `context-usage-anchor.patch`（4 文件 166 行，章十九 #85）后跑 **22 链全验证**：068b3ebd 基线顺序 apply 22 patch FAIL=0，章十九 4 文件逐字节=工作树，树级 delta 仅已知非章 WIP（#83 测试修复族 + 既有 bun.lock/TerminalSettings.tsx/providerModels.ts）。新增章（十八 computer-use-linux-x11、十九 context-usage-anchor、二十 h5-gzip-transport）已在链内。
 
 ### 命名与存放约定
 - 存放：`modify/patches/`（patch 文件统一子目录）
@@ -71,7 +71,8 @@
 | 18 | `patches/connector-linux-platform.patch` | 十六 连接器目录 Linux 平台支持（x64/arm64） | ✅ |
 | 19 | `patches/h5-mobile-market-layout.patch` | 十七 H5/移动端 技能市场页 header 布局适配 | ✅ |
 | 20 | `patches/computer-use-linux-x11.patch` | 十八 Computer Use 解锁 Linux（X11） | ✅ |
-| 21 | `patches/h5-gzip-transport.patch` | 二十 H5 远端 API 响应 gzip 压缩传输 | ✅ |
+| 21 | `patches/context-usage-anchor.patch` | 十九 bc 压缩后 context usage 不收敛（显示总量 usage 锚口径 + projector metadata 上限加固） | ✅ |
+| 22 | `patches/h5-gzip-transport.patch` | 二十 H5 远端 API 响应 gzip 压缩传输 | ✅ |
 
 ### 移植通用注意事项- stale `.js` 孪生：改 `src/*.ts` 走 sidecar 打包路径时，须核对被改文件同名 `.js` 是否存在且同步（旧树 `.js` 优先加载坑）。
 - 0.6.6 已有对应能力需**融合**而非整块覆盖（如 H5 安全配对、缓存 token 显示、rewind 等），各章落地前先核对现状。
@@ -872,7 +873,7 @@ Computer Use（电脑操作）功能此前仅对 macOS（`darwin`）与 Windows�
 
 **patch**：`modify/patches/computer-use-linux-x11.patch`（24 文件 1758 行含 2 新文件 new file mode，20 链末位，基线=068b3ebd 起 19 链终态；20 链 worktree 顺序 `git apply --allow-empty` 全干净，24 文件与工作树逐字节一致）。
 
-## 十九、bc 压缩后 context usage 不收敛（⬜ 调研完成，待实施）
+## 十九、bc 压缩后 context usage 不收敛（✅ 2026-09-26 已实施）
 
 ### 需求背景（用户 2026-09-26 verbatim）
 
@@ -902,9 +903,22 @@ Computer Use（电脑操作）功能此前仅对 macOS（`darwin`）与 Windows�
 - **B（兜底）**：bc 压缩/salvage 时让 sidecar 感知——两路：①bc 在流里发 compaction 标记（需 bc 协议扩展，改动大）；②sidecar 检测到「latestUsage 总量较前值骤降 > 阈值」时视为压缩事件，清零 `estimatedTokensFromMessages`（本地启发式，无 bc 改动）。
 - **C（口径修正，可选）**：ZXSV-AI 窗口 231248 → 与 bc 真实管理窗口对齐（或留 231248 当「sidecar 自主 compact 预算」语义，文档说明）。
 
+### 实施（commit 94c8f0f7，4 文件 74 行，方案 A 治本 + 伴随加固）
+
+- **核心（方案 A）**：`src/server/services/sessionService.ts:2970` `buildTranscriptContextEstimate` 的 `totalTokens` 从 `min(max(contextBudget.usedTokens, providerTokens+estimatedTokensAfterUsage), rawMaxTokens)` 改为 `min(providerTokens+estimatedTokensAfterUsage, rawMaxTokens)`——显示总量走 **usage 锚口径**（最后一条真实 usage 总量 + 其后 rough 累加），与 auto-compact 的 `tokenCountWithEstimation`（tokens.ts:299）同口径。bc 中间件压缩后 usage 回落 → 显示百分比收敛，不再被自 boundary 的全量 rough 累加（本会话 ~787K=340% 窗口）钉死 100%。`estimatedTokens` 仍保留全量 rough 口径供 `calculateContextBudget` 的媒体信任启发式使用；低信任+媒体的可疑 usage 尖峰仍走 `ignoredUsageReason` 分支（行为不变）。
+- **伴随加固**：`src/server/services/localIndex/sessionProjector.ts`——malformed transcript 会把 thinking 文本误解析进 tool_use name，原单字符串 metadata 上限 4KB 过紧（实测 12KB 异常值致 `LOCAL_INDEX_SOURCE_LIMIT`），放宽为 `MAX_PROJECTION_METADATA_VALUE_BYTES=16KB`（且由 `value.length` 字符判定改为 `Buffer.byteLength` 字节判定，多字节字符更准）；metadata 总量上限 `MAX_PROJECTION_METADATA_BYTES` 16MB→32MB。
+- **回归测试**：`src/server/__tests__/conversations.test.ts` 新增「全量 rough 累加(150k)≫真实 usage(1200) 时显示锚定 usage」用例（600000 字符 assistant 消息 + usage 1200，断言 totalTokens=1200/percentage=1/rawMaxTokens=200000）——stash 旧码验证该用例 fail，正确钉住本改动。`sessionProjector.test.ts` 适配新上限常量。
+
+### 验证
+
+- src/server 相关 4 测试家族（conversations/sessions/contextBudget/sessionProjector 等）共 **488/488 绿**（加新回归测试后）；新用例在新码 pass、stash 旧码 fail。
+- typecheck 干净（scoped，仅既有 TS5102 baseUrl 无关告警）。
+- **22 链全验证**：068b3ebd 基线顺序 apply 22 patch（含新 `context-usage-anchor.patch`）FAIL=0，章十九 4 文件逐字节=工作树。
+
 ### 状态
 
-⬜ 调研完成（2026-09-26，根因+三机理+方案已定稿）；实施未开始，无 patch。
+✅ 已实施（2026-09-26，方案 A + projector 加固，patch `context-usage-anchor.patch` 入库）。
+
 
 ---
 
