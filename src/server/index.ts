@@ -16,6 +16,7 @@ import { requireAuth, requireH5Token } from './middleware/auth.js'
 import { teamWatcher } from './services/teamWatcher.js'
 import { cronScheduler } from './services/cronScheduler.js'
 import { handleProxyRequest } from './proxy/handler.js'
+import { withGzipIfEligible } from './responseCompression.js'
 import { ProviderService } from './services/providerService.js'
 import { handleHahaOAuthCallback } from './api/haha-oauth.js'
 import { handleHahaOpenAIOAuthCallback } from './api/haha-openai-oauth.js'
@@ -624,7 +625,9 @@ export function startServer(port = PORT, host = HOST) {
               req,
               handleApiRequest(req, url, { remoteBrowser: classifyH5Request(req, url, h5RequestContext) === 'h5-browser' }),
             )
-            return withCors(response, cors)
+            // Remote API responses are gzip-compressed (transparent to browser
+            // fetch); loopback desktop traffic stays uncompressed.
+            return withCors(await withGzipIfEligible(req, response, clientAddress), cors)
           } catch (error) {
             void diagnosticsService.recordEvent({
               type: 'api_request_failed',
