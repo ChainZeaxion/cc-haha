@@ -6359,9 +6359,14 @@ describe('MessageList nested tool calls', () => {
     await waitFor(() => expect(container.querySelector('[data-chat-render-item-key="assistant-virtual-file"]')).toBeNull())
     act(() => useWorkspaceStore.getState().setLayout(ACTIVE_TAB, 'hidden'))
 
-    const remountedOpener = await screen.findByRole('button', { name: 'Open src/virtual.ts in workspace' })
+    // Restore runs on an rAF retry loop (up to 7 frames); give it real headroom
+    // under full-suite load where frames stretch past the 1s findByRole default.
+    const remountedOpener = await waitFor(
+      async () => screen.findByRole('button', { name: 'Open src/virtual.ts in workspace' }),
+      { timeout: 5000 },
+    )
     expect(remountedOpener).not.toBe(opener)
-    await waitFor(() => expect(document.activeElement).toBe(remountedOpener))
+    await waitFor(() => expect(document.activeElement).toBe(remountedOpener), { timeout: 5000 })
     expect(screen.getByRole('button', { name: 'Hide changed files' }).getAttribute('aria-expanded')).toBe('true')
     expect(useWorkspaceStore.getState().getSession(ACTIVE_TAB).origin).toBeNull()
   })

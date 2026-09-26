@@ -97,7 +97,7 @@ import {
   type SystemPrompt,
 } from "../../utils/systemPromptType.js";
 import { tokenCountFromLastAPIResponse } from "../../utils/tokens.js";
-import { shouldSendThinkingToAPI } from "../../utils/thinking.js";
+import { modelUsesBoundThinking, shouldSendThinkingToAPI } from "../../utils/thinking.js";
 import { getDynamicConfig_BLOCKS_ON_INIT } from "../analytics/growthbook.js";
 import {
   currentLimits,
@@ -1423,7 +1423,11 @@ async function* queryModel(
     // When the "send thinking back to the API" toggle is OFF (default),
     // strip the previous turn's thinking blocks from the request body to
     // save prefill tokens. Local history always keeps them.
-    { stripThinking: !shouldSendThinkingToAPI() },
+    // Exception: bound-thinking models (Fable 5.1) need the replayed
+    // thinking blocks in the request so the API can drop the ones bound
+    // to an old prefix (block_binding drop_block); stripping them breaks
+    // replay after a system change.
+    { stripThinking: !shouldSendThinkingToAPI() && !modelUsesBoundThinking(options.model) },
   );
   queryCheckpoint("query_message_normalization_end");
 
