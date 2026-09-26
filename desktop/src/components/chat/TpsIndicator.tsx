@@ -30,8 +30,17 @@ const LOW_TIER = 27
 const MED_TIER = 53
 const HIGH_TIER = 80
 const HIDE_AFTER_IDLE_MS = 5 * 60 * 1000
+// 显示口径：数值最多 4 位（用户要求 "TPS XXt/s" 最多四位数）。聚合/保持值
+// 偶可超 4 位（子代理汇聚或移动端批量突发），封顶显示避免撑破固定栏宽。
+const MAX_DISPLAY_TPS = 9999
 
 type TpsTier = 'red' | 'orange' | 'green' | 'purple'
+
+/** Display integer, capped at 4 digits (see MAX_DISPLAY_TPS). */
+function formatTps(tps: number): string {
+  const rounded = Math.round(tps)
+  return String(Math.min(rounded, MAX_DISPLAY_TPS))
+}
 
 function tierFor(tps: number): TpsTier {
   if (tps < LOW_TIER) return 'red'
@@ -104,7 +113,7 @@ export function TpsIndicator({ sessionId, vertical = false }: { sessionId: strin
         title={title}
       >
         <span className="inline-block text-center leading-none">
-          TPS {tps.toFixed(0)}t/s
+          TPS {formatTps(tps)}t/s
         </span>
         {activeSubs > 0 ? (
           <span data-testid="tps-subagent-badge" className="mt-0.5 leading-none">
@@ -122,7 +131,7 @@ export function TpsIndicator({ sessionId, vertical = false }: { sessionId: strin
       style={{ color: style.color }}
       title={title}
     >
-      <span className="inline-block">TPS {tps.toFixed(0)}t/s</span>
+      <span className="inline-block">TPS {formatTps(tps)}t/s</span>
       {activeSubs > 0 ? (
         <span data-testid="tps-subagent-badge" className="ml-1">
           Σ{activeSubs}

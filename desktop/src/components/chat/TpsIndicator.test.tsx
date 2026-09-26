@@ -62,6 +62,20 @@ it('drops the Σ badge once the subagent stops (its held speed must not inflate 
 
 })
 
+it('caps the displayed value at 4 digits (9999)', () => {
+  // Pump both meters hard so the aggregate total far exceeds 9999
+  // (≈1140 tok/sample × 15 live samples / 1.5s window ≈ 11k per meter).
+  for (let i = 0; i < 20; i++) {
+    now += 100
+    subMeter.push('x'.repeat(4000))
+    ownMeter.push('x'.repeat(4000))
+  }
+  const { container } = render(<TpsIndicator sessionId="main" />)
+  const indicator = container.querySelector('[data-testid="tps-indicator"]')!
+  const numberText = indicator.textContent?.replace(/TPS|t\/s|Σ\d+/g, '').trim() ?? ''
+  expect(Number(numberText)).toBe(9999)
+})
+
 it('stays hidden before anything has streamed', () => {
   const { container } = render(<TpsIndicator sessionId="main" />)
   expect(container.querySelector('[data-testid="tps-indicator"]')).toBeNull()
