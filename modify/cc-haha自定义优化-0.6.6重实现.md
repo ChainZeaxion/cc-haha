@@ -31,6 +31,8 @@
 | 平台/功能 | 十八 Computer Use 解锁 Linux（X11）平台 | —（新增） | ✅ |
 | 上下文/压缩 | 十九 bc 压缩后 context usage 不收敛（调研完成，待实施） | —（新增） | ⬜ |
 | 性能/传输 | 二十 H5 远端 API 响应 gzip 压缩传输（非本机默认开启，省 68% 带宽） | —（新增） | ✅ |
+| 功能特性/显示 | 二十一 每次思考耗时记录并在对话记录展示（仿工具执行耗时横条右端） | —（新增） | ⬜ 待办 |
+
 ## 📦 联动 Patches
 
 > 各优化项的实施 diff 以 patch 文件形式统一存放到本 `modify/` 目录（后期全部归档于此），与上文章节联动：每完成一项，patch 入库并在此登记；升级/重打基座时按本表逐个 `git apply` 重放。
@@ -920,6 +922,31 @@ Computer Use（电脑操作）功能此前仅对 macOS（`darwin`）与 Windows�
 ### 状态
 
 ✅ 已完成并提交（2026-09-26，commit 26375d8f）；patch `patches/h5-gzip-transport.patch`（3 文件 277 行，基线 d6767a02）。
+
+---
+
+## 二十一、每次思考耗时记录并在对话记录展示（⬜ 待办，暂不推进）
+
+### 需求背景（用户 2026-09-26 verbatim）
+
+「新增一项优化项，作为待办事项，暂不推进。记录每次思考耗时，并在对话记录里体现，类似工具执行耗时在横条右端末尾记录耗时。」
+
+### 锚点（实施时参考，已核对存在）
+
+- **参照展示=工具执行耗时**：`desktop/src/components/chat/ActivityGroup.tsx` 横条（header 行）右端 `durationLabel`——`:109` `elapsed = activityDurationMs(steps, resultMap)`（`desktop/src/components/chat/activityGroupModel.ts`），`:143-144` 横条右端渲染 `<span className="whitespace-nowrap font-mono tabular-nums">{durationLabel}</span>`；单工具耗时=`ToolCallBlock.tsx` 的 `toolCallDurationMs`→`formatDuration`（:774，ms→`1.2s`/`3s`/`1m05s` 阶梯）。
+- **思考块展示点**：`desktop/src/components/chat/ThinkingBlock.tsx`（思考内容折叠块）。
+- **计时数据源候选**（实施时定夺）：①流式首/末事件时间戳差（thinking delta 起→止）；②transcript 中 assistant 消息已有 timestamp 字段（思考块首尾消息差）；③服务端 streaming 管线记录（`sessionService`/`claude.ts` 流事件）。
+
+### 方案要点（实施时细化）
+
+- 记录每次 thinking 段耗时（与工具执行耗时同款 `formatDuration` 展示格式）；
+- 展示位置=思考相关横条/块的右端末尾（对齐 ActivityGroup 横条右端样式，mono tabular-nums）；
+- 需 i18n 新键（若展示标签需要）；
+- 暂不推进，等排期。
+
+### 状态
+
+⬜ 待办（2026-09-26 登记，暂不推进）；无 patch。
 
 ---
 
