@@ -30,6 +30,7 @@
 | 移动端/H5 | 十七 H5/移动端 技能市场页 header 布局适配（副标题不再折多行） | —（新增） | ✅ |
 | 平台/功能 | 十八 Computer Use 解锁 Linux（X11）平台 | —（新增） | ✅ |
 | 上下文/压缩 | 十九 bc 压缩后 context usage 不收敛（调研完成，待实施） | —（新增） | ⬜ |
+| 性能/传输 | 二十 H5 远端 API 响应 gzip 压缩传输（非本机默认开启，省 68% 带宽） | —（新增） | ✅ |
 ## 📦 联动 Patches
 
 > 各优化项的实施 diff 以 patch 文件形式统一存放到本 `modify/` 目录（后期全部归档于此），与上文章节联动：每完成一项，patch 入库并在此登记；升级/重打基座时按本表逐个 `git apply` 重放。
@@ -66,6 +67,7 @@
 | 18 | `patches/connector-linux-platform.patch` | 十六 连接器目录 Linux 平台支持（x64/arm64） | ✅ |
 | 19 | `patches/h5-mobile-market-layout.patch` | 十七 H5/移动端 技能市场页 header 布局适配 | ✅ |
 | 20 | `patches/computer-use-linux-x11.patch` | 十八 Computer Use 解锁 Linux（X11） | ✅ |
+| 21 | `patches/h5-gzip-transport.patch` | 二十 H5 远端 API 响应 gzip 压缩传输 | ✅ |
 
 ### 移植通用注意事项- stale `.js` 孪生：改 `src/*.ts` 走 sidecar 打包路径时，须核对被改文件同名 `.js` 是否存在且同步（旧树 `.js` 优先加载坑）。
 - 0.6.6 已有对应能力需**融合**而非整块覆盖（如 H5 安全配对、缓存 token 显示、rewind 等），各章落地前先核对现状。
@@ -879,6 +881,45 @@ Computer Use（电脑操作）功能此前仅对 macOS（`darwin`）与 Windows�
 ### 状态
 
 ⬜ 调研完成（2026-09-26，根因+三机理+方案已定稿）；实施未开始，无 patch。
+
+---
+
+## 二十、H5 远端 API 响应 gzip 压缩传输（非本机默认开启）（✅ 2026-09-26）
+
+### 需求背景（用户 2026-09-26 verbatim）
+
+「通过H5访问，似乎会发送全量消息记录，那么通过发送压缩解压全量消息记录的方式似乎更佳，轮询判定访问来源ip非本机持有的时候，默认开启压缩传输机制。既能节省带宽，又能提速。先做仔细严格的调研分析可行性。」
+
+### 调研结论（live 实测，全部硬数据）
+
+- **前提坐实**：H5 打开会话 = 客户端 `getFullHistory`（`desktop/src/api/sessions.ts:446`）先 `mode=full` 后逐页 cursor 循环拉**全量**历史。生产 37206 条会话（jsonl 193MB）实测 wire=**139MB / 701 页 / 25.9s（loopback）**。
+- **无现成压缩**：`Bun.serve` 无 compression 选项，全仓无 content-encoding 中间件（proxy/ 除外）。
+- **压缩比**：同 payload 实测 gzip ≈3.0x、brotli(q4) ≈6.0x（Bun 1.3.14 走 node:zlib，无 Bun.Gzip 全局 API）。选 gzip（兼容性优先，浏览器 fetch 原生透明解压）。
+- **客户端零改动**：浏览器 `fetch` 按 HTTP 规范透明解压 gzip，`res.text()`/`res.json()` 拿到明文 JSON；`readJsonBody` 的 `MAX_JSON_RESPONSE_BYTES=530MB` 门槛按解压后明文算（136MB 不过）。
+- **IP 判定**：复用 `server.requestIP(req)?.address`（`index.ts:309`）+ `isLoopbackHost`（h5AccessPolicy.ts:41）——非 loopback 默认压缩，本机桌面路径零影响（用户要「轮询判定」，实际每请求实时判定，更强）。
+
+### 实施（commit 26375d8f，3 文件 246 行）
+
+- `src/server/responseCompression.ts`（新）：`shouldGzipResponse`（门控）+ `withGzipIfEligible`（压缩）。门控=仅 GET 200 + `Accept-Encoding` 含 gzip + **非 loopback** + content-type json + >128KB（`MIN_COMPRESS_BYTES`；Response.json 不保证 content-length，权威判定在 arrayBuffer 读取后）。`gzipSync level 6`。env 开关 `CC_HAHA_TRANSPORT_GZIP=0` 关 / `=1` 强制 loopback 也压（测试用）。前 5 次压缩打一条日志（MB→MB + 倍数）。
+- `src/server/index.ts`：`/api` 分支一行接线 `withCors(await withGzipIfEligible(req, response, clientAddress), cors)`。
+- 单测 `responseCompression.test.ts`：10 例（门控/透明性/loopback/小 payload/env 开关）。
+
+### 验证（dev 7788 E2E，LAN IP 192.168.10.43 触发压缩 vs 127.0.0.1 基线，同一大会话）
+
+- wire **136.19MB → 43.09MB（-68%）**；解压后**逐字节一致**（27984 条 / 705 页全对齐）。
+- 705 页中 485 页压缩，<128KB 小页正确透传；loopback `gz_pages=0` 桌面零影响。
+- 耗时 loopback 口径仅 -7%（本机瓶颈=服务端分页读盘+JSON 序列化，非传输；移动网络弱网收益=带宽为主）。
+- typecheck 干净；server 全量 **3442 pass / 0 fail**（178 文件，#83 基线标准）。
+
+### 踩坑记录
+
+1. **arrayBuffer 耗 body 后回退返回原 Response → 空 200**：`response.arrayBuffer()` 消耗 body 后，「太小不压/压不小」两条回退路径若仍 `return response`，客户端收到 200+空 body（705 页 walk 在第 18 页抓出，3 次复现全中）。修=回退一律 `new Response(raw, {status, headers})` 重建。
+2. **Bun 的 `Response.text()` 不像浏览器透明解压**：单测若直接 `out.text()` 拿 gzip 字节 JSON.parse 失败（Bun 忠实于"body 原始字节"）；真实浏览器 fetch 按规范解压→生产无碍，单测须手动 `gunzipSync` 模拟客户端视角。
+3. **Bun 1.3.x 无 `Bun.Gzip`/`Bun.BrotliCompressStream` 全局 API**（typeof undefined）；`node:zlib` 的 gzipSync/gunzipSync/brotliCompressSync 全部可用，流式 `createGzip` 管道也通。
+
+### 状态
+
+✅ 已完成并提交（2026-09-26，commit 26375d8f）；patch `patches/h5-gzip-transport.patch`（3 文件 277 行，基线 d6767a02）。
 
 ---
 
