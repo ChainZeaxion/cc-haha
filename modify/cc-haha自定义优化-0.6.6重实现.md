@@ -28,12 +28,12 @@
 | 移动端/H5 | 十五 H5/移动端支持打开计划任务（定时任务）页 | —（新增） | ✅ |
 | 连接器/平台 | 十六 连接器目录 Linux 平台支持（x64/arm64，服务端 H5 场景生效） | —（新增） | ✅ |
 | 移动端/H5 | 十七 H5/移动端 技能市场页 header 布局适配（副标题不再折多行） | —（新增） | ✅ |
-| 平台/功能 | 十八 Computer Use 解锁 Linux（X11）平台 | —（新增） | ⬜ |
+| 平台/功能 | 十八 Computer Use 解锁 Linux（X11）平台 | —（新增） | ✅ |
 ## 📦 联动 Patches
 
 > 各优化项的实施 diff 以 patch 文件形式统一存放到本 `modify/` 目录（后期全部归档于此），与上文章节联动：每完成一项，patch 入库并在此登记；升级/重打基座时按本表逐个 `git apply` 重放。
 >
-> **2026-09-26 重基**：全部 19 patch 重基到上游 `068b3ebd`（origin/main 2026-09-25，含 20 个新 commit：CORS 门控重做/切 tab 保视图/历史不全保聊天/内存保存竞态两修/pending 问题超时自动回答/聊天外观偏好/OAuth 2.1.281 对齐/agent-teams/Kimi K3 图片透传/定时任务持久化串行化）。应用方式=按下表从上到下逐章 `git apply --allow-empty`（17 实 patch + 2 空 patch）。空 patch（h5-settings-whitelist、h5-mobile-market）内容已被后续章节的共享文件覆盖，apply 后无变化。已验证 19/19 全干净，终态与工作树逐字节一致（仅 4 已知非章 delta：bun.lock、TerminalSettings.tsx、providerModels.ts、preview-agent.js）。
+> **2026-09-26 重基**：全部 19 patch 重基到上游 `068b3ebd`（origin/main 2026-09-25，含 20 个新 commit：CORS 门控重做/切 tab 保视图/历史不全保聊天/内存保存竞态两修/pending 问题超时自动回答/聊天外观偏好/OAuth 2.1.281 对齐/agent-teams/Kimi K3 图片透传/定时任务持久化串行化）。应用方式=按下表从上到下逐章 `git apply --allow-empty`（18 实 patch + 2 空 patch，共 20）。空 patch（h5-settings-whitelist、h5-mobile-market）内容已被后续章节的共享文件覆盖，apply 后无变化。已验证 20/20 全干净（含第十八章 computer-use-linux-x11.patch 末位），终态与工作树逐字节一致（仅 4 已知非章 delta：bun.lock、TerminalSettings.tsx、providerModels.ts、preview-agent.js）。
 
 ### 命名与存放约定
 - 存放：`modify/patches/`（patch 文件统一子目录）
@@ -64,8 +64,7 @@
 | 17 | `patches/h5-mobile-scheduled.patch` | 十五 H5/移动端支持打开计划任务（定时任务）页 | ✅ |
 | 18 | `patches/connector-linux-platform.patch` | 十六 连接器目录 Linux 平台支持（x64/arm64） | ✅ |
 | 19 | `patches/h5-mobile-market-layout.patch` | 十七 H5/移动端 技能市场页 header 布局适配 | ✅ |
-| — | `patches/computer-use-linux-x11.patch` | 十八 Computer Use 解锁 Linux（X11） | ⬜ 待实施 |
-
+| 20 | `patches/computer-use-linux-x11.patch` | 十八 Computer Use 解锁 Linux（X11） | ✅ |
 
 ### 移植通用注意事项- stale `.js` 孪生：改 `src/*.ts` 走 sidecar 打包路径时，须核对被改文件同名 `.js` 是否存在且同步（旧树 `.js` 优先加载坑）。
 - 0.6.6 已有对应能力需**融合**而非整块覆盖（如 H5 安全配对、缓存 token 显示、rewind 等），各章落地前先核对现状。
@@ -816,6 +815,32 @@ Computer Use（电脑操作）功能此前仅对 macOS（`darwin`）与 Windows�
 - **live 7788 Linux 服务端**：`GET /api/computer-use/status` 应回 `{platform:'linux', supported:true, engine:'linux-x11'}`；设置页进入 Python 安装流而非「不支持」页。
 - X11 实机冒烟（如有）：screenshot 能回图、left_click/type 生效。
 
-> 状态：⬜待实施（调研已闭环，实施批次 A→B 待排期）。
+### 实施记录（2026-09-26，批次 A+B 全部完成）
 
-**patch**：`modify/patches/h5-mobile-market-layout.patch`（1 文件 1 行，链位 19，基线 48769016）。
+**批次 A 落地（24 文件，1231 ins / 75 del）**：按调研清单全量实施，另有 3 处调研时未预见、实施中发现的修：
+- `src/server/api/computer-use.ts ensureRuntimeFiles`：原无条件写 win_helper+cursor badge→按平台选 `LINUX_HELPER_CONTENT`/`WIN_HELPER_CONTENT`，linux 跳过 badge。
+- `src/utils/computerUse/executor.ts readClipboard/writeClipboard`：原 `platform==='win32'?callHelper:pbpaste/pbcopy` 会把 linux 误送 macOS `pb` 命令→改 `platform!=='darwin'?callHelper:pb`。
+- `src/vendor/computer-use-mcp/windowsLegacyToolCalls.ts`：viaClipboard 非 ASCII 条件与单进程 type 优化 `platform==='win32'`→`platform!=='darwin'`（linux 同 Python 面走剪贴板/单进程整批 type）。
+
+**批次 B 落地（2 新文件）**：
+- `runtime/linux_helper.py`（986 行）：镜像 win_helper 全 26 命令面（JSON 单行 `{ok:true,result}`/`error_output(code)`，退出码 0/1/2=bad_command）。mss 截图 JPEG q75 LANCZOS（输出形状与 win 逐字段一致）；pyautogui 输入；python-xlib X11 窗口枚举/前台化；XDG `.desktop` 枚举 installed_apps（112 条实测）；psutil running_apps；pyperclip 剪贴板（需系统 xclip/xsel，无则 write 报错/read 空串——文档记录的系统依赖）；`KEY_MAP cmd/command/meta/super/win→'command'`（pyautogui Super）。简化=ForegroundLease 无物理输入监控（保留 user_interference/target_window_offscreen/point_outside_display 错误码语义），MUTATING/COORDINATE_COMMANDS 集合与 win 完全一致。
+- `runtime/requirements-linux.txt`：mss>=9.0.2,<10 / Pillow>=11.3.0,<12 / pyautogui>=0.9.54 / python-xlib>=0.33 / psutil>=5.9.0 / pyperclip>=1.8.2。
+
+**python-xlib API 踩坑（X11 实机冒烟暴露，3 处全修+实测通过）**：
+1. `Drawable.get_property` 是 **4 参** `(property, property_type, offset, length)`——0 参/3 参调用全抛 TypeError 被 try/except 吞掉→pid 永远 None（症状=running_apps 0 条、frontmost null）。统一抽 `_read_property_value`（`Xatom.CARDINAL`/`Xatom.WINDOW` 作 property_type）。
+2. `drawable.display` 是 `_BaseDisplay` 代理**无 `intern_atom`**→atom 解析改走 `disp.get_atom(name)`（`d.intern_atom` 只在完整 `Display` 对象上）。
+3. `get_input_focus()` 返回 event 对象，焦点窗在 `.data['focus']` 且常为 None/PointerRoot→frontmost 优先 EWMH `_NET_ACTIVE_WINDOW`（root 属性，compositor 可靠维护，实测 gnome-terminal 解析成功），input-focus 兜底。
+4. GTK 系窗（Nautilus 等 50/76 个）不发布 `_NET_WM_PID`→`_app_info_for_window` 加 WM_CLASS 兜底（`_app_info_from_wm_class`，instance/class 对当 bundleId+displayName）。
+5. `pyautogui.moveTo(x, y, duration=...)` 非 `_duration=`（0.9.54 签名）。
+
+**验证结果**：
+- computer-use 全族 bun test（`src/utils/computerUse/*.test.ts` + `computer-use-api.test.ts`）：**24 fail = 干净基线 24 fail（git worktree@HEAD 对照法），零新增回归**（基线 24=helperBridge/cu-helper 快照族，mac 专属 daemon 路径，与本任务无关）。测试文件新增 linux 用例：common（linux→true+freebsd false+linux capabilities）、gates（linux→true）、api（linux→{supported:true,engine:'linux-x11',cuHelper unsupported_platform}+getUnsupportedComputerUsePlatformStep→null）、setup（linux→mcpConfig 含 computer-use+allowedTools 含 screenshot；unsupported 用例改 freebsd）、skillGate（linux 启用用例）。
+- 前端：ComputerUseSettings(24)+EnableDialog(2)=26/26 绿；desktop tsc --noEmit exit 0；全量 desktop vitest **12454 pass / 4 fail（4=scripts/image-processor-packaging .js/.ts 孪生同一用例 `spawn bun ENOENT`，环境 PATH 问题非本任务引入）零新增回归**。
+- **live 7788（dev sidecar 源码直跑）**：`GET /api/computer-use/status` 回 `{"platform":"linux","supported":true,"engine":"linux-x11","cuHelper":{"available":false,"reason":"unsupported_platform"},"python":{"installed":true,"version":"3.13.12"},"venv":{"created":false},"permissions":{"accessibility":null,"screenRecording":null}}`——venv 未建时 permissions null 符合预期（建 venv+装依赖后 helper check_permissions 回 {accessibility:true,screenRecording:true}）。
+- **X11 实机冒烟（GNOME 桌面，/tmp/lh-test venv 装全 6 依赖）**：全 26 命令面过——check_permissions/{accessibility:true,screenRecording:true}、list_displays（1920x1080）、screenshot（resize 后 base64 回图）、zoom（targetWidth/Height 放大 200x150→400x300）、cursor_position、move/click/scroll/mouse_down/mouse_up/key/hold_key/type（全部 ok:true 且光标位置实测移动生效）、frontmost_app（_NET_ACTIVE_WINDOW→gnome-terminal-server）、app_under_point、list_running_apps（20 条）、list_installed_apps（112 条）、find_window_displays（displayIds:[0]）、read/write_clipboard（read 可用；write 需系统 xclip/xsel）、bad_command 退出码 2。
+
+**系统依赖（部署文档口径）**：X11 桌面必须；XWayland 部分受限（窗口状态查询不可靠，guards fail open）；剪贴板 write 需 `xclip` 或 `xsel` 之一；XWayland 下建议状态页提示。
+
+> 状态：✅已完成（2026-09-26，两批全部落地+实机冒烟通过）。
+
+**patch**：`modify/patches/computer-use-linux-x11.patch`（24 文件 1758 行含 2 新文件 new file mode，20 链末位，基线=068b3ebd 起 19 链终态；20 链 worktree 顺序 `git apply --allow-empty` 全干净，24 文件与工作树逐字节一致）。

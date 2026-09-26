@@ -12,6 +12,7 @@ type CheckState = 'loading' | 'ready' | 'error'
 const PYTHON_DOWNLOAD_URLS: Record<string, string> = {
   darwin: 'https://www.python.org/downloads/macos/',
   win32: 'https://www.python.org/downloads/windows/',
+  linux: 'https://www.python.org/downloads/linux/',
 }
 
 function StatusIcon({ ok }: { ok: boolean | null }) {
@@ -268,7 +269,7 @@ export function ComputerUseSettings() {
     <ComputerUseEnableDialog
       open={enableConfirmOpen}
       loading={enableSaving}
-      platform={status?.platform === 'darwin' ? 'darwin' : 'win32'}
+      platform={status?.platform === 'darwin' ? 'darwin' : status?.platform === 'linux' ? 'linux' : 'win32'}
       onClose={() => setEnableConfirmOpen(false)}
       onConfirm={confirmComputerUseEnabled}
     />
@@ -372,10 +373,11 @@ export function ComputerUseSettings() {
     )
   }
 
-  // The Python compatibility page is Windows-only. Missing or future engine
-  // values (for example during a rolling sidecar/UI upgrade) fail closed on
-  // the native page instead of resurrecting the retired macOS setup screen.
-  if (status.engine !== 'windows-compat') {
+  // The Python compatibility page is for the Python-backed platforms
+  // (Windows and Linux). Missing or future engine values (for example during
+  // a rolling sidecar/UI upgrade) fail closed on the native page instead of
+  // resurrecting the retired macOS setup screen.
+  if (status.engine !== 'windows-compat' && status.engine !== 'linux-x11') {
     return (
       <div className="max-w-2xl space-y-5">
         <ErrorState

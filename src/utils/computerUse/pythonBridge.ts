@@ -25,14 +25,16 @@ const venvRoot = path.join(runtimeStateRoot, 'venv')
 const installStampPath = path.join(runtimeStateRoot, 'requirements.sha256')
 
 const isWindows = process.platform === 'win32'
+const isLinux = process.platform === 'linux'
 const windowsInputTag = randomBytes(4).readUInt32LE(0) || 0x43434841
 
 // Always read from ~/.claude/.runtime/ — works in both dev and bundled mode.
 const requirementsPath = path.join(runtimeStateRoot, 'requirements.txt')
-const helperFileName = 'win_helper.py'
+const helperFileName = isLinux ? 'linux_helper.py' : 'win_helper.py'
 const helperPath = path.join(runtimeStateRoot, helperFileName)
 // Runs as its own process (the helper is a stateless one-shot CLI and cannot
-// own a window across actions), so it ships as a separate file.
+// own a window across actions), so it ships as a separate file. Windows-only:
+// on Linux a badge would be a top-level X11 window visible in every screenshot.
 const cursorBadgeFileName = 'win_cursor_badge.py'
 const cursorBadgePath = path.join(runtimeStateRoot, cursorBadgeFileName)
 
@@ -110,7 +112,11 @@ async function getVenvCreationPythonCommand(): Promise<string> {
 async function ensureRuntimeFiles(): Promise<void> {
   await mkdir(runtimeStateRoot, { recursive: true })
 
-  const devRequirements = path.join(projectRoot, 'runtime', 'requirements-win.txt')
+  const devRequirements = path.join(
+    projectRoot,
+    'runtime',
+    isLinux ? 'requirements-linux.txt' : 'requirements-win.txt',
+  )
   const devHelper = path.join(projectRoot, 'runtime', helperFileName)
 
   // Always sync from dev runtime/ so source changes are reflected immediately.
@@ -124,9 +130,11 @@ async function ensureRuntimeFiles(): Promise<void> {
     await writeFile(helperPath, await readFile(devHelper, 'utf8'), 'utf8')
   }
 
-  const devBadge = path.join(projectRoot, 'runtime', cursorBadgeFileName)
-  if (await pathExists(devBadge)) {
-    await writeFile(cursorBadgePath, await readFile(devBadge, 'utf8'), 'utf8')
+  if (!isLinux) {
+    const devBadge = path.join(projectRoot, 'runtime', cursorBadgeFileName)
+    if (await pathExists(devBadge)) {
+      await writeFile(cursorBadgePath, await readFile(devBadge, 'utf8'), 'utf8')
+    }
   }
 }
 
