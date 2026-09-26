@@ -1,9 +1,9 @@
 diff --git a/desktop/src/components/chat/TpsIndicator.test.tsx b/desktop/src/components/chat/TpsIndicator.test.tsx
 new file mode 100644
-index 00000000..c8423028
+index 00000000..769d6e6c
 --- /dev/null
 +++ b/desktop/src/components/chat/TpsIndicator.test.tsx
-@@ -0,0 +1,71 @@
+@@ -0,0 +1,85 @@
 +import { cleanup, render } from '@testing-library/react'
 +import '@testing-library/jest-dom'
 +import { afterEach, beforeEach, expect, it, vi } from 'vitest'
@@ -68,6 +68,20 @@ index 00000000..c8423028
 +
 +})
 +
++it('caps the displayed value at 4 digits (9999)', () => {
++  // Pump both meters hard so the aggregate total far exceeds 9999
++  // (≈1140 tok/sample × 15 live samples / 1.5s window ≈ 11k per meter).
++  for (let i = 0; i < 20; i++) {
++    now += 100
++    subMeter.push('x'.repeat(4000))
++    ownMeter.push('x'.repeat(4000))
++  }
++  const { container } = render(<TpsIndicator sessionId="main" />)
++  const indicator = container.querySelector('[data-testid="tps-indicator"]')!
++  const numberText = indicator.textContent?.replace(/TPS|t\/s|Σ\d+/g, '').trim() ?? ''
++  expect(Number(numberText)).toBe(9999)
++})
++
 +it('stays hidden before anything has streamed', () => {
 +  const { container } = render(<TpsIndicator sessionId="main" />)
 +  expect(container.querySelector('[data-testid="tps-indicator"]')).toBeNull()
@@ -77,10 +91,10 @@ index 00000000..c8423028
 +
 diff --git a/desktop/src/components/chat/TpsIndicator.tsx b/desktop/src/components/chat/TpsIndicator.tsx
 new file mode 100644
-index 00000000..15a54dd3
+index 00000000..1cb33cc0
 --- /dev/null
 +++ b/desktop/src/components/chat/TpsIndicator.tsx
-@@ -0,0 +1,135 @@
+@@ -0,0 +1,142 @@
 +import { useEffect, useState } from 'react'
 +import { getSessionTpsMeter, getSubordinateTpsMeters } from '../../stores/chatStore'
 +import { aggregateMeterReadings, isTpsEnabled } from '../../lib/tpsMeter'
@@ -101,9 +115,11 @@ index 00000000..15a54dd3
 + * the main view shows the team-wide total; a "Σn" badge appears while at least
 + * one subagent is actively emitting (see aggregateMeterReadings).
 + *
-+ * Coloring: <27 red, <53 orange, <80 green, >=80 purple. Polled at POLL_MS
-+ * (≈5-6 Hz). Meter is per-session (see getSessionTpsMeter), so parallel
-+ * sessions each show their own decode speed.
++ * Rendered as plain text `TPS {n}t/s` (no pill background) — the chat header
++ * stacks it under the cost badge in a two-line block. Coloring: <27 red, <53
++ * orange, <80 green, >=80 purple. Polled at POLL_MS (≈5-6 Hz). Meter is
++ * per-session (see getSessionTpsMeter), so parallel sessions each show their
++ * own decode speed.
 + */
 +
 +const POLL_MS = 180
@@ -111,8 +127,17 @@ index 00000000..15a54dd3
 +const MED_TIER = 53
 +const HIGH_TIER = 80
 +const HIDE_AFTER_IDLE_MS = 5 * 60 * 1000
++// 显示口径：数值最多 4 位（用户要求 "TPS XXt/s" 最多四位数）。聚合/保持值
++// 偶可超 4 位（子代理汇聚或移动端批量突发），封顶显示避免撑破固定栏宽。
++const MAX_DISPLAY_TPS = 9999
 +
 +type TpsTier = 'red' | 'orange' | 'green' | 'purple'
++
++/** Display integer, capped at 4 digits (see MAX_DISPLAY_TPS). */
++function formatTps(tps: number): string {
++  const rounded = Math.round(tps)
++  return String(Math.min(rounded, MAX_DISPLAY_TPS))
++}
 +
 +function tierFor(tps: number): TpsTier {
 +  if (tps < LOW_TIER) return 'red'
@@ -121,11 +146,11 @@ index 00000000..15a54dd3
 +  return 'purple'
 +}
 +
-+const TIER_STYLE: Record<TpsTier, { color: string; bg: string }> = {
-+  red: { color: 'var(--color-error)', bg: 'var(--color-error-container)' },
-+  orange: { color: '#f59e0b', bg: 'rgba(245,158,11,0.14)' },
-+  green: { color: 'var(--color-success)', bg: 'var(--color-success-container)' },
-+  purple: { color: '#a855f7', bg: 'rgba(168,85,247,0.16)' },
++const TIER_STYLE: Record<TpsTier, { color: string }> = {
++  red: { color: 'var(--color-error)' },
++  orange: { color: '#f59e0b' },
++  green: { color: 'var(--color-success)' },
++  purple: { color: '#a855f7' },
 +}
 +
 +export function TpsIndicator({ sessionId, vertical = false }: { sessionId: string; vertical?: boolean }) {
@@ -180,16 +205,15 @@ index 00000000..15a54dd3
 +    return (
 +      <span
 +        data-testid="tps-indicator"
-+        className="inline-flex shrink-0 flex-col items-center justify-center rounded-full px-2 py-0.5 font-mono text-[10px] font-semibold leading-none tabular-nums"
-+        style={{ color: style.color, background: style.bg }}
++        className="inline-flex shrink-0 flex-col items-center justify-center font-mono text-[10px] font-semibold leading-none tabular-nums"
++        style={{ color: style.color }}
 +        title={title}
 +      >
-+        <span className="font-bold leading-none">TPS</span>
-+        <span className="mt-0.5 inline-block text-center leading-none">
-+          {tps.toFixed(0)}
++        <span className="inline-block text-center leading-none">
++          TPS {formatTps(tps)}t/s
 +        </span>
 +        {activeSubs > 0 ? (
-+          <span data-testid="tps-subagent-badge" className="mt-0.5 text-[9px] leading-none">
++          <span data-testid="tps-subagent-badge" className="mt-0.5 leading-none">
 +            Σ{activeSubs}
 +          </span>
 +        ) : null}
@@ -200,16 +224,13 @@ index 00000000..15a54dd3
 +  return (
 +    <span
 +      data-testid="tps-indicator"
-+      className="inline-flex shrink-0 items-center gap-1 rounded-full px-2 py-0.5 font-mono text-[11px] font-semibold tabular-nums"
-+      style={{ color: style.color, background: style.bg }}
++      className="inline-flex shrink-0 items-center font-mono text-[10px] font-semibold leading-tight tabular-nums"
++      style={{ color: style.color }}
 +      title={title}
 +    >
-+      <span className="inline-block min-w-[6ch] text-right">
-+        {tps.toFixed(0)}
-+      </span>
-+      <span>t/s</span>
++      <span className="inline-block">TPS {formatTps(tps)}t/s</span>
 +      {activeSubs > 0 ? (
-+        <span data-testid="tps-subagent-badge" className="text-[10px]">
++        <span data-testid="tps-subagent-badge" className="ml-1">
 +          Σ{activeSubs}
 +        </span>
 +      ) : null}
@@ -233,6 +254,31 @@ index a4699c9e..08c80fa8 100644
  }))
  
  vi.mock('../../hooks/useKeyboardShortcuts', () => ({
+diff --git a/desktop/src/components/layout/AppShell.tsx b/desktop/src/components/layout/AppShell.tsx
+index c8613d06..154eaaf1 100644
+--- a/desktop/src/components/layout/AppShell.tsx
++++ b/desktop/src/components/layout/AppShell.tsx
+@@ -428,10 +428,16 @@ export function AppShell() {
+             ) : null}
+             {isActiveChatTab ? (
+               <div className="flex shrink-0 items-center gap-1">
+-                {activeTabId ? <TpsIndicator sessionId={activeTabId} vertical /> : null}
+-                {activeTabId ? (
+-                  <SessionCostBadge sessionId={activeTabId} active={activeTab?.status === 'running'} compact />
+-                ) : null}
++                <div className="flex h-[36px] shrink-0 flex-col items-end justify-center gap-0.5">
++                  <div className="flex h-[15px] items-center">
++                    {activeTabId ? (
++                      <SessionCostBadge sessionId={activeTabId} active={activeTab?.status === 'running'} compact />
++                    ) : null}
++                  </div>
++                  <div className="flex h-[13px] items-center">
++                    {activeTabId ? <TpsIndicator sessionId={activeTabId} vertical /> : null}
++                  </div>
++                </div>
+                 <IconButton
+                   data-testid="session-manual-refresh-mobile"
+                   icon={refreshingSession ? 'progress_activity' : 'refresh'}
 diff --git a/desktop/src/lib/tpsMeter.test.ts b/desktop/src/lib/tpsMeter.test.ts
 new file mode 100644
 index 00000000..6db5d6e2
@@ -668,6 +714,28 @@ index 00000000..b724d25e
 +  }
 +  return cjk + nonCjk * NON_CJK_TOKEN_WEIGHT
 +}
+diff --git a/desktop/src/pages/ActiveSession.tsx b/desktop/src/pages/ActiveSession.tsx
+index 26d5ffbc..282ce912 100644
+--- a/desktop/src/pages/ActiveSession.tsx
++++ b/desktop/src/pages/ActiveSession.tsx
+@@ -904,8 +904,15 @@ export function ActiveSession({ sessionId, active = true }: { sessionId?: string
+                   metadata={headerMetadata}
+                   actions={
+                     <>
+-                      {activeTabId ? <TpsIndicator sessionId={activeTabId} /> : null}
+-                      {activeTabId ? <SessionCostBadge sessionId={activeTabId} active={chatState !== 'idle'} /> : null}
++                      {/* 两行块：上=会话费用，下=TPS（固定占位，缺一项时另一行居中对齐）。 */}
++                      <div className="flex h-[42px] shrink-0 flex-col items-end justify-center gap-0.5">
++                        <div className="flex h-[16px] items-center">
++                          {activeTabId ? <SessionCostBadge sessionId={activeTabId} active={chatState !== 'idle'} /> : null}
++                        </div>
++                        <div className="flex h-[14px] items-center">
++                          {activeTabId ? <TpsIndicator sessionId={activeTabId} /> : null}
++                        </div>
++                      </div>
+                       <Button
+                         variant="ghost"
+                         size="sm"
 diff --git a/desktop/src/stores/chatStore.ts b/desktop/src/stores/chatStore.ts
 index efe6950d..7588d8b5 100644
 --- a/desktop/src/stores/chatStore.ts

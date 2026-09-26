@@ -37,7 +37,9 @@
 
 > 各优化项的实施 diff 以 patch 文件形式统一存放到本 `modify/` 目录（后期全部归档于此），与上文章节联动：每完成一项，patch 入库并在此登记；升级/重打基座时按本表逐个 `git apply` 重放。
 >
-> **2026-09-26 重基**：全部 19 patch 重基到上游 `068b3ebd`（origin/main 2026-09-25，含 20 个新 commit：CORS 门控重做/切 tab 保视图/历史不全保聊天/内存保存竞态两修/pending 问题超时自动回答/聊天外观偏好/OAuth 2.1.281 对齐/agent-teams/Kimi K3 图片透传/定时任务持久化串行化）。应用方式=按下表从上到下逐章 `git apply --allow-empty`（18 实 patch + 2 空 patch，共 20）。空 patch（h5-settings-whitelist、h5-mobile-market）内容已被后续章节的共享文件覆盖，apply 后无变化。已验证 20/20 全干净（含第十八章 computer-use-linux-x11.patch 末位），终态与工作树逐字节一致（仅 4 已知非章 delta：bun.lock、TerminalSettings.tsx、providerModels.ts、preview-agent.js）。
+> **2026-09-26 重基**：全部 patch 重基到上游 `068b3ebd`（origin/main 2026-09-25，含 20 个新 commit：CORS 门控重做/切 tab 保视图/历史不全保聊天/内存保存竞态两修/pending 问题超时自动回答/聊天外观偏好/OAuth 2.1.281 对齐/agent-teams/Kimi K3 图片透传/定时任务持久化串行化）。应用方式=按下表从上到下逐章 `git apply --allow-empty`。空 patch（h5-settings-whitelist、h5-mobile-market）内容已被后续章节的共享文件覆盖，apply 后无变化。
+>
+> **当前链规模（2026-09-26 #90 重生成后）**：共 **21 patch**（19 实 + 2 空）。#90 重生成 tps-indicator.patch（8 文件 839 行）后跑 **21 链全验证**：068b3ebd 基线顺序 apply 21 patch FAIL=0，8 个 tps 章文件逐字节=工作树，树级 delta 仅已知非章 WIP（#83 测试修复族 + #85 WIP sessionProjector/sessionService + 既有 bun.lock/TerminalSettings.tsx/providerModels.ts）。新增章（十八 computer-use-linux-x11、二十 h5-gzip-transport）已在链内。
 
 ### 命名与存放约定
 - 存放：`modify/patches/`（patch 文件统一子目录）
@@ -55,7 +57,7 @@
 | 4 | `patches/h5-settings-parity.patch` | 九 H5 设置全 tab 对齐 | ✅ |
 | 5 | `patches/h5-terminal-bridge.patch` | 一 H5 终端桥接（1.2） | ✅ |
 | 6 | `patches/session-refresh.patch` | 三 会话刷新按钮 | ✅ |
-| 7 | `patches/tps-indicator.patch` | 四 TPS 指示器 + 两行 + 子代理汇聚 | ✅ |
+| 7 | `patches/tps-indicator.patch` | 四 TPS 指示器 + 两行 + 子代理汇聚 + 展示格式/4 位封顶（#90） | ✅ |
 | 8 | `patches/file-download.patch` | 五 文件下载桥接（含右键/菜单下载 + H5 内置浏览器提示） | ✅ |
 | 9 | `patches/disable-updates.patch` | 六 禁止更新开关 | ✅ |
 | 10 | `patches/cache-billing.patch` | 七 上下文缓存与计费显示 | ✅ |
@@ -289,6 +291,26 @@
 - **验证**：tpsMeter.test（aggregate 4 用例：求和/排空子代理不计/单会话等价/idle 隐藏）+ TpsIndicator.test（新文件 3 用例：Σ 徽章/排空后消失/未流式隐藏）= **11/11**；chatStore 358/358；tsc exit 0；vite build `App-C1OyVXUg.js`（grep 确认 `tps-subagent-badge`/`tpsAggregateTitle` 入包）。
 - **Patch 重生成**：`tps-indicator.patch` 13 文件（含新测试文件 new file mode）929 行。因新 i18n 键插入在 `chat.tpsSpeedTitle` 后，**连锁重生成**下游锚定该区域的 `file-download.patch`（20 文件 951 行）与 `h5-mobile-quick-actions.patch`（9 文件 481 行）；19 链 worktree 顺序 apply 全 OK，与工作树逐字节一致（仅 5 已知非章 delta）。
   - 坑：fd/mqa 重生成须以「工作树终态区块逐字取用」法（en/zh-TW 的 `chat.downloadableFiles`+`chat.downloadableMore` 同行双键、尾随空行都是工作树原貌）；以旧 commit（c1bacc0c）为基底会带入已删的 `chat.tpsLabel`。
+
+### 子优化（2026-09-26）：TPS 展示改造——去椭圆背景 + head 栏两行 + "TPS XXXt/s" 格式（commit 966ca8f1，#82）
+
+- **需求（用户 verbatim）**：「TPS 显示应该是"TPS XXt/s"」——去椭圆背景改纯文字，桌面 head 栏改两行堆叠（费用上、TPS 下），TPS 与数字间留白。
+- **实现 3 文件**：TpsIndicator.tsx 去 pill 背景改 `TPS {n}t/s` 纯文字（色档 27/53/80 未动）；AppShell.tsx 移动端 head 栏 TpsIndicator 与 SessionCostBadge 两行堆叠（h-[15px] 费用行 + h-[13px] TPS 行，36px 容器）；ActiveSession.tsx 移动头栏同口径。
+- **验证**：desktop 3 文件 vitest 59/59。
+- 注：本 commit 在 patch 最后重基（638c9bca，09-26 06:33）之后实施，当时 patch 未含其 delta——由下述 #90 重生成一并收编（8 文件）。
+
+### 子优化（2026-09-26）：#90 思考过程 TPS 关联确认 + 显示格式（commit 7062daaa + 352e5241）
+
+- **用户 verbatim（#90）**：「think思考过程的tps速率信息似乎还是没关联上。另外tps显示应该是"TPS XXt/s"最多四位数 TPS和数字之间应该有个间隔留白。」
+- **关联确认（三层实证，结论=已关联且实时）**：
+  ① 代码审计：thinking_delta→handler.ts 流式 `{type:'thinking',text}` 逐帧→chatStore `case 'thinking'`（skippedThinkingBlock=false 时）`getSessionTpsMeter().push(msg.text)`（491e2ca0 已提交）——thinking 是 decode 输出 token，与正文/工具入参同喂一个米表。
+  ② WS 探针（bun 原生 WebSocket 直连 dev 7788）：thinking 100% 流式 delta（20-26ms 间隔），整块兜底（complete:true）未触发；用精确 TpsMeter 逻辑回放真实流，**thinking 相位实时 75-155 tps**（569 个 4Hz 采样点，avg≈100）。
+  ③ H5 live 实测（agent-browser）：干净会话发「先认真思考再回答」→ 指示器 **HIDDEN→实时 46-116t/s 持续 24s**（两句话回答不可能流式 24s，即思考阶段），数字逐秒跳变。用户此前感知「没关联」=观察时会话正处回合间隙/已停，指示器显示的是**回合结束保持值**（0.5s 末段平均，如 100/1451t/s 恒定），非 thinking 实时值。
+- **格式修复 2 项**：
+  - **7062daaa**：vertical 分支（移动端两行）`TPS{n}t/s`→`TPS {n}t/s` 补留白（桌面分支 966ca8f1 已带空格，移动端漏了）——两端统一 "TPS XXXt/s"。
+  - **352e5241**：数值封顶 4 位 `formatTps`（`Math.min(round, 9999)`）——聚合子代理/移动批量突发可超 4 位（实测保持值 1451），封顶防撑破固定栏宽；新增封顶单测。
+- **验证**：TpsIndicator.test 4/4（含新封顶用例）；desktop tsc -b exit 0；前端全量 vitest 6228 pass（1 fail=MessageList 虚拟化用例 5s 超时，隔离单跑 201/201 过=负载 flaky 非回归）；src/server scrub env 3442/0。
+- **Patch 重生成**：`tps-indicator.patch` **8 文件 839 行**（收编 966ca8f1 的 AppShell.tsx/ActiveSession.tsx 两行堆叠 delta + #90 格式/封顶 delta；此前 patch 停在 638c9bca 态缺这两块）。21 链（068b3ebd 基线顺序 apply 全 patch）FAIL=0，8 章文件逐字节=工作树，树级 delta 仅已知非章 WIP（#83 测试修复族 + #85 WIP + bun.lock/TerminalSettings/providerModels 3 项既有）。
 
 > 注：上下文面板「生成速度」口径修正（decode-only，分母用 `totalDecodeDuration` 而非 `totalAPIDuration`）归**第七章**（cache-billing.patch），见该章。---
 
