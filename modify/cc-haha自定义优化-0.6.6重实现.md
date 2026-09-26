@@ -29,6 +29,7 @@
 | 连接器/平台 | 十六 连接器目录 Linux 平台支持（x64/arm64，服务端 H5 场景生效） | —（新增） | ✅ |
 | 移动端/H5 | 十七 H5/移动端 技能市场页 header 布局适配（副标题不再折多行） | —（新增） | ✅ |
 | 平台/功能 | 十八 Computer Use 解锁 Linux（X11）平台 | —（新增） | ✅ |
+| 上下文/压缩 | 十九 bc 压缩后 context usage 不收敛（调研完成，待实施） | —（新增） | ⬜ |
 ## 📦 联动 Patches
 
 > 各优化项的实施 diff 以 patch 文件形式统一存放到本 `modify/` 目录（后期全部归档于此），与上文章节联动：每完成一项，patch 入库并在此登记；升级/重打基座时按本表逐个 `git apply` 重放。
@@ -844,3 +845,44 @@ Computer Use（电脑操作）功能此前仅对 macOS（`darwin`）与 Windows�
 > 状态：✅已完成（2026-09-26，两批全部落地+实机冒烟通过）。
 
 **patch**：`modify/patches/computer-use-linux-x11.patch`（24 文件 1758 行含 2 新文件 new file mode，20 链末位，基线=068b3ebd 起 19 链终态；20 链 worktree 顺序 `git apply --allow-empty` 全干净，24 文件与工作树逐字节一致）。
+
+## 十九、bc 压缩后 context usage 不收敛（⬜ 调研完成，待实施）
+
+### 需求背景（用户 2026-09-26 verbatim）
+
+「因为有bc中间件在前端助手和后端引擎中间，现在context usage只有持续增长到100%，没有随bc压缩收敛后显示真实usage和百分比，这个作为新优化项，先推进调研。」
+
+### 调研结论：根因已坐实（live 实证）
+
+**架构**：桌面 sidecar（cc-haha）→ bc/bili 中间件（:8878，无状态全量拼历史 + salvage 压缩）→ vLLM 引擎。sidecar 的 context 百分比**不读 bc 的任何信号**，完全本地计算：
+
+**计算链**（`src/server/services/sessionService.ts`）：
+1. `buildTranscriptContextEstimate`（:2938-3031）= 唯一显示源（inspection.contextEstimate → 前端 ContextUsageIndicator.tsx:391 直接取 `percentage`）。
+2. `accumulateTranscriptContext`（:462-524）扫**追加式 transcript JSONL**：每条 user/assistant/attachment 用 `roughTokenCountEstimationForMessage`（≈字符/4）累加进 `estimatedTokensFromMessages`；遇 `system/compact_boundary`（:466-471）才清零累加器+latestUsage。
+3. `totalTokens = min(max(contextBudget.usedTokens, providerTokens + estimatedTokensAfterUsage), rawMaxTokens)`（:2971-2980），`percentage = round(totalTokens/rawMaxTokens*100)`（:2981）。
+
+**三条不收敛机理（全部 live 实证，本会话即实验对象）**：
+1. **本地累加器远超真实窗口**：自上一个 `compact_boundary` 后，本会话 2869 条消息的本地 rough 累加=**~787K token=340% 的 231248 窗口**；而引擎真实 usage（input 2565+cache_read 84672+output 5608=**~92K=40%**）。显示取 max → 本地项钉死 100%。
+2. **bc 压缩不写 compact_boundary**：bc 的 salvage/压缩发生在中间件层，回传的 assistant 消息照常追加进 transcript；sidecar 侧 376 个 compact_boundary 全来自 **sidecar 自己的 auto-compact**（`autoCompactIfNeeded`→`compactConversation`，`src/utils/messages.ts:4767` 写 boundary）。bc 压缩本身对 sidecar 零信号（bc bundle grep 无 compact_boundary 输出）。
+3. **窗口口径错配**：ZXSV-AI provider 配 `modelContextWindows={'zxsv-ai':231248}`+`autoCompactWindow=231248`（226K），但 bc 实际管理的是引擎 ~1M+ 窗口+自己的收敛门控（bc §1.35/§1.36 growth36000/N=12）。denominator 是 sidecar 自设值，与 bc 真实预算无关。
+
+**关键对照**（为何 auto-compact 自身行为正常但显示不收敛）：`shouldAutoCompact`（autoCompact.ts:212）用 `tokenCountWithEstimation`（tokens.ts:299）锚定**内存中最后一条真实 usage**（usage 锚 + 其后 rough 累加，锚含 cache_read → ~92K < 阈值 218K → 不误触发）；而显示路径用 `estimatedTokensFromMessages`=**全量自 boundary 累加（无 usage 锚）**。同一份数据、两个口径 → auto-compact 正常、显示钉 100%。
+
+**live 交叉验证**：dev 7788 短会话 inspection 回 `percentage=19 totalTokens=43053/231248 apiUsage={input 1482, cache_read 41472}`=引擎真实值，口径正确；长会话（本会话）必被本地累加项顶到 100%。
+
+### 方案（实施时定夺，倾向 A+B）
+
+- **A（治本，推荐）**：显示口径对齐 auto-compact——`buildTranscriptContextEstimate` 的 `estimatedTokens` 改用 usage 锚口径（最后一条真实 usage 的 prompt 总量 + 其后 rough 累加），而非全量 `estimatedTokensFromMessages`。单点改 sessionService（复用 tokens.ts 已有 `tokenCountWithEstimation` 思路），bc 压缩后 usage 回落 → 百分比收敛。风险=低（显示只读路径，不碰压缩触发）。
+- **B（兜底）**：bc 压缩/salvage 时让 sidecar 感知——两路：①bc 在流里发 compaction 标记（需 bc 协议扩展，改动大）；②sidecar 检测到「latestUsage 总量较前值骤降 > 阈值」时视为压缩事件，清零 `estimatedTokensFromMessages`（本地启发式，无 bc 改动）。
+- **C（口径修正，可选）**：ZXSV-AI 窗口 231248 → 与 bc 真实管理窗口对齐（或留 231248 当「sidecar 自主 compact 预算」语义，文档说明）。
+
+### 状态
+
+⬜ 调研完成（2026-09-26，根因+三机理+方案已定稿）；实施未开始，无 patch。
+
+---
+
+## 附录：交接备注（2026-09-26 末）
+
+- #83 测试失败：前端全量 vitest 12456 pass/2 fail（2=MessageList 同一用例负载 flaky，已加 timeout:5000 缓解+孪生已同步）；server 侧 `bun run check:server` 本地坑=shell snapshot 把 `process.cwd()` 重置回 gov-managerment-plan（bun -e 实证），绕过法=/tmp/srv-exit.sh 逐文件 exit-code 判定（权威=CI 干净 checkout 无 .js 孪生双重收集）。
+- #84 deb：desktop/scripts/build-linux.sh LINUX_TARGETS=deb SKIP_INSTALL=1（先 tsc 孪生同步，TS5096 不阻断）。
