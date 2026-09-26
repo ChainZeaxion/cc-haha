@@ -104,7 +104,7 @@ export function TpsIndicator({ sessionId, vertical = false }: { sessionId: strin
         title={title}
       >
         <span className="inline-block text-center leading-none">
-          TPS{tps.toFixed(0)}t/s
+          TPS {tps.toFixed(0)}t/s
         </span>
         {activeSubs > 0 ? (
           <span data-testid="tps-subagent-badge" className="mt-0.5 leading-none">
