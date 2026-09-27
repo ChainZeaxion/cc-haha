@@ -72,7 +72,73 @@ const parseArgs = (argv: string[]): Options => {
       .map((s) => Number(s.trim()))
       .filter((n) => Number.isFinite(n) && n > 0 && n < 1),
     fullSummaries: !argv.includes("--no-full-summaries"),
+    // Slice size, in the characters the compactor actually sees. Sized in text
+    // rather than message count: one tool result can outweigh a hundred short
+    // turns, so a message cap gave spans of wildly different sizes -- measured
+    // 75k to 12M chars -- none of which resemble a production window.
+    //
+    // 750k is the production figure for this deployment, not a round number:
+    // auto-compact fires at ~82% of the declared window
+    // (`getAutoCompactThreshold`), and the local engine's window is 204,800
+    // tokens, so the summarized side is ~170k tokens ~= 750k characters at the
+    // calibrated 4 chars/token. A smaller testing budget is much easier to
+    // satisfy and flatters recall, so it must be chosen on purpose.
+    sliceChars: num("--slice-chars", 750_000),
   }
+}
+
+// ── slice sizing ───────────────────────────────────────────────────────────
+
+/** Roughly the text of one message, for size accounting only. */
+const messageChars = (m: CcMessage): number => {
+  const c = (m as any).message?.content
+  if (typeof c === "string") return c.length
+  if (!Array.isArray(c)) return 0
+  let n = 0
+  for (const b of c) {
+    if (typeof b?.text === "string") n += b.text.length
+    else if (typeof b?.thinking === "string") n += b.thinking.length
+    else if (b?.type === "tool_use") n += JSON.stringify(b.input ?? {}).length
+    else if (b?.type === "tool_result") {
+      n += typeof b.content === "string" ? b.content.length : JSON.stringify(b.content ?? "").length
+    }
+  }
+  return n
+}
+
+/**
+ * Take the messages adjacent to the pivot, up to a character budget.
+ *
+ * Adjacent rather than from the edge: the pivot is where a reader chose to
+ * split, so the messages nearest it are the ones the summary is most about.
+ * At least one message is always taken, so a single oversized message yields a
+ * one-message slice instead of an empty one.
+ */
+const takeAroundPivot = (
+  messages: CcMessage[],
+  pivot: number,
+  direction: "up_to" | "from",
+  budget: number,
+): CcMessage[] => {
+  if (budget <= 0) {
+    return direction === "up_to" ? messages.slice(0, pivot) : messages.slice(pivot)
+  }
+  const out: CcMessage[] = []
+  let used = 0
+  if (direction === "up_to") {
+    for (let i = pivot - 1; i >= 0; i--) {
+      const size = messageChars(messages[i])
+      if (out.length > 0 && used + size > budget) break
+      out.unshift(messages[i]); used += size
+    }
+  } else {
+    for (let i = pivot; i < messages.length; i++) {
+      const size = messageChars(messages[i])
+      if (out.length > 0 && used + size > budget) break
+      out.push(messages[i]); used += size
+    }
+  }
+  return out
 }
 
 // ── corpus ─────────────────────────────────────────────────────────────────
@@ -588,8 +654,8 @@ const runSession = (session: Session, opts: Options): RunResult | null => {
       // from is [pivot,end). The brief's prose also says "keep the pivot out of
       // the summarized side"; the two conflict for `from`, and the explicit
       // slice notation is what the real caller does, so it wins here.
-      { direction: "up_to", slice: loaded.messages.slice(0, pivot) },
-      { direction: "from", slice: loaded.messages.slice(pivot) },
+      { direction: "up_to", slice: takeAroundPivot(loaded.messages, pivot, "up_to", opts.sliceChars) },
+      { direction: "from", slice: takeAroundPivot(loaded.messages, pivot, "from", opts.sliceChars) },
     ]
     for (const frame of frames) {
       if (frame.slice.length === 0) continue
@@ -689,6 +755,7 @@ const buildReport = (
       ` — sessions hitting a cap: ${runs.filter((r) => r.loaded.capped).length}.`,
   )
   L.push(`- Pivots: ${opts.pivots.join(", ")} of the loaded message list, both directions.`)
+  L.push(`- Slice size: <= ${opts.sliceChars.toLocaleString("en-US")} characters of message text, taken outward from each pivot. Slice size is stated in characters, not messages, because one tool result can outweigh a hundred short turns -- a message cap produced spans from 75k to 12M chars, none resembling a production window.`)
   L.push(`- Scenarios scored: ${scenarioCount} (${runs.length} sessions).`)
   L.push(`- Run started: ${new Date(startedAt).toISOString()} (${num(elapsedMs / 1000)} s).`)
   L.push("")

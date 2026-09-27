@@ -106,6 +106,15 @@ is read.
 - `lines > 300 chars` / `longest line`: structurally always 0 / <=120 because
   `compileRanked` runs `wrapLongLines` at 120. Reported as specified but
   meaningless; the bash unwrap columns are the usable proxy.
+- **The ref columns can be polluted by the assistant's own prose** (found
+  2026-09-27). The extractor matches `\((#\d+...)\)` anywhere, but a `#N` in the
+  brief may be the assistant numbering its own work, not a recall ref — e.g. a
+  summary quoting "move to the remaining piece (#9): ..." was counted as one
+  unresolvable ref. Recorded outcomes only: the count is an upper bound on ref
+  defects, and a single flagged ref is not by itself evidence of a regression.
+  The reverse hazard is real for a reader too — vcc renders refs as `(#N)`, and
+  the assistant's task numbering looks identical, so a summary can carry a `#N`
+  that resolves to nothing (or to the wrong message).
 - The bash unwrap is approximate: it reconstructs a wrapped entry only when the
   entry ends in a `(#N)` ref, and measures only the first line otherwise (a
   ref-less entry, i.e. an unresolved index, cannot be told from the following

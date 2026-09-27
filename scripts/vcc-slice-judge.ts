@@ -10,7 +10,7 @@
 // and only makes sense on a spread of cases chosen by hand.
 //
 //   bun run scripts/vcc-slice-judge.ts [--count 8] [--endpoint http://127.0.0.1:8000]
-import { readFileSync, writeFileSync, readdirSync, statSync } from 'fs'
+import { existsSync, readFileSync, writeFileSync, readdirSync, statSync } from 'fs'
 import { dirname, join } from 'path'
 
 import { runVccSliceCompaction } from '../src/services/compact/vcc/vccCompact.js'
@@ -36,14 +36,76 @@ const OUT = join(REPO_ROOT, 'modify/reports/vcc-slice-judge.md')
 // the elision stated in the prompt. Enough to judge whether the summary covers
 // what the span was about, which is a different question from "did it name
 // every file" (the deterministic pass owns that).
-const TRANSCRIPT_BUDGET = 120_000
+// How much of the span the judge reads. The judge answers "does the summary
+// represent the span", so the span is the ground truth and in principle all of
+// it belongs in the prompt. But a very long prompt is not free: a smaller judge
+// model attends to less of it, and the chosen budget moves the verdict, so it
+// is a knob to be set deliberately (and held fixed across a comparison) rather
+// than a constant pulled from the air. Override with --transcript-budget.
+const TRANSCRIPT_BUDGET = Number(argOf('transcript-budget', '120000'))
 const PER_MESSAGE_CHARS = 400
 
 // A production partial compaction runs over the live window, which is bounded by
 // the auto-compact threshold — not over a whole 24k-message session. Taking the
 // pivot-outward 600 keeps the sampled slice at the size the feature actually
 // meets, so the judge is not judging a view that only exists in a harness.
-const SLICE_MAX_MESSAGES = 600
+// Slice size, in the characters the compactor actually sees. Kept far below the
+// production figure on purpose: this harness must hand the judge a span it can
+// read in full, and the judge is a ~200k-token engine that also has to produce
+// the verdict. A production slice (~750k chars) would leave no room for the
+// answer and force elision, which measures the judge's attention rather than the
+// summary. So the two harnesses divide the work:
+//   - this one asks "is the summary *usable*", on spans it can read whole;
+//   - `vcc-slice-calibration.ts` asks "what survives at production size", which
+//     is deterministic and so has no such limit.
+// Override with --slice-chars, but a larger value costs the judge its full view.
+const SLICE_MAX_CHARS = Number(argOf('slice-chars', '60000'))
+
+/** Roughly the text of one message, for size accounting only. */
+const messageChars = (m: Cc): number => {
+  const c = m.message?.content
+  if (typeof c === 'string') return c.length
+  if (!Array.isArray(c)) return 0
+  let n = 0
+  for (const b of c) {
+    if (typeof b?.text === 'string') n += b.text.length
+    else if (typeof b?.thinking === 'string') n += b.thinking.length
+    else if (b?.type === 'tool_use') n += JSON.stringify(b.input ?? {}).length
+    else if (b?.type === 'tool_result') {
+      n += typeof b.content === 'string' ? b.content.length : JSON.stringify(b.content ?? '').length
+    }
+  }
+  return n
+}
+
+/**
+ * Take the messages adjacent to the pivot, up to a character budget. Adjacent
+ * rather than from the edge: the pivot is where a reader chose to split, so the
+ * messages nearest it are the ones the summary is most about. At least one
+ * message is always taken, so one oversized message yields a one-message slice
+ * rather than an empty one.
+ */
+const takeAroundPivot = (messages: Cc[], pivot: number, direction: 'up_to' | 'from', budget: number): Cc[] => {
+  if (budget <= 0) {
+    return direction === 'up_to' ? messages.slice(0, pivot) : messages.slice(pivot)
+  }
+  const out: Cc[] = []
+  let used = 0
+  if (direction === 'up_to') {
+    for (let i = pivot - 1; i >= 0; i--) {
+      const size = messageChars(messages[i])
+      if (out.length > 0 && used + size > budget) break
+      out.unshift(messages[i]); used += size
+    }
+  } else {
+    for (let i = pivot; i < messages.length; i++) {
+      const size = messageChars(messages[i])
+      if (out.length > 0 && used + size > budget) break
+      out.push(messages[i]); used += size
+    }
+  }
+  return out
+}
 
 type Cc = { type: string; uuid?: string; message?: any; timestamp?: string }
 
@@ -99,6 +161,41 @@ const render = (messages: Cc[]): string => {
   return `${joined.slice(0, head)}\n\n…[${dropped} chars elided from the middle]…\n\n${joined.slice(-tail)}`
 }
 
+// ── Hypothesis probe: would the span's own conclusions help? ────────────────
+// The compiled summary carries structure (files, commits, blockers) and a tool
+// log, but no channel for what the assistant concluded. A reader cannot recover
+// a root cause, what a fix was, or a test result from a file list. `appendEndState`
+// already quotes only the span's *last* assistant paragraph, which is one
+// sentence against a whole span. This probe appends the span's segment-closing
+// paragraphs -- stated verbatim, so nothing is inferred -- to test whether the
+// hypothesis is worth implementing in the compiler at all.
+const AUGMENT_CONCLUSIONS = args.includes('--augment-conclusions')
+
+const closingConclusions = (messages: Cc[]): string[] => {
+  const out: string[] = []
+  for (let i = 0; i < messages.length; i++) {
+    const content = messages[i].message?.content
+    if (messages[i].type !== 'assistant' || !Array.isArray(content)) continue
+    const text = content
+      .filter((b: any) => b?.type === 'text' && typeof b.text === 'string')
+      .map((b: any) => b.text as string)
+      .join(' ')
+      .replace(/\s+/g, ' ')
+      .trim()
+    if (text.length < 120) continue
+    // Segment-closing: the next non-tool-result message is a user turn (or none).
+    let next: Cc | undefined
+    for (let j = i + 1; j < messages.length; j++) {
+      const c = messages[j].message?.content
+      const isResult = Array.isArray(c) && c.some((b: any) => b?.type === 'tool_result')
+      if (!isResult) { next = messages[j]; break }
+    }
+    if (next && next.type !== 'user') continue
+    out.push(text.length > 500 ? `${text.slice(0, 500)}…` : text)
+  }
+  return out
+}
+
 const PROMPT = (transcript: string, summary: string): string => `You are reviewing one internal summary of a slice of a coding session.
 
 Context you need to judge it fairly:
@@ -137,7 +234,13 @@ const judge = async (
       model: MODEL,
       messages: [{ role: 'user', content: PROMPT(transcript, summary) }],
       temperature: 0,
-      max_tokens: 1500,
+      // Generous on purpose: the verdict is a JSON object whose `missing` and
+      // `misleading` arrays are routinely dozens of entries, and the old 1500
+      // cut them off mid-object -- `extractJson` then parsed a truncated
+      // fragment, so the tally under-reported what the judge actually found.
+      // The cap only binds if the answer would exceed it; it does not make a
+      // short answer longer.
+      max_tokens: 32768,
       // Thinking off on purpose: the verdict is what is wanted, and on a
       // 120k-char prompt this build otherwise reasons until the allowance is
       // gone and the judgement never arrives.
@@ -192,41 +295,96 @@ const sessions = readdirSync(CORPUS)
   .sort((a, b) => b.size - a.size)
   .slice(0, COUNT * 2)
 
-async function main() {
-  const cases: string[] = []
-  for (const [i, session] of sessions.entries()) {
-    if (cases.length >= COUNT) break
-    const messages = linesOf(session.file)
-    if (messages.length < 120) continue
+// ── Sample pinning ──────────────────────────────────────────────────────────
+// Candidates are the largest sessions by file size, and those files keep growing
+// while work continues. A second run therefore draws a *different* set of spans,
+// and its totals cannot be compared with the first run's -- which is exactly the
+// mistake this pinning exists to prevent: an apparent movement in coverage can
+// be nothing but a change of subject. The chosen sample is frozen to a file and
+// reused, so two measurements differ only by the code under test.
+const SAMPLE_PATH = join(REPO_ROOT, 'modify/reports/vcc-slice-judge.sample.json')
 
-    // Alternate direction so both sides of a pivot are represented, and take a
-    // pivot well inside the session so each slice is substantial.
-    const direction = i % 2 === 0 ? 'up_to' : 'from'
-    const pivot = Math.floor(messages.length * 0.6)
+type SampleEntry = { file: string; direction: 'up_to' | 'from'; pivot: number; messages: number }
+
+const planSample = (): SampleEntry[] => {
+  const out: SampleEntry[] = []
+  for (const [i, session] of sessions.entries()) {
+    if (out.length >= COUNT) break
+    const messages = linesOf(session.file)
+    // A session shorter than the floor cannot yield a substantial slice.
+    if (messages.length < 120) continue
+    out.push({
+      file: session.file,
+      // Alternate direction so both sides of a pivot are represented, and pivot
+      // well inside the session so each slice is substantial.
+      direction: i % 2 === 0 ? 'up_to' : 'from',
+      pivot: Math.floor(messages.length * 0.6),
+      messages: messages.length,
+    })
+  }
+  return out
+}
+
+const readPinnedSample = (): SampleEntry[] | null => {
+  if (args.includes('--resample')) return null
+  try {
+    const parsed = JSON.parse(readFileSync(SAMPLE_PATH, 'utf8')) as SampleEntry[]
+    return Array.isArray(parsed) && parsed.length > 0 ? parsed : null
+  } catch {
+    return null // first run, or the file is mid-write
+  }
+}
+
+async function main() {
+  const pinned = readPinnedSample()
+  let sample: SampleEntry[]
+  if (pinned) {
+    sample = pinned.filter((entry) => existsSync(entry.file))
+    console.log(`[judge] using pinned sample ${SAMPLE_PATH} (${sample.length}/${pinned.length} spans still readable)`)
+  } else {
+    sample = planSample()
+    writeFileSync(SAMPLE_PATH, `${JSON.stringify(sample, null, 2)}\n`)
+    console.log(`[judge] pinned a new sample of ${sample.length} spans to ${SAMPLE_PATH}`)
+  }
+
+  const cases: string[] = []
+  for (const entry of sample) {
+    const { file: sessionFile, direction, pivot } = entry
+    const messages = linesOf(sessionFile)
+    if (messages.length <= pivot) {
+      console.log(`[judge] ${sessionFile.split('/').pop()} ${direction}@${pivot}: skipped (transcript shrank below the pinned pivot)`)
+      continue
+    }
     // Pivot outward: the 600 messages adjacent to the pivot, which is the
     // neighbourhood a person actually picks a pivot in.
-    const slice = direction === 'up_to'
-      ? messages.slice(Math.max(0, pivot - SLICE_MAX_MESSAGES), pivot)
-      : messages.slice(pivot, pivot + SLICE_MAX_MESSAGES)
+    const slice = takeAroundPivot(messages, pivot, direction, SLICE_MAX_CHARS)
 
-    const globalIndexByUuid = loadCcGlobalIndexByUuid(session.file)
+    const globalIndexByUuid = loadCcGlobalIndexByUuid(sessionFile)
     let result
     try {
       result = runVccSliceCompaction({ messages: slice as never, globalIndexByUuid })
     } catch (error) {
-      console.log(`[judge] ${session.file.split('/').pop()} ${direction}@${pivot}: compaction threw — ${(error as Error).message}`)
+      console.log(`[judge] ${sessionFile.split('/').pop()} ${direction}@${pivot}: compaction threw — ${(error as Error).message}`)
       continue
     }
 
-    const name = session.file.split('/').pop()!
-    console.log(`[judge] ${name} ${direction}@${pivot} slice=${slice.length} msgs → summary ${result.summary.length} chars`)
-    const judged = await judge(render(slice), result.summary)
+    const name = sessionFile.split('/').pop()!
+    const rendered = render(slice)
+    console.log(`[judge] ${name} ${direction}@${pivot} slice=${slice.length} msgs → span ${rendered.length} chars (budget ${TRANSCRIPT_BUDGET}${rendered.length > TRANSCRIPT_BUDGET ? ', ELIDED' : ''}) → summary ${result.summary.length} chars`)
+    const summaryUnderReview = AUGMENT_CONCLUSIONS
+      ? (() => {
+          const notes = closingConclusions(slice)
+          if (notes.length === 0) return result.summary
+          return `${result.summary}\n\n[Concluding Notes]\n${notes.map((n) => `- ${n}`).join('\n')}`
+        })()
+      : result.summary
+    const judged = await judge(render(slice), summaryUnderReview)
     const parsed = judged.ok ? extractJson(judged.raw) : null
     cases.push(
       [
         `### ${name} — ${direction}@${pivot}`,
         '',
-        `- Slice: ${slice.length} messages (pivot-outward cap ${SLICE_MAX_MESSAGES}), ${render(slice).length} chars rendered · Summary: ${result.summary.length} chars · compression ${(result.summary.length / render(slice).length * 100).toFixed(1)}%`,
+        `- Slice: ${slice.length} messages (pivot-outward, <=${SLICE_MAX_CHARS} chars), ${render(slice).length} chars rendered · Summary: ${result.summary.length} chars · compression ${(result.summary.length / render(slice).length * 100).toFixed(1)}%`,
         `- Sections: ${JSON.stringify(result.sections)}`,
         judged.ok
           ? `- Judge: ${parsed ? '```json\n' + JSON.stringify(parsed, null, 2) + '\n```' : 'raw: ' + judged.raw.slice(0, 1200)}`

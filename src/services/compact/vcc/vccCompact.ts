@@ -21,10 +21,17 @@ import { wrapLongLines } from "./vendor/core/format"
 import type { FileOps } from "./vendor/types"
 
 // pi-vcc's before-compact ranking budget (0.8.0 hook): brief transcript
-// floor 1100 tok, ceiling 2000 tok, 15 tok/block slope, scaled by the
+// floor 1100 tok, ceiling 2500 tok, 15 tok/block slope, scaled by the
 // session-calibrated chars/token.
+//
+// The ceiling was raised from upstream's 2000 (2026-09-27). It is inert on the
+// slices a partial compaction actually meets -- there the slope term stays under
+// the floor, so the budget is the floor and every ceiling >= 1100 gives the same
+// output (measured: 1600/2000/2300/2500/3200/3600 all identical at a 60k-char
+// slice). It binds only on a slice with more than ~167 ranked blocks, i.e. the
+// very large ones, where the extra 500 tokens buy a little more retained detail.
 export const RANKED_BRIEF_BUDGET_TOKENS = 1100
-export const RANKED_BRIEF_CEILING_TOKENS = 2000
+export const RANKED_BRIEF_CEILING_TOKENS = 2500
 export const RANKED_BRIEF_TOKENS_PER_BLOCK = 15
 
 const SECTION_HEADERS = [
