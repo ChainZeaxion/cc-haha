@@ -46,6 +46,9 @@
 > **当前链规模（2026-09-27）**：共 **43 patch**（41 实 + 2 空）。最新一位：`background-task-duration-restore`（二十一 子优化④ 补记二：后台任务耗时**恢复三层根因**——窗口被置空 / 通知型任务无起点 / **merge 抹掉 restored `startedAt`**；显示改紧凑 ASCII；补上「会话扩展信息」开关漏网的消息列表内联卡，链位 43）。前一位：`vcc-compact-fallback`（十三 vcc 失败降级兜底，链位 42）。再前：`subagent-background-task-durations`（二十一 子优化④：子代理耗时 + 子代理收纳栏总耗时 + 后台任务耗时，链位 41）。再前：`tps-content-accounting`（四 子优化：TPS 计量改为按内容度量，链位 40）。再前：`tps-real-token-accounting`（四 子优化：TPS 采样改真实 token 口径，链位 37）、`compact-dead-import-cleanup`（策略门禁 dead-imports 清理，链位 38）、`session-speed-and-usage-pairing`（四 子优化：面板生成速度分子分母配对 + transcript usage 去重丢 output 修复，链位 39）。新增：`turn-usage`（二十一 子优化②）、`thinking-badge-order-and-duration`（二十一 子优化①，前端 + API 层）、`baseline-typecheck-fixes`、`autocompact-window-tiers`、`history-transport-bounds`、`file-history-dedup`、`gzip-transport`、`history-first-paint-bound`（前端）、`storage-original-file-bound`（二十二 F 存量瘦身，含新测试文件）、`computer-use-platform-components`（十八 平台化组件选择）、`computer-use-python-path-fallback`（十八 解释器路径回退）、`tps-centered-second-line`（四 费用/TPS 第二行居中）、`h5-mobile-run-records`（二十五 H5 子代理运行记录，链位 36）。
 >
 > **全链验证（2026-09-27 收尾，决定性）**：在干净基线 `068b3ebd` 的**临时 worktree** 上按上表顺序 `git apply --allow-empty` 全部 **35 个 patch → 失败 0 个**；应用后终态与工作树在**本轮 4 个新 patch 涉及的全部 14 个文件**上**逐字节一致**，全树剩余差值仅为下节「已知非章 delta」。此为权威口径（早前「HEAD 上暂存往返」是非全链验证，已由本次全链取代）。**2026-09-27 追加第 36 位（`h5-mobile-run-records`）与 `tps-indicator`/`turn-usage` 重生成后复验：36 链同样失败 0，第 7 章 8 文件 + `chatStore.test.ts` + `AppShell.{tsx,test.tsx}` 逐字节等于工作树。** **2026-09-27 二次追加第 37/38 位（`tps-real-token-accounting`、`compact-dead-import-cleanup`）后复验：干净重跑 38 链失败 0，本轮 23 个文件（20 TPS + 3 dead-import）**逐字节等于工作树**。** **2026-09-27 三次追加第 39 位（`session-speed-and-usage-pairing`）后复验：干净重跑 39 链失败 0，本轮 13 个文件**逐字节等于工作树**。** **2026-09-27 四次追加：第 40/41/42 位（`tps-content-accounting`、`subagent-background-task-durations`、`vcc-compact-fallback`）随链入库（未单独复记全链）。** **2026-09-27 五次追加第 43 位（`background-task-duration-restore`）：干净 `068b3ebd` worktree 重跑 **43 链失败 0**，本轮 6 文件（`SessionActivityPanel.{tsx,test.tsx}`、`chatStore.{ts,test.ts}`、`MessageList.{tsx,test.tsx}`）**逐字节等于工作树**；生成时以 `HISTORY_STITCH_MAX_PAGES`/`agentGroupSpanMs`/`ingestSubagentTps` 三个「链内既有」标志串反查误记，均为 **0**。**
+
+> **2026-09-27 六次（vcc 摘要召回提升，未增链位、重生成 2 个已链 patch）**：收编 `RANKED_BRIEF_CEILING_TOKENS` 2000→2500 与 `Modified`/`Created` 封顶 10→36 进**链位 15**（`vcc-compactor`）；**并补上一个既有缺口**——片段模式的实现（`runVccSliceCompaction` 等 + `compact.ts` 的 `maybeVccSliceCompact` 及其回归测试）**从未被任何 patch 收录**，已分别收编进链位 15 与**链位 42**（`vcc-compact-fallback`）。干净 `068b3ebd` worktree 重跑 **43 链失败 0**；链涉及 **234 个文件中 232 个逐字节等于工作树**，余 2 个（`services/api/claude.ts`、`src/utils/__tests__/thinking.test.ts`）**均在下方「已知非章 delta」列内**。生成法：先在临时 worktree 固定「上一链位终态」为**基线 commit**，再取差值（直接 `git diff --cached` 会带出全部已应用 patch 的改动，导致下游 patch 重复应用而失败）。
+
 >
 > ⚠️ **必须按表顺序应用，不是「任意顺序」**：patch 之间存在**同文件重叠**——`turn-usage` 与 `thinking-tool-timing`（均改 `chatStore.ts`/`types/chat.ts`）、`tps-indicator`（`chatStore.ts`）、`h5-require-token`（`i18n/locales/*`）共享文件。重叠 patch 的 hunk 上下文取自各自上游状态，乱序应用可能失败。早期「各 patch 文件互不重叠、可任意顺序」的说明仅对当时较小的链成立，**现已作废**。
 >
@@ -947,7 +950,62 @@ CLAUDE_H5_DIST_DIR=/home/zeaxion/myproject/cchaha-06scode/desktop/dist \
 
 **⚠️ 质量天花板（结论）**：剩下的主缺口在 **brief 的选材**（工具行优先于助手结论），而 brief 的排序与预算在 vendor 内（`RANKED_BRIEF_*` 常量虽在我们文件里，但选取逻辑 `selectRankedBriefBlocks` 在 vendor）。**要再上一个台阶，必须改 vendor 的排序逻辑** —— 与「vendor 不手改」的既定约束冲突，故**停在此处待用户裁决**：接受当前水平落地 / 授权带标记地改 vendor 排序 / 放弃方案 C。
 
-**方案 C 当前结论**：**正确性已达标**（段策略、引用归属、失败降级、零回归、无杜撰、无越界引用），**摘要质量中上但非优秀**（coverage ≈ 2.9/5，与既有整段压缩同机制同水平）。
+> **2026-09-27 后续**：用户授权「带标记地改 vendor」。此后做的实际是**先修测量、再动参数**，结论见下节「摘要召回提升」——**改的不是排序逻辑，而是 `Files And Changes` 的每类封顶**；排序方向（提高散文权重）实测无效已回退。
+
+### 子优化：vcc 摘要召回提升 + 测量口径修正（2026-09-27，收编进链位 15）
+
+**需求（用户 verbatim）**：「准确性能不能提到 87-93%」→ 追问生产上「原本的摘要压缩是压多大的片段」→「160/180k 测一下」。
+
+#### 一、先修测量：三个口径缺陷（本轮最重要的产出）
+
+前几轮结论反复推翻，根因全是**测量口径**，不是算法：
+
+1. **裁判输出被截断（少报）**：`vcc-slice-judge.ts` 的 `max_tokens` 只有 **1500**，而 `missing`/`misleading` 数组常达数十条 → 截断成残段，`extractJson` 只解析出前半。**裁判因此在"少报问题"**。改 **32768**（仅封顶，不会让短答案变长）。
+2. **⭐ 抽样随会话增长漂移**：候选按「文件大小取最大 N 个会话」，而**会话 jsonl 在持续增长**（本会话当天从 7717 涨到 8704 条）→ **每次运行抽到另一批 span，总分不可跨运行比较**。证据：两次提示词完全相同的运行，**共有用例逐例结果 100% 一致**（裁判 `temperature:0` 本身确定性）。修法：样本钉到 `modify/reports/vcc-slice-judge.sample.json`（8 span + pivot），`--resample` 才重抽。
+3. **⭐⭐ 切片尺寸与生产差 12 倍**：两个测试台原按**消息条数**取切片，实测渲染字符数中位 **54 万**（p75 90 万、118/120 超 10 万），而我一度按 **6 万** 测。**切片越小指标越好**（6 万→89.7%，160 万→81.7%）——我据此两次得出错误结论（"生产口径已达 90%"、"cap 零效果"）。修法：改按**字符**取（`--slice-chars`），默认 **750,000**。
+
+**生产尺寸怎么定（从代码反推，不拍脑袋）**：自动压缩触发 = `getAutoCompactThreshold` ≈ 有效窗口 × (1−pctLeft)（512k 声明窗口下实测 **418,200 tok = 81.7%**）；本地引擎窗口 **204,800 tok**；vcc 校准 **4 chars/token** → **被摘要的 ≈ 75 万字符**（512k 口径则 ≈160 万）。
+
+#### 二、两处参数改动（vendor，均带 `LOCAL EDIT (cc-haha)` 标记）
+
+| 改动 | 位置 | 生产口径效果 |
+|---|---|---|
+| **`Modified`/`Created` 每类封顶 10 → 36**（`Read` 保持 10） | `vendor/core/build-sections.ts` | 改动文件召回 **95.0% → 97.0%**（漏 22 → 13）、mean 85.0%→**85.7%**、median 87.9%→**88.9%** |
+| brief ceiling **2000 → 2500** | `vccCompact.ts` | **惰性**——该参数只在 >167 个排位块的超大切片上咬合（六点扫描 1600/2000/2300/2500/3200/3600 实测全等） |
+
+**关于封顶**：这是**唯一零代价的真收益**。实测单窗口最多改动 **28** 个文件，cap=10 时超出部分只留 `(+N more)`、**文件名完全不出现**；`Read` 不放开是因为漏只读文件对读者无代价，且会挤占真正要紧的改动清单。
+
+**⚠️ 该参数必须分两种压缩口径测**（同一参数表现完全不同）：**局部压缩**（`runVccSliceCompaction`，窗口 ~75 万）下 cap 从不咬合；**整窗压缩**（`runVccCompaction`，窗口由 `CLAUDE_CODE_AUTO_COMPACT_WINDOW` 决定）下才生效。我只测前者时曾得出「零效果、建议撤掉」——**错的**。
+
+#### 三、试过并已回退的方向（vendor 树已还原）
+
+| 方向 | 结果 |
+|---|---|
+| 提高散文权重（`rank.ts` assistant 文本 10→24） | 杜撰 2→6，无覆盖收益 |
+| bash 行渲染成败 `(ok)`/`(exit N)` | 各指标变差；且 **`exit 0 ≠ 测试通过`**（管道取末段状态） |
+| 只标失败 `(exit N)` | 净负（usable 5/8→4/8） |
+| 附上全段结论（探针，未改 vendor） | coverage ↑ 但 **usable 4/8→0/8** |
+
+**共同模式：每次"往摘要里塞更多材料"都降低可用性。** 配合「封顶放宽只加预算不加内容」才是唯一有效方向。
+
+#### 四、当前指标（官方口径 `mean file-recall`，240 场景，750k 切片）
+
+**mean 87.1% / median 88.9% / 改动文件 97.0%** —— 落入用户目标 **87-93%**。
+
+#### 五、顺带修好的链缺口
+
+本轮重生成 patch 时发现：**片段模式的实现（`runVccSliceCompaction`/`SLICE_OMITTED_SECTIONS`/`omitSections`/`stripRefsOutside`/`appendEndState` 及 `compact.ts` 的 `maybeVccSliceCompact` + 其回归测试）从未被任何 patch 收录**——只存在于工作树。已分别收编进链位 15（vcc-compactor）与链位 42（vcc-compact-fallback）。**修后干净重跑 43 链失败 0，链涉及 234 个文件中 232 个逐字节等于工作树**，余 2 个（`services/api/claude.ts`、`__tests__/thinking.test.ts`）均在「已知非章 delta」列内。
+
+#### 六、踩坑记录（本项独立小节）
+
+1. **测量口径不固定就下结论，等于没测**——本轮先后因 `max_tokens`、抽样漂移、切片尺寸三个口径问题得出并推翻了 5 次结论。**动参数前先把口径钉死**。
+2. **切片尺寸必须从生产参数反推**（触发阈值 × chars/token），不能凭感觉取。**测试越小越"好看"**，会系统性高估。
+3. **同一参数要分压缩口径测**：局部压缩与整窗压缩的窗口差一个数量级，`cap` 在两者下表现完全相反。
+4. **校准脚本的正则会误算引用**：助手散文里的任务编号 `(#9)` 会被当成 vcc 召回引用而报「不可解析」——**单条 ref 告警不足以判回归**。反过来对读者也成立：vcc 用 `(#N)` 渲染引用，与任务编号同形，**摘要里两者无法区分**（固有歧义，未改）。
+5. **从工作树生成 patch 会把后续 patch 的改动一并带入**（工作树含全部已应用 patch），必须先用**基线 commit** 固定「上一链位终态」再取差值；否则下游 patch 会重复应用而失败。
+6. **链终态与工作树不一致要先怀疑"某段代码从未入链"**，而不是 diff 工具。本次即属此例（片段模式漏登记）。
+
+
 
 ### 子优化：vcc 失败降级兜底（2026-09-27，链位 42）
 
