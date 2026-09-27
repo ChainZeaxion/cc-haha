@@ -904,8 +904,9 @@ export function ActiveSession({ sessionId, active = true }: { sessionId?: string
                   metadata={headerMetadata}
                   actions={
                     <>
-                      {/* 两行块：上=会话费用，下=TPS（固定占位，缺一项时另一行居中对齐）。 */}
-                      <div className="flex h-[42px] shrink-0 flex-col items-end justify-center gap-0.5">
+                      {/* 两行块：上=会话费用，下=TPS。费用徽章较宽，故 TPS 行**水平居中**于其下方
+                          （`items-center`，而非靠右对齐）——两行宽度不对等时居中才显得对仗工整。 */}
+                      <div className="flex h-[42px] shrink-0 flex-col items-center justify-center gap-0.5">
                         <div className="flex h-[16px] items-center">
                           {activeTabId ? <SessionCostBadge sessionId={activeTabId} active={chatState !== 'idle'} /> : null}
                         </div>

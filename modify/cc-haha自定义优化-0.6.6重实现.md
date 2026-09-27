@@ -896,6 +896,58 @@ CLAUDE_H5_DIST_DIR=/home/zeaxion/myproject/cchaha-06scode/desktop/dist \
 
 **patch**：`modify/patches/vcc-compactor.patch`（原 57 文件 5946 行；2026-09-26 子优化后重生成 **58 文件 6008 行**，链位 15，基线 2004cd16）。
 
+
+### 子优化：局部压缩接入 vcc（片段模式）+ 语料校准（2026-09-27，方案 C，**待验收**）
+
+**需求（用户 verbatim）**：「partialCompactConversation 仍走 LLM 而非 vcc，这个是什么意思」→ 解释后用户选「走方案C，用现有多个会话历史语料进行测试，用引擎压缩进行校准算法，尽量提高摘要质量」。
+
+**问题本质**：`partialCompactConversation` 只调 `streamCompactSummary`，所以后端设为 `algorithm` 时，**带 pivot 的局部压缩仍走 LLM**，界面也不提示——静默偏差。
+
+**实现（三处关键决定）**：
+1. **片段模式写在自有适配器，vendor 一行未动**：`vendor/` 顶部写着 "Do not edit by hand"。新增 `runVccSliceCompaction()` 于 `vccCompact.ts`，复用 vendor 的 `adaptCcMessages` / `calibrateFromWindow` / `compileRanked`。
+2. **只 compile，不切保留尾**（`messagesToKeep: []` 恒定）：整段版的 `buildVccCut` 自己解「留多少」，而局部压缩的边界**由人选的那个 pivot 决定**，且调用方已逐字保留另一侧；这里再留尾会把被摘要那一侧又留一遍。
+3. **`SLICE_OMITTED_SECTIONS = ['Session Goal','User Preferences']`**：这两个段描述的是**会话**而非它们被读出来的那段，从半段对话编出来会**印在一个承诺"会话目标"的标题下**——读起来像权威结论却系统性错误。缺失优于撒谎。
+
+接线：`compact.ts` 新增 `maybeVccSliceCompact()`（抛错/空摘要双降级走 LLM 回退、abort 原样上抛，与链位 42 同构）→ `partialCompactConversation` 在 LLM 循环前调用，非空即 `break`。
+
+**校准工具**：`scripts/vcc-slice-calibration.ts` → `modify/reports/vcc-slice-calibration.md`（逐会话完整摘要，语料 = `~/.claude/projects` 顶层会话；`bun run scripts/vcc-slice-calibration.ts --max 20`，20 会话 / 240 场景 / ~18s）。确定性指标：文件召回、杜撰检测、引用可解析性与**是否越出片段**、压缩比、段清单、Bash 参数噪音。
+
+**校准发现并修掉的两个真缺陷（都是本实现自己的错）**：
+
+1. **`omitSections` 按 `---` 切块 → 丢 `Session Goal` 会连带丢掉整个段块**。`formatSummary` 里段之间是**空行**连接，只有「段块 ↔ brief」之间才是 `---`；我按 `---` 切块、只读每块**第一个**标题，于是 `Session Goal` 一存在就整块（含 `Files And Changes`）被丢。**代价：文件召回 83.7% → 59.6%（-24 个百分点），而 `Files And Changes` 正是读者最需要的段。** 修法：按**已知标题行**切分，只丢标题命中的那一段。修复后 `default` 召回回到 **83.7%**，且 `Files And Changes` 保住 113/113、丢弃 0 次。
+2. **继承的引用会指向被保留的那一侧**。片段里含上一份摘要（`isCompactSummary`）时，它的 `(#N)` 会随合并进入新摘要——这些引用**能解析**（索引是会话全局的），但指向本次摘要明确不覆盖的地方，读者顺着跳会跑到别处。修法：新增 `stripRefsOutside()`，只保留落在片段内的引用（**并正确处理多引用形态 `(#13, #14)`**——首版正则 `\(#(\d+)\)` 只认单引用，多引用形态直接漏过）。修复后 `refs outside slice` 4 → **0**。
+
+**校准后的指标（default 变体，120 场景）**：文件召回 **83.7%**（中位 85.0%）、杜撰 **0**、不可解析引用 **0**、越出片段引用 **0**、压缩比 **0.6%**、策略违规 **0/120**。对照 `none` 变体（不抑制任何段）：召回同为 83.7%，但**越出片段引用 4**、**策略违规 114**——即抑制策略现在严格更优。
+
+**已知缺口（如实登记，本次未改）**：
+- **`Commits` 段 240/240 全缺**：适配器把 Bash 走成 `role:"bashExecution"` → normalize 得 `kind:"bash"`，而 vendor 的 `extractCommits` 只认 `kind:"tool_call" && name==="bash"`（小写），`name: "Bash"` 不匹配。已实测「reshape 后可提取」（40 会话中 6 个含 `git commit`，全部提取成功），**但 heredoc 写法的提交消息会被 vendor 正则抓成 `$(cat <<'EOF'`**——加进去等于把花掉的文本当权威信息，故**决定不加**，留作已知缺口。
+- **`Outstanding Context` 仅 7/240**：提取器要求「最近 20 块中」出现符合 `BLOCKER_RE` 且句首合规的行，条件偏严。
+- **长尾文件召回有天花板**：`Files And Changes` 每类封顶 10 条，超大片段（900 条消息）的尾部结构上不可恢复——是**预算问题而非策略问题**。
+- **Bash 参数噪音**：`compressBash` 封顶 240 字符（实测最长 243），不是整段 shell dump；但一个 ~240 字符的 Python 单行仍是整份摘要里最大的噪声源。
+
+**⚠️ 边界**：局部压缩**没有任何 API/SDK 入口**（唯一入口是 CLI REPL 的消息选择器回调 `REPL.tsx` 的 `onSummarize`；`src/server`、SDK 控制协议、桌面端全无路由），且 `getToolUseContext` 是 REPL 组件内的 `useCallback` 外不可复用 → **没有自动化端到端**。`streamCompactSummary` 是 `compact.ts` 的模块内私有函数，**无法用 `mock.module` 替换**以断言「未被调用」。故验收证据 = 单元级（28+2 条）+ 离线语料校准。
+
+**验证**：`bun test src/services/compact` **30 pass / 0 fail**（新增：片段模式 4 条 + 接线 3 条 + 段抑制回归 1 条 + 引用过滤 2 条）；服务端 `tsc --noEmit` **0 错**。
+
+**引擎裁判（2026-09-27，用户批准，本地引擎 `zxsv-ai` Qwen3.8-27B，8 例抽样）**：
+
+工具 `scripts/vcc-slice-judge.ts` → `modify/reports/vcc-slice-judge.md`。让引擎读**同一片段**并评判摘要的覆盖/杜撰/误导/可读性，输出结构化 JSON。抽样 8 例（最大会话、交替 pivot 方向、片段取 pivot 外扩 600 条，与生产会话窗口同量级）。
+
+| 轮次 | coverage(5) | readability(5) | usable/needs-work | 杜撰 | 误导 | 遗漏 |
+|---|---|---|---|---|---|---|
+| 第一轮（段抑制修复 + 引用过滤后） | 2.75 | 3.50 | 4/4 | 2 | 10 | 35 |
+| 第二轮（再加「收尾状态」行后） | 2.88 | 3.62 | 4/4 | 2 | 10 | 34 |
+
+**裁判指出的系统性缺陷（35 条遗漏的主题归类）**：**具体修复内容 8、根因 6、测试/验证 5、用户原话 4、未决状态 2**。即：**摘要记住了「文件与步骤」，却丢了「结论」** —— 读者知道改了哪些文件，却不知道**为什么改、改成了什么、验证没验证、事情收没收尾**。这与离线观感一致：brief 以工具调用行为主体，助手的**结论性散文**被裁掉。
+
+**针对性的两项改动与其结果**：
+1. **`appendEndState()`（保留）**：把片段最后一条助手文本**逐字**追加为 `[Where This Span Ended]`，给读者一个明确的收尾状态。确定性、不可能杜撰（文本本就来自片段）；已与 brief 重复时不追加；并复用 vendor 的 `wrapLongLines` + 120 字硬护栏保住渲染宽度不变量（**首版漏了换行，被确定性指标抓到：`longest line` 120 → 403**）。收益：coverage 2.75→2.88、readability 3.50→3.62 —— **有改善但边际**。
+2. **`dedupeReadAgainstWrites()`（已撤）**：把「既 Read 又 Modified」的文件从 Read 列表移除（`Files And Changes` 净效果）。实现后**确定性指标立刻报警：`longest line` 120 → 240**——该变换作用在 vendor **已换行**的文本上，把折行续行拼成了超长行。归因实验（临时禁用后回到 120）确认元凶。**撤掉**：这类去重必须在 vendor 的**换行之前**做，而那在 vendor 内部，属层级错配，不是能在这个接缝上正确完成的事。
+
+**⚠️ 质量天花板（结论）**：剩下的主缺口在 **brief 的选材**（工具行优先于助手结论），而 brief 的排序与预算在 vendor 内（`RANKED_BRIEF_*` 常量虽在我们文件里，但选取逻辑 `selectRankedBriefBlocks` 在 vendor）。**要再上一个台阶，必须改 vendor 的排序逻辑** —— 与「vendor 不手改」的既定约束冲突，故**停在此处待用户裁决**：接受当前水平落地 / 授权带标记地改 vendor 排序 / 放弃方案 C。
+
+**方案 C 当前结论**：**正确性已达标**（段策略、引用归属、失败降级、零回归、无杜撰、无越界引用），**摘要质量中上但非优秀**（coverage ≈ 2.9/5，与既有整段压缩同机制同水平）。
+
 ### 子优化：vcc 失败降级兜底（2026-09-27，链位 42）
 
 **需求（用户 verbatim）**：「如果 vcc 不执行或者执行失败呢，是否需要增加兜底机制让返回原本的后端引擎压缩方式？」

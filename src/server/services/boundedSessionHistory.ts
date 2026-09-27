@@ -6,8 +6,12 @@ export const HISTORY_SCAN_BYTES = 16 * 1024 * 1024
 /** Scan ceiling for the full-history read. It may walk much further than a
  * single page because its output budget is `HISTORY_FULL_BYTES`, but the I/O
  * per request still needs a hard cap: one bounded read is a synchronous walk
- * with no other yield point. */
-export const HISTORY_FULL_SCAN_BYTES = 64 * 1024 * 1024
+ * with no other yield point.
+ * Kept at 3x `HISTORY_FULL_BYTES` to absorb records skipped by
+ * `HISTORY_SEMANTIC_RECORD_BYTES`. The scan budget — not the output budget — is
+ * what actually bounds a request's latency and (on the remote path) the
+ * synchronous gzip, so lowering the output budget alone would change nothing. */
+export const HISTORY_FULL_SCAN_BYTES = 24 * 1024 * 1024
 export const HISTORY_SEMANTIC_RECORD_BYTES = 8 * 1024 * 1024
 export const HISTORY_RECORD_BYTES = 1024 * 1024
 export const HISTORY_PAGE_BYTES = 256 * 1024
@@ -16,8 +20,11 @@ export const HISTORY_PAGE_ROWS = 500
 /** Single-request ceiling for the "load the whole transcript at once" path.
  * The desktop timeline reads this in one shot so it never has to stitch pages
  * together; past the budget the reader still returns the newest slice and
- * reports `historyComplete: false` instead of failing with 413. */
-export const HISTORY_FULL_BYTES = 32 * 1024 * 1024
+ * reports `historyComplete: false` instead of failing with 413.
+ * Deliberately small: one response must not spike renderer memory or block the
+ * event loop in `gzipSync` for a transcript whose individual records are
+ * already bounded by the tool-result preview. */
+export const HISTORY_FULL_BYTES = 8 * 1024 * 1024
 /** Row ceiling for the full-history path. The byte budget is the real bound;
  * this only stops pathological all-tiny-record transcripts from building a
  * six-figure-entry array. */
@@ -93,6 +100,50 @@ function decodeCursor(value: string): Cursor {
 
 /** Produce a display preview without dropping a message's identity. Durable
  * replay and semantic state reducers always receive the original record. */
+/** Per-string clip for the `toolUseResult` projection that ships with history.
+ * `toolUseResult` echoes tool *inputs* back to the client — notably FileEdit's
+ * `originalFile`, the entire pre-edit file. It is display-only (the model sees
+ * `mapToolResultToToolResultBlockParam` output, and turn diffs read
+ * `structuredPatch`), so clipping long strings cannot change what the model was
+ * told or what a diff shows. */
+export const TOOL_USE_RESULT_STRING_LIMIT = 16 * 1024
+const TOOL_USE_RESULT_ITEM_LIMIT = 2048
+const TOOL_USE_RESULT_DEPTH_LIMIT = 12
+
+/**
+ * Bound `toolUseResult` for transport. Keys and container types are preserved
+ * so consumers keep working; only oversized strings (and pathologically long
+ * arrays/objects) are trimmed.
+ *
+ * Deliberately reports nothing: setting `bodyTruncated` here would propagate to
+ * `contentTruncated` and then `historyComplete`, making the client treat a
+ * complete transcript as incomplete and re-enter recovery for a field that was
+ * only ever a transport concern.
+ */
+export function boundToolUseResultPreview(value: unknown): unknown {
+  const visit = (input: unknown, depth: number): unknown => {
+    if (typeof input === 'string') {
+      return input.length <= TOOL_USE_RESULT_STRING_LIMIT
+        ? input
+        : `${input.slice(0, TOOL_USE_RESULT_STRING_LIMIT)}\n… [truncated preview]`
+    }
+    if (!input || typeof input !== 'object') return input
+    if (depth >= TOOL_USE_RESULT_DEPTH_LIMIT) return input
+    if (Array.isArray(input)) {
+      const kept = input.length > TOOL_USE_RESULT_ITEM_LIMIT
+        ? input.slice(0, TOOL_USE_RESULT_ITEM_LIMIT)
+        : input
+      return kept.map(item => visit(item, depth + 1))
+    }
+    const entries = Object.entries(input)
+    const kept = entries.length > TOOL_USE_RESULT_ITEM_LIMIT
+      ? entries.slice(0, TOOL_USE_RESULT_ITEM_LIMIT)
+      : entries
+    return Object.fromEntries(kept.map(([key, child]) => [key, visit(child, depth + 1)]))
+  }
+  return visit(value, 0)
+}
+
 export function displayPreview(entry: Record<string, unknown>): Record<string, unknown> {
   let truncated = false
   let remaining = 48 * 1024

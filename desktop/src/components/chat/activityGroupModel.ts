@@ -55,6 +55,75 @@ export function toolCallDurationMs(
   return Number.isFinite(elapsed) && elapsed >= 0 ? elapsed : undefined
 }
 
+/**
+ * When one Agent (subagent) run started and ended, on the parent session's clock.
+ *
+ * The runtime dispatches a group's agents **in parallel**, so a group's total is
+ * a span over intervals, never a sum of durations — three concurrent 2-minute
+ * runs are 2 minutes of wall clock, not 6. Measuring that needs both ends of each
+ * run, which is why the interval (not just a duration) is the primitive here.
+ *
+ * `endMs` comes from the runtime's own report when there is one —
+ * `AgentTaskNotification.usage.durationMs`, carried by `task_progress` /
+ * `task_notification` — because a *background* agent returns from its launch
+ * immediately: its tool_result lands ~milliseconds later while the run itself
+ * takes minutes, so the report is the only truthful length. A *synchronous*
+ * agent blocks its tool call, so tool_use → tool_result is that run's real span
+ * (the same measurement `toolCallDurationMs` uses for every other tool) and is
+ * used when nothing was reported: older transcripts, and the one-shot
+ * Explore/Plan agents that emit no `<usage>` block at all.
+ *
+ * `undefined` while a synchronous run is still in flight — there is no
+ * trustworthy anchor to tick from, so the caller shows no number rather than a
+ * guessed one.
+ */
+export type AgentRunInterval = { startMs: number; endMs: number }
+
+export function agentRunInterval(
+  toolCall: Pick<ToolCall, 'timestamp'>,
+  result: Pick<ToolResult, 'timestamp'> | undefined,
+  reportedDurationMs?: number,
+): AgentRunInterval | undefined {
+  const startMs = toolCall.timestamp
+  if (!Number.isFinite(startMs)) return undefined
+  if (typeof reportedDurationMs === 'number' && Number.isFinite(reportedDurationMs) && reportedDurationMs > 0) {
+    return { startMs, endMs: startMs + reportedDurationMs }
+  }
+  const endMs = result?.timestamp
+  if (typeof endMs !== 'number' || !Number.isFinite(endMs) || endMs < startMs) return undefined
+  return { startMs, endMs }
+}
+
+/** One run's own length, for the row that shows it. */
+export function agentRunDurationMs(interval: AgentRunInterval | undefined): number | undefined {
+  return interval ? interval.endMs - interval.startMs : undefined
+}
+
+/**
+ * Wall-clock span of a subagent group: earliest start to latest end.
+ *
+ * The union of the members' intervals, so concurrent runs are counted once —
+ * the same reason {@link activityDurationMs} sums its steps: those steps (a
+ * thought, then a tool) genuinely happen in sequence, whereas a dispatched group
+ * genuinely runs at once. Runs that are still in flight, or that carried no
+ * usable timestamps, contribute nothing; a group where none was measurable
+ * returns `undefined` so the header prints no number instead of `0s`.
+ */
+export function agentGroupSpanMs(
+  intervals: ReadonlyArray<AgentRunInterval | undefined>,
+): number | undefined {
+  let spanStart = Infinity
+  let spanEnd = -Infinity
+  for (const interval of intervals) {
+    if (!interval) continue
+    if (!Number.isFinite(interval.startMs) || !Number.isFinite(interval.endMs)) continue
+    if (interval.startMs < spanStart) spanStart = interval.startMs
+    if (interval.endMs > spanEnd) spanEnd = interval.endMs
+  }
+  if (spanStart === Infinity || spanEnd < spanStart) return undefined
+  return spanEnd - spanStart
+}
+
 const TOOL_VERBS: Record<string, (count: number, t: Translate) => string> = {
   Read: (n, t) => n === 1 ? t('toolGroup.readOne') : t('toolGroup.readMany', { count: n }),
   Write: (n, t) => n === 1 ? t('toolGroup.createdOne') : t('toolGroup.createdMany', { count: n }),
@@ -287,16 +356,28 @@ export function activityTokenUsage(
 }
 
 /**
- * The run's token label. Estimated thought → `0.80k + 1.20k` (thought first,
- * tool after, joined by ` +`); a real thought count → one combined total,
- * because then the number is what the API billed, not two different measurement
- * methods glued together.
+ * The run's token label parts. Estimated thought → two numbers (thought, then
+ * tool); a real thought count → one combined total, because then the number is
+ * what the API billed rather than two different measurement methods glued
+ * together.
+ *
+ * Returned as parts rather than a joined string so the separator can be laid
+ * out with CSS: the label renders in a monospace font, where a literal space is
+ * a full character cell and cannot be tightened to an in-between width.
  */
-export function activityTokenLabel(usage: ActivityTokenUsage): string {
+export function activityTokenParts(usage: ActivityTokenUsage): string[] {
   if (!usage.thinkingIsEstimated) {
-    return formatActivityTokens(usage.thinkingTokens + usage.toolTokens)
+    return [formatActivityTokens(usage.thinkingTokens + usage.toolTokens)]
   }
-  return `${formatActivityTokens(usage.thinkingTokens)} + ${formatActivityTokens(usage.toolTokens)}`
+  return [
+    formatActivityTokens(usage.thinkingTokens),
+    formatActivityTokens(usage.toolTokens),
+  ]
+}
+
+/** Plain-string form of {@link activityTokenParts}, for tests and fallbacks. */
+export function activityTokenLabel(usage: ActivityTokenUsage): string {
+  return activityTokenParts(usage).join(' + ')
 }
 
 /** Token count as `xx.xxk`, two decimals (`0.80k`, `12.50k`). */

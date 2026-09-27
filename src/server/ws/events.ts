@@ -79,6 +79,13 @@ export type ServerMessage =
     }
   | { type: 'content_start'; blockType: 'text' | 'tool_use'; toolName?: string; toolUseId?: string; originalToolUseId?: string; parentToolUseId?: string }
   | { type: 'content_delta'; text?: string; toolInput?: string }
+  /**
+   * Real tokens decoded since the previous frame, relayed from the engine's
+   * per-chunk token ids (vLLM `return_token_ids`). Carries no content: the
+   * desktop feeds it to the TPS meter, which then ignores the text frames it
+   * duplicates. Sent only for endpoints that reported token ids.
+   */
+  | { type: 'tps_tokens'; tokens: number }
   | { type: 'tool_use_complete'; toolName: string; toolUseId: string; originalToolUseId?: string; input: unknown; parentToolUseId?: string }
   | { type: 'tool_result'; toolUseId: string; originalToolUseId?: string; content: unknown; isError: boolean; parentToolUseId?: string }
   | {

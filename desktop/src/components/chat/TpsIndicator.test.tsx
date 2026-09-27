@@ -63,17 +63,28 @@ it('drops the Σ badge once the subagent stops (its held speed must not inflate 
 })
 
 it('caps the displayed value at 4 digits (9999)', () => {
-  // Pump both meters hard so the aggregate total far exceeds 9999
-  // (≈1140 tok/sample × 15 live samples / 1.5s window ≈ 11k per meter).
+  // Relay real token counts far above the display ceiling: 15 live samples of
+  // 2000 tokens over a ~1.4s window ≈ 21k tokens/s.
   for (let i = 0; i < 20; i++) {
     now += 100
-    subMeter.push('x'.repeat(4000))
-    ownMeter.push('x'.repeat(4000))
+    ownMeter.pushTokens(2000)
   }
   const { container } = render(<TpsIndicator sessionId="main" />)
   const indicator = container.querySelector('[data-testid="tps-indicator"]')!
   const numberText = indicator.textContent?.replace(/TPS|t\/s|Σ\d+/g, '').trim() ?? ''
   expect(Number(numberText)).toBe(9999)
+  // The reading comes from the exact (relayed ids) tier, so the tooltip must
+  // not advertise it as approximate.
+  expect(indicator).toHaveAttribute('data-tps-source', 'ids')
+  expect(indicator).not.toHaveAttribute('title', expect.stringContaining('≈'))
+})
+
+it('marks a sampled (non-ids) reading as approximate', () => {
+  pump(ownMeter)
+  const { container } = render(<TpsIndicator sessionId="main" />)
+  const indicator = container.querySelector('[data-testid="tps-indicator"]')!
+  expect(indicator).toHaveAttribute('data-tps-source', 'char')
+  expect(indicator).toHaveAttribute('title', expect.stringContaining('≈'))
 })
 
 it('stays hidden before anything has streamed', () => {

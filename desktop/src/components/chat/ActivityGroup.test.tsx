@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it } from 'vitest'
 import { fireEvent, render, screen, within } from '@testing-library/react'
 import { ActivityGroup } from './ActivityGroup'
-import { buildActivitySegments, type ActivityStep } from './activityGroupModel'
+import { agentGroupSpanMs, agentRunDurationMs, agentRunInterval, buildActivitySegments, type ActivityStep } from './activityGroupModel'
 import { useSettingsStore } from '../../stores/settingsStore'
 import { translate } from '../../i18n'
 import type { UIMessage } from '../../types/chat'
@@ -275,7 +275,15 @@ describe('ActivityGroup', () => {
         childToolCallsByParent={new Map()}
       />,
     )
-    expect(screen.getByText('0.40k + 0.00k')).toBeTruthy()
+    // The two estimates are separate nodes joined by a CSS gap (a literal space
+    // in a monospace font cannot be tightened), so they are no longer one
+    // contiguous text node — assert on the container, not getByText.
+    const tokens = document.querySelector('[data-activity-tokens="true"]')
+    expect(tokens?.textContent).toBe('0.40k+0.00k')
+
+    // Token usage sits before the elapsed time on the right-hand side: the
+    // container that holds the label starts with it.
+    expect(tokens?.parentElement?.textContent).toMatch(/^0\.40k\+0\.00k/)
   })
 
   it('shows the run as running while any step is still unresolved', () => {
@@ -366,5 +374,55 @@ describe('buildActivitySegments', () => {
 
     // Which tool ran is the point; a single call drops the redundant "(1)".
     expect(segments.map((segment) => segment.label)).toEqual(['TaskUpdate', 'SendMessage (2)'])
+  })
+})
+
+describe('subagent run duration', () => {
+  it('prefers the runtime report, which is the only length a background run has', () => {
+    // A background agent returns from its launch immediately, so the transcript
+    // delta is ~0 while the run itself took three minutes. The report wins, and
+    // it is placed from the call's own start.
+    const interval = agentRunInterval({ timestamp: 1_000 }, { timestamp: 1_050 }, 180_000)
+    expect(interval).toEqual({ startMs: 1_000, endMs: 181_000 })
+    expect(agentRunDurationMs(interval)).toBe(180_000)
+  })
+
+  it('falls back to the tool_use → result delta for a synchronous run', () => {
+    // No report at all (older transcript, or an Explore/Plan agent that emits no
+    // usage block): the blocking call's own span is the run's wall clock.
+    expect(agentRunDurationMs(agentRunInterval({ timestamp: 1_000 }, { timestamp: 121_000 }, undefined))).toBe(120_000)
+    // A zero report is not a measurement — fall through rather than print 0s.
+    expect(agentRunDurationMs(agentRunInterval({ timestamp: 1_000 }, { timestamp: 121_000 }, 0))).toBe(120_000)
+  })
+
+  it('measures nothing until a synchronous run settles', () => {
+    expect(agentRunInterval({ timestamp: 1_000 }, undefined, undefined)).toBeUndefined()
+    // An end before the start is not a span — refuse it rather than print a
+    // negative duration.
+    expect(agentRunInterval({ timestamp: 5_000 }, { timestamp: 1_000 }, undefined)).toBeUndefined()
+  })
+
+  it('spans the group instead of summing it, because a dispatch runs in parallel', () => {
+    // Three agents dispatched together, each taking two minutes. Serial logic
+    // would say 6m; wall clock is 2m.
+    const concurrent = [
+      { startMs: 0, endMs: 120_000 },
+      { startMs: 500, endMs: 120_500 },
+      { startMs: 1_000, endMs: 121_000 },
+    ]
+    expect(agentGroupSpanMs(concurrent)).toBe(121_000)
+    // Summing is the wrong answer for a parallel dispatch; assert the difference
+    // explicitly so a regression to `+=` cannot pass quietly.
+    expect(agentGroupSpanMs(concurrent)).not.toBe(361_500)
+  })
+
+  it('spans from the earliest start to the latest end when runs overlap only partly', () => {
+    expect(agentGroupSpanMs([{ startMs: 0, endMs: 60_000 }, { startMs: 30_000, endMs: 90_000 }])).toBe(90_000)
+  })
+
+  it('ignores unmeasurable members and stays undefined when none were measured', () => {
+    expect(agentGroupSpanMs([{ startMs: 0, endMs: 30_000 }, undefined, { startMs: 10_000, endMs: 60_000 }])).toBe(60_000)
+    expect(agentGroupSpanMs([undefined, undefined])).toBeUndefined()
+    expect(agentGroupSpanMs([])).toBeUndefined()
   })
 })

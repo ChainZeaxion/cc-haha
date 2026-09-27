@@ -840,6 +840,10 @@ describe('ContextUsageIndicator session usage', () => {
     hasUnknownModelCost: false,
     totalAPIDuration: 42_000,
     totalDecodeDuration: 12_000,
+    // The tokens the 12s decode span covered. The panel pairs the two: dividing the session's
+    // whole output by a span only some calls reported is what printed 6044 tok/s for an engine
+    // running ~120.
+    totalTimedOutputTokens: 2_400,
     totalTtftDuration: 3_000,
     totalDuration: 300,
     totalLinesAdded: 0,
@@ -891,8 +895,8 @@ describe('ContextUsageIndicator session usage', () => {
 
     // Cache reads stay in the hit-rate row; they are not a separate headline.
     expect(await screen.findByTestId('session-cache-hit')).toHaveTextContent('90.0%')
-    // Generation speed divides by the decode-only span (12s), not the 42s API
-    // wall-clock that includes 3s of first-token wait.
+    // Generation speed divides the paired tokens by the decode-only span (12s), not the 42s
+    // API wall-clock that includes 3s of first-token wait.
     expect(screen.getByTestId('session-speed')).toHaveTextContent('200')
     expect(screen.getByTestId('session-speed')).toHaveTextContent('tok/s')
     expect(screen.getByTestId('session-cost')).toHaveTextContent('$1.23')

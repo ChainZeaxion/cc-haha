@@ -1,4 +1,4 @@
-import { memo, useMemo, useState } from 'react'
+import { Fragment, memo, useMemo, useState } from 'react'
 import { getDisclosure, setDisclosure } from '../../lib/disclosureMemory'
 import { CircleX } from 'lucide-react'
 import { ToolCallBlock, formatDuration } from './ToolCallBlock'
@@ -6,7 +6,7 @@ import { ThinkingBlock } from './ThinkingBlock'
 import {
   activityDurationMs,
   activityStepToolCalls,
-  activityTokenLabel,
+  activityTokenParts,
   activityTokenUsage,
   buildActivitySegments,
   countFailedToolCalls,
@@ -111,7 +111,7 @@ export const ActivityGroup = memo(function ActivityGroup({
   const segments = buildActivitySegments(steps, t)
   const elapsed = activityDurationMs(steps, resultMap)
   const durationLabel = !isRunning && typeof elapsed === 'number' ? formatDuration(elapsed) : ''
-  const tokenLabel = !isRunning ? activityTokenLabel(activityTokenUsage(steps, resultMap)) : ''
+  const tokenParts = !isRunning ? activityTokenParts(activityTokenUsage(steps, resultMap)) : []
   const summaryText = segments.map((segment) => segment.label).join(', ')
 
   return (
@@ -144,16 +144,21 @@ export const ActivityGroup = memo(function ActivityGroup({
                 {t('toolGroup.failedCount', { count: failedCount })}
               </span>
             )}
-            {durationLabel && (
-              <span className="whitespace-nowrap font-mono tabular-nums">{durationLabel}</span>
-            )}
-            {tokenLabel && (
+            {tokenParts.length > 0 && (
               <span
                 data-activity-tokens="true"
-                className="whitespace-nowrap font-mono tabular-nums text-[var(--color-text-tertiary)]"
+                className="flex items-center gap-[3px] whitespace-nowrap font-mono tabular-nums text-[var(--color-text-tertiary)]"
               >
-                {tokenLabel}
+                {tokenParts.map((part, index) => (
+                  <Fragment key={index}>
+                    {index > 0 ? <span className="opacity-60">+</span> : null}
+                    <span>{part}</span>
+                  </Fragment>
+                ))}
               </span>
+            )}
+            {durationLabel && (
+              <span className="whitespace-nowrap font-mono tabular-nums">{durationLabel}</span>
             )}
             <span aria-hidden="true" className={`w-3 text-center text-[8px] ${collapsed ? '' : 'rotate-90'}`}>▸</span>          </span>
         </button>

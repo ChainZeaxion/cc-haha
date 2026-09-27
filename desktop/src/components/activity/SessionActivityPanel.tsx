@@ -126,6 +126,29 @@ function formatBackgroundDuration(ms: number | undefined, t: TranslationFn): str
   return t('chat.duration.minutesSeconds', { minutes, seconds })
 }
 
+/**
+ * How long a background task ran, for a row that may carry either measure.
+ *
+ * The CLI reports `usage.durationMs` for agent-backed tasks and nothing at all
+ * for shell tasks, so a reported value is preferred but is absent on exactly
+ * the rows a reader most often wants timed. The client's own event clock
+ * (`startedAt` → `updatedAt`) then supplies the span. A zero span stays
+ * unmeasured rather than rendering as "1s": an instant is not an observation.
+ */
+function backgroundTaskDurationMs(row: ActivityRow): number | undefined {
+  const reported = row.usage?.durationMs
+  if (typeof reported === 'number' && Number.isFinite(reported) && reported > 0) return reported
+  const { startedAt, updatedAt } = row
+  if (
+    typeof startedAt === 'number' && Number.isFinite(startedAt) &&
+    typeof updatedAt === 'number' && Number.isFinite(updatedAt) &&
+    updatedAt > startedAt
+  ) {
+    return updatedAt - startedAt
+  }
+  return undefined
+}
+
 function hasBackgroundTaskDetails(row: ActivityRow): boolean {
   return Boolean(
     row.description ||
@@ -134,7 +157,7 @@ function hasBackgroundTaskDetails(row: ActivityRow): boolean {
       row.taskType ||
       row.workflowName ||
       row.usage?.totalTokens ||
-      row.usage?.durationMs,
+      backgroundTaskDurationMs(row),
   )
 }
 
@@ -440,6 +463,12 @@ function ActivityRowView({
       : isTask && row.summary && row.summary !== row.label
         ? row.summary
         : undefined
+  // Execution time on the right of the row. Deliberately not for subagents:
+  // clicking one opens its run detail, and the floating card is too narrow to
+  // carry another field on every agent line (the row would truncate the label).
+  const rowDuration = row.section === 'tasks' || row.section === 'backgroundTasks'
+    ? formatBackgroundDuration(backgroundTaskDurationMs(row), t)
+    : undefined
   const content = (
     <>
       {isTask ? (
@@ -463,6 +492,14 @@ function ActivityRowView({
           </span>
         ) : null}
       </span>
+      {rowDuration ? (
+        <span
+          data-activity-duration="true"
+          className="shrink-0 whitespace-nowrap font-mono text-[11px] tabular-nums text-[var(--color-text-tertiary)]"
+        >
+          {rowDuration}
+        </span>
+      ) : null}
       {isTask ? null : (
         <ActivityStatusIndicator
           status={displayStatus}
@@ -573,13 +610,14 @@ function ActivityRowView({
 
 function BackgroundTaskDetail({ row }: { row: ActivityRow }) {
   const t = useTranslation()
-  const duration = formatBackgroundDuration(row.usage?.durationMs, t)
-  const usageParts = [
-    typeof row.usage?.totalTokens === 'number'
-      ? t('chat.backgroundAgents.tokens', { count: formatTokenCount(row.usage.totalTokens) })
-      : '',
-    duration,
-  ].filter(Boolean)
+  // The card's own header carries the execution time, not a details field: it
+  // belongs to the task as a whole, and putting it on the usage row tied it to
+  // a row that shell tasks never have (they report no usage at all), so the
+  // time silently vanished on exactly the tasks worth timing.
+  const duration = formatBackgroundDuration(backgroundTaskDurationMs(row), t)
+  const usageTokens = typeof row.usage?.totalTokens === 'number'
+    ? t('chat.backgroundAgents.tokens', { count: formatTokenCount(row.usage.totalTokens) })
+    : ''
   const details = [
     row.taskType || row.workflowName
       ? { label: t('session.activity.details.type'), value: getTaskTypeLabel(row.taskType, t) }
@@ -593,17 +631,27 @@ function BackgroundTaskDetail({ row }: { row: ActivityRow }) {
     row.outputFile
       ? { label: t('session.activity.details.outputFile'), value: row.outputFile }
       : null,
-    usageParts.length > 0
-      ? { label: t('session.activity.details.usage'), value: usageParts.join(' · ') }
+    usageTokens
+      ? { label: t('session.activity.details.usage'), value: usageTokens }
       : null,
   ].filter((item): item is { label: string; value: string } => Boolean(item?.value))
 
-  if (details.length === 0) return null
+  if (details.length === 0 && !duration) return null
 
   return (
     <div className="mx-2 mb-1.5 rounded-[var(--radius-lg)] border border-[var(--color-border)] bg-[var(--color-surface-container-low)] p-3">
-      <div className="mb-2 text-[11px] font-semibold text-[var(--color-text-tertiary)]">
-        {t('session.activity.details.title')}
+      <div className="mb-2 flex items-baseline justify-between gap-2">
+        <span className="text-[11px] font-semibold text-[var(--color-text-tertiary)]">
+          {t('session.activity.details.title')}
+        </span>
+        {duration ? (
+          <span
+            data-activity-detail-duration="true"
+            className="shrink-0 whitespace-nowrap font-mono text-[11px] tabular-nums text-[var(--color-text-tertiary)]"
+          >
+            {duration}
+          </span>
+        ) : null}
       </div>
       <dl className="space-y-2">
         {details.map((detail) => (

@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { getSessionTpsMeter, getSubordinateTpsMeters } from '../../stores/chatStore'
-import { aggregateMeterReadings, isTpsEnabled } from '../../lib/tpsMeter'
+import { aggregateMeterReadings, isTpsEnabled, type TpsSource } from '../../lib/tpsMeter'
 import { useTranslation } from '../../i18n'
 
 /**
@@ -61,6 +61,7 @@ export function TpsIndicator({ sessionId, vertical = false }: { sessionId: strin
   const [tps, setTps] = useState(0)
   const [visible, setVisible] = useState(false)
   const [activeSubs, setActiveSubs] = useState(0)
+  const [source, setSource] = useState<TpsSource>('char')
 
   // Master switch: when disabled the indicator renders nothing and never polls
   // the meter (the meter itself is also not fed in the content_delta path).
@@ -82,6 +83,7 @@ export function TpsIndicator({ sessionId, vertical = false }: { sessionId: strin
         return
       }
       setActiveSubs(subs)
+      setSource(meter.source())
       // A near-zero read at a stream boundary (text↔thinking↔tool) is not a
       // real decode speed — hold the previous reading instead of flashing 0.
       setTps((prev) => {
@@ -100,14 +102,19 @@ export function TpsIndicator({ sessionId, vertical = false }: { sessionId: strin
   if (!visible) return null
   const tier = tierFor(tps)
   const style = TIER_STYLE[tier]
-  const title = activeSubs > 0
+  const baseTitle = activeSubs > 0
     ? t('chat.tpsAggregateTitle', { count: String(activeSubs) })
     : t('chat.tpsSpeedTitle')
+  // `ids` is the engine's own token count; the other tiers are learned
+  // approximations, so the tooltip says so rather than implying precision.
+  const approximate = source !== 'ids'
+  const title = approximate ? `${baseTitle} · ≈` : baseTitle
 
   if (vertical) {
     return (
       <span
         data-testid="tps-indicator"
+        data-tps-source={source}
         className="inline-flex shrink-0 flex-col items-center justify-center font-mono text-[10px] font-semibold leading-none tabular-nums"
         style={{ color: style.color }}
         title={title}
@@ -127,6 +134,7 @@ export function TpsIndicator({ sessionId, vertical = false }: { sessionId: strin
   return (
     <span
       data-testid="tps-indicator"
+      data-tps-source={source}
       className="inline-flex shrink-0 items-center font-mono text-[10px] font-semibold leading-tight tabular-nums"
       style={{ color: style.color }}
       title={title}

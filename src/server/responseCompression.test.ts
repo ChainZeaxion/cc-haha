@@ -1,6 +1,6 @@
 import { describe, expect, test, beforeEach, afterEach } from 'bun:test'
 import { gunzipSync } from 'node:zlib'
-import { shouldGzipResponse, withGzipIfEligible } from './responseCompression.js'
+import { shouldGzipResponse, withGzipIfEligible, sessionIdFromPath, MIN_COMPRESSIBLE_SESSION_BYTES } from './responseCompression.js'
 
 const big = 'x'.repeat(300 * 1024)
 const small = 'x'.repeat(1024)
@@ -125,6 +125,81 @@ describe('withGzipIfEligible', () => {
     const body = { ok: true, text: small }
     const out = await withGzipIfEligible(jsonReq('gzip'), jsonRes(JSON.stringify(body)), '192.168.1.50')
     expect(out.headers.get('content-encoding')).toBeNull()
+  })
+
+  describe('session size floor', () => {
+    const bigBody = JSON.stringify({
+      messages: Array.from({ length: 300 }, (_, i) => ({ id: i, text: big.slice(0, 1000) })),
+    })
+    const seen: Array<string> = []
+    const resolver = (size: number | null) => async (sessionId: string) => {
+      seen.push(sessionId)
+      return size
+    }
+
+    test('compresses a session at or above the floor', async () => {
+      seen.length = 0
+      const out = await withGzipIfEligible(
+        jsonReq('gzip'), jsonRes(bigBody), '192.168.1.50',
+        resolver(MIN_COMPRESSIBLE_SESSION_BYTES),
+      )
+      expect(out.headers.get('content-encoding')).toBe('gzip')
+      expect(seen).toEqual(['x'])
+    })
+
+    test('skips a session below the floor even when the response is large', async () => {
+      const out = await withGzipIfEligible(
+        jsonReq('gzip'), jsonRes(bigBody), '192.168.1.50',
+        resolver(MIN_COMPRESSIBLE_SESSION_BYTES - 1),
+      )
+      expect(out.headers.get('content-encoding')).toBeNull()
+      expect(JSON.parse(await out.text())).toEqual(JSON.parse(bigBody))
+    })
+
+    test('unknown size falls back to compressing', async () => {
+      const out = await withGzipIfEligible(
+        jsonReq('gzip'), jsonRes(bigBody), '192.168.1.50', resolver(null),
+      )
+      expect(out.headers.get('content-encoding')).toBe('gzip')
+    })
+
+    test('never resolves the size for loopback or non-session traffic', async () => {
+      seen.length = 0
+      // Loopback is rejected before the floor check.
+      await withGzipIfEligible(jsonReq('gzip'), jsonRes(bigBody), '127.0.0.1', resolver(1))
+      // Not session-scoped: no id to look up, and the response still compresses.
+      const other = new Request('http://127.0.0.1:7788/api/settings', {
+        method: 'GET', headers: { 'accept-encoding': 'gzip' },
+      })
+      const out = await withGzipIfEligible(other, jsonRes(bigBody), '192.168.1.50', resolver(1))
+      expect(out.headers.get('content-encoding')).toBe('gzip')
+      expect(seen).toEqual([])
+    })
+
+    test('a small response still compresses nothing, though the size is consulted', async () => {
+      // `Response.json` sets no content-length, so `shouldGzipResponse` cannot
+      // apply the per-response floor up front — it returns true and the real
+      // size check happens after the body is buffered. The session lookup
+      // therefore does run here; this pins that (slightly wasteful) ordering so
+      // a future change to it is a deliberate one.
+      seen.length = 0
+      const out = await withGzipIfEligible(
+        jsonReq('gzip'), jsonRes(`{"m":"${small}"}`), '192.168.1.50', resolver(1),
+      )
+      expect(out.headers.get('content-encoding')).toBeNull()
+      expect(seen).toEqual(['x'])
+    })
+  })
+})
+
+describe('sessionIdFromPath', () => {
+  test('extracts the session id and ignores other routes', () => {
+    expect(sessionIdFromPath('/api/sessions/abc-123/messages')).toBe('abc-123')
+    expect(sessionIdFromPath('/api/sessions/abc-123')).toBe('abc-123')
+    expect(sessionIdFromPath('/api/sessions')).toBeNull()
+    expect(sessionIdFromPath('/api/settings')).toBeNull()
+    // Must not be fooled by a route that merely shares the prefix.
+    expect(sessionIdFromPath('/api/sessionsfoo/bar')).toBeNull()
   })
 })
 

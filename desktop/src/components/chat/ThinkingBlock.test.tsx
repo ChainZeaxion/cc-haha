@@ -77,6 +77,18 @@ describe('thinkingBadgeLabel', () => {
       formatThinkingTokens('reasoning'),
     )
   })
+
+  it('treats a zero duration as unmeasured rather than printing 0.0s', () => {
+    // An unanchored block records no span; a literal `0.0s` would claim a
+    // measurement that never happened.
+    expect(thinkingBadgeLabel('reasoning', 0, 0, false, undefined)).toBe(
+      formatThinkingTokens('reasoning'),
+    )
+    // A real (if short) span still renders with its duration.
+    expect(thinkingBadgeLabel('reasoning', 1200, 0, false, undefined)).toBe(
+      `${formatThinkingTokens('reasoning')} · 1.2s`,
+    )
+  })
 })
 
 describe('ThinkingBlock', () => {

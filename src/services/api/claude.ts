@@ -2599,11 +2599,13 @@ async function* queryModel(
                 (() => {
                   const startedAt = thinkingStartedAtByIndex.get(part.index);
                   thinkingStartedAtByIndex.delete(part.index);
-                  const durationMs =
-                    typeof startedAt === "number"
-                      ? Math.max(0, Date.now() - startedAt)
-                      : 0;
-                  return { thinkingDurationMs: durationMs };
+                  // No anchor (a resumed or partial stream that never saw this
+                  // block's content_block_start) means the span was never
+                  // measured. Omit the field rather than writing 0: absent is
+                  // the contract for "not measured", and a 0 would render as a
+                  // confident `0.0s` next to the token count.
+                  if (typeof startedAt !== "number") return {};
+                  return { thinkingDurationMs: Math.max(0, Date.now() - startedAt) };
                 })()),
               ...(process.env.USER_TYPE === "ant" &&
                 research !== undefined && { research }),

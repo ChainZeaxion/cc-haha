@@ -39,7 +39,6 @@ import {
   getMcpInstructionsDeltaAttachment,
 } from '../../utils/attachments.js'
 import { getMemoryPath } from '../../utils/config.js'
-import { isEnvTruthy } from '../../utils/env.js'
 import { COMPACT_MAX_OUTPUT_TOKENS } from '../../utils/context.js'
 
 import {
@@ -124,6 +123,7 @@ import {
 } from './prompt.js'
 import {
   runVccCompaction,
+  runVccSliceCompaction,
   type VccCompactionOutput,
 } from './vcc/vccCompact.js'
 import { loadCcGlobalIndexByUuid } from './vcc/ccGlobalIndex.js'
@@ -428,8 +428,12 @@ export function mergeHookInstructions(
  * Returns null when the LLM backend is active so the caller keeps the
  * original LLM summary flow. Reading the setting here (rather than once at
  * startup) is what makes the backend hot-switchable mid-session.
+ *
+ * Also returns null when vcc throws, so a defective compaction degrades to the
+ * LLM summary for that turn instead of taking the session's compaction down
+ * with it — see the catch below.
  */
-function maybeVccCompact(
+export function maybeVccCompact(
   messages: Message[],
   customInstructions: string | undefined,
   preCompactTokenCount: number | undefined,
@@ -463,12 +467,47 @@ function maybeVccCompact(
       ? parsed.keepUserTurns
       : null
 
-  return runVccCompaction({
-    messages: windowMessages as CcMessage[],
-    globalIndexByUuid,
-    preCompactTokenCount,
-    keepUserTurns,
-  })
+  let result: VccCompactionOutput | null
+  try {
+    result = runVccCompaction({
+      messages: windowMessages as CcMessage[],
+      globalIndexByUuid,
+      preCompactTokenCount,
+      keepUserTurns,
+    })
+  } catch (error) {
+    // pi-vcc is pure computation over message shapes ported from a different
+    // codebase, so an unforeseen shape throws instead of degrading the way the
+    // LLM path does (it has a network to fail on). Returning null hands the
+    // turn to the LLM summary the caller already runs when vccResult is null.
+    // Without this, an autocompact throw counts toward the consecutive-failure
+    // circuit breaker, which then stops compaction for the rest of the session
+    // while the context keeps growing — a silent failure, not a loud one.
+    // A user abort is not a vcc defect and must keep its own semantics.
+    if (hasExactErrorMessage(error, ERROR_MESSAGE_USER_ABORT)) throw error
+    logError(error as Error)
+    logEvent('tengu_compact_failed', {
+      reason:
+        'vcc_threw' as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
+      preCompactTokenCount,
+    })
+    return null
+  }
+
+  // Running without producing a summary is a failure too, and a quieter one:
+  // the boundary would go in empty, discarding the conversation while telling
+  // the user compaction succeeded. The LLM path refuses to proceed in this
+  // situation (`!summary` throws), so vcc must not be the weaker of the two.
+  if (result.summary.trim().length === 0) {
+    logEvent('tengu_compact_failed', {
+      reason:
+        'vcc_empty_summary' as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
+      preCompactTokenCount,
+    })
+    return null
+  }
+
+  return result
 }
 
 /**
@@ -886,6 +925,75 @@ export async function compactConversation(
 }
 
 /**
+ * Runs the algorithmic (pi-vcc) backend over one side of a pivot.
+ *
+ * Mirrors `maybeVccCompact`, including why each failure returns null rather
+ * than throwing: the caller falls through to the LLM summary, which is the
+ * only summary a partial compaction will get — there is no next turn to retry
+ * it on, so a defect here would strand the user's chosen pivot.
+ *
+ * The section policy difference is deliberate and lives in the backend: a
+ * slice cannot honestly report the session's goal or standing preferences, so
+ * those sections are suppressed there rather than printed from half the
+ * conversation.
+ *
+ * Exported for its own tests: the failure paths (throw, empty summary) only
+ * exist to be exercised, and no end-to-end caller can reach them on demand.
+ */
+export function maybeVccSliceCompact(
+  messages: Message[],
+  preCompactTokenCount: number | undefined,
+): VccCompactionOutput | null {
+  const settings = getSettingsWithErrors().settings
+  if (getCompactionBackend(settings.vccCompactBackend) !== 'algorithm') {
+    return null
+  }
+
+  const windowMessages = messages.filter(
+    (m): m is Message & { type: 'user' | 'assistant' } =>
+      m.type === 'user' || m.type === 'assistant',
+  )
+  if (windowMessages.length === 0) return null
+
+  // Global index, not a slice-local one: the refs in this summary must keep
+  // resolving against the same `#N` the rest of the session uses.
+  let globalIndexByUuid: Map<string, number> | undefined
+  const transcriptPath = getTranscriptPath()
+  if (transcriptPath) {
+    globalIndexByUuid = loadCcGlobalIndexByUuid(transcriptPath)
+  }
+
+  let result: VccCompactionOutput | null
+  try {
+    result = runVccSliceCompaction({
+      messages: windowMessages as CcMessage[],
+      globalIndexByUuid,
+      preCompactTokenCount,
+    })
+  } catch (error) {
+    if (hasExactErrorMessage(error, ERROR_MESSAGE_USER_ABORT)) throw error
+    logError(error as Error)
+    logEvent('tengu_partial_compact_failed', {
+      reason:
+        'vcc_threw' as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
+      preCompactTokenCount,
+    })
+    return null
+  }
+
+  if (result.summary.trim().length === 0) {
+    logEvent('tengu_partial_compact_failed', {
+      reason:
+        'vcc_empty_summary' as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
+      preCompactTokenCount,
+    })
+    return null
+  }
+
+  return result
+}
+
+/**
  * Performs a partial compaction around the selected message index.
  * Direction 'from': summarizes messages after the index, keeps earlier ones.
  *   Prompt cache for kept (earlier) messages is preserved.
@@ -960,6 +1068,14 @@ export async function partialCompactConversation(
     context.setResponseLength?.(() => 0)
     context.onCompactProgress?.({ type: 'compact_start' })
 
+    // The algorithmic backend compiles the chosen side directly, so when it is
+    // selected the summary call below never runs (same shape as the
+    // whole-window bypass: a non-null result short-circuits the loop).
+    const vccResult = maybeVccSliceCompact(
+      messagesToSummarize,
+      preCompactTokenCount,
+    )
+
     const compactPrompt = getPartialCompactPrompt(customInstructions, direction)
     const summaryRequest = createUserMessage({
       content: compactPrompt,
@@ -979,10 +1095,11 @@ export async function partialCompactConversation(
       direction === 'up_to'
         ? { ...cacheSafeParams, forkContextMessages: messagesToSummarize }
         : cacheSafeParams
-    let summaryResponse: AssistantMessage
-    let summary: string | null
+    let summaryResponse: AssistantMessage | undefined
+    let summary: string | null = vccResult ? vccResult.summary : null
     let ptlAttempts = 0
     for (;;) {
+      if (vccResult) break
       summaryResponse = await streamCompactSummary({
         messages: apiMessages,
         summaryRequest,

@@ -9,13 +9,15 @@ import { handleSessionCollaborationApi } from './api/sessionCollaboration.js'
  */
 
 import { existsSync, unlinkSync } from 'node:fs'
+import { stat } from 'node:fs/promises'
 import { handleApiRequest } from './router.js'
-import { handleWebSocket, type WebSocketData } from './ws/handler.js'
+import { handleWebSocket, sendToSession, type WebSocketData } from './ws/handler.js'
 import { resolveCors, type CorsResolution } from './middleware/cors.js'
 import { requireAuth, requireH5Token } from './middleware/auth.js'
 import { teamWatcher } from './services/teamWatcher.js'
 import { cronScheduler } from './services/cronScheduler.js'
 import { handleProxyRequest } from './proxy/handler.js'
+import { setTpsTokenSink } from './proxy/tpsTokenSink.js'
 import { withGzipIfEligible } from './responseCompression.js'
 import { ProviderService } from './services/providerService.js'
 import { handleHahaOAuthCallback } from './api/haha-oauth.js'
@@ -147,6 +149,41 @@ function beginBackgroundIndexStartup(): void {
   })
 }
 
+/**
+ * Transcript size per session, cached briefly.
+ *
+ * Only consulted once a response is otherwise eligible for compression. The H5
+ * history walk issues one request per page and every page asks the same
+ * question, so the cache keeps a deep walk from re-resolving the same file on
+ * each of its (hundreds of) requests. A null result means "unknown" and falls
+ * back to compressing, so a transient stat failure cannot strand large
+ * sessions uncompressed.
+ */
+const SESSION_SIZE_CACHE_TTL_MS = 10_000
+const SESSION_SIZE_CACHE_LIMIT = 64
+const sessionSizeCache = new Map<string, { size: number | null; at: number }>()
+
+async function resolveSessionSizeBytes(sessionId: string): Promise<number | null> {
+  const now = Date.now()
+  const cached = sessionSizeCache.get(sessionId)
+  if (cached && now - cached.at < SESSION_SIZE_CACHE_TTL_MS) return cached.size
+
+  let size: number | null = null
+  try {
+    const found = await sessionService.findSessionFile(sessionId)
+    if (found) size = (await stat(found.filePath)).size
+  } catch {
+    size = null
+  }
+
+  sessionSizeCache.set(sessionId, { size, at: now })
+  if (sessionSizeCache.size > SESSION_SIZE_CACHE_LIMIT) {
+    const oldest = sessionSizeCache.keys().next().value
+    if (oldest !== undefined) sessionSizeCache.delete(oldest)
+  }
+  return size
+}
+
 function withCors(response: Response, cors: CorsResolution): Response {
   const headers = new Headers(response.headers)
   for (const [key, value] of Object.entries(cors.headers)) {
@@ -258,6 +295,13 @@ export function startServer(port = PORT, host = HOST) {
     process.env.SERVER_AUTH_REQUIRED === '1'
   const h5AccessService = new H5AccessService()
 
+  // The proxy reads real per-chunk token counts off local engines and needs to
+  // push them to the session's client. It cannot import the WS layer (that
+  // would close a cycle through titleService), so the wiring lives here.
+  setTpsTokenSink((sessionId, tokens) => {
+    sendToSession(sessionId, { type: 'tps_tokens', tokens })
+  })
+
   const publicAccess = new PublicAccessServer({
     handleApiRequest,
     handleStatic: handleStaticH5Request,
@@ -265,7 +309,12 @@ export function startServer(port = PORT, host = HOST) {
     serverPort: () => serverPort,
   })
   publicAccessServers.add(publicAccess)
-  let server: ReturnType<typeof Bun.serve<WebSocketData>>
+  // Named so `serverFetch` can annotate its handle parameter without writing
+  // `typeof server` inside a parameter that itself shadows `server` — that
+  // self-reference made the annotation unresolvable (TS2502) and silently cost
+  // every `server.upgrade` / `server.requestIP` call in the handler its types.
+  type ServerHandle = ReturnType<typeof Bun.serve<WebSocketData>>
+  let server: ServerHandle
 
   // Open SQLite before the first REST request. Discovery still runs in the
   // background; without this, getPublicStatus() reports `off` and the sidebar
@@ -278,7 +327,7 @@ export function startServer(port = PORT, host = HOST) {
     // routing. A request over that socket carries no peer address, which H5 auth
     // treats as a public (non-LAN) source — used by integration tests to exercise
     // the "remote browser needs the H5 token" path without a real public IP.
-    const serverFetch = async (req: Request, server: typeof server): Promise<Response> => {
+    const serverFetch = async (req: Request, server: ServerHandle): Promise<Response> => {
         const url = new URL(req.url)
         if (isPublicAccessControlPath(url.pathname)) return publicAccess.control(req)
 
@@ -626,8 +675,12 @@ export function startServer(port = PORT, host = HOST) {
               handleApiRequest(req, url, { remoteBrowser: classifyH5Request(req, url, h5RequestContext) === 'h5-browser' }),
             )
             // Remote API responses are gzip-compressed (transparent to browser
-            // fetch); loopback desktop traffic stays uncompressed.
-            return withCors(await withGzipIfEligible(req, response, clientAddress), cors)
+            // fetch); loopback desktop traffic stays uncompressed, and sessions
+            // below the transport floor skip compression entirely.
+            return withCors(
+              await withGzipIfEligible(req, response, clientAddress, resolveSessionSizeBytes),
+              cors,
+            )
           } catch (error) {
             void diagnosticsService.recordEvent({
               type: 'api_request_failed',

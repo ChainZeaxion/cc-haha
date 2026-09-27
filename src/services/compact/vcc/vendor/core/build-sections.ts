@@ -1,7 +1,7 @@
 // Vendored from @sting8k/pi-vcc@0.8.0 (MIT). Do not edit by hand.
 // @ts-nocheck
 import type { FileOps, NormalizedBlock } from "../types";
-import { clip, clipSentence, nonEmptyLines } from "./content";
+import { clipSentence, nonEmptyLines } from "./content";
 import type { SectionData } from "../sections";
 import { extractGoals } from "../extract/goals";
 import { extractFiles } from "../extract/files";

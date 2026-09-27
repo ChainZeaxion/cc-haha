@@ -17,6 +17,11 @@ export type SessionUsageLike = {
   totalCacheCreationInputTokens: number
   totalDecodeDuration?: number
   totalAPIDuration?: number
+  /**
+   * Output tokens of exactly the calls `totalDecodeDuration` covers. Absent/0 for
+   * transcript-sourced usage and for snapshots written before the pairing existed.
+   */
+  totalTimedOutputTokens?: number
 }
 
 export type SessionUsageMetrics = {
@@ -31,12 +36,19 @@ export type SessionUsageMetrics = {
   /** `null` when the session has sent no prompt tokens yet. */
   cacheHitRate: number | null
   /**
-   * Output tokens per second of actual generation. Prefers the decode-only span
-   * (time the model spent emitting tokens, TTFT/prefill excluded) — dividing by
-   * API wall-clock instead folds the first-token wait into "generation speed"
-   * and reads ~20-30% low. Falls back to the API span when only that was
-   * reported (e.g. a transcript that has a span but no decode breakdown).
-   * `null` when neither duration was reported.
+   * Output tokens per second of actual generation.
+   *
+   * Numerator and denominator must describe the **same calls**. The decode-only span
+   * excludes the first-token wait, so it is the better denominator — but it is only
+   * produced by streamed responses that reached `message_stop`. A session whose calls were
+   * served by the non-streaming fallback (or whose streams were truncated) still counts
+   * their tokens in `totalOutputTokens` while contributing no span at all, so
+   * `totalOutputTokens / totalDecodeDuration` can read hundreds of times too high
+   * (observed: 6044 tok/s on a fallback-heavy session).
+   *
+   * So the decode rate is computed over `totalTimedOutputTokens` — the tokens the same
+   * calls reported — and the API span is used (over every call's tokens) only when no
+   * decode span exists at all. `null` when neither duration was reported.
    */
   tokensPerSecond: number | null
 }
@@ -48,11 +60,10 @@ function finite(value: number | undefined): number {
 /**
  * Derives the panel's headline numbers.
  *
- * `tokensPerSecond` is generation speed: output tokens over the time the model
- * actually spent emitting them (`totalDecodeDuration`, TTFT/prefill excluded).
- * It falls back to the API span when a transcript only reports that, and is
- * `null` when neither duration is known rather than computing a rate against
- * wall clock that includes tool execution.
+ * `tokensPerSecond` is generation speed over the calls that measured a span, so a session
+ * that partly fell back to non-streaming reads as the rate the model actually ran at
+ * instead of dividing every token by the few measured seconds. See the field's doc for why
+ * the numerator is not simply `totalOutputTokens`.
  */
 export function deriveSessionUsageMetrics(usage: SessionUsageLike): SessionUsageMetrics {
   const input = finite(usage.totalInputTokens)
@@ -61,7 +72,7 @@ export function deriveSessionUsageMetrics(usage: SessionUsageLike): SessionUsage
   const cacheWrite = finite(usage.totalCacheCreationInputTokens)
   const decodeMs = finite(usage.totalDecodeDuration)
   const apiMs = finite(usage.totalAPIDuration)
-  const generationMs = decodeMs > 0 ? decodeMs : apiMs
+  const timedOutput = finite(usage.totalTimedOutputTokens)
 
   const promptTokens = input + cacheRead + cacheWrite
   return {
@@ -69,8 +80,30 @@ export function deriveSessionUsageMetrics(usage: SessionUsageLike): SessionUsage
     promptTokens,
     cachedTokens: cacheRead,
     cacheHitRate: promptTokens > 0 ? cacheRead / promptTokens : null,
-    tokensPerSecond: generationMs > 0 && output > 0 ? output / (generationMs / 1000) : null,
+    tokensPerSecond: generationSpeed({ output, timedOutput, decodeMs, apiMs }),
   }
+}
+
+function generationSpeed({
+  output,
+  timedOutput,
+  decodeMs,
+  apiMs,
+}: {
+  output: number
+  timedOutput: number
+  decodeMs: number
+  apiMs: number
+}): number | null {
+  // Paired numerator/denominator: the tokens those same calls reported over the span they
+  // spent emitting them.
+  if (decodeMs > 0 && timedOutput > 0) return timedOutput / (decodeMs / 1000)
+  // No decode span anywhere (a transcript, or a session served entirely by the non-streaming
+  // fallback): the API clock covers every call, so it is the only denominator that matches
+  // the session-wide token total. It includes the first-token wait and so reads low, which
+  // is the honest number when no generation span exists.
+  if (apiMs > 0 && output > 0) return output / (apiMs / 1000)
+  return null
 }
 
 /**

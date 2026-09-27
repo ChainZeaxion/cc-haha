@@ -220,10 +220,29 @@ export function ComputerUseSettings() {
     }
   }
 
+  /**
+   * The interpreter lives on the machine running the sidecar, so a browser
+   * (H5) file chooser could never point at it — and a native dialog can also
+   * fail on a Linux host with no portal. Either way, fall back to what the
+   * server already detected instead of leaving the user to type a path from
+   * scratch; they only have to confirm and save.
+   */
+  const fallbackToDetectedPythonPath = () => {
+    const detected = status?.python.path
+    if (detected && !pythonPathDraft.trim()) setPythonPathDraft(detected)
+    setPythonPathMessage(
+      t(
+        detected
+          ? 'settings.computerUse.pythonPathDialogDetected'
+          : 'settings.computerUse.pythonPathDialogFailed',
+      ),
+    )
+  }
+
   const choosePythonPath = async () => {
     const host = getDesktopHost()
     if (!host.capabilities.dialogs) {
-      setPythonPathMessage(t('settings.computerUse.pythonPathDialogFailed'))
+      fallbackToDetectedPythonPath()
       return
     }
     try {
@@ -238,7 +257,7 @@ export function ComputerUseSettings() {
         await savePythonPath(selectedPath)
       }
     } catch {
-      setPythonPathMessage(t('settings.computerUse.pythonPathDialogFailed'))
+      fallbackToDetectedPythonPath()
     }
   }
 

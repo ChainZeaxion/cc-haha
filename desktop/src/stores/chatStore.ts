@@ -20,6 +20,7 @@ import { notifyDesktop } from '../lib/desktopNotifications'
 import { createAsyncRefreshCoalescer } from '../lib/asyncRefreshCoalescer'
 import { deriveSessionTitle, isPlaceholderSessionTitle } from '../lib/sessionTitle'
 import { TpsMeter, isTpsEnabled } from '../lib/tpsMeter'
+import { loadTpsCalibration, saveTpsCalibration } from '../lib/tpsCalibration'
 import { t } from '../i18n'
 import {
   VISUAL_SELECTION_BATCH_PROMPT_HEADER,
@@ -1015,9 +1016,62 @@ export function getSessionTpsMeter(sessionId: string): TpsMeter {
   let meter = tpsMeterBySession.get(sessionId)
   if (!meter) {
     meter = new TpsMeter()
+    // Seed what earlier sessions with this model measured, so a fresh session
+    // does not under-read until its first call completes.
+    const model = tpsModelFor(sessionId)
+    meter.setCalibration(loadTpsCalibration(model))
+    tpsCalibrationModelBySession.set(sessionId, model)
     tpsMeterBySession.set(sessionId, meter)
   }
   return meter
+}
+
+/** Model a session is currently running, for keying the TPS calibration. */
+function tpsModelFor(sessionId: string): string | undefined {
+  return useSessionRuntimeStore.getState().selections[sessionId]?.modelId
+}
+
+/**
+ * The model a session's meter has been learning for. Kept apart from the live
+ * selection because the UI updates the selection before the runtime confirms
+ * it, so on a switch the live selection is already the new model while the
+ * coefficients still describe the old one.
+ */
+const tpsCalibrationModelBySession = new Map<string, string | undefined>()
+
+/**
+ * Sessions whose sidecar relays real per-chunk token counts (`tps_tokens`).
+ * Their text frames duplicate those counts, so they must not also be sampled.
+ * Subagent frames folded into a parent meter are deliberately NOT gated on this
+ * flag: they are measured by the text-based estimator, which needs no per-stream
+ * coefficient.
+ */
+const tpsIdsModeBySession = new Map<string, boolean>()
+
+/**
+ * Feed one of a session's own streamed frames into its TPS meter, opening the
+ * call window on the first frame so endCall() can reconcile it afterwards.
+ */
+function pushTpsFrame(
+  sessionId: string,
+  text: string,
+  options: { wholeBlock?: boolean } = {},
+): void {
+  if (!isTpsEnabled()) return
+  const meter = getSessionTpsMeter(sessionId)
+  if (tpsIdsModeBySession.get(sessionId)) {
+    // The relay already counted these tokens exactly; keep liveness only.
+    meter.touch()
+    return
+  }
+  meter.ensureCall()
+  meter.push(text, options)
+}
+
+/** Drop a session's sampling window (reconnect / retry replays a prefix). */
+function resetTpsWindow(sessionId: string): void {
+  tpsIdsModeBySession.delete(sessionId)
+  tpsMeterBySession.get(sessionId)?.reset()
 }
 
 /**
@@ -1036,6 +1090,40 @@ export function getSubordinateTpsMeters(sessionId: string): TpsMeter[] {
     if (meter?.hasStreamed()) meters.push(meter)
   }
   return meters
+}
+
+/**
+ * Fold a subagent's relayed decode text into its parent session's meter.
+ *
+ * Runs on the parent socket for every agent_run_event, whether or not that
+ * run's page is open, so the main indicator reports the team-wide decode speed
+ * (the reference implementation in the older cc-haha tree did the same, via a
+ * dedicated `subagent_tps` frame relayed by the sidecar). Only the meter is
+ * touched — the text never reaches streamingText, so subagent prose cannot
+ * leak into the main conversation.
+ *
+ * Whole-block `thinking` hand-overs (complete === true) are skipped: their
+ * fragments already arrived as deltas, so counting both would double the
+ * subagent's token rate in the sliding window.
+ */
+function ingestSubagentTps(
+  parentSessionId: string,
+  event: Extract<ServerMessage, { type: 'agent_run_event' }>['event'],
+): void {
+  if (!isTpsEnabled()) return
+  // `external` keeps these frames out of the parent's call accounting: they
+  // belong to the subagent's own API calls, whose real usage never reaches this
+  // socket, so they may only contribute samples to the shared window. Their
+  // token estimate is text-based, so it is measured the same way the parent's
+  // own prose is — no coefficient has to be guessed for this path.
+  if (event.type === 'content_delta') {
+    if (event.text) getSessionTpsMeter(parentSessionId).push(event.text, { external: true })
+    if (event.toolInput) getSessionTpsMeter(parentSessionId).push(event.toolInput, { external: true })
+    return
+  }
+  if (event.type === 'thinking' && event.complete !== true && event.text) {
+    getSessionTpsMeter(parentSessionId).push(event.text, { external: true })
+  }
 }
 
 // Streaming throttle for content_delta. Buffers must be per-session because
@@ -1061,9 +1149,7 @@ function appendPendingDelta(sessionId: string, text: string): void {
     sessionId,
     `${pendingDeltaBySession.get(sessionId) ?? ''}${text}`,
   )
-  if (isTpsEnabled()) {
-    getSessionTpsMeter(sessionId).push(text)
-  }
+  pushTpsFrame(sessionId, text)
 }
 
 
@@ -1094,9 +1180,7 @@ function appendPendingToolInputDelta(sessionId: string, text: string): void {
   )
   // Feed streaming tool inputs (Write/Edit/… argument JSON) into the TPS meter
   // so the decode-speed reflects all output tokens, not just assistant text.
-  if (isTpsEnabled()) {
-    getSessionTpsMeter(sessionId).push(text)
-  }
+  pushTpsFrame(sessionId, text)
 }
 
 function clearPendingToolInputDelta(sessionId: string): void {
@@ -4538,6 +4622,13 @@ export const useChatStore = create<ChatStore>((setState, get) => {
 
   handleServerMessage: (sessionId, msg) => {
     if (msg.type === 'agent_run_event') {
+      // Feed the parent's TPS meter with the subagent's relayed decode text
+      // before routing it. A run page's own meter only exists while that page
+      // is open (registerAgentRunSession is called from SubagentRunPage), and
+      // while it is closed the frames below are buffered instead of applied —
+      // so without this the main indicator would ignore subagent output. The
+      // text is meter-only and never rendered into the main conversation.
+      ingestSubagentTps(sessionId, msg.event)
       if (!dispatchAgentRunEvent(sessionId, msg)) {
         bufferAgentRunEvent(sessionId, msg)
       }
@@ -4567,6 +4658,9 @@ export const useChatStore = create<ChatStore>((setState, get) => {
 
     switch (msg.type) {
       case 'connected':
+        // A reconnect can replay deltas; start the sampling window clean so the
+        // replayed prefix is not counted on top of what was already sampled.
+        resetTpsWindow(sessionId)
         // Team lifecycle broadcasts are transition-only. A reconnect must
         // reconcile against the durable workbench so missed update/delete or
         // same-name recreate events cannot leave a live cache authoritative.
@@ -4866,6 +4960,15 @@ export const useChatStore = create<ChatStore>((setState, get) => {
         break
 
       case 'runtime_config_applied': {
+        // The runtime now runs `msg.modelId`. The TPS coefficients describe a
+        // model, so bank what this session learned for the model it was on and
+        // re-seed from whatever is already known about the new one.
+        if (isTpsEnabled() && msg.modelId) {
+          const meter = getSessionTpsMeter(sessionId)
+          saveTpsCalibration(tpsCalibrationModelBySession.get(sessionId), meter.calibration())
+          meter.setCalibration(loadTpsCalibration(msg.modelId))
+          tpsCalibrationModelBySession.set(sessionId, msg.modelId)
+        }
         const selected = useSessionRuntimeStore.getState().selections[sessionId]
         const matchesCurrentSelection = Boolean(selected) &&
           (selected?.providerId ?? null) === msg.providerId &&
@@ -4996,6 +5099,9 @@ export const useChatStore = create<ChatStore>((setState, get) => {
 
       case 'streaming_fallback': {
         if (msg.cause === 'stream_retry') {
+          // A retry replays the answer from the start; drop the sampled prefix
+          // so the window (and the call being reconciled) does not double it.
+          resetTpsWindow(sessionId)
           consumePendingDelta(sessionId)
           clearPendingToolInputDelta(sessionId)
           clearPendingTaskToolUseIds(sessionId)
@@ -5183,9 +5289,8 @@ export const useChatStore = create<ChatStore>((setState, get) => {
           // thinking 全程零采样，米表窗口排空后 UI 会冻结在正文结束前的旧速度上
           // （稀疏边界守卫只保旧值不刷新）。skippedThinkingBlock 的整块重放
           // （流式累积内容与 complete 块逐字相同）已在上层判重，不喂避免重复计数。
-          if (isTpsEnabled()) {
-            getSessionTpsMeter(sessionId).push(msg.text)
-          }
+          // complete 块（非重放）没有帧结构可数，按文本权重计入。
+          pushTpsFrame(sessionId, msg.text, { wholeBlock: msg.complete === true })
           ensureElapsedTimer()
         }
         break
@@ -5459,9 +5564,38 @@ export const useChatStore = create<ChatStore>((setState, get) => {
         })
         break
 
+      case 'tps_tokens': {
+        // The engine reported real per-chunk token ids. These counts are exact,
+        // so this session's text frames must no longer be sampled — they carry
+        // the same tokens and would double the rate (see pushTpsFrame).
+        if (!isTpsEnabled()) break
+        const meter = getSessionTpsMeter(sessionId)
+        if (!tpsIdsModeBySession.get(sessionId)) {
+          // Switching tiers mid-turn: drop the sampled prefix so the window is
+          // not a mix of two different units.
+          meter.reset()
+          tpsIdsModeBySession.set(sessionId, true)
+        }
+        meter.ensureCall()
+        meter.pushTokens(msg.tokens)
+        break
+      }
+
       case 'message_complete': {
         const session = get().sessions[sessionId]
         if (!session) break
+        // Reconcile the call's sampled units against the real token count the
+        // CLI reported: anchors the held speed to the real rate and re-learns
+        // the tokens-per-unit coefficients.
+        if (isTpsEnabled()) {
+          const meter = getSessionTpsMeter(sessionId)
+          const learned = meter.endCall(msg.usage.output_tokens, msg.timing?.decode_ms)
+          // Only bank it when a coefficient actually moved: persisting the
+          // neutral 1.0 values would tell the next session nothing.
+          if (learned) {
+            saveTpsCalibration(tpsCalibrationModelBySession.get(sessionId), meter.calibration())
+          }
+        }
         if (consumeAllPendingTaskToolUseIds(sessionId)) {
           const cliTaskStore = useCLITaskStore.getState()
           if (cliTaskStore.sessionId === sessionId) {
@@ -7785,6 +7919,71 @@ export function reconstructAgentNotifications(messages: MessageEntry[]): Record<
   return notifications
 }
 
+/**
+ * 把一次 API 调用自报的 `usage` 盖到它产出的那些行上。
+ *
+ * transcript 里一条回复被写成十来行（每个内容块一行），每行都重复同一份 `usage`；
+ * 这个数字属于那次调用而不是某个块，所以整段行共用同一个 `usageKey`，轮次合计时
+ * 按 key 只计一次（与 `summarizeTokenUsageFromHistory` 同口径）。
+ *
+ * 行可能并不新增：历史映射会把相邻思考块并成一行、把同一段正文的前缀增长并进上一行
+ * （`pushAssistantHistoryThinking` / `pushAssistantHistoryText`）。那种情况下往回收
+ * 一行来承接用量，而不是丢掉。回退是**有界**的：不越过本轮起点，也不覆盖已经写着
+ * 归属（`usageKey`）的行——那行属于另一次调用，改写它会把那次调用的用量抹掉。
+ */
+function stampResponseUsage(
+  uiMessages: UIMessage[],
+  firstRowIndex: number,
+  msg: MessageEntry,
+): void {
+  const usage = msg.usage
+  if (!usage) return
+  const usageKey = msg.usageKey
+
+  // 收窄必须内联：助手侧只有这三个变体带 `usage`，拆成返回布尔值的辅助函数后 TS
+  // 就无法把 `UIMessage` 联合收窄到可赋值的那几个。
+  const stamp = (index: number): boolean => {
+    const message = uiMessages[index]
+    if (
+      !message ||
+      (message.type !== 'assistant_text' &&
+        message.type !== 'thinking' &&
+        message.type !== 'tool_use')
+    ) {
+      return false
+    }
+    // 已带用量的行属于另一次调用：改写它会把那次调用的数字抹掉，比丢掉本次更糟。
+    if (message.usage) return false
+    uiMessages[index] = { ...message, usage, ...(usageKey ? { usageKey } : {}) }
+    return true
+  }
+
+  let stamped = false
+  for (let index = firstRowIndex; index < uiMessages.length; index += 1) {
+    if (stamp(index)) stamped = true
+  }
+  if (stamped) return
+
+  // 本次调用一行都没新增（整行被并入上一行，或只有空白块被丢弃）：往回收下一行承接。
+  // 只看**最近的**一行助手内容就停下——再往前那是更早的内容，不该承接。本轮起点
+  // （用户消息）是硬边界。
+  for (let index = Math.min(firstRowIndex, uiMessages.length) - 1; index >= 0; index -= 1) {
+    const message = uiMessages[index]
+    if (!message) continue
+    if (message.type === 'user_text') return
+    if (
+      message.type !== 'assistant_text' &&
+      message.type !== 'thinking' &&
+      message.type !== 'tool_use'
+    ) {
+      continue
+    }
+    if (message.usage) return
+    uiMessages[index] = { ...message, usage, ...(usageKey ? { usageKey } : {}) }
+    return
+  }
+}
+
 export function mapHistoryMessagesToUiMessages(
   messages: MessageEntry[],
   options?: HistoryMappingOptions,
@@ -7916,6 +8115,7 @@ export function mapHistoryMessagesToUiMessages(
     }
     if (msg.type === 'assistant' && typeof msg.content === 'string') {
       if (!msg.content.trim()) continue
+      const firstRowIndex = uiMessages.length
       uiMessages.push({
         id: msg.id || nextId(),
         type: 'assistant_text',
@@ -7924,9 +8124,11 @@ export function mapHistoryMessagesToUiMessages(
         timestamp,
         model: msg.model,
       })
+      stampResponseUsage(uiMessages, firstRowIndex, msg)
       continue
     }
     if ((msg.type === 'assistant' || msg.type === 'tool_use') && Array.isArray(msg.content)) {
+      const firstRowIndex = uiMessages.length
       for (const [blockIndex, block] of (msg.content as AssistantHistoryBlock[]).entries()) {
         if (block.type === 'thinking' && block.thinking) pushAssistantHistoryThinking(uiMessages, `${msg.id}-block-${blockIndex}`, block.thinking, timestamp, msg.thinkingDurationMs)
         else if (block.type === 'text' && block.text) {
@@ -7941,6 +8143,7 @@ export function mapHistoryMessagesToUiMessages(
         }
         else if (block.type === 'tool_use') uiMessages.push({ id: `${msg.id}-block-${blockIndex}`, type: 'tool_use', toolName: block.name ?? 'unknown', toolUseId: block.id ?? '', originalToolUseId: block.original_tool_use_id, input: block.input, timestamp, parentToolUseId: msg.parentToolUseId })
       }
+      stampResponseUsage(uiMessages, firstRowIndex, msg)
       continue
     }
     if ((msg.type === 'user' || msg.type === 'tool_result') && Array.isArray(msg.content)) {

@@ -179,7 +179,13 @@ export function thinkingBadgeLabel(
     if (liveStartAt === undefined) return ''
     return `${formatThinkingTokens(content)} · ${formatThinkingDuration(liveElapsedMs)}`
   }
-  if (thinkingDurationMs === undefined) return formatThinkingTokens(content)
+  // Missing or non-positive both mean "never measured": older transcripts, and
+  // blocks whose start anchor was never seen (a length of exactly 0 is not a
+  // real generation span). Either way the token count stands alone rather than
+  // pairing with a confident `0.0s`.
+  if (thinkingDurationMs === undefined || thinkingDurationMs <= 0) {
+    return formatThinkingTokens(content)
+  }
   return `${formatThinkingTokens(content)} · ${formatThinkingDuration(thinkingDurationMs)}`
 }
 

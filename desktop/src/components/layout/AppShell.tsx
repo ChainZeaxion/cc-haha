@@ -272,7 +272,19 @@ export function AppShell() {
 
   useEffect(() => {
     if (!ready || !isMobileShell) return
-    if (isChatTab(activeTab) || activeTab?.type === 'settings' || activeTab?.type === 'market' || activeTab?.type === 'scheduled' || (!activeTab && !activeTabId)) return
+    if (
+      isChatTab(activeTab) ||
+      activeTab?.type === 'settings' ||
+      activeTab?.type === 'market' ||
+      activeTab?.type === 'scheduled' ||
+      // Run records count as mobile destinations: ContentRouter renders the
+      // subagent/teammate run pages and both have a mobile layout. Leaving them
+      // out of this list bounced the phone straight back to the chat tab, so a
+      // run opened from the transcript could never be viewed on H5.
+      activeTab?.type === 'subagent' ||
+      activeTab?.type === 'team-member' ||
+      (!activeTab && !activeTabId)
+    ) return
     const nextChatTab = tabs.find(isChatTab)
     if (nextChatTab) {
       setActiveTab(nextChatTab.sessionId)
@@ -428,7 +440,9 @@ export function AppShell() {
             ) : null}
             {isActiveChatTab ? (
               <div className="flex shrink-0 items-center gap-1">
-                <div className="flex h-[36px] shrink-0 flex-col items-end justify-center gap-0.5">
+                {/* 两行块：上=费用，下=TPS。与桌面端同口径——TPS 行水平居中于费用徽章下方
+                    （`items-center`），两行宽度不对等时居中更对仗。 */}
+                <div className="flex h-[36px] shrink-0 flex-col items-center justify-center gap-0.5">
                   <div className="flex h-[15px] items-center">
                     {activeTabId ? (
                       <SessionCostBadge sessionId={activeTabId} active={activeTab?.status === 'running'} compact />
