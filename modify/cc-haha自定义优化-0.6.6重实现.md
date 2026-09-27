@@ -43,9 +43,9 @@
 >
 > **2026-09-26 重基**：全部 patch 重基到上游 `068b3ebd`（origin/main 2026-09-25，含 20 个新 commit：CORS 门控重做/切 tab 保视图/历史不全保聊天/内存保存竞态两修/pending 问题超时自动回答/聊天外观偏好/OAuth 2.1.281 对齐/agent-teams/Kimi K3 图片透传/定时任务持久化串行化）。应用方式=按下表从上到下逐章 `git apply --allow-empty`。空 patch（h5-settings-whitelist、h5-mobile-market）内容已被后续章节的共享文件覆盖，apply 后无变化。
 >
-> **当前链规模（2026-09-27）**：共 **38 patch**（36 实 + 2 空）。最新两位：`tps-real-token-accounting`（四 子优化：TPS 采样改真实 token 口径，链位 37）、`compact-dead-import-cleanup`（策略门禁 dead-imports 清理，链位 38）。新增：`turn-usage`（二十一 子优化②）、`thinking-badge-order-and-duration`（二十一 子优化①，前端 + API 层）、`baseline-typecheck-fixes`、`autocompact-window-tiers`、`history-transport-bounds`、`file-history-dedup`、`gzip-transport`、`history-first-paint-bound`（前端）、`storage-original-file-bound`（二十二 F 存量瘦身，含新测试文件）、`computer-use-platform-components`（十八 平台化组件选择）、`computer-use-python-path-fallback`（十八 解释器路径回退）、`tps-centered-second-line`（四 费用/TPS 第二行居中）、`h5-mobile-run-records`（二十五 H5 子代理运行记录，链位 36）。
+> **当前链规模（2026-09-27）**：共 **39 patch**（37 实 + 2 空）。最新三位：`tps-real-token-accounting`（四 子优化：TPS 采样改真实 token 口径，链位 37）、`compact-dead-import-cleanup`（策略门禁 dead-imports 清理，链位 38）、`session-speed-and-usage-pairing`（四 子优化：面板生成速度分子分母配对 + transcript usage 去重丢 output 修复，链位 39）。新增：`turn-usage`（二十一 子优化②）、`thinking-badge-order-and-duration`（二十一 子优化①，前端 + API 层）、`baseline-typecheck-fixes`、`autocompact-window-tiers`、`history-transport-bounds`、`file-history-dedup`、`gzip-transport`、`history-first-paint-bound`（前端）、`storage-original-file-bound`（二十二 F 存量瘦身，含新测试文件）、`computer-use-platform-components`（十八 平台化组件选择）、`computer-use-python-path-fallback`（十八 解释器路径回退）、`tps-centered-second-line`（四 费用/TPS 第二行居中）、`h5-mobile-run-records`（二十五 H5 子代理运行记录，链位 36）。
 >
-> **全链验证（2026-09-27 收尾，决定性）**：在干净基线 `068b3ebd` 的**临时 worktree** 上按上表顺序 `git apply --allow-empty` 全部 **35 个 patch → 失败 0 个**；应用后终态与工作树在**本轮 4 个新 patch 涉及的全部 14 个文件**上**逐字节一致**，全树剩余差值仅为下节「已知非章 delta」。此为权威口径（早前「HEAD 上暂存往返」是非全链验证，已由本次全链取代）。**2026-09-27 追加第 36 位（`h5-mobile-run-records`）与 `tps-indicator`/`turn-usage` 重生成后复验：36 链同样失败 0，第 7 章 8 文件 + `chatStore.test.ts` + `AppShell.{tsx,test.tsx}` 逐字节等于工作树。** **2026-09-27 二次追加第 37/38 位（`tps-real-token-accounting`、`compact-dead-import-cleanup`）后复验：干净重跑 38 链失败 0，本轮 23 个文件（20 TPS + 3 dead-import）**逐字节等于工作树**。**
+> **全链验证（2026-09-27 收尾，决定性）**：在干净基线 `068b3ebd` 的**临时 worktree** 上按上表顺序 `git apply --allow-empty` 全部 **35 个 patch → 失败 0 个**；应用后终态与工作树在**本轮 4 个新 patch 涉及的全部 14 个文件**上**逐字节一致**，全树剩余差值仅为下节「已知非章 delta」。此为权威口径（早前「HEAD 上暂存往返」是非全链验证，已由本次全链取代）。**2026-09-27 追加第 36 位（`h5-mobile-run-records`）与 `tps-indicator`/`turn-usage` 重生成后复验：36 链同样失败 0，第 7 章 8 文件 + `chatStore.test.ts` + `AppShell.{tsx,test.tsx}` 逐字节等于工作树。** **2026-09-27 二次追加第 37/38 位（`tps-real-token-accounting`、`compact-dead-import-cleanup`）后复验：干净重跑 38 链失败 0，本轮 23 个文件（20 TPS + 3 dead-import）**逐字节等于工作树**。** **2026-09-27 三次追加第 39 位（`session-speed-and-usage-pairing`）后复验：干净重跑 39 链失败 0，本轮 13 个文件**逐字节等于工作树**。**
 >
 > ⚠️ **必须按表顺序应用，不是「任意顺序」**：patch 之间存在**同文件重叠**——`turn-usage` 与 `thinking-tool-timing`（均改 `chatStore.ts`/`types/chat.ts`）、`tps-indicator`（`chatStore.ts`）、`h5-require-token`（`i18n/locales/*`）共享文件。重叠 patch 的 hunk 上下文取自各自上游状态，乱序应用可能失败。早期「各 patch 文件互不重叠、可任意顺序」的说明仅对当时较小的链成立，**现已作废**。
 >
@@ -98,6 +98,7 @@
 | 36 | `patches/h5-mobile-run-records.patch` | 二十五 **H5 打不开子代理运行记录**：移动端 tab 守卫白名单补 `subagent`/`team-member`（+ 2 测试） | ✅ 已实施 |
 | 37 | `patches/tps-real-token-accounting.patch` | 四 子优化：**TPS 采样改真实 token 口径**——自适应三层源（ids/chunk/char）+ 真实 `output_tokens` 对账校准 + 按模型分桶持久化 + 引擎 `return_token_ids` 旁路（20 文件 1717 行） | ✅ 已实施 |
 | 38 | `patches/compact-dead-import-cleanup.patch` | 策略门禁 `check:policy` 的 **dead-imports 清零**（十三章 vcc 移植遗留的 3 处未引用导入；该规则口径是「删」而非白名单） | ✅ 已实施 |
+| 39 | `patches/session-speed-and-usage-pairing.patch` | 四 子优化：**面板「生成速度」分子分母配对**（decode 只除「同批被测到 span 的 token」，非流式回退不再抬高速度）+ **transcript usage 去重改保留末行**（首行 `output_tokens: 0` 曾致 output/cache_read 全丢，13 文件 1183 行） | ✅ 已实施 |
 
 > **已知非章 delta（有意不入 patch，链终态与工作树的结构性差值）**：`#83` 测试修复族（`src/testUtils/modelEnv.ts` 及 11 个 `*.test.ts`：`print.sessionMessage`/`constants/system`/`coreSchemas.modelInfo`/`api/client`/`skills/bundled/computerUse`/`builtInAgentOverrides`/`effort.agent`/`model/{agent,fable,opus55,opus5}`/`__tests__/thinking`/`permissions/PermissionUpdate`）、`MessageList.test.tsx`（flaky 超时放宽，见附录）、`TerminalSettings.tsx`、`lib/providerModels.ts`、`services/api/claude.ts`（bound-thinking WIP）、`desktop/package.json`（本轮新增 `build:renderer`/`typecheck` 两条 **dev 脚本**，electron-builder 打包时会剥离 `scripts`，故不影响产物）、`bun.lock`。
 
@@ -372,6 +373,31 @@
 - **验证**：`tpsMeter.test` 15（三层源/对账收敛/夹逼/离群/切源 reset）、`tpsCalibration.test` 8、`TpsIndicator.test` 5（含 `data-tps-source` 与 `≈` 标注）、`chatStore.test` 366（含「未打开的 run 文本进父米表」「子代理帧不参与对账」「重连清窗」「换模型存档」「ids 精确且抑制文本」）；桌面 `tsc --noEmit` 0 错；服务端 `bun test src/server` **3458 pass / 0 fail**；`check:policy`（dead-imports/module-graph/change-policy/changed-files）**全绿**。
 - **UI 可见性**：TPS 指示器新增 `data-tps-source`（`ids`/`chunk`/`char`），非 ids 源时 title 追加 ` · ≈`，一眼可辨「精确 / 校准」；视觉与封顶/平滑/Σn 徽章不变。
 - **入库**：链位 **37** `patches/tps-real-token-accounting.patch`（20 文件 1717 行，桌面 + 服务端同链）；dead-import 清理单列链位 **38** `patches/compact-dead-import-cleanup.patch`（3 文件 36 行）。两条补丁均为「链终态（改前）→ 工作树（改后）」的干净差分，故 **#1..#36 无需重生成、无级联**（TPS 改动不落在这 36 条的 hunk 上下文里）。
+
+### 子优化（2026-09-27）：面板「生成速度」分子分母配对 + transcript usage 去重丢 output 修复
+
+- **触发（用户 verbatim）**：「这个会话里面，最后执行的轮次，上下文浮动卡片里面的生成速度显示 6044tok/s，这是很不合理的。你需要检查一下。」
+- **定位**：显示的是上下文浮动卡片的**会话累计**生成速度（`contextIndicator.sessionSpeed`，单位 `tok/s`）= `totalOutputTokens / totalDecodeDuration`。会话已锁定为用户提问的那个（DB 里标题「请用三句话简单介绍你自己，先深度思考再回答。」）：主会话 25 次调用 Σoutput=**24,356**，另有 **68 个子代理** Σoutput=**382,443**。显示 6044 意味着分母只有 ~67 秒（或按主会话 4.0 秒），**分母比真实少一到两个数量级**。
+- **缺陷①：分母只由流式路径喂，分子收全量 token**
+  - 分母来源唯一：`QueryEngine.ts` 在流式 `message_stop` 时 `addToTotalGenerationDuration(message.decodeMs)`；`decodeMs` 由 `StreamDecodeSpan`（首个生成 delta → 流结束）量出；流没有 `message_stop` 时按 0 计（注释明写 0 = "unknown, not instant"）。
+  - 分子却覆盖**每次调用**：`src/services/api/claude.ts` 的 `finally` 里，流式走 `hasStreamingUsage` 分支，**非流式回退（`fallbackMessage`）单独一条 `addToTotalSessionCost`** 也把 usage 记进会话总量。回退请求没有流事件 → `decodeSpan` 从未开启 → **token 记全、时间记 0**。
+  - 你的环境恰好大量走回退（本地引擎经 responses 端点 400/404 触发 `streaming_fallback`），于是分子累积、分母几乎不涨 → 6044。
+  - **修复**：新增配对计数 `totalTimedOutputTokens`（只累加「确实量到 decode span 的那次调用」的 output token）：`state.ts` 的 `addToTotalGenerationDuration(decode, ttft, outputTokens)`、`getTotalTimedOutputTokens()`、随 resume 快照往返（`lastTimedOutputTokens`）；`QueryEngine` 传入 `currentMessageUsage.output_tokens`；面板 `deriveSessionUsageMetrics` 改为 **paired 分子 ÷ decode**，落盘快照缺该字段（旧快照）或整个会话无任何 span 时，才退回 `totalOutput / totalAPIDuration`（`totalAPIDuration` 由 `logging.ts` 每次调用都记，回退也涵盖，是唯一与全量 token 匹配的分母）。
+  - 顺带修正 `desktop/src/api/sessions.ts` 里与实现相矛盾的注释（原文写「面板 tok/s 用 totalAPIDuration」，代码实际优先 decode）。
+- **缺陷②：transcript usage 去重保留「首行」，而首行 output 恒为 0**
+  - 真实 transcript 里**一次调用写两行 usage**：首行 `(提示总量, output 0, cache 字段 undefined)`（message_start 时写），末行 `(未缓存输入, output, cache_read, cache_create)`（最终用量；实测 `1129 + 29376 = 30505` 正好等于首行）。全量 1227 个 message id 的形状分布证实：**前若干行 output=0，末行才是真值**。
+  - 服务端 `claimUsageRecord` 按 message id 首次为准 → 计入首行 → **output 与 cache_read 全丢**。实测 `f1be2b52` 走 transcript 口径时接口返回 `totalOutputTokens: 0`（真实 24,356），面板因此显示 0 tok/s、缓存命中 0%。
+  - 同一根因还打到**本地索引**（`transcriptReducer`，同款 `usageRecordKey` 首次为准）：DB `activity_daily_models` 里两个会话**每一行**都是 `output_tokens = 0, cache_read = 0` —— 会话列表/活动统计的 token 与缓存命中数据一直是错的。
+  - **修复**：两处都改为**保留每个 key 的末行**。`sessionService`：`claimUsageRecord` 返回 `{key, previous}`，末行先**回退**上一版贡献（从同一 model 桶与总数里减掉）再加新值，`countedUsage` 由 `Set` 改 `Map<key, 贡献>`。`transcriptReducer` 同法（`Map<string, CountedUsage>` 随投影克隆、`releaseCountedUsage` 负责回退，含 advisor 子键）。
+- **踩坑记录（本项）**
+  1. **「取逐字段最大」是错的**：首行 input 是**提示总量**、末行 input 才是**未缓存部分**（缓存部分在 cache_read）。若按字段取最大，input 会拿到提示总量而 cache_read 又单独计入 → `promptTokens` 把缓存重复计一遍（`1129+29376` 被算成 `30505+29376`）。正确规则是**整行取末**。
+  2. **不要臆测「值小=不完整」**：`(3705, 0, 40320)` 重复三行后才出现 `(3705, 475, 40320)`——首行连 cache_read 都已带上，只有 output 是 0。所以判定依据只能是「行序」，不能是字段大小。
+  3. **既有单测把「重复行数值相同」当成前提**（`counts a multi-block assistant reply once`），末行替换法在这种前提下结果不变，故无需改这些测试；但**必须新增**真实形状（首行 output=0 → 末行真值）的用例，否则回归覆盖不到真 bug。
+  4. **`ContextUsageIndicator.test.tsx` 用「有 decode 无配对 token」的快照断言 200 tok/s**：契约一变它立刻变红（退回 API 口径得 57 tok/s）。旧快照语义变了必须显式改测试，而不是让代码去兼容旧数据。
+  5. **`bun test src`（整树）不是有效回归信号**：整树合跑出现 3114 条失败（含桌面 vitest 用例名），而单文件跑 94/94 全过——仓库自己的 runner 是**按文件隔离**跑（`scripts/pr/run-server-tests.ts`），既定基线口径是 `bun test src/server`。判定回归一律用后者（本次 3458 → **3460** 全绿，多出的 2 条即本轮新增用例）。
+  6. **诚实边界**：配对口径修正后，面板对「大量非流式回退」的会话会显示**较小但真实**的速度（只覆盖被测到 span 的调用），而不是一个漂亮的假数字；子代理的 token/时间都进会话总量，故其占比高的会话同样只按被测部分显示。
+- **验证**：`sessionUsageMetrics.test` 24（新增「只除同批 token」「无配对 token 时退回 API 口径」）、`state.generationTiming.test` 3（span 缺失不计时间也不计 token）、`sessions.test` 316（新增末行计价用例）、`transcriptReducer.test` 31（新增末行替换用例）、`ContextUsageIndicator.test` 27；桌面 `tsc --noEmit` 0 错、`vitest run` **6290+ 全绿**；根 `tsc --noEmit` 0 错；服务端 `bun test src/server` **3460 pass / 0 fail**；`check:policy`（dead-imports/module-graph）全绿。
+- **入库**：链位 **39** `patches/session-speed-and-usage-pairing.patch`（13 文件 1183 行）。同样是「链终态 → 工作树」干净差分，**#1..#38 不动**。
 
 ### 子优化（2026-09-26）：TPS 展示改造——去椭圆背景 + head 栏两行 + "TPS XXXt/s" 格式（commit 966ca8f1，#82）
 
