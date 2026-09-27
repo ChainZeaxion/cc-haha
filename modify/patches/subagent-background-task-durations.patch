@@ -1,5 +1,5 @@
 diff --git a/desktop/src/components/activity/SessionActivityPanel.test.tsx b/desktop/src/components/activity/SessionActivityPanel.test.tsx
-index ec84458..16da8b2 100644
+index ec84458..d5934b4 100644
 --- a/desktop/src/components/activity/SessionActivityPanel.test.tsx
 +++ b/desktop/src/components/activity/SessionActivityPanel.test.tsx
 @@ -399,7 +399,14 @@ describe('SessionActivityPanel', () => {
@@ -8,21 +8,109 @@ index ec84458..16da8b2 100644
      expect(screen.getByText('Usage')).toBeInTheDocument()
 -    expect(screen.getByText('94.3k tokens · 1m 7s')).toBeInTheDocument()
 +    expect(screen.getByText('94.3k tokens')).toBeInTheDocument()
-+    // The duration is its own right-aligned slot on the usage row, not part of
-+    // the token string — the reader scans for it rather than parsing past the
-+    // count to find it. It is shown twice on purpose: once on the collapsed row
-+    // and once in the expanded detail.
++    // The duration is its own right-aligned slot on the detail card's *header*,
++    // not a details field: shell tasks report no usage, so a slot on the usage
++    // row disappeared on exactly the tasks worth timing. It is shown twice on
++    // purpose: once on the collapsed row and once in the expanded detail.
 +    expect(screen.getAllByText('1m 7s')).toHaveLength(2)
 +    expect(document.querySelector('[data-activity-detail-duration="true"]')).not.toBeNull()
 +    expect(document.querySelector('[data-activity-duration="true"]')).not.toBeNull()
  
      fireEvent.click(screen.getByRole('button', { name: /clear finished/i }))
  
+@@ -991,6 +998,48 @@ describe('SessionActivityPanel', () => {
+     expect(screen.getByRole('button', { name: /open run a · cached/i })).toBeInTheDocument()
+   })
+ 
++  it('times a shell task that reports no usage at all, from its event clock', () => {
++    // The case that made the old slot useless: a shell background task carries
++    // no `usage`, so the duration had nothing to attach to and the reader saw
++    // no execution time on the rows they most want timed.
++    render(
++      <SessionActivityPanel
++        model={model({
++          sections: {
++            ...model().sections,
++            backgroundTasks: {
++              id: 'backgroundTasks',
++              title: 'Background Tasks',
++              emptyLabel: 'No background tasks',
++              rows: [{
++                id: 'bash-no-usage',
++                section: 'backgroundTasks',
++                label: 'Rebuild renderer dist',
++                status: 'completed',
++                description: 'bun run build:renderer',
++                taskId: 'bash-task-2',
++                taskType: 'local_bash',
++                startedAt: 1_000_000,
++                updatedAt: 1_000_000 + 125_000,
++                openable: false,
++              }],
++            },
++          },
++        })}
++        open
++        onClose={vi.fn()}
++        onOpenSubagent={vi.fn()}
++      />,
++    )
++
++    // 125 s of wall clock, rendered by the panel's own duration convention.
++    expect(screen.getByText('2m 5s')).toBeInTheDocument()
++    fireEvent.click(screen.getByRole('button', { name: /open background task/i }))
++    expect(document.querySelector('[data-activity-detail-duration="true"]')).not.toBeNull()
++    // Nothing invented: no token row was conjured for a task that reported none.
++    expect(screen.queryByText('Usage')).not.toBeInTheDocument()
++  })
++
+   it('does not render when closed', () => {
+     render(<SessionActivityPanel model={model()} open={false} onClose={vi.fn()} onOpenSubagent={vi.fn()} />)
+ 
 diff --git a/desktop/src/components/activity/SessionActivityPanel.tsx b/desktop/src/components/activity/SessionActivityPanel.tsx
-index 8287ea4..61f4fdf 100644
+index 8287ea4..85498bd 100644
 --- a/desktop/src/components/activity/SessionActivityPanel.tsx
 +++ b/desktop/src/components/activity/SessionActivityPanel.tsx
-@@ -440,6 +440,12 @@ function ActivityRowView({
+@@ -126,6 +126,29 @@ function formatBackgroundDuration(ms: number | undefined, t: TranslationFn): str
+   return t('chat.duration.minutesSeconds', { minutes, seconds })
+ }
+ 
++/**
++ * How long a background task ran, for a row that may carry either measure.
++ *
++ * The CLI reports `usage.durationMs` for agent-backed tasks and nothing at all
++ * for shell tasks, so a reported value is preferred but is absent on exactly
++ * the rows a reader most often wants timed. The client's own event clock
++ * (`startedAt` → `updatedAt`) then supplies the span. A zero span stays
++ * unmeasured rather than rendering as "1s": an instant is not an observation.
++ */
++function backgroundTaskDurationMs(row: ActivityRow): number | undefined {
++  const reported = row.usage?.durationMs
++  if (typeof reported === 'number' && Number.isFinite(reported) && reported > 0) return reported
++  const { startedAt, updatedAt } = row
++  if (
++    typeof startedAt === 'number' && Number.isFinite(startedAt) &&
++    typeof updatedAt === 'number' && Number.isFinite(updatedAt) &&
++    updatedAt > startedAt
++  ) {
++    return updatedAt - startedAt
++  }
++  return undefined
++}
++
+ function hasBackgroundTaskDetails(row: ActivityRow): boolean {
+   return Boolean(
+     row.description ||
+@@ -134,7 +157,7 @@ function hasBackgroundTaskDetails(row: ActivityRow): boolean {
+       row.taskType ||
+       row.workflowName ||
+       row.usage?.totalTokens ||
+-      row.usage?.durationMs,
++      backgroundTaskDurationMs(row),
+   )
+ }
+ 
+@@ -440,6 +463,12 @@ function ActivityRowView({
        : isTask && row.summary && row.summary !== row.label
          ? row.summary
          : undefined
@@ -30,12 +118,12 @@ index 8287ea4..61f4fdf 100644
 +  // clicking one opens its run detail, and the floating card is too narrow to
 +  // carry another field on every agent line (the row would truncate the label).
 +  const rowDuration = row.section === 'tasks' || row.section === 'backgroundTasks'
-+    ? formatBackgroundDuration(row.usage?.durationMs, t)
++    ? formatBackgroundDuration(backgroundTaskDurationMs(row), t)
 +    : undefined
    const content = (
      <>
        {isTask ? (
-@@ -463,6 +469,14 @@ function ActivityRowView({
+@@ -463,6 +492,14 @@ function ActivityRowView({
            </span>
          ) : null}
        </span>
@@ -50,60 +138,86 @@ index 8287ea4..61f4fdf 100644
        {isTask ? null : (
          <ActivityStatusIndicator
            status={displayStatus}
-@@ -573,13 +587,14 @@ function ActivityRowView({
+@@ -573,13 +610,14 @@ function ActivityRowView({
  
  function BackgroundTaskDetail({ row }: { row: ActivityRow }) {
    const t = useTranslation()
-+  // Execution time gets its own slot on the right of the usage row rather than
-+  // being glued into the token string: it is the number a reader scans for, and
-+  // "94.3k tokens · 1m 7s" buries it mid-line where the eye has to parse past
-+  // the count to find it.
-   const duration = formatBackgroundDuration(row.usage?.durationMs, t)
+-  const duration = formatBackgroundDuration(row.usage?.durationMs, t)
 -  const usageParts = [
 -    typeof row.usage?.totalTokens === 'number'
 -      ? t('chat.backgroundAgents.tokens', { count: formatTokenCount(row.usage.totalTokens) })
 -      : '',
 -    duration,
 -  ].filter(Boolean)
++  // The card's own header carries the execution time, not a details field: it
++  // belongs to the task as a whole, and putting it on the usage row tied it to
++  // a row that shell tasks never have (they report no usage at all), so the
++  // time silently vanished on exactly the tasks worth timing.
++  const duration = formatBackgroundDuration(backgroundTaskDurationMs(row), t)
 +  const usageTokens = typeof row.usage?.totalTokens === 'number'
 +    ? t('chat.backgroundAgents.tokens', { count: formatTokenCount(row.usage.totalTokens) })
 +    : ''
    const details = [
      row.taskType || row.workflowName
        ? { label: t('session.activity.details.type'), value: getTaskTypeLabel(row.taskType, t) }
-@@ -593,10 +608,10 @@ function BackgroundTaskDetail({ row }: { row: ActivityRow }) {
+@@ -593,17 +631,27 @@ function BackgroundTaskDetail({ row }: { row: ActivityRow }) {
      row.outputFile
        ? { label: t('session.activity.details.outputFile'), value: row.outputFile }
        : null,
 -    usageParts.length > 0
 -      ? { label: t('session.activity.details.usage'), value: usageParts.join(' · ') }
-+    usageTokens || duration
-+      ? { label: t('session.activity.details.usage'), value: usageTokens, trailing: duration }
++    usageTokens
++      ? { label: t('session.activity.details.usage'), value: usageTokens }
        : null,
--  ].filter((item): item is { label: string; value: string } => Boolean(item?.value))
-+  ].filter((item): item is { label: string; value: string; trailing?: string } => Boolean(item && (item.value || item.trailing)))
+   ].filter((item): item is { label: string; value: string } => Boolean(item?.value))
  
-   if (details.length === 0) return null
+-  if (details.length === 0) return null
++  if (details.length === 0 && !duration) return null
  
-@@ -612,7 +627,17 @@ function BackgroundTaskDetail({ row }: { row: ActivityRow }) {
-               {detail.label}
-             </dt>
-             <dd className="max-h-28 overflow-auto whitespace-pre-wrap break-words text-[12px] leading-relaxed text-[var(--color-text-secondary)]">
--              {detail.value}
-+              {detail.trailing ? (
-+                <span className="flex items-baseline justify-between gap-2">
-+                  <span className="min-w-0 break-words">{detail.value}</span>
-+                  <span
-+                    data-activity-detail-duration="true"
-+                    className="shrink-0 whitespace-nowrap font-mono tabular-nums text-[var(--color-text-tertiary)]"
-+                  >
-+                    {detail.trailing}
-+                  </span>
-+                </span>
-+              ) : detail.value}
-             </dd>
-           </div>
-         ))}
+   return (
+     <div className="mx-2 mb-1.5 rounded-[var(--radius-lg)] border border-[var(--color-border)] bg-[var(--color-surface-container-low)] p-3">
+-      <div className="mb-2 text-[11px] font-semibold text-[var(--color-text-tertiary)]">
+-        {t('session.activity.details.title')}
++      <div className="mb-2 flex items-baseline justify-between gap-2">
++        <span className="text-[11px] font-semibold text-[var(--color-text-tertiary)]">
++          {t('session.activity.details.title')}
++        </span>
++        {duration ? (
++          <span
++            data-activity-detail-duration="true"
++            className="shrink-0 whitespace-nowrap font-mono text-[11px] tabular-nums text-[var(--color-text-tertiary)]"
++          >
++            {duration}
++          </span>
++        ) : null}
+       </div>
+       <dl className="space-y-2">
+         {details.map((detail) => (
+diff --git a/desktop/src/components/activity/sessionActivityModel.ts b/desktop/src/components/activity/sessionActivityModel.ts
+index 2c616e6..aece933 100644
+--- a/desktop/src/components/activity/sessionActivityModel.ts
++++ b/desktop/src/components/activity/sessionActivityModel.ts
+@@ -48,6 +48,12 @@ export type ActivityRow = {
+   dismissKey?: string
+   outputFile?: string
+   usage?: BackgroundAgentTaskUsage
++  /**
++   * First event that started the task. Together with `updatedAt` this is the
++   * fallback span for tasks that never report `usage.durationMs` — which is
++   * every shell background task, since the CLI sends no usage for them.
++   */
++  startedAt?: number
+   updatedAt?: number | string
+   member?: TeamMember
+   taskHistory?: {
+@@ -546,6 +552,7 @@ function buildBackgroundRow(task: BackgroundAgentTask, section: ActivitySectionI
+     dismissKey: createBackgroundTaskDismissKey(task),
+     outputFile: task.outputFile,
+     usage: task.usage,
++    startedAt: task.startedAt,
+     updatedAt: task.updatedAt,
+     openable: Boolean(task.toolUseId),
+   }
 diff --git a/desktop/src/components/chat/ActivityGroup.test.tsx b/desktop/src/components/chat/ActivityGroup.test.tsx
 index 0a6a3f7..f101e17 100644
 --- a/desktop/src/components/chat/ActivityGroup.test.tsx

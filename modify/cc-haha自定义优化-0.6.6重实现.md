@@ -1420,7 +1420,7 @@ export function pythonRuntimeFor(platform: NodeJS.Platform): PythonRuntimeCompon
 |---|---|
 | `desktop/src/components/chat/activityGroupModel.ts` | 新增 `agentRunInterval`（求每个 run 的 `{startMs,endMs}`，上报优先→时间戳回退）、`agentRunDurationMs`（单行用）、`agentGroupSpanMs`（**区间并集跨度，非求和**；全不可测返回 `undefined`） |
 | `desktop/src/components/chat/ToolCallGroup.tsx` | `AgentToolGroup` 汇总行（`data-agent-group-duration`，**带 `总耗时` 标签、靠右**）、`AgentCallCard` 单行（`data-agent-call-duration`，**裸数字**）各插一个耗时 span，数字格式取自 `formatDuration` |
-| `desktop/src/components/activity/SessionActivityPanel.tsx` | `ActivityRowView` 行右侧耗时（`data-activity-duration`，仅 `tasks`/`backgroundTasks`）；`BackgroundTaskDetail` 使用量行右侧耗时（`data-activity-detail-duration`） |
+| `desktop/src/components/activity/SessionActivityPanel.tsx` | `ActivityRowView` 行右侧耗时（`data-activity-duration`，仅 `tasks`/`backgroundTasks`）；`BackgroundTaskDetail` **卡片标题「详情」行右侧**耗时（`data-activity-detail-duration`）——见下方补记 |
 | `desktop/src/i18n/locales/*.ts` | 新增 `toolGroup.agentTotalDuration`（5 语言，**仅供汇总行**） |
 
 **踩坑记录**：
@@ -1440,6 +1440,18 @@ export function pythonRuntimeFor(platform: NodeJS.Platform): PythonRuntimeCompon
 8. **格式函数要挑对**：`formatDurationMs`（`lib/backgroundTasks.ts`）与工具徽章的 `formatDuration`（`ToolCallBlock`）输出**不同**——前者 `5m 12s`（带空格、走 i18n），后者 `5m12s`（紧凑、无 i18n）。转录区选了后者（与工具徽章同函数）；activity 面板保留前者（与该面板既有耗时口径一致）。同一功能里出现两种格式是**有意**的：各自跟随所在区域的既有约定。
 
 ---
+**补记（2026-09-27，用户截图指出遗漏）——耗时挂错了行，且在 shell 任务上整个消失**：
+
+用户截图显示：展开一个 **Bash 后台任务**的详情卡，只有 `详情 / 类型 / 描述 / 摘要 / 输出文件`，**没有任何耗时**；红框标出「详情」标题行右侧的空位。用户原话是「后台任务下拉按钮打开后的卡片信息 **详情行右侧**加耗时」——首版把它挂在**「使用量」行**上，而那一行是 `usageTokens || duration` 条件渲染的。
+
+- **根因**：shell 后台任务（`local_bash`）**根本不上报 `usage`**（CLI 只给 agent 类任务发 `task_progress` / `task_notification` 的 `usage.duration_ms`），于是 `usageTokens` 与 `duration` **双双为空** → 整个「使用量」行不渲染 → 耗时**恰好在最需要它的那些行上彻底消失**。不是显示错，是**结构性不存在**。
+- **修法(1) 耗时改挂卡片标题行右侧**：耗时描述的是「这个任务整体跑了多久」，是**卡片级**属性，不属于任何一条详情字段；挂在详情字段上，就注定了「字段不存在则耗时不存在」这个连坐。
+- **修法(2) 加事件时钟回退**：新增 `backgroundTaskDurationMs(row)` —— 优先用上报值（`usage.durationMs > 0`），否则用 `row.startedAt → row.updatedAt` 的**墙钟跨度**。为此 `ActivityRow` 新增 `startedAt`（`buildBackgroundRow` 从 `task.startedAt` 透传）——此前只带 `updatedAt`，**跨度根本算不出来**。`updatedAt > startedAt` 严格大于才认，**零跨度算未测**（与本章子优化①「零耗时按未测处理」同一原则，不让一个瞬间渲染成 `1s`）。
+- **顺带**：`hasBackgroundTaskDetails` 也改用该解析器，否则「只有耗时、没有其他字段」的任务连详情都打不开。
+- **踩坑**：**「优先上报值」这条优先级掩盖了缺陷**——既有的那条测试用例（`usage: { totalTokens: 94321, durationMs: 67000 }`）一直绿，因为它 token 与耗时**同时具备**，恰好绕过了「无 usage」的真实路径。**测试只覆盖了数据齐全的行，而缺陷全在数据缺失的行。** 新用例专门构造 `local_bash` + 无 `usage` + 只有 `startedAt/updatedAt`，断言渲染 `2m 5s`（125s 跨度）**且不出现 `Usage` 行**（确认没有凭空造出 token 行）。
+- **验证**：`SessionActivityPanel.test` **26/26**（新增 1 条）、`src/components/activity/` 三文件 **99/99**、桌面 `tsc --noEmit` **0 错**。
+
+
 
 ## 二十二、历史记录膨胀（`toolUseResult.originalFile`）致大体积会话打不开（✅ 主要实施：A+B+E+G+H+F；C 证伪，2026-09-26）
 
