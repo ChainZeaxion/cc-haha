@@ -1,8 +1,17 @@
 diff --git a/desktop/src/components/chat/TurnCompletionStamp.test.tsx b/desktop/src/components/chat/TurnCompletionStamp.test.tsx
-index 7813412b..fa51b92a 100644
+index 7813412..df39689 100644
 --- a/desktop/src/components/chat/TurnCompletionStamp.test.tsx
 +++ b/desktop/src/components/chat/TurnCompletionStamp.test.tsx
-@@ -26,6 +26,24 @@ describe('TurnCompletionStamp', () => {
+@@ -8,7 +8,7 @@ const COMPLETED_AT = new Date('2026-07-30T07:20:41Z').getTime()
+ 
+ describe('TurnCompletionStamp', () => {
+   beforeEach(() => {
+-    useSettingsStore.setState({ locale: 'en' })
++    useSettingsStore.setState({ locale: 'en', sessionExtendedInfo: true })
+   })
+ 
+   it('reads as a compact clock time plus how long the turn took', () => {
+@@ -26,6 +26,37 @@ describe('TurnCompletionStamp', () => {
      expect(container.querySelector('[data-turn-completion-duration]')).toBeNull()
    })
  
@@ -24,11 +33,24 @@ index 7813412b..fa51b92a 100644
 +    expect(screen.getByText('took 1s')).toBeTruthy()
 +  })
 +
++  it('keeps usage but drops duration when session extended info is off', () => {
++    // 例外：usage 面向所有会话保留；只有 fork 新增的 duration 受开关控制。
++    useSettingsStore.setState({ sessionExtendedInfo: false })
++    const { container } = render(
++      <TurnCompletionStamp completion={{ completedAt: COMPLETED_AT, durationMs: 739_000, outputTokens: 1_500 }} />,
++    )
++
++    expect(screen.getByText('used 1.50k')).toBeTruthy()
++    expect(container.querySelector('[data-turn-completion-usage]')).not.toBeNull()
++    expect(container.querySelector('[data-turn-completion-duration]')).toBeNull()
++    expect(screen.queryByText('took 12m 19s')).toBeNull()
++  })
++
    it('carries the exact timestamp as a title for the rounded clock label', () => {
      render(<TurnCompletionStamp completion={{ completedAt: COMPLETED_AT, durationMs: 1_000 }} />)
  
 diff --git a/desktop/src/components/chat/TurnCompletionStamp.tsx b/desktop/src/components/chat/TurnCompletionStamp.tsx
-index 6a666497..ccb42a01 100644
+index 6a66649..4dd1d5e 100644
 --- a/desktop/src/components/chat/TurnCompletionStamp.tsx
 +++ b/desktop/src/components/chat/TurnCompletionStamp.tsx
 @@ -2,6 +2,7 @@ import { useSettingsStore } from '../../stores/settingsStore'
@@ -39,7 +61,7 @@ index 6a666497..ccb42a01 100644
  import type { TurnCompletion } from '../../lib/turnCompletion'
  
  type Props = {
-@@ -9,9 +10,14 @@ type Props = {
+@@ -9,18 +10,30 @@ type Props = {
  }
  
  /**
@@ -57,7 +79,12 @@ index 6a666497..ccb42a01 100644
   */
  export function TurnCompletionStamp({ completion }: Props) {
    const locale = useSettingsStore((state) => state.locale)
-@@ -21,6 +27,10 @@ export function TurnCompletionStamp({ completion }: Props) {
++  // 例外：本 footer 的 usage 面向所有会话保留、不随会话扩展信息开关隐藏，
++  // 只有 fork 新增的 duration 受开关控制。
++  const sessionExtendedInfo = useSettingsStore((state) => state.sessionExtendedInfo)
+   const t = useTranslation()
+ 
+   const clockLabel = formatMessageHoverTime(completion.completedAt, locale)
    if (!clockLabel) return null
  
    const duration = formatDurationMs(completion.durationMs, t)
@@ -68,19 +95,21 @@ index 6a666497..ccb42a01 100644
  
    return (
      <span
-@@ -30,6 +40,12 @@ export function TurnCompletionStamp({ completion }: Props) {
+@@ -30,7 +43,13 @@ export function TurnCompletionStamp({ completion }: Props) {
        <span title={formatExactMessageTimestamp(completion.completedAt, locale) || clockLabel}>
          {clockLabel}
        </span>
+-      {duration ? (
 +      {usageLabel ? (
 +        <>
 +          <span aria-hidden="true">·</span>
 +          <span data-turn-completion-usage>{t('chat.turnUsage', { tokens: usageLabel })}</span>
 +        </>
 +      ) : null}
-       {duration ? (
++      {sessionExtendedInfo !== false && duration ? (
          <>
            <span aria-hidden="true">·</span>
+           <span data-turn-completion-duration>{t('chat.turnDuration', { duration })}</span>
 diff --git a/desktop/src/i18n/locales/en.ts b/desktop/src/i18n/locales/en.ts
 index 1d21df55..dbe50735 100644
 --- a/desktop/src/i18n/locales/en.ts

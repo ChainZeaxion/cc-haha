@@ -1,8 +1,8 @@
 diff --git a/desktop/src/pages/settings/GeneralSettings.tsx b/desktop/src/pages/settings/GeneralSettings.tsx
-index 33c4419d..59fee994 100644
+index 33c4419..e6ee603 100644
 --- a/desktop/src/pages/settings/GeneralSettings.tsx
 +++ b/desktop/src/pages/settings/GeneralSettings.tsx
-@@ -65,12 +65,17 @@ const BUILT_IN_OUTPUT_STYLE_TRANSLATION_KEYS = {
+@@ -65,12 +65,19 @@ const BUILT_IN_OUTPUT_STYLE_TRANSLATION_KEYS = {
  } satisfies Record<string, { label: TranslationKey; description: TranslationKey }>
  
  export function GeneralSettings() {
@@ -17,10 +17,12 @@ index 33c4419d..59fee994 100644
 +    setThinkingSendBack,
 +    vccCompactBackend,
 +    setVccCompactBackend,
++    sessionExtendedInfo,
++    setSessionExtendedInfo,
      workflowKeywordTriggerEnabled,
      setWorkflowKeywordTriggerEnabled,
      agentTeamsEnabled,
-@@ -127,6 +132,22 @@ export function GeneralSettings() {
+@@ -127,6 +134,22 @@ export function GeneralSettings() {
    const activeSessionId = useSessionStore((s) => s.activeSessionId)
    const sessions = useSessionStore((s) => s.sessions)
    const t = useTranslation()
@@ -43,7 +45,7 @@ index 33c4419d..59fee994 100644
    const [webSearchDraft, setWebSearchDraft] = useState(webSearch)
    const [networkDraft, setNetworkDraft] = useState(network)
    const [networkTimeoutInput, setNetworkTimeoutInput] = useState(String(Math.round(network.aiRequestTimeoutMs / 1000)))
-@@ -1081,6 +1102,58 @@ export function GeneralSettings() {
+@@ -1081,8 +1104,79 @@ export function GeneralSettings() {
              </div>
            </div>
          </label>
@@ -67,8 +69,8 @@ index 33c4419d..59fee994 100644
 +            </div>
 +          </label>
 +        )}
-+      </div>
-+
+       </div>
+ 
 +      <div className="mt-8">
 +        {/* Context compaction */}
 +        <h2 className="text-[16.5px] font-semibold leading-tight text-[var(--color-text-primary)] mb-1" style={{ fontFamily: 'var(--font-headline)' }}>{t('settings.general.compactionTitle')}</h2>
@@ -99,9 +101,30 @@ index 33c4419d..59fee994 100644
 +            </Button>
 +          }
 +        />
-       </div>
- 
++      </div>
++
++      {/* Sits under compaction because it is the other session-wide display
++          switch: that one chooses the engine, this one chooses how much of what
++          the engine produced is shown. Styled like the appearance switch, which
++          is the other plain on/off in this page. */}
++      <SettingsSection
++        className="mt-8"
++        title={t('settings.general.sessionExtendedInfoTitle')}
++        description={t('settings.general.sessionExtendedInfoDescription')}
++      >
++        <div className="rounded-xl border border-[var(--color-border)] bg-[var(--color-surface-container-low)] px-4 py-3">
++          <Switch
++            checked={sessionExtendedInfo}
++            onChange={(value) => void setSessionExtendedInfo(value)}
++            label={t('settings.general.sessionExtendedInfoTitle')}
++            description={t('settings.general.sessionExtendedInfoHint')}
++          />
++        </div>
++      </SettingsSection>
++
        {/*
+         Only the editors we detect, never every installed application: the menu
+         offers one editor slot, and this chooses which. Hidden entirely when none
 diff --git a/src/server/__tests__/providers.test.ts b/src/server/__tests__/providers.test.ts
 index 55c5360b..2f021ad7 100644
 --- a/src/server/__tests__/providers.test.ts
@@ -234,10 +257,10 @@ index c63429ea..6985bcd5 100644
      )
    }
 diff --git a/src/tools/ConfigTool/supportedSettings.ts b/src/tools/ConfigTool/supportedSettings.ts
-index 935a574c..811475ad 100644
+index 935a574..f834cdc 100644
 --- a/src/tools/ConfigTool/supportedSettings.ts
 +++ b/src/tools/ConfigTool/supportedSettings.ts
-@@ -110,6 +110,19 @@ export const SUPPORTED_SETTINGS: Record<string, SettingConfig> = {
+@@ -110,6 +110,25 @@ export const SUPPORTED_SETTINGS: Record<string, SettingConfig> = {
      description: 'Enable extended thinking (false to disable)',
      appStateKey: 'thinkingEnabled',
    },
@@ -246,6 +269,12 @@ index 935a574c..811475ad 100644
 +    type: 'boolean',
 +    description:
 +      'Send prior thinking blocks back to the backend API as context (true to enable)',
++  },
++  sessionExtendedInfo: {
++    source: 'settings',
++    type: 'boolean',
++    description:
++      'Show the usage/timing readouts added by this fork (thinking badge, activity totals, subagent durations, TPS)',
 +  },
 +  vccCompactBackend: {
 +    source: 'settings',
@@ -497,10 +526,10 @@ index 506177b3..67261c62 100644
    currentModel: string,
  ): Message[] {
 diff --git a/src/utils/settings/types.ts b/src/utils/settings/types.ts
-index 69f2a48e..acd565e8 100644
+index 69f2a48..3e097b6 100644
 --- a/src/utils/settings/types.ts
 +++ b/src/utils/settings/types.ts
-@@ -750,6 +750,26 @@ export const SettingsSchema = lazySchema(() =>
+@@ -750,6 +750,35 @@ export const SettingsSchema = lazySchema(() =>
            'When false, thinking is disabled. When absent or true, thinking is ' +
              'enabled automatically for supported models.',
          ),
@@ -523,6 +552,15 @@ index 69f2a48e..acd565e8 100644
 +            'a transcript-preserving structured summary with no LLM call. ' +
 +            '"llm" uses the original LLM summary step. Read live at each ' +
 +            'compaction, so switching mid-session takes effect immediately.',
++        ),
++      sessionExtendedInfo: z
++        .boolean()
++        .optional()
++        .describe(
++          'Whether the session UI shows the usage and timing readouts this ' +
++            'fork adds: the thinking badge (tokens + duration), activity-group ' +
++            'totals, subagent durations and the TPS meter. Defaults to true. ' +
++            'It only affects display — the transcript records the same either way.',
 +        ),
        effortLevel: z
          .enum(

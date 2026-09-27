@@ -1,8 +1,32 @@
 diff --git a/desktop/src/components/chat/TpsIndicator.test.tsx b/desktop/src/components/chat/TpsIndicator.test.tsx
-index 0f4f918..b40e54d 100644
+index 0f4f918..1683721 100644
 --- a/desktop/src/components/chat/TpsIndicator.test.tsx
 +++ b/desktop/src/components/chat/TpsIndicator.test.tsx
-@@ -83,7 +83,7 @@ it('marks a sampled (non-ids) reading as approximate', () => {
+@@ -3,6 +3,7 @@ import '@testing-library/jest-dom'
+ import { afterEach, beforeEach, expect, it, vi } from 'vitest'
+ import { TpsMeter } from '@/lib/tpsMeter'
+ import * as chatStore from '@/stores/chatStore'
++import { useSettingsStore } from '@/stores/settingsStore'
+ import { TpsIndicator } from './TpsIndicator'
+ 
+ // Drive the real meters with a fake clock so the sliding windows behave
+@@ -22,6 +23,7 @@ beforeEach(() => {
+   now = 1_000_000
+   ownMeter.reset()
+   subMeter.reset()
++  useSettingsStore.setState({ sessionExtendedInfo: true })
+   vi.spyOn(performance, 'now').mockImplementation(() => now)
+   vi.spyOn(chatStore, 'getSessionTpsMeter').mockReturnValue(ownMeter)
+   vi.spyOn(chatStore, 'getSubordinateTpsMeters').mockReturnValue([subMeter])
+@@ -29,6 +31,7 @@ beforeEach(() => {
+ 
+ afterEach(() => {
+   cleanup()
++  useSettingsStore.setState({ sessionExtendedInfo: true })
+   vi.restoreAllMocks()
+ })
+ 
+@@ -83,7 +86,7 @@ it('marks a sampled (non-ids) reading as approximate', () => {
    pump(ownMeter)
    const { container } = render(<TpsIndicator sessionId="main" />)
    const indicator = container.querySelector('[data-testid="tps-indicator"]')!
@@ -11,11 +35,36 @@ index 0f4f918..b40e54d 100644
    expect(indicator).toHaveAttribute('title', expect.stringContaining('≈'))
  })
  
+@@ -92,5 +95,12 @@ it('stays hidden before anything has streamed', () => {
+   expect(container.querySelector('[data-testid="tps-indicator"]')).toBeNull()
+ })
+ 
++it('renders nothing when session extended info is off, even with a live reading', () => {
++  pump(ownMeter)
++  useSettingsStore.setState({ sessionExtendedInfo: false })
++  const { container } = render(<TpsIndicator sessionId="main" />)
++  expect(container.querySelector('[data-testid="tps-indicator"]')).toBeNull()
++})
++
+ 
+ 
 diff --git a/desktop/src/components/chat/TpsIndicator.tsx b/desktop/src/components/chat/TpsIndicator.tsx
-index 05e1e3d..8b18c89 100644
+index 05e1e3d..51f32d0 100644
 --- a/desktop/src/components/chat/TpsIndicator.tsx
 +++ b/desktop/src/components/chat/TpsIndicator.tsx
-@@ -61,7 +61,7 @@ export function TpsIndicator({ sessionId, vertical = false }: { sessionId: strin
+@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
+ import { getSessionTpsMeter, getSubordinateTpsMeters } from '../../stores/chatStore'
+ import { aggregateMeterReadings, isTpsEnabled, type TpsSource } from '../../lib/tpsMeter'
+ import { useTranslation } from '../../i18n'
++import { useSettingsStore } from '../../stores/settingsStore'
+ 
+ /**
+  * Real-time decode-speed (TPS) indicator.
+@@ -58,14 +59,17 @@ const TIER_STYLE: Record<TpsTier, { color: string }> = {
+ 
+ export function TpsIndicator({ sessionId, vertical = false }: { sessionId: string; vertical?: boolean }) {
+   const t = useTranslation()
++  const sessionExtendedInfo = useSettingsStore((state) => state.sessionExtendedInfo)
    const [tps, setTps] = useState(0)
    const [visible, setVisible] = useState(false)
    const [activeSubs, setActiveSubs] = useState(0)
@@ -24,6 +73,13 @@ index 05e1e3d..8b18c89 100644
  
    // Master switch: when disabled the indicator renders nothing and never polls
    // the meter (the meter itself is also not fed in the content_delta path).
+-  if (!isTpsEnabled()) return null
++  // 会话扩展信息关闭时同样整块隐藏——TPS 是本 fork 新增读数，缺省视为开启。
++  // 两个渲染分支（vertical/横向）都在此处之后，故单次提前返回即可覆盖。
++  if (!isTpsEnabled() || sessionExtendedInfo === false) return null
+ 
+   useEffect(() => {
+     const meter = getSessionTpsMeter(sessionId)
 diff --git a/desktop/src/lib/tpsCalibration.test.ts b/desktop/src/lib/tpsCalibration.test.ts
 index eb9bd4a..b3342de 100644
 --- a/desktop/src/lib/tpsCalibration.test.ts

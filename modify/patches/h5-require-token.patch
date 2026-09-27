@@ -965,10 +965,10 @@ index 4ae3908a..0b35629f 100644
      expect(useSettingsStore.getState().h5AccessError).toBeNull()
      expect('h5AccessGeneratedToken' in useSettingsStore.getState()).toBe(false)
 diff --git a/desktop/src/stores/settingsStore.ts b/desktop/src/stores/settingsStore.ts
-index afad44cd..d47002da 100644
+index afad44c..03d2152 100644
 --- a/desktop/src/stores/settingsStore.ts
 +++ b/desktop/src/stores/settingsStore.ts
-@@ -65,11 +65,15 @@ type SettingsStore = {
+@@ -65,11 +65,16 @@ type SettingsStore = {
    currentModel: ModelInfo | null
    effortLevel: EffortLevel
    thinkingEnabled: boolean
@@ -978,13 +978,14 @@ index afad44cd..d47002da 100644
    agentTeamsEnabled: boolean
    autoDreamEnabled: boolean
 +  disableUpdates: boolean
++  sessionExtendedInfo: boolean
    autoQuestion: AutoQuestionSettings
    autoModeOptInAccepted: boolean
 +
    availableModels: ModelInfo[]
    activeProviderName: string | null
    locale: Locale
-@@ -111,9 +115,12 @@ type SettingsStore = {
+@@ -111,9 +116,13 @@ type SettingsStore = {
    setModel: (modelId: string) => Promise<void>
    setEffort: (level: EffortLevel) => Promise<void>
    setThinkingEnabled: (enabled: boolean) => Promise<void>
@@ -994,10 +995,11 @@ index afad44cd..d47002da 100644
    setAgentTeamsEnabled: (enabled: boolean) => Promise<void>
    setAutoDreamEnabled: (enabled: boolean) => Promise<void>
 +  setDisableUpdates: (enabled: boolean) => Promise<void>
++  setSessionExtendedInfo: (enabled: boolean) => Promise<void>
    setAutoQuestion: (settings: AutoQuestionSettings) => Promise<void>
    acceptAutoModeOptIn: () => Promise<void>
    setLocale: (locale: Locale) => void
-@@ -137,6 +144,7 @@ type SettingsStore = {
+@@ -137,6 +146,7 @@ type SettingsStore = {
      publicBaseUrl?: string | null
      fixedPort?: number | null
      disconnectGraceSeconds?: number | null
@@ -1005,7 +1007,7 @@ index afad44cd..d47002da 100644
    }) => Promise<void>
    setResponseLanguage: (language: string) => Promise<void>
    fetchAppMode: () => Promise<void>
-@@ -156,6 +164,7 @@ const DEFAULT_H5_ACCESS_SETTINGS: H5AccessSettings = {
+@@ -156,6 +166,7 @@ const DEFAULT_H5_ACCESS_SETTINGS: H5AccessSettings = {
    publicBaseUrl: null,
    fixedPort: null,
    disconnectGraceSeconds: null,
@@ -1013,7 +1015,7 @@ index afad44cd..d47002da 100644
  }
  
  const DEFAULT_DESKTOP_TERMINAL_SETTINGS: DesktopTerminalSettings = {
-@@ -206,9 +215,12 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
+@@ -206,9 +217,15 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
    currentModel: null,
    effortLevel: 'max',
    thinkingEnabled: true,
@@ -1023,10 +1025,13 @@ index afad44cd..d47002da 100644
    agentTeamsEnabled: true,
    autoDreamEnabled: false,
 +  disableUpdates: false,
++  // On by default: these readouts already existed when the switch was added, so
++  // introducing it must not change what anyone sees until they turn it off.
++  sessionExtendedInfo: true,
    autoQuestion: DEFAULT_AUTO_QUESTION_SETTINGS,
    autoModeOptInAccepted: false,
    availableModels: [],
-@@ -285,9 +297,13 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
+@@ -285,9 +302,14 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
          currentModel: model,
          effortLevel: level,
          thinkingEnabled: userSettings.alwaysThinkingEnabled !== false,
@@ -1037,10 +1042,11 @@ index afad44cd..d47002da 100644
          agentTeamsEnabled: userSettings.agentTeamsEnabled !== false,
          autoDreamEnabled: userSettings.autoDreamEnabled === true,
 +        disableUpdates: userSettings.disableUpdates === true,
++        sessionExtendedInfo: userSettings.sessionExtendedInfo !== false,
          autoQuestion: normalizeAutoQuestionSettings(userSettings.autoQuestion),
          autoModeOptInAccepted: userSettings.skipAutoPermissionPrompt === true,
          chatSendBehavior: normalizeChatSendBehavior(userSettings.chatSendBehavior),
-@@ -361,6 +377,26 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
+@@ -361,6 +383,26 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
      }
    },
  
@@ -1067,7 +1073,7 @@ index afad44cd..d47002da 100644
    setWorkflowKeywordTriggerEnabled: async (enabled) => {
      const prev = get().workflowKeywordTriggerEnabled
      set({ workflowKeywordTriggerEnabled: enabled })
-@@ -394,6 +430,16 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
+@@ -394,6 +436,27 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
      }
    },
  
@@ -1081,10 +1087,21 @@ index afad44cd..d47002da 100644
 +      throw error
 +    }
 +  },
++  setSessionExtendedInfo: async (enabled) => {
++    const prev = get().sessionExtendedInfo
++    set({ sessionExtendedInfo: enabled })
++    try {
++      await settingsApi.updateUser({ sessionExtendedInfo: enabled })
++    } catch (error) {
++      set({ sessionExtendedInfo: prev })
++      throw error
++    }
++  },
++
    setAutoQuestion: async (settings) => {
      const previous = get().autoQuestion
      const next = normalizeAutoQuestionSettings(settings)
-@@ -860,6 +906,7 @@ function normalizeH5AccessSettings(settings: H5AccessSettings | undefined): H5Ac
+@@ -860,6 +923,7 @@ function normalizeH5AccessSettings(settings: H5AccessSettings | undefined): H5Ac
      publicBaseUrl: settings?.publicBaseUrl ?? null,
      fixedPort: typeof settings?.fixedPort === 'number' ? settings.fixedPort : null,
      disconnectGraceSeconds: typeof settings?.disconnectGraceSeconds === 'number' ? settings.disconnectGraceSeconds : null,
@@ -1093,7 +1110,7 @@ index afad44cd..d47002da 100644
  }
  
 diff --git a/desktop/src/types/settings.ts b/desktop/src/types/settings.ts
-index ef9c7c9e..2911f0f6 100644
+index ef9c7c9..c8de51e 100644
 --- a/desktop/src/types/settings.ts
 +++ b/desktop/src/types/settings.ts
 @@ -113,6 +113,13 @@ export type H5AccessSettings = {
@@ -1110,17 +1127,23 @@ index ef9c7c9e..2911f0f6 100644
  }
  
  export type H5HostStaleness = 'ok' | 'unreachable' | 'proxy' | 'unset'
-@@ -152,6 +159,9 @@ export type UserSettings = {
+@@ -152,6 +159,15 @@ export type UserSettings = {
    modelContext?: string
    effort?: EffortLevel
    alwaysThinkingEnabled?: boolean
 +  sendThinkingHistory?: boolean
 +  /** Context-compaction engine: 'algorithm' (pi-vcc, default) or 'llm'. */
 +  vccCompactBackend?: 'algorithm' | 'llm'
++  /**
++   * Whether the session UI shows the usage and timing readouts this fork adds
++   * (thinking badge, activity totals, subagent durations, TPS). Defaults to on;
++   * a transcript is still recorded either way.
++   */
++  sessionExtendedInfo?: boolean
    workflowKeywordTriggerEnabled?: boolean
    agentTeamsEnabled?: boolean
    autoDreamEnabled?: boolean
-@@ -164,6 +174,8 @@ export type UserSettings = {
+@@ -164,6 +180,8 @@ export type UserSettings = {
    skipWebFetchPreflight?: boolean
    desktopNotificationsEnabled?: boolean
    webSearch?: WebSearchSettings
