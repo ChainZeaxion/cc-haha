@@ -188,6 +188,7 @@ import {
   appendReplayedUserMessage,
   registerAgentRunSession,
   getSessionTpsMeter,
+  mergeBackgroundAgentTaskRecords,
   reconstructAgentNotifications,
   reconstructRunActivityFromTranscript,
   settleThinkingDurations,
@@ -4020,6 +4021,62 @@ describe('chatStore history mapping', () => {
       prompt: undefined,
       lastToolName: undefined,
       usage: undefined,
+    })
+  })
+
+  it('gives a task known only from its completion report the start of the call that launched it', () => {
+    // A background agent has no shell record: its task row exists only because
+    // its report arrived. The report is also its end, so without the launch
+    // call the row has no span at all and can never show a duration.
+    const restored = reconstructRunActivityFromTranscript([
+      {
+        id: 'agent-use-message',
+        type: 'assistant',
+        timestamp: '2026-04-06T00:00:00.000Z',
+        content: [{
+          type: 'tool_use',
+          id: 'agent-tool-1',
+          name: 'Agent',
+          input: { name: 'explore', prompt: 'Look around the repo' },
+        }],
+      },
+      {
+        id: 'agent-notification-message',
+        type: 'user',
+        timestamp: '2026-04-06T00:05:00.000Z',
+        content: '<task-notification>\n<task-id>agent-task-1</task-id>\n<tool-use-id>agent-tool-1</tool-use-id>\n<status>completed</status>\n<summary>Done</summary>\n</task-notification>',
+      },
+    ])
+
+    expect(restored.backgroundAgentTasks['agent-task-1']).toMatchObject({
+      taskId: 'agent-task-1',
+      toolUseId: 'agent-tool-1',
+      status: 'completed',
+      startedAt: Date.parse('2026-04-06T00:00:00.000Z'),
+      updatedAt: Date.parse('2026-04-06T00:05:00.000Z'),
+    })
+  })
+
+  it('keeps a restored task start through the merge into session state', () => {
+    // The merge hands each restored record to the same upsert a live event
+    // uses, and the upsert used `now` — the record's *end* — as the start when
+    // the task was not already in state. Every restored span then read as zero,
+    // so no background task could show a duration after a reload.
+    const restored = {
+      'shell-task-1': {
+        taskId: 'shell-task-1',
+        toolUseId: 'shell-tool-1',
+        status: 'completed' as const,
+        description: 'Run desktop checks',
+        taskType: 'local_bash',
+        startedAt: Date.parse('2026-04-06T00:00:00.000Z'),
+        updatedAt: Date.parse('2026-04-06T00:10:00.000Z'),
+      },
+    }
+
+    expect(mergeBackgroundAgentTaskRecords({}, restored)['shell-task-1']).toMatchObject({
+      startedAt: Date.parse('2026-04-06T00:00:00.000Z'),
+      updatedAt: Date.parse('2026-04-06T00:10:00.000Z'),
     })
   })
 
@@ -15710,6 +15767,50 @@ describe('chatStore activity state survival across reload paths', () => {
     resolveRecovery({ status: 'ready', sourceVersion: 'v1', omittedRecords: 0, messages: [], tokenUsage: { input_tokens: 999, output_tokens: 888 } })
     await vi.waitFor(() => expect(useChatStore.getState().sessions[TEST_SESSION_ID]?.historyRecoveryStatus).toBe('ready'))
     expect(useChatStore.getState().sessions[TEST_SESSION_ID]?.tokenUsage).toEqual({ input_tokens: 999, output_tokens: 888 })
+  })
+
+  it('restores background task spans from a windowed page without restoring the tail as authoritative', async () => {
+    // A large session never exhausts the page walk, so `historyComplete` is
+    // false on every open. Blanking the window there lost every background task
+    // the window actually held — including the span between its launch and its
+    // completion report, which both sit inside the window.
+    const page = { nextCursor: 'older', hasMore: true, historyComplete: false, sourceVersion: 'v1', scannedBytes: 1024, omittedOversizedEntries: 0 }
+    vi.mocked(sessionsApi.getFullHistory).mockResolvedValueOnce({
+      messages: [
+        {
+          id: 'window-use', type: 'assistant', timestamp: '2026-04-06T00:00:00.000Z',
+          content: [{ type: 'tool_use', id: 'window-tool-1', name: 'Bash', input: { command: 'bun run test', description: 'Run the suite', run_in_background: true } }],
+        },
+        {
+          id: 'window-result', type: 'tool_result', timestamp: '2026-04-06T00:00:01.000Z',
+          content: [{ type: 'tool_result', tool_use_id: 'window-tool-1', content: 'Command running in background with ID: window-task-1. Output is being written to: /tmp/window-task-1.output' }],
+        },
+        {
+          id: 'window-notification', type: 'user', timestamp: '2026-04-06T00:10:00.000Z',
+          content: '<task-notification>\n<task-id>window-task-1</task-id>\n<tool-use-id>window-tool-1</tool-use-id>\n<status>completed</status>\n<summary>Suite passed</summary>\n</task-notification>',
+        },
+      ],
+      page,
+    })
+    vi.mocked(sessionsApi.getHistoryRecovery).mockResolvedValueOnce({
+      status: 'incomplete', sourceVersion: 'v1', omittedRecords: 0, messages: [],
+      completeness: { usage: true, goal: false, todos: false, activity: false },
+      tokenUsage: { input_tokens: 0, output_tokens: 0 },
+    })
+    useChatStore.setState({ sessions: { [TEST_SESSION_ID]: makeSession() } })
+
+    await useChatStore.getState().loadHistory(TEST_SESSION_ID)
+
+    expect(useChatStore.getState().sessions[TEST_SESSION_ID]?.backgroundAgentTasks?.['window-task-1'])
+      .toMatchObject({
+        taskId: 'window-task-1',
+        toolUseId: 'window-tool-1',
+        status: 'completed',
+        startedAt: Date.parse('2026-04-06T00:00:00.000Z'),
+        updatedAt: Date.parse('2026-04-06T00:10:00.000Z'),
+      })
+    // Spans come from the window; the session-wide claims still do not.
+    expect(setTasksFromTodosMock).not.toHaveBeenCalled()
   })
 
   it('cancels stale background recovery before an authoritative history reload', async () => {

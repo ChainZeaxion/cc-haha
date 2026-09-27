@@ -2410,15 +2410,19 @@ async function fetchAndMapSessionHistory(
   // narrower: restoring from that joined stream would put a child's shell
   // jobs and notifications into the parent rail after every reload.
   const rootRunMessages = messages.filter((message) => !message.parentToolUseId)
-  const rootToolUseIds = transcriptToolUseIds(rootRunMessages)
-  const rootRunNotifications = (taskNotifications ?? []).filter(
+  // Notifications this session owns. `ownerAgentId` marks a child run's
+  // terminal, which the parent rail must not adopt.
+  const ownedNotifications = (
+    notifications: typeof response.taskNotifications,
+    toolUseIds: Set<string>,
+  ) => (notifications ?? []).filter(
     (notification) => (
       !notification.ownerAgentId && (
         // workflow_run_id predates owner_agent_id. Keep restoring those
         // legacy root workflow terminals; newly owned child runs carry an
         // explicit owner and are rejected by the guard above.
         Boolean(notification.workflowRunId) ||
-        rootToolUseIds.has(notification.toolUseId) ||
+        toolUseIds.has(notification.toolUseId) ||
         existingOwnedToolUseIds.has(notification.toolUseId) ||
         existingOwnedToolUseIds.has(notification.taskId)
       )
@@ -2426,8 +2430,27 @@ async function fetchAndMapSessionHistory(
   )
   const restoredActivity = reconstructRunActivityFromTranscript(
     rootRunMessages,
-    rootRunNotifications,
+    ownedNotifications(taskNotifications, transcriptToolUseIds(rootRunMessages)),
   )
+  // Background-task *spans* are per-task facts, so a partial window is enough
+  // to restore them: a task is only reconstructed when both its own start (its
+  // tool call) and its own end (its task notification, or the terminal result
+  // of its tool call) are inside the window, which means a window can omit an
+  // old task but can never invent or stretch a span. Gating them on
+  // completeness bought nothing and cost the entire section: the window was
+  // blanked, so every shell job vanished and a reopened large session showed no
+  // background tasks — with no duration to show — until something ran live.
+  // Goal and todo restoration stays gated below, because those describe the
+  // session as a whole and a tail genuinely cannot support them.
+  const restoredBackgroundTasks = historyComplete
+    ? restoredActivity.backgroundAgentTasks
+    : reconstructRunActivityFromTranscript(
+        response.messages.filter((message) => !message.parentToolUseId),
+        ownedNotifications(
+          response.taskNotifications,
+          transcriptToolUseIds(response.messages),
+        ),
+      ).backgroundAgentTasks
   const restoredGoalState = deriveActiveGoalStateFromMessages(historyComplete ? uiMessages : [])
   return {
     page,
@@ -2436,7 +2459,7 @@ async function fetchAndMapSessionHistory(
     activeGoal: restoredGoalState.activeGoal,
     hasRestoredGoalState: restoredGoalState.hasStateEvidence,
     restoredNotifications: restoredActivity.agentTaskNotifications,
-    restoredBackgroundTasks: restoredActivity.backgroundAgentTasks,
+    restoredBackgroundTasks,
     lastTodos: extractLastTodoWriteFromHistory(messages),
     hasMessagesAfterTaskCompletion: hasUserMessagesAfterTaskCompletion(messages),
     tokenUsage: summarizeTokenUsageFromHistory(messages),
@@ -6665,7 +6688,12 @@ function upsertBackgroundAgentTask(
       lastToolName: event.lastToolName ?? existing?.lastToolName,
       outputFile: event.outputFile ?? existing?.outputFile,
       usage: event.usage ?? existing?.usage,
-      startedAt: startsNewLifecycle ? now : existing?.startedAt ?? now,
+      // `now` is only *this* event's time. A caller handing over a whole record
+      // (the restore merge) also knows when the task started, and using `now`
+      // as the start collapsed every restored span to zero — which is why a
+      // background task never showed a duration after a reload. Live events
+      // never set `startedAt`, so this only preserves a reconstructed start.
+      startedAt: startsNewLifecycle ? now : existing?.startedAt ?? event.startedAt ?? now,
       updatedAt: now,
     },
   }
@@ -7186,6 +7214,49 @@ function reconstructBackgroundShellTasks(
 }
 
 /**
+ * Give tasks known only from their completion report a start.
+ *
+ * `backgroundTaskRecordFromNotifications` creates such a task with
+ * `startedAt === updatedAt === ` the report's time, because the report is the
+ * only event it has. The span is then zero and the row can never show a
+ * duration, even though the transcript holds the tool call that launched it —
+ * for a background agent the very same window. That call's time is the start.
+ */
+function backfillTaskStartsFromToolCalls(
+  tasks: Record<string, BackgroundAgentTask>,
+  messages: MessageEntry[],
+): Record<string, BackgroundAgentTask> {
+  const launchedAt = new Map<string, number>()
+  for (const message of messages) {
+    if (
+      (message.type !== 'assistant' && message.type !== 'tool_use') ||
+      !Array.isArray(message.content)
+    ) continue
+    for (const block of message.content as AssistantHistoryBlock[]) {
+      if (block.type !== 'tool_use' || !block.id) continue
+      if (!launchedAt.has(block.id)) {
+        launchedAt.set(block.id, transcriptTimestamp(message.timestamp))
+      }
+    }
+  }
+
+  let changed = false
+  const next: Record<string, BackgroundAgentTask> = {}
+  for (const [key, task] of Object.entries(tasks)) {
+    const start = task.toolUseId ? launchedAt.get(task.toolUseId) : undefined
+    // Only when the launch genuinely precedes the report: a start after the
+    // end would invert the span rather than repair it.
+    if (start !== undefined && start < task.updatedAt && start !== task.startedAt) {
+      next[key] = { ...task, startedAt: start }
+      changed = true
+    } else {
+      next[key] = task
+    }
+  }
+  return changed ? next : tasks
+}
+
+/**
  * Project the activity owned by one transcript into the same state shape used
  * by a live session. Callers must pass the complete transcript for that run.
  */
@@ -7214,9 +7285,12 @@ export function reconstructRunActivityFromTranscript(
     }
   }
 
-  const backgroundAgentTasks = mergeBackgroundAgentTaskRecords(
-    reconstructBackgroundShellTasks(messages),
-    backgroundTaskRecordFromNotifications(Object.values(agentTaskNotifications)),
+  const backgroundAgentTasks = backfillTaskStartsFromToolCalls(
+    mergeBackgroundAgentTaskRecords(
+      reconstructBackgroundShellTasks(messages),
+      backgroundTaskRecordFromNotifications(Object.values(agentTaskNotifications)),
+    ),
+    messages,
   )
 
   return { agentTaskNotifications, backgroundAgentTasks }

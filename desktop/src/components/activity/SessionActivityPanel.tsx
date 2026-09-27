@@ -118,13 +118,25 @@ function getTaskTypeLabel(taskType: BackgroundAgentTask['taskType'] | undefined,
   return t('chat.backgroundTasks.type.task')
 }
 
-function formatBackgroundDuration(ms: number | undefined, t: TranslationFn): string | undefined {
+/**
+ * How long a background task ran, in a compact fixed shape: `43s`, `4m1s`,
+ * `1h2m`.
+ *
+ * Deliberately not localized *here*, unlike the duration readings elsewhere in
+ * the app: this column sits beside a truncated task label and reports machine
+ * work, so a digits-and-letters form keeps it narrow and lets the values line
+ * up down the rail instead of changing width with the language. Past an hour
+ * the seconds stop earning their width. Floored at one second — a sub-second
+ * span still happened, and `0s` reads as "not measured"; a row with no span at
+ * all stays blank instead (see `backgroundTaskDurationMs`).
+ */
+function formatBackgroundDuration(ms: number | undefined): string | undefined {
   if (typeof ms !== 'number' || !Number.isFinite(ms) || ms < 0) return undefined
   const totalSeconds = Math.max(1, Math.round(ms / 1000))
-  if (totalSeconds < 60) return t('chat.duration.seconds', { seconds: totalSeconds })
-  const minutes = Math.floor(totalSeconds / 60)
-  const seconds = totalSeconds % 60
-  return t('chat.duration.minutesSeconds', { minutes, seconds })
+  if (totalSeconds < 60) return `${totalSeconds}s`
+  const totalMinutes = Math.floor(totalSeconds / 60)
+  if (totalMinutes < 60) return `${totalMinutes}m${totalSeconds % 60}s`
+  return `${Math.floor(totalMinutes / 60)}h${totalMinutes % 60}m`
 }
 
 /**
@@ -471,7 +483,7 @@ function ActivityRowView({
   // clicking one opens its run detail, and the floating card is too narrow to
   // carry another field on every agent line (the row would truncate the label).
   const rowDuration = row.section === 'tasks' || row.section === 'backgroundTasks'
-    ? formatBackgroundDuration(backgroundTaskDurationMs(row), t)
+    ? formatBackgroundDuration(backgroundTaskDurationMs(row))
     : undefined
   const content = (
     <>
@@ -622,7 +634,7 @@ function BackgroundTaskDetail({ row }: { row: ActivityRow }) {
   // 关闭扩展信息只令该耗时字段消失，卡片其余字段照常渲染（见下方 return）。
   const duration = sessionExtendedInfo === false
     ? undefined
-    : formatBackgroundDuration(backgroundTaskDurationMs(row), t)
+    : formatBackgroundDuration(backgroundTaskDurationMs(row))
   const usageTokens = typeof row.usage?.totalTokens === 'number'
     ? t('chat.backgroundAgents.tokens', { count: formatTokenCount(row.usage.totalTokens) })
     : ''

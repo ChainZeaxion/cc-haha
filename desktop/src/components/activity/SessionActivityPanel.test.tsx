@@ -403,8 +403,9 @@ describe('SessionActivityPanel', () => {
     // The duration is its own right-aligned slot on the detail card's *header*,
     // not a details field: shell tasks report no usage, so a slot on the usage
     // row disappeared on exactly the tasks worth timing. It is shown twice on
-    // purpose: once on the collapsed row and once in the expanded detail.
-    expect(screen.getAllByText('1m 7s')).toHaveLength(2)
+    // purpose: once on the collapsed row and once in the expanded detail. Both
+    // read in the panel's fixed digits-and-letters form, not a localized one.
+    expect(screen.getAllByText('1m7s')).toHaveLength(2)
     expect(document.querySelector('[data-activity-detail-duration="true"]')).not.toBeNull()
     expect(document.querySelector('[data-activity-duration="true"]')).not.toBeNull()
 
@@ -1032,8 +1033,9 @@ describe('SessionActivityPanel', () => {
       />,
     )
 
-    // 125 s of wall clock, rendered by the panel's own duration convention.
-    expect(screen.getByText('2m 5s')).toBeInTheDocument()
+    // 125 s of wall clock, rendered by the panel's own duration convention:
+    // a fixed `2m5s`, not a spelled-out per-language form.
+    expect(screen.getByText('2m5s')).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: /open background task/i }))
     expect(document.querySelector('[data-activity-detail-duration="true"]')).not.toBeNull()
     // Nothing invented: no token row was conjured for a task that reported none.
