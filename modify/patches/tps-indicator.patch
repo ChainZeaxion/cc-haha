@@ -281,10 +281,10 @@ index c8613d06..154eaaf1 100644
                    icon={refreshingSession ? 'progress_activity' : 'refresh'}
 diff --git a/desktop/src/lib/tpsMeter.test.ts b/desktop/src/lib/tpsMeter.test.ts
 new file mode 100644
-index 00000000..6db5d6e2
+index 00000000..df6ab774
 --- /dev/null
 +++ b/desktop/src/lib/tpsMeter.test.ts
-@@ -0,0 +1,177 @@
+@@ -0,0 +1,195 @@
 +import { describe, expect, it, vi, afterEach } from 'vitest'
 +import { TpsMeter, aggregateMeterReadings, estimateTokens } from './tpsMeter'
 +
@@ -385,7 +385,7 @@ index 00000000..6db5d6e2
 +    }
 +  }
 +
-+  it('sums own + actively-emitting subagents and reports the active count', () => {
++  it('reports the own meter without re-adding subordinate speed, and counts active subs', () => {
 +    let now = 1_000_000
 +    vi.spyOn(performance, 'now').mockImplementation(() => now)
 +
@@ -398,9 +398,27 @@ index 00000000..6db5d6e2
 +    const r = aggregateMeterReadings(own, [sub], now, 5 * 60 * 1000)
 +    expect(r.visible).toBe(true)
 +    expect(r.activeSubs).toBe(1)
-+    // Two comparable steady streams → total roughly 2x one.
++    // The parent meter already carries the subagent's relayed tokens
++    // (chatStore ingestSubagentTps), so the subordinate meter is a count
++    // source only — adding its speed would double the reported rate.
 +    const single = aggregateMeterReadings(own, [], now, 5 * 60 * 1000)
-+    expect(r.tps).toBeGreaterThan(single.tps)
++    expect(r.tps).toBeCloseTo(single.tps, 5)
++  })
++
++  it('stays hidden when only a subordinate has streamed', () => {
++    let now = 1_000_000
++    vi.spyOn(performance, 'now').mockImplementation(() => now)
++
++    const own = new TpsMeter(1500, 500)
++    const sub = new TpsMeter(1500, 500)
++    const ref = { t: now }
++    pump(sub, ref)
++
++    // Nothing is folded into the displayed meter yet, so there is no rate to
++    // show — masking it is better than flashing a number the user cannot trace.
++    const r = aggregateMeterReadings(own, [sub], now, 5 * 60 * 1000)
++    expect(r.visible).toBe(false)
++    expect(r.tps).toBe(0)
 +  })
 +
 +  it('excludes a subagent whose window has drained (finished, held value must not leak)', () => {
@@ -464,10 +482,10 @@ index 00000000..6db5d6e2
 +})
 diff --git a/desktop/src/lib/tpsMeter.ts b/desktop/src/lib/tpsMeter.ts
 new file mode 100644
-index 00000000..b724d25e
+index 00000000..236b083e
 --- /dev/null
 +++ b/desktop/src/lib/tpsMeter.ts
-@@ -0,0 +1,246 @@
+@@ -0,0 +1,241 @@
 +/**
 + * Real-time decode-speed (TPS) meter.
 + *
@@ -649,8 +667,7 @@ index 00000000..b724d25e
 +}
 +
 +/**
-+ * Aggregate reading for a session's TPS indicator. `tps` folds the main
-+ * session together with its subagents so the main view shows the team-wide
++ * Aggregate reading for a session's TPS indicator. `tps` is the team-wide
 + * decode speed; `activeSubs` is the count of subagents currently emitting.
 + */
 +export type TpsAggregate = {
@@ -661,12 +678,13 @@ index 00000000..b724d25e
 +}
 +
 +/**
-+ * Combine the session's own meter with its subordinate (subagent/team-member)
-+ * meters into one reading.
++ * Build the session's reading from its own meter, using the subordinate
++ * (subagent/team-member) meters only to count who is emitting right now.
 + *
-+ *  - A meter only contributes while its sliding window still holds samples
-+ *    (hasLiveSamples): a finished subagent's held turn-ending speed was
-+ *    already counted while live and must not keep inflating the total.
++ *  - `own` already carries every subagent's relayed decode text (chatStore
++ *    folds it in per frame, see ingestSubagentTps), so the summed value is
++ *    just `own.value()`. The subordinate meters must NOT be added on top: they
++ *    hold the same tokens and would double the reported rate.
 + *  - While nothing is decoding the reading falls back to the own session's
 + *    held speed — identical to the pre-aggregation single-session behavior,
 + *    so a lone main session is unaffected.
@@ -690,18 +708,13 @@ index 00000000..b724d25e
 +    return { visible: false, tps: 0, activeSubs: 0 }
 +  }
 +
-+  const liveSubs = subordinates.filter((m) => m.hasLiveSamples())
-+  const liveOwn = own.hasLiveSamples()
-+  if (!liveOwn && liveSubs.length === 0) {
-+    // Nobody is decoding right now: hold the own turn-ending speed (the
-+    // pre-aggregation behavior) instead of flashing 0 between turns.
-+    if (!own.hasStreamed()) return { visible: false, tps: 0, activeSubs: 0 }
-+    return { visible: true, tps: own.value(), activeSubs: 0 }
++  if (!own.hasStreamed()) {
++    // Only a subordinate ever streamed: nothing is folded into the displayed
++    // meter, so there is no honest rate to show yet.
++    return { visible: false, tps: 0, activeSubs: 0 }
 +  }
-+
-+  let tps = liveOwn ? own.value() : 0
-+  for (const m of liveSubs) tps += m.value()
-+  return { visible: true, tps, activeSubs: liveSubs.length }
++  const activeSubs = subordinates.filter((m) => m.hasLiveSamples()).length
++  return { visible: true, tps: own.value(), activeSubs }
 +}
 +
 +export function estimateTokens(text: string): number {
@@ -737,7 +750,7 @@ index 26d5ffbc..282ce912 100644
                          variant="ghost"
                          size="sm"
 diff --git a/desktop/src/stores/chatStore.ts b/desktop/src/stores/chatStore.ts
-index efe6950d..7588d8b5 100644
+index efe6950d..0c766302 100644
 --- a/desktop/src/stores/chatStore.ts
 +++ b/desktop/src/stores/chatStore.ts
 @@ -19,6 +19,7 @@ import { randomSpinnerVerb } from '../config/spinnerVerbs'
@@ -748,7 +761,7 @@ index efe6950d..7588d8b5 100644
  import { t } from '../i18n'
  import {
    VISUAL_SELECTION_BATCH_PROMPT_HEADER,
-@@ -1006,6 +1007,37 @@ function markPendingToolUseMessagesStopped(messages: UIMessage[]): UIMessage[] {
+@@ -1006,6 +1007,66 @@ function markPendingToolUseMessagesStopped(messages: UIMessage[]): UIMessage[] {
    return changed ? stoppedMessages : messages
  }
  
@@ -783,10 +796,39 @@ index efe6950d..7588d8b5 100644
 +  return meters
 +}
 +
++/**
++ * Fold a subagent's relayed decode text into its parent session's meter.
++ *
++ * Runs on the parent socket for every agent_run_event, whether or not that
++ * run's page is open, so the main indicator reports the team-wide decode speed
++ * (the reference implementation in the older cc-haha tree did the same, via a
++ * dedicated `subagent_tps` frame relayed by the sidecar). Only the meter is
++ * touched — the text never reaches streamingText, so subagent prose cannot
++ * leak into the main conversation.
++ *
++ * Whole-block `thinking` hand-overs (complete === true) are skipped: their
++ * fragments already arrived as deltas, so counting both would double the
++ * subagent's token rate in the sliding window.
++ */
++function ingestSubagentTps(
++  parentSessionId: string,
++  event: Extract<ServerMessage, { type: 'agent_run_event' }>['event'],
++): void {
++  if (!isTpsEnabled()) return
++  if (event.type === 'content_delta') {
++    if (event.text) getSessionTpsMeter(parentSessionId).push(event.text)
++    if (event.toolInput) getSessionTpsMeter(parentSessionId).push(event.toolInput)
++    return
++  }
++  if (event.type === 'thinking' && event.complete !== true && event.text) {
++    getSessionTpsMeter(parentSessionId).push(event.text)
++  }
++}
++
  // Streaming throttle for content_delta. Buffers must be per-session because
  // multiple desktop tabs can stream at the same time.
  const pendingDeltaBySession = new Map<string, string>()
-@@ -1029,8 +1061,12 @@ function appendPendingDelta(sessionId: string, text: string): void {
+@@ -1029,8 +1090,12 @@ function appendPendingDelta(sessionId: string, text: string): void {
      sessionId,
      `${pendingDeltaBySession.get(sessionId) ?? ''}${text}`,
    )
@@ -799,7 +841,7 @@ index efe6950d..7588d8b5 100644
  function clearPendingDelta(sessionId: string): void {
    const flushTimer = flushTimerBySession.get(sessionId)
    if (flushTimer) {
-@@ -1056,6 +1092,11 @@ function appendPendingToolInputDelta(sessionId: string, text: string): void {
+@@ -1056,6 +1121,11 @@ function appendPendingToolInputDelta(sessionId: string, text: string): void {
      sessionId,
      `${pendingToolInputDeltaBySession.get(sessionId) ?? ''}${text}`,
    )
@@ -811,7 +853,7 @@ index efe6950d..7588d8b5 100644
  }
  
  function clearPendingToolInputDelta(sessionId: string): void {
-@@ -3199,6 +3240,7 @@ export const useChatStore = create<ChatStore>((setState, get) => {
+@@ -3199,6 +3269,7 @@ export const useChatStore = create<ChatStore>((setState, get) => {
      clearPendingToolInputDelta(sessionId)
      clearPendingTaskToolUseIds(sessionId)
      clearPendingToolParentUseIds(sessionId)
@@ -819,7 +861,21 @@ index efe6950d..7588d8b5 100644
      advanceHistoryLifecycle(sessionId)
      wsManager.disconnect(sessionId)
      set((s) => {
-@@ -5126,7 +5168,16 @@ export const useChatStore = create<ChatStore>((setState, get) => {
+@@ -4496,6 +4567,13 @@ export const useChatStore = create<ChatStore>((setState, get) => {
+ 
+   handleServerMessage: (sessionId, msg) => {
+     if (msg.type === 'agent_run_event') {
++      // Feed the parent's TPS meter with the subagent's relayed decode text
++      // before routing it. A run page's own meter only exists while that page
++      // is open (registerAgentRunSession is called from SubagentRunPage), and
++      // while it is closed the frames below are buffered instead of applied —
++      // so without this the main indicator would ignore subagent output. The
++      // text is meter-only and never rendered into the main conversation.
++      ingestSubagentTps(sessionId, msg.event)
+       if (!dispatchAgentRunEvent(sessionId, msg)) {
+         bufferAgentRunEvent(sessionId, msg)
+       }
+@@ -5126,7 +5204,16 @@ export const useChatStore = create<ChatStore>((setState, get) => {
              streamingResponseChars: s.streamingResponseChars + msg.text.length,
            }
          })
