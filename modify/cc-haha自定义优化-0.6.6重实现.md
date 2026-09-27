@@ -43,9 +43,9 @@
 >
 > **2026-09-26 重基**：全部 patch 重基到上游 `068b3ebd`（origin/main 2026-09-25，含 20 个新 commit：CORS 门控重做/切 tab 保视图/历史不全保聊天/内存保存竞态两修/pending 问题超时自动回答/聊天外观偏好/OAuth 2.1.281 对齐/agent-teams/Kimi K3 图片透传/定时任务持久化串行化）。应用方式=按下表从上到下逐章 `git apply --allow-empty`。空 patch（h5-settings-whitelist、h5-mobile-market）内容已被后续章节的共享文件覆盖，apply 后无变化。
 >
-> **当前链规模（2026-09-27）**：共 **42 patch**（40 实 + 2 空）。最新一位：`vcc-compact-fallback`（十三 vcc 失败降级兜底，链位 42）。前一位：`subagent-background-task-durations`（二十一 子优化④：子代理耗时 + 子代理收纳栏总耗时 + 后台任务耗时，链位 41）。再前：`tps-content-accounting`（四 子优化：TPS 计量改为按内容度量，链位 40）。再前：`tps-real-token-accounting`（四 子优化：TPS 采样改真实 token 口径，链位 37）、`compact-dead-import-cleanup`（策略门禁 dead-imports 清理，链位 38）、`session-speed-and-usage-pairing`（四 子优化：面板生成速度分子分母配对 + transcript usage 去重丢 output 修复，链位 39）。新增：`turn-usage`（二十一 子优化②）、`thinking-badge-order-and-duration`（二十一 子优化①，前端 + API 层）、`baseline-typecheck-fixes`、`autocompact-window-tiers`、`history-transport-bounds`、`file-history-dedup`、`gzip-transport`、`history-first-paint-bound`（前端）、`storage-original-file-bound`（二十二 F 存量瘦身，含新测试文件）、`computer-use-platform-components`（十八 平台化组件选择）、`computer-use-python-path-fallback`（十八 解释器路径回退）、`tps-centered-second-line`（四 费用/TPS 第二行居中）、`h5-mobile-run-records`（二十五 H5 子代理运行记录，链位 36）。
+> **当前链规模（2026-09-27）**：共 **43 patch**（41 实 + 2 空）。最新一位：`background-task-duration-restore`（二十一 子优化④ 补记二：后台任务耗时**恢复三层根因**——窗口被置空 / 通知型任务无起点 / **merge 抹掉 restored `startedAt`**；显示改紧凑 ASCII；补上「会话扩展信息」开关漏网的消息列表内联卡，链位 43）。前一位：`vcc-compact-fallback`（十三 vcc 失败降级兜底，链位 42）。再前：`subagent-background-task-durations`（二十一 子优化④：子代理耗时 + 子代理收纳栏总耗时 + 后台任务耗时，链位 41）。再前：`tps-content-accounting`（四 子优化：TPS 计量改为按内容度量，链位 40）。再前：`tps-real-token-accounting`（四 子优化：TPS 采样改真实 token 口径，链位 37）、`compact-dead-import-cleanup`（策略门禁 dead-imports 清理，链位 38）、`session-speed-and-usage-pairing`（四 子优化：面板生成速度分子分母配对 + transcript usage 去重丢 output 修复，链位 39）。新增：`turn-usage`（二十一 子优化②）、`thinking-badge-order-and-duration`（二十一 子优化①，前端 + API 层）、`baseline-typecheck-fixes`、`autocompact-window-tiers`、`history-transport-bounds`、`file-history-dedup`、`gzip-transport`、`history-first-paint-bound`（前端）、`storage-original-file-bound`（二十二 F 存量瘦身，含新测试文件）、`computer-use-platform-components`（十八 平台化组件选择）、`computer-use-python-path-fallback`（十八 解释器路径回退）、`tps-centered-second-line`（四 费用/TPS 第二行居中）、`h5-mobile-run-records`（二十五 H5 子代理运行记录，链位 36）。
 >
-> **全链验证（2026-09-27 收尾，决定性）**：在干净基线 `068b3ebd` 的**临时 worktree** 上按上表顺序 `git apply --allow-empty` 全部 **35 个 patch → 失败 0 个**；应用后终态与工作树在**本轮 4 个新 patch 涉及的全部 14 个文件**上**逐字节一致**，全树剩余差值仅为下节「已知非章 delta」。此为权威口径（早前「HEAD 上暂存往返」是非全链验证，已由本次全链取代）。**2026-09-27 追加第 36 位（`h5-mobile-run-records`）与 `tps-indicator`/`turn-usage` 重生成后复验：36 链同样失败 0，第 7 章 8 文件 + `chatStore.test.ts` + `AppShell.{tsx,test.tsx}` 逐字节等于工作树。** **2026-09-27 二次追加第 37/38 位（`tps-real-token-accounting`、`compact-dead-import-cleanup`）后复验：干净重跑 38 链失败 0，本轮 23 个文件（20 TPS + 3 dead-import）**逐字节等于工作树**。** **2026-09-27 三次追加第 39 位（`session-speed-and-usage-pairing`）后复验：干净重跑 39 链失败 0，本轮 13 个文件**逐字节等于工作树**。**
+> **全链验证（2026-09-27 收尾，决定性）**：在干净基线 `068b3ebd` 的**临时 worktree** 上按上表顺序 `git apply --allow-empty` 全部 **35 个 patch → 失败 0 个**；应用后终态与工作树在**本轮 4 个新 patch 涉及的全部 14 个文件**上**逐字节一致**，全树剩余差值仅为下节「已知非章 delta」。此为权威口径（早前「HEAD 上暂存往返」是非全链验证，已由本次全链取代）。**2026-09-27 追加第 36 位（`h5-mobile-run-records`）与 `tps-indicator`/`turn-usage` 重生成后复验：36 链同样失败 0，第 7 章 8 文件 + `chatStore.test.ts` + `AppShell.{tsx,test.tsx}` 逐字节等于工作树。** **2026-09-27 二次追加第 37/38 位（`tps-real-token-accounting`、`compact-dead-import-cleanup`）后复验：干净重跑 38 链失败 0，本轮 23 个文件（20 TPS + 3 dead-import）**逐字节等于工作树**。** **2026-09-27 三次追加第 39 位（`session-speed-and-usage-pairing`）后复验：干净重跑 39 链失败 0，本轮 13 个文件**逐字节等于工作树**。** **2026-09-27 四次追加：第 40/41/42 位（`tps-content-accounting`、`subagent-background-task-durations`、`vcc-compact-fallback`）随链入库（未单独复记全链）。** **2026-09-27 五次追加第 43 位（`background-task-duration-restore`）：干净 `068b3ebd` worktree 重跑 **43 链失败 0**，本轮 6 文件（`SessionActivityPanel.{tsx,test.tsx}`、`chatStore.{ts,test.ts}`、`MessageList.{tsx,test.tsx}`）**逐字节等于工作树**；生成时以 `HISTORY_STITCH_MAX_PAGES`/`agentGroupSpanMs`/`ingestSubagentTps` 三个「链内既有」标志串反查误记，均为 **0**。**
 >
 > ⚠️ **必须按表顺序应用，不是「任意顺序」**：patch 之间存在**同文件重叠**——`turn-usage` 与 `thinking-tool-timing`（均改 `chatStore.ts`/`types/chat.ts`）、`tps-indicator`（`chatStore.ts`）、`h5-require-token`（`i18n/locales/*`）共享文件。重叠 patch 的 hunk 上下文取自各自上游状态，乱序应用可能失败。早期「各 patch 文件互不重叠、可任意顺序」的说明仅对当时较小的链成立，**现已作废**。
 >
@@ -102,6 +102,7 @@
 | 40 | `patches/tps-content-accounting.patch` | 四 子优化：**TPS 计量改为按内容度量**（CJK/latin 两系数最小二乘 + `ids` 独占；废弃按帧计数的 chunk 层——6 并发子代理下它把读数抬到真实值 2~3 倍的根因） | ✅ 已实施 |
 | 41 | `patches/subagent-background-task-durations.patch` | 二十一 子优化④：**子代理耗时 + 子代理收纳栏总耗时 + 后台任务耗时**（汇总栏取**区间并集跨度**而非求和——子代理是并发派发；`agentRunInterval`/`agentGroupSpanMs` 另立，因全 Agent 组不进 `ActivityGroup`；新建 `ToolCallGroup.test`） | ✅ 已实施 |
 | 42 | `patches/vcc-compact-fallback.patch` | 十三 vcc 失败降级兜底（抛错/空摘要 → 回落既有 LLM 摘要路径，避免自动压缩熔断静默停摆） | ✅ 已实施 |
+| 43 | `patches/background-task-duration-restore.patch` | 二十一 子优化④ 补记二：后台任务耗时**恢复三层根因**（①`historyComplete=false` 时窗口被整空 → 跨度类重建改用已加载窗口；②通知型任务无起点 → 用其 `toolUseId` 的工具调用时刻回填；③**merge 把 restored `startedAt` 取成 `now`** → 保留调用方起点）+ 显示改紧凑 ASCII（`4m1s`）+ 消息列表内联卡耗时纳入「会话扩展信息」开关（6 文件 464 行） | ✅ 已实施 |
 
 > **已知非章 delta（有意不入 patch，链终态与工作树的结构性差值）**：`#83` 测试修复族（`src/testUtils/modelEnv.ts` 及 11 个 `*.test.ts`：`print.sessionMessage`/`constants/system`/`coreSchemas.modelInfo`/`api/client`/`skills/bundled/computerUse`/`builtInAgentOverrides`/`effort.agent`/`model/{agent,fable,opus55,opus5}`/`__tests__/thinking`/`permissions/PermissionUpdate`）、`MessageList.test.tsx`（flaky 超时放宽，见附录）、`TerminalSettings.tsx`、`lib/providerModels.ts`、`services/api/claude.ts`（bound-thinking WIP）、`desktop/package.json`（本轮新增 `build:renderer`/`typecheck` 两条 **dev 脚本**，electron-builder 打包时会剥离 `scripts`，故不影响产物）、`bun.lock`。
 
@@ -1503,7 +1504,49 @@ export function pythonRuntimeFor(platform: NodeJS.Platform): PythonRuntimeCompon
 - **踩坑**：**「优先上报值」这条优先级掩盖了缺陷**——既有的那条测试用例（`usage: { totalTokens: 94321, durationMs: 67000 }`）一直绿，因为它 token 与耗时**同时具备**，恰好绕过了「无 usage」的真实路径。**测试只覆盖了数据齐全的行，而缺陷全在数据缺失的行。** 新用例专门构造 `local_bash` + 无 `usage` + 只有 `startedAt/updatedAt`，断言渲染 `2m 5s`（125s 跨度）**且不出现 `Usage` 行**（确认没有凭空造出 token 行）。
 - **验证**：`SessionActivityPanel.test` **26/26**（新增 1 条）、`src/components/activity/` 三文件 **99/99**、桌面 `tsc --noEmit` **0 错**。
 
+---
 
+**补记二（2026-09-27，链位 43 `background-task-duration-restore`）——重开老会话后耗时恢复不出；显示改紧凑格式；补上开关漏网的一处**
+
+用户反馈：「老会话，这个我看到的没有」——**重开**一个老会话后，后台任务**不显示耗时**（新跑的会话当场能看到）。排查发现是**三层互相独立的根因**叠在一起，修掉任何一层都看不到效果。
+
+**根因一：跨度类重建在「窗口不完整」时被整段丢弃**
+
+`fetchAndMapSessionHistory` 里原本是 `const messages = historyComplete ? response.messages : []`——**不完整就把整个窗口置空**（连带 `taskNotifications`），再用空数组重建活动。而大转录**必然**不完整：本会话 transcript 28.8 MB，客户端翻页撞 `HISTORY_STITCH_MAX_PAGES = 40` 上限（实测 **1.5 秒**就撞满）→ `historyComplete` **恒 false** → `rootRunMessages` 为空 → shell 后台任务**一条都重建不出来**，连行都没有，更谈不上耗时。兜底的 `recoverSessionHistory` 对这个会话回 `completeness.activity: false`，也不接管。
+
+- **修法**：跨度类重建改用**已加载窗口**，`goal`/`todos`/恢复状态仍受完整性闸门约束（那是会话级断言，残缺窗口确实支撑不了）。
+- **为什么安全**：跨度是**每个任务自己的两个事件**构成的事实——只有「起点（它的工具调用）」与「终点（它的完成通知，或该工具调用的终态结果）」**两端都落在窗口内**，这个任务才会被重建出来。所以残缺窗口**只会漏掉旧任务，不可能编造或拉长任何跨度**。按完整性把它整体挡掉没有任何收益，代价是整个段消失。
+- **实测**：同一个真实会话（7717 条消息），用已加载窗口重建 → 后台任务 44 条、**33 条有真实跨度**（3265s / 2497s / 1918s…）；按现行「置空」→ **0 条**。
+
+**根因二：只凭完成通知建出的任务没有起点**
+
+`backgroundTaskRecordFromNotifications` 建出的任务，其唯一事件就是那条完成报告，于是 `startedAt === updatedAt ===` 报告时刻 → **跨度恒 0** → 永远不显示。Agent 后台任务是这一类，而它的工具调用**就在同一个窗口里**。
+
+- **修法**：新增 `backfillTaskStartsFromToolCalls` —— 用 `toolUseId` 找到发起它的工具调用时刻回填 `startedAt`（仅当确实早于终点，否则会把跨度写成负数）。
+- **实测**：补齐后 44/44 全部有跨度（前一步的 11 条无跨度的正是此类）。
+
+**根因三（最深）：合并时把恢复出来的 `startedAt` 抹掉**
+
+`mergeBackgroundAgentTaskRecords` 把整条 task 交给 `upsertBackgroundAgentTask`，而后者在「任务不在 current 中」时把起点取成 **`now`**——**`now` 是这条记录自己的结束时刻**（merge 传的就是 `task.updatedAt`）。于是**恢复得多正确都会被抹平**：跨度 0。
+
+- **这一层解释了「为什么修好前两层还是看不到」**——它是「**任何**会话（不论快慢、不论完整与否）恢复后都没有耗时」的直接原因。
+- **修法**：`startedAt: startsNewLifecycle ? now : existing?.startedAt ?? event.startedAt ?? now` —— 保留调用方给的起点。**为什么零风险**：两个活事件构造器（`normalizeBackgroundAgentTaskEvent`、`getStoppedBackgroundTaskFromToolResult`）都**不产出** `startedAt` 字段，所以只有恢复合并这一条路会传它，实时路径行为不变。
+- **实测**：修后「重建 → 合并 → 行耗时」全链路 44/44；完整历史那条路也从 47/49 提到 **49/49**。
+
+**显示改紧凑 ASCII 形式**（用户：「用简版显示，不要带中文，直接数字加字母」）：活动面板的行耗时与详情卡耗时统一为 **`43s` / `4m1s` / `1h2m`**。该列紧挨被截断的任务名、报的又是机器耗时，定宽更窄且能竖向对齐；**超 1 小时不再显示秒**（面板原先没有这一档，`125m7s` 要读者自己除 60）。**范围仅活动面板的后台任务**——用户明确「轮次页脚与消息列表保持现状」，故 `lib/backgroundTasks.ts` 的本地化格式化器**未被改动**（那两处继续走 `chat.duration.*`）。
+
+**补上开关漏网的一处**（用户：「后台任务的耗时显示，也要纳入会话扩展信息开关控制」）：开关的说明文字里本就写着覆盖「后台任务耗时」，全仓 10 处也确实受控（思考栏、收纳栏、子代理行、轮次页脚、TPS、活动面板行与详情卡），**唯独消息列表那张后台任务内联卡的耗时不受控**——关掉开关后会话时间线上仍有耗时。已补齐（只补耗时；该卡上的用量不在开关说明的列举范围内，故未动）。
+
+**踩坑记录**：
+1. **「三层根因」不是修辞，是字面意思**：先只修窗口（第一层）→ 没变化；再补起点（第二层）→ 还是没变化；直到发现 merge 抹掉起点（第三层）才通。**每一层单独存在都足以让功能完全失效**，所以「修了一层没效果」不代表那层没修对——**不要因为一次修复没见效就回退它**。判定办法：用真实数据跑端到端探针（重建→合并→取值），逐段打印，而不是只看界面。
+2. **不能凭「理论上已经能算出来了」下结论**：修完第一层时，代码上 `startedAt`（工具时刻）与 `updatedAt`（通知时刻）已经在同一个任务对象里，跨度**理论可算**。实际一测仍是 0——因为**消费它的那一刻**被下一层抹掉了。**必须验证到最终消费点**（本次是 `mergeBackgroundAgentTaskRecords` 的输出），中间层的正确不算数。
+3. **「优先上报值」再次掩盖缺陷**（与本节补记一同源）：全部用例用的都是 `usage.durationMs` 齐全的 fixture，而缺陷**只在没有上报值的行上**。这次同样如此——真实的 44 条里上报值一条都没有，**测试全绿与功能全废可以同时为真**。
+4. **`historyComplete` 这种「整体性标志」容易被当成「数据可用性」用**：它表达的是「这棵转录我翻完了吗」，被拿来决定「要不要用已加载的部分」。二者不是一回事——同一份数据对 `goal`（会话级断言）不可用，对「一个任务自己的起止」却完全可用。**用整体性标志时要问：我消费的这条数据，真的需要整体吗？**
+5. **恢复路径与实时路径共用写入函数时，要检查「只有恢复才会传的字段」**：`upsertBackgroundAgentTask` 对 `startedAt` 用的是「传了就用调用方的，没传才取 `now`」之外的三目——`existing?.startedAt ?? now`，即**只在「任务已存在于状态中」时才认旧值**。恢复场景恰恰是「不存在」，于是被 `now` 顶掉。**共用函数的隐式前提（"调用方总是先有 existing"）在另一条调用路径上不成立。**
+6. **改测试的 `beforeEach` 复位要跟上新引入的 store 状态**：`MessageList.test.tsx` 原先只复位 `locale`，新增的开关用例把 `sessionExtendedInfo` 置 `false` 后**泄漏**到后续用例，导致**轮次页脚的两条既有断言**失败（看起来像我的改动弄坏了页脚，其实是测试间污染）。**症状特征：失败的是"看起来毫不相关"的既有用例。**
+7. **格式统一不要顺手扩大范围**：首次实现时把共享的 `formatDurationSeconds`/`formatDurationMs` 一并改成 ASCII，连带影响轮次页脚、消息列表、流式计时，**超出用户要求的「仅后台任务」**，被用户点名退回。已全部 `git checkout` 还原。**共享函数的调用方数量就是改动的爆炸半径——先数调用方，再决定改共享还是改本地。**
+
+**验证（链位 43）**：`tsc --noEmit` **0 错**；`chatStore.test` **369**（+3）、`SessionActivityPanel.test` **26**（+1 断言更新）、`MessageList.test` **202**（+1）；桌面全量 **6315 通过 / 0 失败**；干净的 `068b3ebd` worktree 重跑 **43 链失败 0**，本轮 **6 文件逐字节等于工作树**。
 
 ## 二十二、历史记录膨胀（`toolUseResult.originalFile`）致大体积会话打不开（✅ 主要实施：A+B+E+G+H+F；C 证伪，2026-09-26）
 
