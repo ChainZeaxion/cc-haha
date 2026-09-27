@@ -31,7 +31,7 @@
 | 平台/功能 | 十八 Computer Use 解锁 Linux（X11）平台 | —（新增） | ✅ |
 | 上下文/压缩 | 十九 bc 压缩后 context usage 不收敛（显示总量改 usage 锚口径） | —（新增） | ✅ |
 | 性能/传输 | 二十 H5 远端 API 响应 gzip 压缩传输（非本机默认开启，省 68% 带宽） | —（新增） | ✅ |
-| 功能特性/显示 | 二十一 思考计时与工具计时综合优化（思考 token+耗时 badge、收纳栏总计时+token、轮次用量） | —（新增） | ✅ |
+| 功能特性/显示 | 二十一 思考计时与工具计时综合优化（思考 token+耗时 badge、收纳栏总计时+token、轮次用量、**子代理耗时+子代理收纳栏总耗时+后台任务耗时**） | —（新增） | ✅ |
 | 性能/历史 | 二十二 历史记录膨胀（`toolUseResult.originalFile`）致大体积会话打不开 | —（新增） | 🔍 主要实施（A+B+E+G+H ✅；C 证伪；D `projectContext` 候选；F 待授权） |
 | 性能/显示 | 二十三 子代理内容实时反馈（opencode 式，替代当前间隔刷新） | —（新增） | ⬜ 待办（仅登记，不推进） |
 | 上下文/压缩 | 二十四 上下文压缩阈值按窗口分档（软触发百分比 + 硬触发绝对下限） | —（新增） | ✅ 已实施 |
@@ -43,7 +43,7 @@
 >
 > **2026-09-26 重基**：全部 patch 重基到上游 `068b3ebd`（origin/main 2026-09-25，含 20 个新 commit：CORS 门控重做/切 tab 保视图/历史不全保聊天/内存保存竞态两修/pending 问题超时自动回答/聊天外观偏好/OAuth 2.1.281 对齐/agent-teams/Kimi K3 图片透传/定时任务持久化串行化）。应用方式=按下表从上到下逐章 `git apply --allow-empty`。空 patch（h5-settings-whitelist、h5-mobile-market）内容已被后续章节的共享文件覆盖，apply 后无变化。
 >
-> **当前链规模（2026-09-27）**：共 **39 patch**（37 实 + 2 空）。最新三位：`tps-real-token-accounting`（四 子优化：TPS 采样改真实 token 口径，链位 37）、`compact-dead-import-cleanup`（策略门禁 dead-imports 清理，链位 38）、`session-speed-and-usage-pairing`（四 子优化：面板生成速度分子分母配对 + transcript usage 去重丢 output 修复，链位 39）。新增：`turn-usage`（二十一 子优化②）、`thinking-badge-order-and-duration`（二十一 子优化①，前端 + API 层）、`baseline-typecheck-fixes`、`autocompact-window-tiers`、`history-transport-bounds`、`file-history-dedup`、`gzip-transport`、`history-first-paint-bound`（前端）、`storage-original-file-bound`（二十二 F 存量瘦身，含新测试文件）、`computer-use-platform-components`（十八 平台化组件选择）、`computer-use-python-path-fallback`（十八 解释器路径回退）、`tps-centered-second-line`（四 费用/TPS 第二行居中）、`h5-mobile-run-records`（二十五 H5 子代理运行记录，链位 36）。
+> **当前链规模（2026-09-27）**：共 **42 patch**（40 实 + 2 空）。最新一位：`vcc-compact-fallback`（十三 vcc 失败降级兜底，链位 42）。前一位：`subagent-background-task-durations`（二十一 子优化④：子代理耗时 + 子代理收纳栏总耗时 + 后台任务耗时，链位 41）。再前：`tps-content-accounting`（四 子优化：TPS 计量改为按内容度量，链位 40）。再前：`tps-real-token-accounting`（四 子优化：TPS 采样改真实 token 口径，链位 37）、`compact-dead-import-cleanup`（策略门禁 dead-imports 清理，链位 38）、`session-speed-and-usage-pairing`（四 子优化：面板生成速度分子分母配对 + transcript usage 去重丢 output 修复，链位 39）。新增：`turn-usage`（二十一 子优化②）、`thinking-badge-order-and-duration`（二十一 子优化①，前端 + API 层）、`baseline-typecheck-fixes`、`autocompact-window-tiers`、`history-transport-bounds`、`file-history-dedup`、`gzip-transport`、`history-first-paint-bound`（前端）、`storage-original-file-bound`（二十二 F 存量瘦身，含新测试文件）、`computer-use-platform-components`（十八 平台化组件选择）、`computer-use-python-path-fallback`（十八 解释器路径回退）、`tps-centered-second-line`（四 费用/TPS 第二行居中）、`h5-mobile-run-records`（二十五 H5 子代理运行记录，链位 36）。
 >
 > **全链验证（2026-09-27 收尾，决定性）**：在干净基线 `068b3ebd` 的**临时 worktree** 上按上表顺序 `git apply --allow-empty` 全部 **35 个 patch → 失败 0 个**；应用后终态与工作树在**本轮 4 个新 patch 涉及的全部 14 个文件**上**逐字节一致**，全树剩余差值仅为下节「已知非章 delta」。此为权威口径（早前「HEAD 上暂存往返」是非全链验证，已由本次全链取代）。**2026-09-27 追加第 36 位（`h5-mobile-run-records`）与 `tps-indicator`/`turn-usage` 重生成后复验：36 链同样失败 0，第 7 章 8 文件 + `chatStore.test.ts` + `AppShell.{tsx,test.tsx}` 逐字节等于工作树。** **2026-09-27 二次追加第 37/38 位（`tps-real-token-accounting`、`compact-dead-import-cleanup`）后复验：干净重跑 38 链失败 0，本轮 23 个文件（20 TPS + 3 dead-import）**逐字节等于工作树**。** **2026-09-27 三次追加第 39 位（`session-speed-and-usage-pairing`）后复验：干净重跑 39 链失败 0，本轮 13 个文件**逐字节等于工作树**。**
 >
@@ -99,6 +99,9 @@
 | 37 | `patches/tps-real-token-accounting.patch` | 四 子优化：**TPS 采样改真实 token 口径**——自适应三层源（ids/chunk/char）+ 真实 `output_tokens` 对账校准 + 按模型分桶持久化 + 引擎 `return_token_ids` 旁路（20 文件 1717 行） | ✅ 已实施 |
 | 38 | `patches/compact-dead-import-cleanup.patch` | 策略门禁 `check:policy` 的 **dead-imports 清零**（十三章 vcc 移植遗留的 3 处未引用导入；该规则口径是「删」而非白名单） | ✅ 已实施 |
 | 39 | `patches/session-speed-and-usage-pairing.patch` | 四 子优化：**面板「生成速度」分子分母配对**（decode 只除「同批被测到 span 的 token」，非流式回退不再抬高速度）+ **transcript usage 去重改保留末行**（首行 `output_tokens: 0` 曾致 output/cache_read 全丢，13 文件 1183 行） | ✅ 已实施 |
+| 40 | `patches/tps-content-accounting.patch` | 四 子优化：**TPS 计量改为按内容度量**（CJK/latin 两系数最小二乘 + `ids` 独占；废弃按帧计数的 chunk 层——6 并发子代理下它把读数抬到真实值 2~3 倍的根因） | ✅ 已实施 |
+| 41 | `patches/subagent-background-task-durations.patch` | 二十一 子优化④：**子代理耗时 + 子代理收纳栏总耗时 + 后台任务耗时**（汇总栏取**区间并集跨度**而非求和——子代理是并发派发；`agentRunInterval`/`agentGroupSpanMs` 另立，因全 Agent 组不进 `ActivityGroup`；新建 `ToolCallGroup.test`） | ✅ 已实施 |
+| 42 | `patches/vcc-compact-fallback.patch` | 十三 vcc 失败降级兜底（抛错/空摘要 → 回落既有 LLM 摘要路径，避免自动压缩熔断静默停摆） | ✅ 已实施 |
 
 > **已知非章 delta（有意不入 patch，链终态与工作树的结构性差值）**：`#83` 测试修复族（`src/testUtils/modelEnv.ts` 及 11 个 `*.test.ts`：`print.sessionMessage`/`constants/system`/`coreSchemas.modelInfo`/`api/client`/`skills/bundled/computerUse`/`builtInAgentOverrides`/`effort.agent`/`model/{agent,fable,opus55,opus5}`/`__tests__/thinking`/`permissions/PermissionUpdate`）、`MessageList.test.tsx`（flaky 超时放宽，见附录）、`TerminalSettings.tsx`、`lib/providerModels.ts`、`services/api/claude.ts`（bound-thinking WIP）、`desktop/package.json`（本轮新增 `build:renderer`/`typecheck` 两条 **dev 脚本**，electron-builder 打包时会剥离 `scripts`，故不影响产物）、`bun.lock`。
 
@@ -345,6 +348,8 @@
 
 ### 子优化（2026-09-27）：TPS 采样改真实 token 口径——自适应三层源 + 真实对账校准
 
+> ⚠️ **2026-09-27 后续更正（本条设计已被替换，见下一条「TPS 计量改为按内容度量」）**：本条的「无 ids 时按帧计数（chunk 层）× 学习到的每帧 token 数」在**6 并发子代理**下把读数抬到真实值的 **2~3 倍**（面板 ~800 tok/s，引擎日志实为 ~250~290）。原因是「每帧多少 token」随内容种类相差约 40 倍（文本帧 ~2.5、thinking ~12、工具入参 JSON ~90~220），单个全局系数会被工具入参那次调用污染到夹逼上限。以下保留原始记录，**现行为按内容度量**。
+
 - **问题（用户 verbatim）**：「校正一下 TPS 采样是按实际 token 情况来的还是估算值」→ 核实结论：**一直是字符估算**（`estimateTokens`：CJK 1 token/字、ASCII 1/3.5 字、空白不计），全链路没有任何真实 token 接入。
 - **用户要求（verbatim 意图）**：「尽量不要依赖后端引擎，采用 cc-haha 自身能适应各种情况：后端能发 token ids 则走 ids 采样；无 ids 则走 chunk 采样；无 ids 无 chunk 则走兜底估算」。
 - **实测偏差（本会话 1010 次真实 API 调用离线对照）**：估算/真实 中位比值 **0.77**（偏低约 23%），中位相对误差 23.6%、P90 51.2%。
@@ -398,6 +403,75 @@
   6. **诚实边界**：配对口径修正后，面板对「大量非流式回退」的会话会显示**较小但真实**的速度（只覆盖被测到 span 的调用），而不是一个漂亮的假数字；子代理的 token/时间都进会话总量，故其占比高的会话同样只按被测部分显示。
 - **验证**：`sessionUsageMetrics.test` 24（新增「只除同批 token」「无配对 token 时退回 API 口径」）、`state.generationTiming.test` 3（span 缺失不计时间也不计 token）、`sessions.test` 316（新增末行计价用例）、`transcriptReducer.test` 31（新增末行替换用例）、`ContextUsageIndicator.test` 27；桌面 `tsc --noEmit` 0 错、`vitest run` **6290+ 全绿**；根 `tsc --noEmit` 0 错；服务端 `bun test src/server` **3460 pass / 0 fail**；`check:policy`（dead-imports/module-graph）全绿。
 - **入库**：链位 **39** `patches/session-speed-and-usage-pairing.patch`（13 文件 1183 行）。同样是「链终态 → 工作树」干净差分，**#1..#38 不动**。
+
+### 子优化（2026-09-27）：TPS 计量改为按内容度量——修复「6 并发子代理时聚合读数约为真实值的 2~3 倍」
+
+**触发（用户 verbatim）**
+
+> 「还有"请用三句话简单介绍你自己，先深度思考再回答。"这个会话里面我让开6个子代理测试性写文案，发现聚合TPS达到了800+，而实际上本地后端引擎控制台日志显示只有400左右。你也调研核对一下。」
+
+**一、先定引擎口径（用户提问，已用日志算术判定）**
+
+用户提出「后端引擎就是 Avg generation throughput + Accepted throughput 两个产出相加作为总 token 输出速度」。用本机 `G27.log` **541 个 10s 窗口**做算术核对：
+
+```
+每步 drafted = 5（num_speculative_tokens）
+每位置接受率 0.661+0.391+0.227+0.153+0.107 = 1.539 → 平均接受长度 2.54（= 1 验证 token + 已接受草稿）
+步频 = Drafted/5 ÷ 10s = 99 步/s
+真实产出 = 99 × 2.54 = 251 tok/s
+Avg generation throughput = 249.8 tok/s     ← 吻合
+Accepted throughput       = 151 tok/s       ← 已含在其中
+```
+
+`gen×10 ÷ (步数×平均接受长度)` 在**全部 541 个窗口的中位数 = 1.000**。**结论：`Avg generation throughput` 本身就是真实产出，`Accepted throughput` 是它的子集（草稿被接受的那部分），两行相加会重复计**（接受率越好虚高越多，本例 ≈1.6×）。此为**该引擎该配置**（dflash `num_speculative_tokens=5`）的判定；若换配置需重跑同一算术。
+
+**二、实况复现（探针 + 引擎日志同刻对照）**
+
+在用户指定的会话（`f1be2b52`，标题「请用三句话简单介绍你自己…」）内发「重新执行一次」，同时：① 用 WS 探针逐秒统计帧通道；② 采集引擎吞吐行。引擎侧确认 `Running: 6 reqs`（六个子代理），真实产出 gen 250~350 tok/s。
+
+探针实测（6 并发主时段）：
+```
+own 帧 ≈ 0（父会话自身几乎不产出）
+sub 帧 ≈ 96~102 帧/秒        sub 字估 ≈ 250~530/秒
+ids 帧 = 0（tps_tokens 从未发出）
+```
+
+**三、根因（两条独立缺陷）**
+
+1. **`kChunk` 被工具入参污染到夹逼上限**：父会话那次调用真实 `output_tokens = 1627`（think 242 字 + text 65 字 + 6 个 Agent 输入 JSON 共 2464 字符），而客户端只看到 ≈32 帧（6 帧就装下 2464 字符 ≈ 90~220 token/帧）→ 对账算出 `kChunk ≈ 51`，被 `K_MAX=8` 截断。此后子代理的**稀疏文本帧**（~2.5 token/帧）被按 8 倍计：`100 帧/s × 8 ≈ 800/s` ✓ 与用户看到的数一致。
+   根因一句话：**一个「每帧多少 token」的全局系数，去套密度相差 ~40 倍的帧**（且客户端还会合并 delta，帧数本身受节流影响）。
+2. **`ids` 通路实际是死的**：`x-claude-code-session-id` 头只有 sidecar 自己的 `titleService`/`autoQuestionDecisionService` 会带，主会话的 API 请求**不带** → 代理层 `buildProxyTraceContext` 返回 null → `tps_tokens` 永不发出（探针 0 帧印证）。另外 `windowTokens()` 里 `ids` 只在「窗口内仅有 ids 样本」时才独用，混入任何文本样本就变成 `ids + 文本估算`，**同一批 token 会被计两次**。
+
+**四、修复（设计替换，非补丁）**
+
+- **以「内容度量」取代「帧计数」**：`tokens ≈ kCjk × CJK字符数 + kAscii × 非CJK字符数/3.5`。文本长度是**密度无关**的直接测量（不管引擎一帧塞几个 token），帧计数降级为**保活与时间跨度**用途。
+- **两系数而非一个**：实测同类引擎上 CJK 散文 ≈1.0 token/字符单元，JSON/代码 ≈1.9（短 token + 密集标点），单个系数会在两类内容间差 2 倍。两系数用**最小二乘**（带遗忘因子 0.9，夹逼 [0.25,6]）从每次调用的（两类单元数，真实 `output_tokens`）一起学出，按模型持久化（`cc-haha.tpsCalibration`，v2；旧 v1 载荷直接丢弃）。
+- **方程不足时的退化解**：只有一次调用（含两类但不可分离）或只出现一类时，退化为单系数解 `k = Σy(c+a)/Σ(c+a)²`，**且只写实际出现过的类**——否则一次纯 JSON 调用会把 `kCjk` 也拉高，让下一段中文回复按代码密度计价。
+- **`ids` 独占**：窗口内只要存在 ids 样本就只返回 ids（中继覆盖该会话 socket 上的全部调用，含子代理）。
+- 删除：`kChunk`、`blendWeightFor`/`errChunk`/`errChar` 混合权重、`wholeBlock` 的会计含义（`wholeBlock` 参数保留但不再改变计量）、`TpsSource` 的 `'chunk'`（现为 `'ids' | 'char'`，指示器 `data-tps-source` 同步）。
+
+**五、修复后实测（同一会话、同一 6 并发场景）**
+
+| | 面板中位 | 引擎 gen 中位 | 比值 |
+|---|---|---|---|
+| 修复前 | ~800 | 290 | **~2.8×** |
+| 修复后（本轮） | 363 | 290 | **1.25×** |
+
+修复后那一轮 `calls=0`（父调用在 240s 窗口内未结束），即**系数始终是中性 1.0 的最差情形**；残余 1.25× 正是「该语料 CJK 实约 0.8 token/字符、中性值按 1.0 计」之差，调用结束学习后应收敛。另外面板读数范围 259~560，与引擎 gen 的 205~363 同量级（修复前是数量级偏离）。
+
+**踩坑记录（本项）**
+
+1. **「每帧一个 token」只在均匀流成立**：本机引擎带投机解码且客户端会合并 delta，实测文本帧 ~2.5、thinking ~12、工具入参 JSON ~90~220 token/帧。**任何「单位计数 × 学习系数」的方案都必须先证明单位密度同质**，否则要把系数按内容类拆开。
+2. **系数污染是永久性的、且方向最坏**：被污染到上限后一直偏高（用户看到的是持续 800），不会自愈——因为子代理帧是 `external`、其真实 usage 永远不到达父 socket，**驱动显示的那部分流量永远不参与对账**。
+3. **「引擎两行相加」不是通用口径**：本机 dflash 配置下 gen 已含 accepted（541 窗口中位比 1.000）。若照「相加」当基准去校准，会把面板系统性地往高调 ~1.6 倍。**基准必须先做算术核对**，不要凭手感（用户也是自觉「好像是」才让我核）。
+4. **`ids` 通路要有「是否真的在发帧」的探针**：设计上写了「引擎可选中继」，实际上主会话不带 session 头 → 永不触发。**只测单元测试会漏掉**（我此前只测了「收到 tps_tokens 后如何算」），必须实测线上帧通道。
+5. **文本度量也有残余偏差**：ASCII 散文（≈0.875）与 JSON/代码（≈1.9）同属 `kAscii` 一类，二者仍差 ~2 倍。要再细就得按「标点密度」再分类，本轮不做（速度指示器 ±20~30% 可接受），**如实记录**。
+6. **突发瞬时值仍会尖峰**：6 帧装 1880 字符的 Agent 入参在 ~0.4s 内到达时，`BURST_FLOOR_MS=400` 的下限会把窗口速率抬到 4700 t/s（UI 30/70 平滑后只闪一下，且封顶 9999）。属既有平滑策略的已知行为，未在本轮改动。
+7. **`isTpsEnabled` 差点被删掉**：重写 `tpsMeter.ts` 时漏了它（`TpsIndicator`/`chatStore` 都在 import），`tsc` 直接报 TS2305——**重写整文件前先 `grep` 该模块的全部导出**。
+
+**验证**：`tpsMeter.test` 18（含两条新回归：①「工具入参密帧不得按自身密度计费稀疏散文帧」②「CJK/latin 两密度可分离」③「实测混合调用可被预测在 ±5% 内」）、`tpsCalibration.test` 8（v2 形状 + 跨版本丢弃）、`TpsIndicator.test` 5、`chatStore.test` 366；桌面 `tsc --noEmit` **0 错**；受影响四套 **397/397**；全量回归见下。实况验证见上表。
+
+**入库**：链位 **40** `patches/tps-content-accounting.patch`（8 文件 1016 行）。为「链终态（39 链）→ 工作树」的干净差分，**#1..#39 不动、无级联**（已在该终态上 `git apply --check` 通过）。
 
 ### 子优化（2026-09-26）：TPS 展示改造——去椭圆背景 + head 栏两行 + "TPS XXXt/s" 格式（commit 966ca8f1，#82）
 
@@ -821,6 +895,33 @@ CLAUDE_H5_DIST_DIR=/home/zeaxion/myproject/cchaha-06scode/desktop/dist \
 - **15 链全验证**（`git worktree add --detach /tmp 2f8d819d` + 软链 node_modules，按序 `git apply` 全部 15 patch：14 既有 + `vcc-compactor`）：全干净；apply 后 57 个 VCC 文件逐字节=工作树（diff 全空，0 差异）。
 
 **patch**：`modify/patches/vcc-compactor.patch`（原 57 文件 5946 行；2026-09-26 子优化后重生成 **58 文件 6008 行**，链位 15，基线 2004cd16）。
+
+### 子优化：vcc 失败降级兜底（2026-09-27，链位 42）
+
+**需求（用户 verbatim）**：「如果 vcc 不执行或者执行失败呢，是否需要增加兜底机制让返回原本的后端引擎压缩方式？」
+
+**核查结论：此前确实没有兜底，且后果比 LLM 路径严重。**
+
+- `maybeVccCompact`（`compact.ts`）**无 try/catch**，直接 `return runVccCompaction(...)`；`runVccCompaction` 顶层也无 try/catch（仅一处**业务降级**：`if (!cut.ok)` 活跃消息太少 → 退化为 compact-all 并仍产边界，不算失败）。
+- `compactConversation` 的外层 `catch`（`compact.ts:871` 一带）只发错误通知（且**仅手动** `/compact`）然后 **`throw error`** —— **不会回退 LLM**。
+- 后果分级：**手动**压缩失败=用户当场看到报错、这次没压成（可接受）；**自动**压缩抛错 → `autoCompact.ts` 外层 catch 计入 `consecutiveFailures`，而 `MAX_CONSECUTIVE_AUTOCOMPACT_FAILURES = 3` → **熔断后本会话不再压缩**，上下文一路涨到硬上限才撞 prompt-too-long。**这是静默失效，比"这次失败、下次重试"危险得多。**
+- 概率低（vcc 是纯计算，没有 LLM 那条链路的网络/限流/超时），但 vcc 是**从 pi-vcc 移植的 vendor 代码**，"遇到没见过的消息形状抛 TypeError"正是移植代码的典型失效模式；低概率 × 高严重性 → 值得兜。
+
+**实现（约 15 行，只改服务端 `src/services/compact/compact.ts`）**：`maybeVccCompact` 末尾包 try/catch，失败**返回 `null`** —— 这正好走**既有的设计内回退**（调用方 `for (;;) { if (vccResult) break }` 不 break → 执行 `streamCompactSummary`），**不需要新机制**：
+1. **抛异常** → `logError` + `logEvent('tengu_compact_failed', {reason:'vcc_threw'})` → 返回 null。
+2. **用户中断**（`ERROR_MESSAGE_USER_ABORT`）→ **原样上抛**（吞掉会让用户自己的中断失效）。
+3. **跑完但摘要为空** → `logEvent('tengu_compact_failed', {reason:'vcc_empty_summary'})` → 返回 null。这条是**主动补的**：LLM 路径有 `if (!summary) throw` 守着，vcc 不能比它更弱——空摘要会**用空白边界替换整段上下文、却告诉用户压缩成功了**。
+4. 遥测**自动正确**：`compactionBackend: vccResult ? 'algorithm' : 'llm'` 会如实记成 `llm`。
+
+**踩坑记录**：
+1. **"配置写了 vcc"≠"跑的是 vcc"，中间有一条容易误判的岔路**：`autoCompact` 会在 `compactConversation` 之前**先试** `trySessionMemoryCompaction`（SM-compact），成功就完全绕过 vcc。核实生产是否真走 vcc 时必须排除它——本 fork 里 `getGrowthBookClientKey()` 所有分支硬编码返回 `''`（`src/constants/keys.ts`），GrowthBook 全程停用，双开关 `tengu_session_memory`/`tengu_sm_compact` 恒为默认 false，故 SM 路径恒 null。
+2. **vcc 抛错不是假想，当场复现了**：适配器读 `m.message.content` 前不检查 `message` 是否存在，故 `runVccCompaction([{type:'user', uuid:'u1'}])`（缺 `.message`）直接抛 `TypeError: undefined is not an object (evaluating 'm.message.content')`。→ 用它做回归测试的**真实触发**，而不是 mock 自己的代码（mock 只能证明 catch 执行了，证明不了真实调用链会走到 catch）。
+3. **"空摘要"守卫也要有可核验的前提**：空窗口（`messages: []`）经 `runVccCompaction` 原生产出 `summary === ''`，测试里先断言这个前提、再断言 `maybeVccCompact` 返回 null——否则测试会退化成"断言我自己写的字面量"。
+4. **局部压缩根本不走 vcc（既有缺口，本次未动）**：`partialCompactConversation` 只调 `streamCompactSummary`，从不经 `maybeVccCompact`。所以后端设为 `algorithm` 时，**带 pivot 的局部压缩用的仍是 LLM**。这是设计缺口而非本次兜底的遗漏，故不并入（要纳入需另立优化项）。
+5. **`maybeVccCompact` 为可测而导出**：原本是模块私有函数；导出是唯一能直接覆盖"抛错→降级"路径的接缝（full `compactConversation` 需要 SDK/hooks 全套上下文）。
+
+**验证**：`bun test src/services/compact` **20 pass / 0 fail**（新增 3 条：抛错返回 null／abort 原样上抛／空窗口摘要为空且返回 null）；策略（dead-imports/module-graph/change-policy）**72 pass / 0 fail**；服务端 `tsc --noEmit` **0 错**；链位 42 补丁在干净 41 链终态上 `git apply` 成功且终态与工作树**逐字节一致**。
+
 
 ### 子优化（2026-09-26）：设置页「上下文压缩」区块排版 + 下拉选项语言
 - **用户反馈（verbatim）**：「设置项中，上下文压缩 字段内容和上面的思考内容紧贴在一起，需要先换行成独立小标题，另外里面的选项还是英文，选定后收起下拉列表看到的又是中文，也需要处理一下」。
@@ -1283,9 +1384,64 @@ export function pythonRuntimeFor(platform: NodeJS.Platform): PythonRuntimeCompon
   2. **重录值必须验确定性**：时序字段若取自未被固定的时钟（如 `performance.now()`），重录会得到随机值、下次仍红。本次为 `Date.now()`+固定时钟，故 51 是常量；验法=连录两次比对无差异。
   3. **夹具文件此前不在任何 patch 覆盖内** → 重放 patch 链得到的是**红树**。本次把夹具 section 并入引入该字段的 `thinking-tool-timing.patch`（链位 23，**1052 → 1086 行**），使链终态 golden 转绿（已在链终态实测 14/14）。
 
+### 子优化④ 子代理耗时 + 后台任务耗时并入本章（2026-09-27）
+
+**需求（用户 verbatim）**：「给所有子代理也加上执行时间耗时，子代理收纳栏也加上总耗时统计。所有后台执行任务也加上执行时间耗时信息。子代理耗时+后台任务耗时一起并入 think 耗时优化项。」
+
+**展示规格（用户逐字给定，含两轮修正——两个界面规格不同，别搞混）**：
+1. **收纳栏汇总行**（`派遣了 N 个子代理 …`）：→ **`派遣了 N 个子代理 · 总耗时 xhxm/xmxs/xs · 进行中/已完成/已停止`**。**带中文标签、靠右**——用户 verbatim：「这个总收纳栏改为显示为"派遣了N个子代理…总耗时(靠右，中文标签)"毕竟这个总收纳栏，有充足的留白用于显示」。
+2. **每条子代理行**（`agent 标题 + 第二行部分执行内容 … 查看结果 · 打开运行记录 … 开始中/进行中/完成 · 动作收纳按钮`）：→ 中间插入**裸数字** `xhxm/xmxs/xs`（**不带标签**）——用户 verbatim：「跟 think 和工具一样，只显示 xhxm/xmxs/xs 这种精简能表达意思的即可」。
+3. 后台任务：activity 面板**行右侧**加耗时；**下拉展开的卡片里「使用量」详情行右侧**也加耗时。
+4. **活动面板内的子代理行不加**（用户明确排除：点任意子代理直接进执行详情，且浮动卡片宽度不适合每行再加字段）。
+
+> **一句话记法**：**有留白的地方带标签（汇总栏），没留白的地方只放数字（单行）**。首版把两处都做成带标签被退回；改成两处都裸数字后，汇总栏又被要求加回标签——最终是「按各自可用宽度分别定」。
+>
+> **标签与数字之间不用空格**（用户 verbatim：「中文和时间信息中间的间隔留白不要太大，稍微紧凑些」）。实现上 `toolGroup.agentTotalDuration` 只存标签本身（`总耗时`），数字是**独立元素**，两者由 `gap-[3px]` 的 flex 相连——比一个整空格窄，且字号/字距可单独控制。首版把数字塞进 i18n 模板（`总耗时 {duration}`）导致那个空格在大字号下像一个洞。
+
+**数据来源与口径（关键设计）**：
+- **汇总栏 = 区间并集跨度（wall-clock span），不是各子代理耗时之和**（用户 verbatim：「这总耗时，并不是每个子代理耗时直接做加法，否则你这耗时数据肯定不对。安排下去的子代理是**并行**而不是串行的，串行是可以直接相加为总，而并行应该是发起时间和结束时间中的真正耗时」）。首版 `agentGroupDurationMs` 直接 `+=` 各成员时长——**3 个并发 2 分钟的子代理会显示 6 分钟**，是错的。改为：
+  - 每个 run 先求出**区间** `{startMs, endMs}`（`agentRunInterval`）：`startMs` = 父会话 Agent `tool_use` 的 timestamp；`endMs` = 有上报取 `startMs + usage.durationMs`，否则取 `tool_result.timestamp`（且要求 `end ≥ start`，否则判为不可测）。
+  - 汇总 = `max(endMs) − min(startMs)`（`agentGroupSpanMs`），即**最早发起 → 最晚结束**的真跨度。
+  - 单个行的数字仍取**该 run 自身长度** `endMs − startMs`（单行要的是这一个 run 的耗时，不是组跨度）。
+- **为什么不能复用本章 `activityDurationMs` 的求和**：那里的步骤（一次思考、一次工具调用）**确实是串行**发生的，求和才对；而派发出去的一组子代理**确实并发**，只能取跨度。**同一个"收纳栏总耗时"，两种拓扑两种算法**——这是本次最容易被想当然搞错的地方。
+- **数字格式 = 工具耗时徽章同款 `formatDuration`**（`ToolCallBlock`，与工具行上的 `524ms` 同一个函数）：`420ms` / `1.5s` / `42s` / `5m12s` / `1h30m`——紧凑、无空格。汇总栏额外套 `toolGroup.agentTotalDuration` 标签（5 语言，**纯标签、无占位符**）。
+- **activity 面板行/详情**用面板自身既有 `formatBackgroundDuration`（`chat.duration.*`，输出 `1m 7s`）——这是该面板**原有的耗时口径**（详情行的使用量早已在用），换掉会让面板自相矛盾。
+- **后台任务的 start 锚点**：`AgentTaskNotification` 只报 `duration_ms` 不报起点，故区间取「该 Agent 工具调用被发起」的时刻为起点。对后台 run 这是**近似**（发起与真正开始执行几乎同时）；同步 run 不需要此近似（两端都是真实时间戳）。
+
+**⚠️ 已知边界（如实登记）**：后台子代理的区间起点用「发起时刻」近似，因此**若同一组里既有后台又有同步 run，跨度可能比真实略长或略短**（后台 run 的真实起跑可能晚于发起几毫秒~几十毫秒）。在「最晚结束 − 最早发起」的口径下这点误差相对整组跨度可忽略；但**不要**把它当作精确的并发时间线。
+- **后台任务耗时早就有**：`usage.duration_ms` 由 CLI 经 `task_progress` / `task_notification` 上报 → `chatStore.normalizeBackgroundTaskUsage` 落到 `BackgroundAgentTask.usage.durationMs`。本次只是**把它显示出来**（此前只在转录卡片和 activity 详情里露出）。
+- **异步子代理**耗时同源（同一条 task 事件链），本次在行上显示。
+- **同步子代理**耗时=**父会话 Agent `tool_use` → `tool_result` 时间戳差**（与既有 `toolCallDurationMs` 同一口径，与「工具耗时」一致）。用户选定此口径。
+- **优先级**：运行时上报值优先，拿不到才回退时间戳推算。理由：**后台代理启动即返回**，时间戳跨度≈0 而实跑数分钟——那里上报值是唯一真值；同步代理阻塞其工具调用，时间戳差就是该 run 的墙钟。
+- **未settled 的同步 run 不显示数字**：既无上报值、又无结果时间戳，没有任何可信锚点，宁可不显示也不猜（避免"0s"这类谎话）。汇总行同理——只有可测成员贡献数字，全不可测则整条标签不渲染。
+
+**落点**：
+| 文件 | 改动 |
+|---|---|
+| `desktop/src/components/chat/activityGroupModel.ts` | 新增 `agentRunInterval`（求每个 run 的 `{startMs,endMs}`，上报优先→时间戳回退）、`agentRunDurationMs`（单行用）、`agentGroupSpanMs`（**区间并集跨度，非求和**；全不可测返回 `undefined`） |
+| `desktop/src/components/chat/ToolCallGroup.tsx` | `AgentToolGroup` 汇总行（`data-agent-group-duration`，**带 `总耗时` 标签、靠右**）、`AgentCallCard` 单行（`data-agent-call-duration`，**裸数字**）各插一个耗时 span，数字格式取自 `formatDuration` |
+| `desktop/src/components/activity/SessionActivityPanel.tsx` | `ActivityRowView` 行右侧耗时（`data-activity-duration`，仅 `tasks`/`backgroundTasks`）；`BackgroundTaskDetail` 使用量行右侧耗时（`data-activity-detail-duration`） |
+| `desktop/src/i18n/locales/*.ts` | 新增 `toolGroup.agentTotalDuration`（5 语言，**仅供汇总行**） |
+
+**踩坑记录**：
+1. **全 Agent 的 run 根本进不了 `ActivityGroup`**：`ToolCallGroup` 有短路——一组全是 Agent 调用时直接走 `AgentToolGroup`，`ActivityGroup` 永远看不到它们。所以「收纳栏总耗时」**不能**复用本章既有的 `activityDurationMs`（它基于 `ActivityStep`，union 只有 `thinking | tool`），必须另写 `agentRunInterval` + `agentGroupSpanMs`（不能复用那套求和的 `activityDurationMs`），否则改半天看不到效果。
+2. **子代理行默认折叠**：`AgentCallCard` 只在整个组展开时才挂载。补测试时先断言行内的耗时 span 会**取到空数组**——必须先 `fireEvent.click` 汇总行。这不是 bug，是折叠设计的必然。
+3. **同一数字在一张卡里出现两次是刻意的**：后台任务耗时既在折叠行、也在展开详情的「使用量」行右侧。首版以为重复是失误，其实「折叠态一眼可见 + 展开态与 token 并列」是两个不同用途；测试相应断言 `getAllByText('1m 7s')` 长度为 **2**。
+4. **耗时不能塞进「使用量」字符串**：原来 `格式为 94.3k tokens · 1m 7s`，耗时被埋在计数之后。抽出成**独立的右对齐槽位**（`justify-between`）——读者是来扫这个数的，不该让他先穿过 token 数。此改动已同步既有断言（原 `getByText('94.3k tokens · 1m 7s')` 拆成两处）。
+5. **`0` 不是测量值**：`agentRunInterval` 不认 `0` 的上报值（回退时间戳），与本章子优化①「零耗时按未测处理」同一原则——避免 `0s` 这个假数字。
+
+**验证**：`ActivityGroup.test`（6 条：上报优先且按发起时刻定位区间／时间戳回退且 `0` 不算测量／未 settle 与 `end<start` 都判不可测／**并发三 run 取跨度 121s 且显式断言 ≠ 求和 361.5s**／部分重叠取并集／含不可测成员与全不可测）、**新建** `ToolCallGroup.test`（4 条端到端：两代理错开 199s 发起 → 汇总行**跨度** `8m19s`（并断言 ≠ 串行和 `7m0s`）、逐行**裸** `2m0s`/`5m0s`；后台代理按上报 `3m0s`；进行中同步代理两处都不显示；**同时发起的两 run 汇总 = 单个 `2m0s` 而非 `4m0s`**）、`SessionActivityPanel.test`（更新详情断言并新增行/详情的 `data-*` 锚点）、`i18n` 用例。桌面 `tsc --noEmit` 0 错。
+
+**踩坑记录（补）**：
+6. **端到端用例不能落在 `MessageList.test.tsx`**：该文件带一处**已登记的非章 delta**（虚拟化用例的 flaky 超时放宽，见文末「已知非章 delta」，**有意不入任何 patch**）。把新用例写进去，会让链位补丁被迫连同那处放宽一起收编，破坏「该 delta 不进链」的既定边界。改为**新建 `ToolCallGroup.test.tsx`** 直接渲染 `ToolCallGroup`（它是 export 的，`toolCalls`/`resultMap`/`agentTaskNotifications` 均可注入）——比穿过整个 `MessageList` 更聚焦，也保住了边界。
+9. **并行 ≠ 串行，总耗时不能相加**（最严重的一个错，被用户当场纠正）：首版把汇总栏实现成「各子代理耗时求和」。子代理是**并发派发**的，3 个并发 2 分钟会显示 6 分钟。正确做法是取**区间并集跨度**（最早发起→最晚结束）。**判定口诀：步骤在时间轴上串行发生 → 求和（如本章 `activityDurationMs` 的思考+工具）；一组任务并发派发 → 取跨度（如本子优化④的子代理组）。** 两者都叫「总耗时」，算法完全不同。
+10. **单行数字与汇总数字口径不同是有意的**：单个子代理行显示**该 run 自己的长度**（`end−start`），汇总栏显示**整组跨度**。若两者都用跨度，单行会显示「从第一个开始到最后一个结束」，读起来像这个 run 跑了那么久。
+11. **别自作主张加单位/标签，但也要分清哪里该加**：首版给**两处**数字都套了中文标签，被退回「不是让你把中文也加进去，而是跟 think 和工具一样，只显示 xhxm/xmxs/xs」；两处都改成裸数字后，汇总栏又被要求加回标签——「毕竟这个总收纳栏，有充足的留白用于显示」。**教训：判断依据不是"要不要标签"，而是"这一行有没有留白"**：汇总行有 `flex-1` 让出的空间，带标签更好读；单条子代理行右侧已挤着「查看结果 / 打开运行记录 / 状态 / 折叠」四个元素，再加标签就吃掉标题的宽度。两次修正都不是矛盾，是把同一个原则用到了两个宽度不同的地方。
+8. **格式函数要挑对**：`formatDurationMs`（`lib/backgroundTasks.ts`）与工具徽章的 `formatDuration`（`ToolCallBlock`）输出**不同**——前者 `5m 12s`（带空格、走 i18n），后者 `5m12s`（紧凑、无 i18n）。转录区选了后者（与工具徽章同函数）；activity 面板保留前者（与该面板既有耗时口径一致）。同一功能里出现两种格式是**有意**的：各自跟随所在区域的既有约定。
+
 ---
 
-## 二十二、历史记录膨胀（`toolUseResult.originalFile`）致大体积会话打不开（🔍 调研，2026-09-26）
+## 二十二、历史记录膨胀（`toolUseResult.originalFile`）致大体积会话打不开（✅ 主要实施：A+B+E+G+H+F；C 证伪，2026-09-26）
 
 > **完整调研报告另立**：`modify/reports/历史记录膨胀致大体积会话打不开-调研报告.md`
 > 本节仅登记结论与去向，实施细节以报告为准。
@@ -1500,7 +1656,7 @@ export function pythonRuntimeFor(platform: NodeJS.Platform): PythonRuntimeCompon
 
 ---
 
-## 二十四、上下文压缩阈值按窗口分档（软触发百分比 + 硬触发绝对下限）（⬜ 待办，仅登记，2026-09-26）
+## 二十四、上下文压缩阈值按窗口分档（软触发百分比 + 硬触发绝对下限）（✅ 已实施，patch #24，2026-09-26）
 
 > 用户 2026-09-26 指示：**先做记录**，暂不推进。
 

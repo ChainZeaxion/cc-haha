@@ -1,0 +1,135 @@
+diff --git a/src/services/compact/compact.test.ts b/src/services/compact/compact.test.ts
+index 4576be7..6c669ca 100644
+--- a/src/services/compact/compact.test.ts
++++ b/src/services/compact/compact.test.ts
+@@ -1,8 +1,14 @@
+ import { describe, expect, test } from 'bun:test'
+ 
+-import { buildPostCompactMessages, type CompactionResult } from './compact.js'
++import {
++  ERROR_MESSAGE_USER_ABORT,
++  buildPostCompactMessages,
++  maybeVccCompact,
++  type CompactionResult,
++} from './compact.js'
+ import { getCurrentUsage } from '../../utils/tokens.js'
+ import type { Message } from '../../types/message.js'
++import { runVccCompaction } from './vcc/vccCompact.js'
+ 
+ const PRE_COMPACT_USAGE = {
+   input_tokens: 150_000,
+@@ -124,3 +130,42 @@ describe('buildPostCompactMessages stale-usage stripping (#743)', () => {
+     expect(getCurrentUsage(result)).toBeNull()
+   })
+ })
++
++describe('vcc compaction degrades instead of stalling the session', () => {
++  // The ported adapter reads `m.message.content` without checking that the
++  // message is there, so a user line carrying no `message` object throws
++  // inside pi-vcc. The throw is not mocked: the assertions below only hold if
++  // the real call chain reaches the catch.
++  const userLineWithoutMessage = { type: 'user', uuid: 'hostile-1' }
++  const throwingLine = (thrown: string) => ({
++    type: 'user',
++    uuid: 'hostile-2',
++    message: {
++      get content(): never {
++        throw new Error(thrown)
++      },
++    },
++  })
++
++  test('returns null so the caller keeps running the LLM summary', () => {
++    // `vccCompactBackend` is unset here, which resolves to 'algorithm' — the
++    // production default — so the algorithmic backend really is the one tried.
++    expect(maybeVccCompact([userLineWithoutMessage] as never[], undefined, 120_000)).toBeNull()
++  })
++
++  test('lets a user abort through untouched', () => {
++    // Aborting is not a vcc defect; swallowing it would stop the user's own
++    // interrupt from propagating.
++    expect(() =>
++      maybeVccCompact([throwingLine(ERROR_MESSAGE_USER_ABORT)] as never[], undefined, 120_000),
++    ).toThrow(ERROR_MESSAGE_USER_ABORT)
++  })
++
++  test('returns null when the window compiles to no summary text', () => {
++    // Assert the premise rather than assume it: this window really does compile
++    // to an empty summary, so the backend is declining a result that would
++    // otherwise replace the conversation with a blank boundary.
++    expect(runVccCompaction({ messages: [], preCompactTokenCount: 120_000 }).summary.trim()).toBe('')
++    expect(maybeVccCompact([] as never[], undefined, 120_000)).toBeNull()
++  })
++})
+diff --git a/src/services/compact/compact.ts b/src/services/compact/compact.ts
+index 47f1182..fd3f6df 100644
+--- a/src/services/compact/compact.ts
++++ b/src/services/compact/compact.ts
+@@ -427,8 +427,12 @@ export function mergeHookInstructions(
+  * Returns null when the LLM backend is active so the caller keeps the
+  * original LLM summary flow. Reading the setting here (rather than once at
+  * startup) is what makes the backend hot-switchable mid-session.
++ *
++ * Also returns null when vcc throws, so a defective compaction degrades to the
++ * LLM summary for that turn instead of taking the session's compaction down
++ * with it — see the catch below.
+  */
+-function maybeVccCompact(
++export function maybeVccCompact(
+   messages: Message[],
+   customInstructions: string | undefined,
+   preCompactTokenCount: number | undefined,
+@@ -462,12 +466,47 @@ function maybeVccCompact(
+       ? parsed.keepUserTurns
+       : null
+ 
+-  return runVccCompaction({
+-    messages: windowMessages as CcMessage[],
+-    globalIndexByUuid,
+-    preCompactTokenCount,
+-    keepUserTurns,
+-  })
++  let result: VccCompactionOutput | null
++  try {
++    result = runVccCompaction({
++      messages: windowMessages as CcMessage[],
++      globalIndexByUuid,
++      preCompactTokenCount,
++      keepUserTurns,
++    })
++  } catch (error) {
++    // pi-vcc is pure computation over message shapes ported from a different
++    // codebase, so an unforeseen shape throws instead of degrading the way the
++    // LLM path does (it has a network to fail on). Returning null hands the
++    // turn to the LLM summary the caller already runs when vccResult is null.
++    // Without this, an autocompact throw counts toward the consecutive-failure
++    // circuit breaker, which then stops compaction for the rest of the session
++    // while the context keeps growing — a silent failure, not a loud one.
++    // A user abort is not a vcc defect and must keep its own semantics.
++    if (hasExactErrorMessage(error, ERROR_MESSAGE_USER_ABORT)) throw error
++    logError(error as Error)
++    logEvent('tengu_compact_failed', {
++      reason:
++        'vcc_threw' as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
++      preCompactTokenCount,
++    })
++    return null
++  }
++
++  // Running without producing a summary is a failure too, and a quieter one:
++  // the boundary would go in empty, discarding the conversation while telling
++  // the user compaction succeeded. The LLM path refuses to proceed in this
++  // situation (`!summary` throws), so vcc must not be the weaker of the two.
++  if (result.summary.trim().length === 0) {
++    logEvent('tengu_compact_failed', {
++      reason:
++        'vcc_empty_summary' as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
++      preCompactTokenCount,
++    })
++    return null
++  }
++
++  return result
+ }
+ 
+ /**
