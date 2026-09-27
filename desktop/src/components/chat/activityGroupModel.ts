@@ -94,6 +94,50 @@ export function agentRunInterval(
   return { startMs, endMs }
 }
 
+/**
+ * Tokens one subagent run reported.
+ *
+ * A background agent reports them on the task notification; a synchronous one
+ * reports them in the `<usage>` block the Agent tool appends to its own result,
+ * which the transcript keeps as ordinary text. Unlike the duration, this number
+ * cannot be reconstructed from the span, so a run that reported neither is
+ * simply uncounted rather than guessed at.
+ */
+export function agentRunTokens(
+  reportedTokens: number | undefined,
+  result: Pick<ToolResult, 'content'> | undefined,
+): number | undefined {
+  if (typeof reportedTokens === 'number' && Number.isFinite(reportedTokens) && reportedTokens > 0) {
+    return reportedTokens
+  }
+  if (!result || typeof result.content === 'undefined') return undefined
+  const match = /<usage>[\s\S]*?\btotal_tokens:\s*(\d+)/.exec(extractTextContent(result.content))
+  if (!match) return undefined
+  const tokens = Number(match[1])
+  return Number.isFinite(tokens) && tokens > 0 ? tokens : undefined
+}
+
+/**
+ * Tokens a whole subagent group reported: the members' counts added up.
+ *
+ * Summed, unlike {@link agentGroupSpanMs} — tokens are work done, not time
+ * elapsed, so three concurrent runs of 10k are 30k of work rather than 10k.
+ * Returns `undefined` when no member reported one, so the header omits the
+ * number instead of printing `0`.
+ */
+export function agentGroupTokens(
+  tokens: ReadonlyArray<number | undefined>,
+): number | undefined {
+  let total = 0
+  let measured = false
+  for (const value of tokens) {
+    if (typeof value !== 'number' || !Number.isFinite(value) || value <= 0) continue
+    total += value
+    measured = true
+  }
+  return measured ? total : undefined
+}
+
 /** One run's own length, for the row that shows it. */
 export function agentRunDurationMs(interval: AgentRunInterval | undefined): number | undefined {
   return interval ? interval.endMs - interval.startMs : undefined

@@ -76,6 +76,8 @@ export function GeneralSettings() {
     setThinkingSendBack,
     vccCompactBackend,
     setVccCompactBackend,
+    sessionExtendedInfo,
+    setSessionExtendedInfo,
     workflowKeywordTriggerEnabled,
     setWorkflowKeywordTriggerEnabled,
     agentTeamsEnabled,
@@ -1155,6 +1157,25 @@ export function GeneralSettings() {
           }
         />
       </div>
+
+      {/* Sits under compaction because it is the other session-wide display
+          switch: that one chooses the engine, this one chooses how much of what
+          the engine produced is shown. Styled like the appearance switch, which
+          is the other plain on/off in this page. */}
+      <SettingsSection
+        className="mt-8"
+        title={t('settings.general.sessionExtendedInfoTitle')}
+        description={t('settings.general.sessionExtendedInfoDescription')}
+      >
+        <div className="rounded-xl border border-[var(--color-border)] bg-[var(--color-surface-container-low)] px-4 py-3">
+          <Switch
+            checked={sessionExtendedInfo}
+            onChange={(value) => void setSessionExtendedInfo(value)}
+            label={t('settings.general.sessionExtendedInfoTitle')}
+            description={t('settings.general.sessionExtendedInfoHint')}
+          />
+        </div>
+      </SettingsSection>
 
       {/*
         Only the editors we detect, never every installed application: the menu

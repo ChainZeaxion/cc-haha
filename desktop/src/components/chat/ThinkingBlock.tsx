@@ -4,6 +4,7 @@ import { Brain } from 'lucide-react'
 import { useTranslation } from '../../i18n'
 import { estimateTokens } from '../../lib/tpsMeter'
 import { MarkdownRenderer } from '../markdown/MarkdownRenderer'
+import { useSettingsStore } from '../../stores/settingsStore'
 
 /**
  * One line: the label, a preview of the reasoning, and the full text on demand.
@@ -37,6 +38,8 @@ export function ThinkingBlock({
   liveStartAt?: number
 }) {
   const t = useTranslation()
+  // 关闭会话扩展信息时隐藏本 fork 新增的思考徽标；思考正文与实时计时不受影响。
+  const sessionExtendedInfo = useSettingsStore((state) => state.sessionExtendedInfo)
   const [localExpanded, setLocalExpanded] = useState(false)
   const [liveElapsedMs, setLiveElapsedMs] = useState(0)
   const expanded = disclosureKey ? (getDisclosure(disclosureKey) ?? localExpanded) : localExpanded
@@ -119,7 +122,7 @@ export function ThinkingBlock({
         ) : (
           <span className="flex-1" />
         )}
-        {thinkingBadgeLabel(content, thinkingDurationMs, liveElapsedMs, isActive, liveAnchorMs) && (
+        {sessionExtendedInfo !== false && thinkingBadgeLabel(content, thinkingDurationMs, liveElapsedMs, isActive, liveAnchorMs) && (
           <span
             data-thinking-usage="true"
             className="shrink-0 whitespace-nowrap font-mono text-[10px] tabular-nums text-[var(--color-text-tertiary)]"

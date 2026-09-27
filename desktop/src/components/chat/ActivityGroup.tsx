@@ -16,6 +16,7 @@ import {
 } from './activityGroupModel'
 
 import { useTranslation } from '../../i18n'
+import { useSettingsStore } from '../../stores/settingsStore'
 import type { UIMessage } from '../../types/chat'
 
 type ToolCall = Extract<UIMessage, { type: 'tool_use' }>
@@ -65,6 +66,8 @@ export const ActivityGroup = memo(function ActivityGroup({
   disclosureKey,
 }: Props) {
   const t = useTranslation()
+  // 关闭会话扩展信息时隐藏本 fork 新增的 token/耗时读数；缺省视为开启。
+  const sessionExtendedInfo = useSettingsStore((state) => state.sessionExtendedInfo)
   /** null = follow the run's own state; set = the reader decided. */
   const [pinnedCollapsedLocal, setPinnedCollapsedLocal] = useState<boolean | null>(null)
   const pinnedCollapsed = disclosureKey
@@ -144,7 +147,7 @@ export const ActivityGroup = memo(function ActivityGroup({
                 {t('toolGroup.failedCount', { count: failedCount })}
               </span>
             )}
-            {tokenParts.length > 0 && (
+            {sessionExtendedInfo !== false && tokenParts.length > 0 && (
               <span
                 data-activity-tokens="true"
                 className="flex items-center gap-[3px] whitespace-nowrap font-mono tabular-nums text-[var(--color-text-tertiary)]"
@@ -157,7 +160,7 @@ export const ActivityGroup = memo(function ActivityGroup({
                 ))}
               </span>
             )}
-            {durationLabel && (
+            {sessionExtendedInfo !== false && durationLabel && (
               <span className="whitespace-nowrap font-mono tabular-nums">{durationLabel}</span>
             )}
             <span aria-hidden="true" className={`w-3 text-center text-[8px] ${collapsed ? '' : 'rotate-90'}`}>▸</span>          </span>

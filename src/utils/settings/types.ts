@@ -770,6 +770,15 @@ export const SettingsSchema = lazySchema(() =>
             '"llm" uses the original LLM summary step. Read live at each ' +
             'compaction, so switching mid-session takes effect immediately.',
         ),
+      sessionExtendedInfo: z
+        .boolean()
+        .optional()
+        .describe(
+          'Whether the session UI shows the usage and timing readouts this ' +
+            'fork adds: the thinking badge (tokens + duration), activity-group ' +
+            'totals, subagent durations and the TPS meter. Defaults to true. ' +
+            'It only affects display — the transcript records the same either way.',
+        ),
       effortLevel: z
         .enum(
           process.env.USER_TYPE === 'ant'

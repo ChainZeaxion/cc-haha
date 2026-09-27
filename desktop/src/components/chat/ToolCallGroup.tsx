@@ -7,8 +7,11 @@ import { ThinkingBlock } from './ThinkingBlock'
 import {
   activityStepToolCalls,
   agentGroupSpanMs,
+  agentGroupTokens,
   agentRunDurationMs,
   agentRunInterval,
+  agentRunTokens,
+  formatActivityTokens,
   toActivitySteps,
   toolCallDurationMs,
   type ActivityStep,
@@ -26,6 +29,7 @@ import { useTranslation } from '../../i18n'
 import type { TranslationKey } from '../../i18n'
 import { SETTINGS_TAB_ID, useTabStore } from '../../stores/tabStore'
 import { useUIStore } from '../../stores/uiStore'
+import { useSettingsStore } from '../../stores/settingsStore'
 import type { AgentTaskNotification, BackgroundAgentTask, UIMessage } from '../../types/chat'
 import { AGENT_LIFECYCLE_TYPES } from '../../types/team'
 
@@ -467,6 +471,8 @@ function AgentToolGroup({
 }: Props) {
   const { expanded, toggleExpanded } = useExpandableCardState()
   const t = useTranslation()
+  // 会话扩展信息关闭时，隐藏本 fork 新增的用量/耗时读数；缺省视为开启。
+  const sessionExtendedInfo = useSettingsStore((state) => state.sessionExtendedInfo)
   const statuses = toolCalls.map((toolCall) =>
     getAgentStatus({
       hasResult: resultMap.has(toolCall.toolUseId),
@@ -491,6 +497,13 @@ function AgentToolGroup({
     agentTaskNotifications[toolCall.toolUseId]?.usage?.durationMs,
   )))
   const totalDurationLabel = totalDuration === undefined ? '' : formatDuration(totalDuration)
+  // Tokens add up where the span does not: a dispatched group runs in parallel,
+  // but the work its members did is not shared between them.
+  const totalTokens = agentGroupTokens(toolCalls.map((toolCall) => agentRunTokens(
+    agentTaskNotifications[toolCall.toolUseId]?.usage?.totalTokens,
+    resultMap.get(toolCall.toolUseId),
+  )))
+  const totalTokensLabel = totalTokens === undefined ? '' : formatActivityTokens(totalTokens)
 
   return (
     <div className="overflow-hidden rounded-[var(--radius-lg)] border border-[var(--color-border)] bg-[var(--color-surface-container-lowest)]">
@@ -512,7 +525,15 @@ function AgentToolGroup({
             the summary bar has the slack to spend on it. Label and number are two
             elements joined by a 3px gap rather than one string with a space, because
             a full space between a CJK label and a digit reads as a hole at this size. */}
-        {totalDurationLabel && (
+        {sessionExtendedInfo !== false && totalTokensLabel && (
+          <span className="inline-flex shrink-0 items-baseline gap-[3px] whitespace-nowrap text-right text-[12px] text-[var(--color-text-secondary)]">
+            <span>{t('toolGroup.agentTotalUsage')}</span>
+            <span data-agent-group-usage="true" className="tabular-nums">
+              {totalTokensLabel}
+            </span>
+          </span>
+        )}
+        {sessionExtendedInfo !== false && totalDurationLabel && (
           <span className="inline-flex shrink-0 items-baseline gap-[3px] whitespace-nowrap text-right text-[12px] text-[var(--color-text-secondary)]">
             <span>{t('toolGroup.agentTotalDuration')}</span>
             <span data-agent-group-duration="true" className="tabular-nums">
@@ -587,6 +608,7 @@ function AgentCallCard({
   const [expanded, setExpanded] = useState(false)
   const [previewOpen, setPreviewOpen] = useState(false)
   const t = useTranslation()
+  const sessionExtendedInfo = useSettingsStore((state) => state.sessionExtendedInfo)
   const input = toolCall.input && typeof toolCall.input === 'object'
     ? toolCall.input as Record<string, unknown>
     : {}
@@ -722,7 +744,7 @@ function AgentCallCard({
           </Button>
         )}
         {/* Between the actions and the status: "… · Open run · 5m12s · done". */}
-        {durationLabel && (
+        {sessionExtendedInfo !== false && durationLabel && (
           <span
             data-agent-call-duration="true"
             className="shrink-0 whitespace-nowrap font-mono text-[11.5px] tabular-nums text-[var(--color-text-tertiary)]"

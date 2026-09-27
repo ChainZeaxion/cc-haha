@@ -116,6 +116,12 @@ export const SUPPORTED_SETTINGS: Record<string, SettingConfig> = {
     description:
       'Send prior thinking blocks back to the backend API as context (true to enable)',
   },
+  sessionExtendedInfo: {
+    source: 'settings',
+    type: 'boolean',
+    description:
+      'Show the usage/timing readouts added by this fork (thinking badge, activity totals, subagent durations, TPS)',
+  },
   vccCompactBackend: {
     source: 'settings',
     type: 'string',

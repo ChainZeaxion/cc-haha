@@ -98,7 +98,7 @@ describe('ThinkingBlock', () => {
 
   afterEach(() => {
     cleanup()
-    useSettingsStore.setState({ locale: 'zh' })
+    useSettingsStore.setState({ locale: 'zh', sessionExtendedInfo: true })
   })
 
   it('shows the in-progress label while thinking is active', () => {
@@ -146,6 +146,14 @@ describe('ThinkingBlock', () => {
   it('treats a still-active block without a start anchor as not yet showing a badge', () => {
     render(<ThinkingBlock content="reasoning..." isActive />)
     expect(screen.queryByText(/\d\.\d{2}k · /)).toBeNull()
+  })
+
+  it('hides the token + duration badge when session extended info is off', () => {
+    useSettingsStore.setState({ sessionExtendedInfo: false })
+    const { container } = render(<ThinkingBlock content={'思考'.repeat(400)} thinkingDurationMs={12340} />)
+    // 徽标整体消失，思考正文与行标签照常渲染。
+    expect(container.querySelector('[data-thinking-usage="true"]')).toBeNull()
+    expect(screen.getByRole('button')).toHaveTextContent('已思考')
   })
 
   it('shows a live badge for an active block anchored to a start time', () => {

@@ -1,7 +1,15 @@
-import { describe, expect, it } from 'vitest'
-import { fireEvent, render, screen } from '@testing-library/react'
+import { afterEach, describe, expect, it } from 'vitest'
+import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { ToolCallGroup } from './ToolCallGroup'
+import { useSettingsStore } from '../../stores/settingsStore'
 import type { AgentTaskNotification, UIMessage } from '../../types/chat'
+
+// 会话扩展信息在本 fork 默认开启；用例若关闭后必须复位，避免泄漏到后续用例。
+// cleanup 先卸载，否则仍在挂载的组件会订阅到这里的 setState（act 警告）。
+afterEach(() => {
+  cleanup()
+  useSettingsStore.setState({ sessionExtendedInfo: true })
+})
 
 type ToolCall = Extract<UIMessage, { type: 'tool_use' }>
 type ToolResult = Extract<UIMessage, { type: 'tool_result' }>
@@ -108,5 +116,51 @@ describe('a parallel dispatch is spanned, never summed', () => {
 
     const headerDuration = document.querySelector('[data-agent-group-duration="true"]')
     expect(headerDuration?.textContent?.trim()).toBe('2m0s')
+  })
+})
+
+describe('subagent group usage', () => {
+  const withUsage = (id: string, timestamp: number, totalTokens: number): ToolResult => ({
+    id: `result-${id}`,
+    type: 'tool_result',
+    toolUseId: id,
+    content: `agentId: ${id} (use SendMessage with to: '${id}')\n<usage>total_tokens: ${totalTokens}\ntool_uses: 3\nduration_ms: 1000</usage>`,
+    isError: false,
+    timestamp,
+  })
+
+  it('adds the members up in the header — work is not shared the way the wall clock is', () => {
+    // Two concurrent runs of 10k and 20k: 30k of work, unlike the span, which
+    // would count the overlap once.
+    const toolCalls = [agentCall('a', 1_000), agentCall('b', 1_000)]
+    renderGroup(toolCalls, [withUsage('a', 61_000, 10_000), withUsage('b', 61_000, 20_000)])
+
+    const usage = document.querySelector('[data-agent-group-usage="true"]')
+    expect(usage?.textContent?.trim()).toBe('30.00k')
+  })
+
+  it('omits the number rather than showing zero when nothing reported tokens', () => {
+    renderGroup([agentCall('a', 1_000)], [result('a', 61_000)])
+    expect(document.querySelector('[data-agent-group-usage="true"]')).toBeNull()
+  })
+
+  it('keeps tokens off the individual rows, where only the duration belongs', () => {
+    const toolCalls = [agentCall('a', 1_000), agentCall('b', 1_000)]
+    renderGroup(toolCalls, [withUsage('a', 61_000, 10_000), withUsage('b', 61_000, 20_000)])
+    fireEvent.click(screen.getByRole('button', { name: /dispatched 2 agents/i }))
+
+    const rowText = document.querySelector('[data-agent-call-duration="true"]')?.parentElement?.textContent ?? ''
+    expect(rowText).not.toContain('k')
+  })
+
+  it('hides the header usage and duration when session extended info is off', () => {
+    useSettingsStore.setState({ sessionExtendedInfo: false })
+    const toolCalls = [agentCall('a', 1_000), agentCall('b', 1_000)]
+    renderGroup(toolCalls, [withUsage('a', 61_000, 10_000), withUsage('b', 61_000, 20_000)])
+
+    // 收纳栏头部的用量与耗时读数整体消失，但分组本身照常渲染。
+    expect(document.querySelector('[data-agent-group-usage="true"]')).toBeNull()
+    expect(document.querySelector('[data-agent-group-duration="true"]')).toBeNull()
+    expect(screen.getByRole('button', { name: /dispatched 2 agents/i })).toBeTruthy()
   })
 })

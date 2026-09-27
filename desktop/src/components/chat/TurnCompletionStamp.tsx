@@ -21,6 +21,9 @@ type Props = {
  */
 export function TurnCompletionStamp({ completion }: Props) {
   const locale = useSettingsStore((state) => state.locale)
+  // 例外：本 footer 的 usage 面向所有会话保留、不随会话扩展信息开关隐藏，
+  // 只有 fork 新增的 duration 受开关控制。
+  const sessionExtendedInfo = useSettingsStore((state) => state.sessionExtendedInfo)
   const t = useTranslation()
 
   const clockLabel = formatMessageHoverTime(completion.completedAt, locale)
@@ -46,7 +49,7 @@ export function TurnCompletionStamp({ completion }: Props) {
           <span data-turn-completion-usage>{t('chat.turnUsage', { tokens: usageLabel })}</span>
         </>
       ) : null}
-      {duration ? (
+      {sessionExtendedInfo !== false && duration ? (
         <>
           <span aria-hidden="true">·</span>
           <span data-turn-completion-duration>{t('chat.turnDuration', { duration })}</span>

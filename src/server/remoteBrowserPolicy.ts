@@ -2,7 +2,7 @@ import type { RequestCompatibility, SavedProvider } from './types/provider.js'
 import { AUTO_QUESTION_TIMEOUT_OPTIONS, normalizeAutoQuestionSettings } from '../shared/autoQuestionSettings.js'
 
 export type ApiRequestContext = { remoteBrowser?: boolean }
-const READ_SETTINGS = ['alwaysThinkingEnabled', 'sendThinkingHistory', 'vccCompactBackend', 'workflowKeywordTriggerEnabled', 'agentTeamsEnabled', 'autoDreamEnabled', 'skipAutoPermissionPrompt', 'disableUpdates', 'chatSendBehavior', 'outputStyle', 'skipWebFetchPreflight', 'desktopNotificationsEnabled', 'language', 'webSearch', 'updateProxy', 'network', 'cleanupPeriodDays']
+const READ_SETTINGS = ['alwaysThinkingEnabled', 'sendThinkingHistory', 'sessionExtendedInfo', 'vccCompactBackend', 'workflowKeywordTriggerEnabled', 'agentTeamsEnabled', 'autoDreamEnabled', 'skipAutoPermissionPrompt', 'disableUpdates', 'chatSendBehavior', 'outputStyle', 'skipWebFetchPreflight', 'desktopNotificationsEnabled', 'language', 'webSearch', 'updateProxy', 'network', 'cleanupPeriodDays']
 // `skipAutoPermissionPrompt` is writable so the H5 "auto mode" opt-in dialog can
 // persist from the phone; `disableUpdates` is writable so the H5 "disable updates"
 // switch can persist the same way — both only flip a persistent userSettings
@@ -12,7 +12,7 @@ const READ_SETTINGS = ['alwaysThinkingEnabled', 'sendThinkingHistory', 'vccCompa
 // lets the H5 render the full GeneralSettings, so every field that UI can touch
 // must round-trip or the phone gets 400 "Unsupported General setting".
 // `autoQuestion` (upstream) is a nested object, projected/validated via its normalizer.
-const WRITE_SETTINGS = new Set(['language', 'chatSendBehavior', 'alwaysThinkingEnabled', 'sendThinkingHistory', 'vccCompactBackend', 'workflowKeywordTriggerEnabled', 'outputStyle', 'skipAutoPermissionPrompt', 'disableUpdates', 'agentTeamsEnabled', 'autoDreamEnabled', 'skipWebFetchPreflight', 'desktopNotificationsEnabled', 'webSearch', 'updateProxy', 'network', 'cleanupPeriodDays', 'autoQuestion'])
+const WRITE_SETTINGS = new Set(['language', 'chatSendBehavior', 'alwaysThinkingEnabled', 'sendThinkingHistory', 'sessionExtendedInfo', 'vccCompactBackend', 'workflowKeywordTriggerEnabled', 'outputStyle', 'skipAutoPermissionPrompt', 'disableUpdates', 'agentTeamsEnabled', 'autoDreamEnabled', 'skipWebFetchPreflight', 'desktopNotificationsEnabled', 'webSearch', 'updateProxy', 'network', 'cleanupPeriodDays', 'autoQuestion'])
 const RESERVED_PROVIDER_PATHS = new Set(['settings', 'cc-switch', 'test', 'models', 'presets', 'auth-status', 'official', 'reorder'])
 const REMOTE_COMPATIBILITY_KEYS = new Set(['maxOutputTokens', 'outputTokenLimit', 'outputTokenField', 'sampling', 'reasoning', 'parallelTools', 'structuredOutput'])
 
@@ -123,6 +123,7 @@ export function validateRemoteSettingsPatch(input: Record<string, unknown>): boo
     if (key === 'outputStyle') return typeof value === 'string' && ['default', 'Explanatory', 'Learning'].includes(value)
     if (key === 'chatSendBehavior') return value === 'enter' || value === 'modifierEnter'
     if (key === 'vccCompactBackend') return value === 'algorithm' || value === 'llm'
+    if (key === 'sessionExtendedInfo') return typeof value === 'boolean'
     if (key === 'webSearch') return isValidWebSearch(value)
     if (key === 'updateProxy') return isValidUpdateProxy(value)
     if (key === 'network') return isValidNetwork(value)

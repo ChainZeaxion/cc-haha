@@ -1693,6 +1693,29 @@ export function pythonRuntimeFor(platform: NodeJS.Platform): PythonRuntimeCompon
 
 **F 的生效边界（重要）**：写入侧裁剪**只约束此后的新写入**；存量瘦身是**已执行的一次性数据操作**（备份即其回滚点），不属于 patch 的可重复效果——重放 patch 不会、也不应再次改写历史文件。
 
+**补记二（2026-09-27）：收纳栏加总 token 用量**
+
+用户 verbatim：「"派遣了X个代理...耗时"这个改为"派遣了N个代理...用量xk（token用量）· 耗时"，仅这个总收纳栏上体现总用量，各子代理所属对应行内不体现 token 用量 即保持现状只体现耗时即可。」
+
+- **汇总栏** `派遣了 N 个子代理 · 用量 30.00k · 总耗时 8m19s · 已完成`——**用量在耗时之前**（与本章「token 在前、耗时在后」同一顺序约定；各子代理行**不加** token，保持只显耗时）。
+- **为什么用量求和、耗时取跨度**：同一句里两个数**拓扑不同**。耗时是**时间**，并发派发只能取并集跨度；token 是**工作量**，三个并发各 10k 就是 30k，不存在"重叠共享"。故 `agentGroupTokens` **求和**，与 `agentGroupSpanMs` **取跨度**并列存在——同一行里两个不同的聚合规则，各有各的理由。
+- **数据来源（一处新解析）**：后台子代理的 token 在 `agentTaskNotifications[id].usage.totalTokens`；**同步**子代理的 token 只存在于 Agent 工具结果文本里的 `<usage>total_tokens: N …</usage>` 块（`AgentTool.tssx` 生成、客户端此前只用于**剥掉**它 `stripAgentResultMetadata`）。新增 `agentRunTokens()`：上报值优先 → 否则从结果文本正则解析。**注意**：这与耗时不同，token **无法从区间推算**，两边都没有就不显示（不猜）。
+- 落点：`activityGroupModel.ts` 新增 `agentRunTokens` / `agentGroupTokens`；`ToolCallGroup.tsx` 汇总栏插用量 span（`data-agent-group-usage`）；5 语言新增 `toolGroup.agentTotalUsage`。
+- **验证**：`ToolCallGroup.test` 新增 3 条（30.00k = 两个并发 10k+20k **相加**；无数据时**不显示 0**；**逐行不含 token**）；`ActivityGroup.test` 22 条不变；桌面全量 0 失败、tsc 0 错。
+
+**补记三（2026-09-27）：设置新增「会话扩展信息」总开关**
+
+用户 verbatim：「将所有我们后添加的 用量信息、耗时信息，除轮次完成后 "9月27日 20:10 · 用量 37.91k · 耗时 31 分 11 秒" 也就是"日期 时间 用量 耗时"这个里面的用量保持现状，其它后添加内容，需要在设置内新增一项开关 "会话扩展信息"。用类似"配色主题"一样的开关，位置就放到"上下文压缩"下面。」
+
+- **字段**：`sessionExtendedInfo`，**默认 true**（关键：这些读数在开关出现**之前**就已存在，若默认关掉等于凭空改变所有人的界面）。
+- **位置**：设置 → 通用 → **「上下文压缩」正下方**，样式仿「配色主题」（`SettingsSection` + `Switch`，同款圆角卡片）。
+- **描述文案（用户要求必须解释关联范围与联动）**：明确列出关联的七处读数（思考栏右侧 token 用量与耗时、收纳栏总用量与总耗时、子代理行耗时、后台任务耗时、TPS 速度表），并写明**与「思考回传」的联动**——**回传** → 收纳栏显示整轮**总** token 用量与总耗时（口径为 API 真实计数）；**不回传** → 思考用量只能估算，故拆为「**思考用量 + 工具用量**」两段显示，耗时口径不变。
+- **唯一例外**：轮次页脚 `日期 时间 · 用量 · 耗时` 里的**用量**不受开关控制、**始终显示**（用户明确保留），只有其**耗时**受控。代码里该例外带注释说明，避免后人"统一"掉。
+- **落点（gating，9 处）**：`ToolCallGroup`（汇总栏用量、汇总栏耗时、逐行耗时）、`ThinkingBlock`（思考徽章，**保留正文与实时计时**）、`ActivityGroup`（token 与耗时两处）、`TpsIndicator`（**整组件返回 null**，两处渲染点由一次提前返回覆盖）、`SessionActivityPanel`（行耗时、详情卡耗时，**卡片其余字段照常**）、`TurnCompletionStamp`（仅耗时，用量例外）。
+- **踩坑**：**H5 端必须同步白名单**，否则手机端改这个开关会 **PUT 400 + 开关回弹**——`remoteBrowserPolicy.ts` 的 `READ_SETTINGS` / `WRITE_SETTINGS` / 校验三处都要加（loopback 直连不暴露该问题，故容易漏）。另需同步服务端 zod schema 与 `ConfigTool/supportedSettings.ts`。
+- **实现注意**：`SessionActivityPanel` 的读设置必须放在 `groupProgress` **提前返回之前**，否则构成条件式 Hook 调用。
+- **验证**：新增 4 条测试（思考徽章、子代理汇总栏、TPS 整个消失、页脚用量留/耗时去）；桌面全量 6312 通过 0 失败；desktop 与服务端 `tsc` 均 0 错。
+
 ---
 
 ## 二十三、子代理内容实时反馈（opencode 式，替代当前间隔刷新）（⬜ 待办，仅登记，2026-09-26）

@@ -8,6 +8,7 @@ import { useDismissable } from '@/hooks/useDismissable'
 import { AgentMascot } from './AgentMascot'
 import { getVisibleActivitySections, type ActivityRow, type ActivitySectionId, type SessionActivityModel } from './sessionActivityModel'
 import { useTranslation } from '../../i18n'
+import { useSettingsStore } from '../../stores/settingsStore'
 import type { BackgroundAgentTask } from '../../types/chat'
 import type { TeamMember } from '../../types/team'
 import { formatTokenCount } from '../../lib/formatTokenCount'
@@ -424,6 +425,9 @@ function ActivityRowView({
   selected?: boolean
 }) {
   const t = useTranslation()
+  // 关闭会话扩展信息时隐藏本 fork 新增的行耗时；缺省视为开启。
+  // 必须在下方 groupProgress 提前返回之前读取，避免条件式调用 Hook。
+  const sessionExtendedInfo = useSettingsStore((state) => state.sessionExtendedInfo)
   // A workflow phase is a heading over its agents, not a row you can open.
   // Rendering it as one made a fan-out read as a flat list where the stage
   // boundaries were invisible.
@@ -492,7 +496,7 @@ function ActivityRowView({
           </span>
         ) : null}
       </span>
-      {rowDuration ? (
+      {sessionExtendedInfo !== false && rowDuration ? (
         <span
           data-activity-duration="true"
           className="shrink-0 whitespace-nowrap font-mono text-[11px] tabular-nums text-[var(--color-text-tertiary)]"
@@ -610,11 +614,15 @@ function ActivityRowView({
 
 function BackgroundTaskDetail({ row }: { row: ActivityRow }) {
   const t = useTranslation()
+  const sessionExtendedInfo = useSettingsStore((state) => state.sessionExtendedInfo)
   // The card's own header carries the execution time, not a details field: it
   // belongs to the task as a whole, and putting it on the usage row tied it to
   // a row that shell tasks never have (they report no usage at all), so the
   // time silently vanished on exactly the tasks worth timing.
-  const duration = formatBackgroundDuration(backgroundTaskDurationMs(row), t)
+  // 关闭扩展信息只令该耗时字段消失，卡片其余字段照常渲染（见下方 return）。
+  const duration = sessionExtendedInfo === false
+    ? undefined
+    : formatBackgroundDuration(backgroundTaskDurationMs(row), t)
   const usageTokens = typeof row.usage?.totalTokens === 'number'
     ? t('chat.backgroundAgents.tokens', { count: formatTokenCount(row.usage.totalTokens) })
     : ''

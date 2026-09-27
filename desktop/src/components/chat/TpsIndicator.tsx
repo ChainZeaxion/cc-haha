@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { getSessionTpsMeter, getSubordinateTpsMeters } from '../../stores/chatStore'
 import { aggregateMeterReadings, isTpsEnabled, type TpsSource } from '../../lib/tpsMeter'
 import { useTranslation } from '../../i18n'
+import { useSettingsStore } from '../../stores/settingsStore'
 
 /**
  * Real-time decode-speed (TPS) indicator.
@@ -58,6 +59,7 @@ const TIER_STYLE: Record<TpsTier, { color: string }> = {
 
 export function TpsIndicator({ sessionId, vertical = false }: { sessionId: string; vertical?: boolean }) {
   const t = useTranslation()
+  const sessionExtendedInfo = useSettingsStore((state) => state.sessionExtendedInfo)
   const [tps, setTps] = useState(0)
   const [visible, setVisible] = useState(false)
   const [activeSubs, setActiveSubs] = useState(0)
@@ -65,7 +67,9 @@ export function TpsIndicator({ sessionId, vertical = false }: { sessionId: strin
 
   // Master switch: when disabled the indicator renders nothing and never polls
   // the meter (the meter itself is also not fed in the content_delta path).
-  if (!isTpsEnabled()) return null
+  // 会话扩展信息关闭时同样整块隐藏——TPS 是本 fork 新增读数，缺省视为开启。
+  // 两个渲染分支（vertical/横向）都在此处之后，故单次提前返回即可覆盖。
+  if (!isTpsEnabled() || sessionExtendedInfo === false) return null
 
   useEffect(() => {
     const meter = getSessionTpsMeter(sessionId)

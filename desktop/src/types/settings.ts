@@ -162,6 +162,12 @@ export type UserSettings = {
   sendThinkingHistory?: boolean
   /** Context-compaction engine: 'algorithm' (pi-vcc, default) or 'llm'. */
   vccCompactBackend?: 'algorithm' | 'llm'
+  /**
+   * Whether the session UI shows the usage and timing readouts this fork adds
+   * (thinking badge, activity totals, subagent durations, TPS). Defaults to on;
+   * a transcript is still recorded either way.
+   */
+  sessionExtendedInfo?: boolean
   workflowKeywordTriggerEnabled?: boolean
   agentTeamsEnabled?: boolean
   autoDreamEnabled?: boolean

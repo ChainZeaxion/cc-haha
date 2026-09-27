@@ -3,6 +3,7 @@ import '@testing-library/jest-dom'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { TpsMeter } from '@/lib/tpsMeter'
 import * as chatStore from '@/stores/chatStore'
+import { useSettingsStore } from '@/stores/settingsStore'
 import { TpsIndicator } from './TpsIndicator'
 
 // Drive the real meters with a fake clock so the sliding windows behave
@@ -22,6 +23,7 @@ beforeEach(() => {
   now = 1_000_000
   ownMeter.reset()
   subMeter.reset()
+  useSettingsStore.setState({ sessionExtendedInfo: true })
   vi.spyOn(performance, 'now').mockImplementation(() => now)
   vi.spyOn(chatStore, 'getSessionTpsMeter').mockReturnValue(ownMeter)
   vi.spyOn(chatStore, 'getSubordinateTpsMeters').mockReturnValue([subMeter])
@@ -29,6 +31,7 @@ beforeEach(() => {
 
 afterEach(() => {
   cleanup()
+  useSettingsStore.setState({ sessionExtendedInfo: true })
   vi.restoreAllMocks()
 })
 
@@ -88,6 +91,13 @@ it('marks a sampled (non-ids) reading as approximate', () => {
 })
 
 it('stays hidden before anything has streamed', () => {
+  const { container } = render(<TpsIndicator sessionId="main" />)
+  expect(container.querySelector('[data-testid="tps-indicator"]')).toBeNull()
+})
+
+it('renders nothing when session extended info is off, even with a live reading', () => {
+  pump(ownMeter)
+  useSettingsStore.setState({ sessionExtendedInfo: false })
   const { container } = render(<TpsIndicator sessionId="main" />)
   expect(container.querySelector('[data-testid="tps-indicator"]')).toBeNull()
 })

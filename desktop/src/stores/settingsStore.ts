@@ -71,6 +71,7 @@ type SettingsStore = {
   agentTeamsEnabled: boolean
   autoDreamEnabled: boolean
   disableUpdates: boolean
+  sessionExtendedInfo: boolean
   autoQuestion: AutoQuestionSettings
   autoModeOptInAccepted: boolean
 
@@ -121,6 +122,7 @@ type SettingsStore = {
   setAgentTeamsEnabled: (enabled: boolean) => Promise<void>
   setAutoDreamEnabled: (enabled: boolean) => Promise<void>
   setDisableUpdates: (enabled: boolean) => Promise<void>
+  setSessionExtendedInfo: (enabled: boolean) => Promise<void>
   setAutoQuestion: (settings: AutoQuestionSettings) => Promise<void>
   acceptAutoModeOptIn: () => Promise<void>
   setLocale: (locale: Locale) => void
@@ -221,6 +223,9 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
   agentTeamsEnabled: true,
   autoDreamEnabled: false,
   disableUpdates: false,
+  // On by default: these readouts already existed when the switch was added, so
+  // introducing it must not change what anyone sees until they turn it off.
+  sessionExtendedInfo: true,
   autoQuestion: DEFAULT_AUTO_QUESTION_SETTINGS,
   autoModeOptInAccepted: false,
   availableModels: [],
@@ -304,6 +309,7 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
         agentTeamsEnabled: userSettings.agentTeamsEnabled !== false,
         autoDreamEnabled: userSettings.autoDreamEnabled === true,
         disableUpdates: userSettings.disableUpdates === true,
+        sessionExtendedInfo: userSettings.sessionExtendedInfo !== false,
         autoQuestion: normalizeAutoQuestionSettings(userSettings.autoQuestion),
         autoModeOptInAccepted: userSettings.skipAutoPermissionPrompt === true,
         chatSendBehavior: normalizeChatSendBehavior(userSettings.chatSendBehavior),
@@ -440,6 +446,17 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
       throw error
     }
   },
+  setSessionExtendedInfo: async (enabled) => {
+    const prev = get().sessionExtendedInfo
+    set({ sessionExtendedInfo: enabled })
+    try {
+      await settingsApi.updateUser({ sessionExtendedInfo: enabled })
+    } catch (error) {
+      set({ sessionExtendedInfo: prev })
+      throw error
+    }
+  },
+
   setAutoQuestion: async (settings) => {
     const previous = get().autoQuestion
     const next = normalizeAutoQuestionSettings(settings)
