@@ -287,6 +287,19 @@ export type SessionTaskNotification = {
   result?: string
   outputFile?: string
   timestamp?: string
+  /**
+   * Tokens the run generated, derived from its own transcript when the session
+   * is read back. Output-side only, matching the live notification: `thinkTokens`
+   * is present only while thinking is not sent to the API (the same gate the
+   * live path applies), so the reader can show a split without knowing which
+   * case it is in.
+   */
+  usage?: {
+    totalTokens?: number
+    outputTokens?: number
+    thinkTokens?: number
+    toolUses?: number
+  }
 }
 
 /** Canonical terminal identity within a session. Child agents may reuse the
@@ -366,7 +379,7 @@ export type TranscriptContextEstimate = {
 }
 
 /** Raw entry parsed from a single JSONL line */
-type RawEntry = {
+export type RawEntry = {
   type?: string
   subtype?: string
   content?: unknown
@@ -4378,44 +4391,86 @@ export class SessionService {
     } finally { await handle.close() }
   }
 
-  async findSubagentAgentIdByToolUseId(
-    sessionId: string,
-    toolUseId: string,
-    expectedOwnerAgentId: string | null,
-  ): Promise<string | null> {
+  /**
+   * Where a session keeps its subagent sidecars, derived from the session's own
+   * transcript path rather than from the config dir. A session served out of an
+   * extra index root keeps its subagents next to its transcript, not under this
+   * instance's projects dir — deriving from the config dir would look in the
+   * wrong place for exactly those sessions.
+   */
+  private subagentsDirForTranscript(filePath: string, sessionId: string): string {
+    return path.join(path.dirname(filePath), sessionId, 'subagents')
+  }
+
+  /**
+   * Every subagent sidecar of one session: which Agent call each transcript
+   * belongs to, and which agent owns it.
+   *
+   * Returned as a list because a session can carry hundreds of agents, and
+   * resolving them one toolUseId at a time would re-list and re-parse the whole
+   * sidecar directory per lookup. `complete` reports whether every sidecar was
+   * readable, which is what makes the legacy fallback below safe to trust.
+   */
+  async listSubagentSidecars(sessionId: string): Promise<{
+    sidecars: Array<{ agentId: string; toolUseId: string; ownerAgentId?: string }>
+    complete: boolean
+  }> {
     const found = await this.findSessionFile(sessionId)
     if (!found) {
       throw ApiError.notFound(`Session not found: ${sessionId}`)
     }
 
-    const subagentsDir = path.join(
-      this.getProjectsDir(),
-      found.projectDir,
-      sessionId,
-      'subagents',
-    )
+    const subagentsDir = this.subagentsDirForTranscript(found.filePath, sessionId)
     const files = await fs.readdir(subagentsDir).catch(() => [])
     if (files.length > 4096) throw new ApiError(413, 'Agent directory exceeds its viewing budget', 'SUBAGENT_METADATA_LIMIT')
-    const candidates: Array<{ agentId: string; ownerAgentId?: string }> = []
-    let metadataComplete = true
+    const sidecars: Array<{ agentId: string; toolUseId: string; ownerAgentId?: string }> = []
+    let complete = true
 
     for (const metadataFile of files.filter((file) => file.endsWith('.meta.json'))) {
       try {
         const metadata = await this.readSubagentMetadata(path.join(subagentsDir, metadataFile))
-        if (metadata.toolUseId !== toolUseId) continue
+        if (typeof metadata.toolUseId !== 'string' || !metadata.toolUseId) continue
         const ownerAgentId = typeof metadata.ownerAgentId === 'string' && metadata.ownerAgentId
           ? metadata.ownerAgentId
           : undefined
-        candidates.push({
+        sidecars.push({
           agentId: metadataFile.replace(/^agent-/, '').replace(/\.meta\.json$/, ''),
+          toolUseId: metadata.toolUseId,
           ...(ownerAgentId ? { ownerAgentId } : {}),
         })
       } catch (error) {
         if (error instanceof ApiError) throw error
         // A half-written sidecar must not hide the other candidates.
-        metadataComplete = false
+        complete = false
       }
     }
+
+    return { sidecars, complete }
+  }
+
+  /**
+   * The raw entries of one subagent transcript — what a run actually generated,
+   * which is the only place its token usage can be recovered from once the
+   * parent session's result text has aged out of the useful fields. Empty when
+   * the sidecar is gone.
+   */
+  async readSubagentTranscriptEntries(sessionId: string, agentId: string): Promise<RawEntry[]> {
+    const found = await this.findSessionFile(sessionId)
+    if (!found) return []
+    const normalizedAgentId = agentId.startsWith('agent-') ? agentId : `agent-${agentId}`
+    return this.readJsonlFile(path.join(
+      this.subagentsDirForTranscript(found.filePath, sessionId),
+      `${normalizedAgentId}.jsonl`,
+    ))
+  }
+
+  async findSubagentAgentIdByToolUseId(
+    sessionId: string,
+    toolUseId: string,
+    expectedOwnerAgentId: string | null,
+  ): Promise<string | null> {
+    const { sidecars, complete } = await this.listSubagentSidecars(sessionId)
+    const candidates = sidecars.filter(sidecar => sidecar.toolUseId === toolUseId)
 
     const exact = candidates.filter(candidate => expectedOwnerAgentId === null
       ? candidate.ownerAgentId === undefined
@@ -4429,7 +4484,7 @@ export class SessionService {
     // cross-parent collision this owner join is meant to prevent.
     if (
       expectedOwnerAgentId !== null &&
-      metadataComplete &&
+      complete &&
       candidates.length === 1 &&
       candidates[0]!.ownerAgentId === undefined
     ) {

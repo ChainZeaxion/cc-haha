@@ -7020,7 +7020,12 @@ function backgroundTaskRecordFromNotifications(
         summary: notification.summary,
         result: notification.result,
         outputFile: notification.outputFile,
-        usage: notification.usage,
+        // Normalize here as well as on the live path: a restored session carries
+        // usage derived server-side from the subagent's own transcript, and its
+        // keys arrive in the wire's snake-case form. Passing it through raw is
+        // why a read-back session could show a single total whose number came
+        // from the old context-based line in the result text.
+        usage: normalizeBackgroundTaskUsage(notification.usage),
       }, now)
     }, {})
 }

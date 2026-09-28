@@ -20,6 +20,7 @@ import { evictTaskOutput, getTaskOutputPath, initTaskOutputAsSymlink } from '../
 import { PANEL_GRACE_MS, registerTask, updateTaskState } from '../../utils/task/framework.js';
 import { emitTaskProgress } from '../../utils/task/sdkProgress.js';
 import { roughTokenCountEstimationForThinking } from '../../services/tokenEstimation.js';
+import { getReasoningTokenCountFromUsage } from '../../utils/tokens.js';
 import { shouldSendThinkingToAPI } from '../../utils/thinking.js';
 import { emitTaskTerminatedSdk } from '../../utils/sdkEventQueue.js';
 import type { TaskState } from '../types.js';
@@ -109,15 +110,16 @@ export function updateProgressFromMessage(tracker: ProgressTracker, message: Mes
   tracker.cumulativeOutputTokens += usage.output_tokens;
   // Prefer the engine's own reasoning count; fall back to estimating this
   // turn's thinking when it reports none, so the split survives on endpoints
-  // that do not measure it. The field is not in the SDK usage type, hence the
-  // cast (the same treatment updateUsage() gives it on the way in).
-  // Per turn, never both: a turn's real count already covers its thinking.
-  const reasoningTokens = (
-    usage as unknown as { reasoning_tokens?: number }
-  ).reasoning_tokens;
+  // that do not measure it. Per turn, never both: a turn's real count already
+  // covers its thinking.
+  //
+  // A reported 0 counts as "not measured": an engine that fills the field
+  // without computing it reports 0, and treating that as a real measurement
+  // would suppress the estimate and hide the split entirely.
+  const reported = getReasoningTokenCountFromUsage(usage);
   tracker.cumulativeReasoningTokens +=
-    typeof reasoningTokens === 'number' && Number.isFinite(reasoningTokens)
-      ? reasoningTokens
+    reported !== undefined && reported > 0
+      ? reported
       : roughTokenCountEstimationForThinking(message.message.content);
   for (const content of message.message.content) {
     if (content.type === 'tool_use') {

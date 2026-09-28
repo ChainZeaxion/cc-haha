@@ -346,9 +346,13 @@ export function finalizeAgentTool(
     // The engine's count wins; a turn it did not measure is estimated from the
     // thinking that turn produced, so the split exists on any endpoint. Per
     // turn rather than per run: a reported turn already covers its own thinking.
-    const part =
-      getReasoningTokenCountFromUsage(m.message.usage) ??
-      roughTokenCountEstimationForThinking(m.message.content)
+    // A reported 0 counts as "not measured", not as a measurement: it is what an
+    // engine that fills the field without computing it reports, and treating it
+    // as real would suppress the estimate and hide the split entirely.
+    const reported = getReasoningTokenCountFromUsage(m.message.usage)
+    const part = reported !== undefined && reported > 0
+      ? reported
+      : roughTokenCountEstimationForThinking(m.message.content)
     if (part > 0) reasoningTokens = (reasoningTokens ?? 0) + part
   }
   const totalToolUseCount = countToolUses(agentMessages)

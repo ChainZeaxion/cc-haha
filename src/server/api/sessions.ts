@@ -26,6 +26,7 @@
 
 import * as path from 'node:path'
 import { sessionService } from '../services/sessionService.js'
+import { enrichTaskNotificationsWithUsage } from '../services/sessionUsageRollup.js'
 import { conversationService } from '../services/conversationService.js'
 import { ApiError, errorResponse } from '../middleware/errorHandler.js'
 import {
@@ -499,13 +500,19 @@ async function getSessionMessages(req: Request, sessionId: string, url: URL): Pr
   // A full read always starts from the tail; mixing it with a cursor would
   // silently turn it back into a paged read with a larger budget.
   if (mode === 'full' && cursor) throw ApiError.badRequest('mode=full does not take a cursor')
-  return Response.json(await sessionService.getSessionHistoryPage(sessionId, {
+  const history = await sessionService.getSessionHistoryPage(sessionId, {
     cursor,
     // `mode=full` returns the whole transcript up to the reader's byte budget in
     // one response so the desktop timeline never stitches pages together.
     full: mode === 'full',
     signal: req.signal,
-  }))
+  })
+  return Response.json({
+    ...history,
+    // A run's tokens are recoverable from its own subagent transcript even when
+    // the parent's result text only kept the old context-based total.
+    taskNotifications: await enrichTaskNotificationsWithUsage(sessionId, history.taskNotifications),
+  })
 }
 
 async function getSessionTrace(req: Request, sessionId: string, url: URL): Promise<Response> {
