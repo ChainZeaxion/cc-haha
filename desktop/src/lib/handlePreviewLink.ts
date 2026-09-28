@@ -67,15 +67,30 @@ export function localFileUrl(base: string, absPath: string): string {
  * header. A temporary anchor is used rather than `fetch` so the browser
  * downloads the binary as-is (no need to buffer the whole file or guess a
  * `Blob` MIME type) and the server's attachment header drives the saved name.
+ *
+ * The `download` attribute is set even though the server also sends the header,
+ * because it is what makes the click a download rather than a navigation: an
+ * anchor without it navigates the window, and in the packaged app the renderer
+ * is loaded from `file://`, where such a request to the sidecar is a cross-site
+ * one that the origin gate rejects. The download list card — the entry that
+ * works — sets it for the same reason, as do the app's other programmatic
+ * downloads.
  */
 export function downloadLocalFile(absolutePath: string): void {
   const url = `${localFileUrl(getServerBaseUrl(), absolutePath)}?download=1`
   const anchor = document.createElement('a')
   anchor.href = url
+  anchor.download = fileNameFromPath(absolutePath)
   anchor.rel = 'noopener'
   document.body.appendChild(anchor)
   anchor.click()
   anchor.remove()
+}
+
+/** Last path segment, for the download's suggested save name. */
+export function fileNameFromPath(filePath: string): string {
+  const segments = filePath.split(/[\\/]/).filter((segment) => segment.length > 0)
+  return segments[segments.length - 1] ?? ''
 }
 
 /** Returns true if handled (caller should preventDefault). */

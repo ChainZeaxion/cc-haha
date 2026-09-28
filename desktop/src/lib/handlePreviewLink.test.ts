@@ -1,5 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import {
+  downloadLocalFile,
+  fileNameFromPath,
   handlePreviewLink,
   isAbsoluteLocalPath,
   isRootedLocalPath,
@@ -222,5 +224,63 @@ describe('previewFsUrl (unchanged, regression guard)', () => {
     expect(previewFsUrl('http://127.0.0.1:8787', 's1', 'out/index.html')).toBe(
       'http://127.0.0.1:8787/preview-fs/s1/out/index.html',
     )
+  })
+})
+
+describe('downloadLocalFile', () => {
+  // This entry had no test at all, which is how it shipped unable to download:
+  // the list card (user-clicked, carries `download`) worked while the tree menu
+  // and the open-with menu (both routed here) did not.
+  function clickDownload(path: string) {
+    const clicked: HTMLAnchorElement[] = []
+    const create = document.createElement.bind(document)
+    const spy = vi.spyOn(document, 'createElement').mockImplementation((tag: string) => {
+      const el = create(tag)
+      if (tag === 'a') {
+        const anchor = el as HTMLAnchorElement
+        anchor.click = () => clicked.push(anchor)
+      }
+      return el
+    })
+    try {
+      downloadLocalFile(path)
+    } finally {
+      spy.mockRestore()
+    }
+    return clicked
+  }
+
+  it('marks the anchor as a download so the click does not become a navigation', () => {
+    // Without `download`, an anchor click navigates the window. In the packaged
+    // app that navigation is a cross-site request from a `file://` renderer and
+    // the sidecar's origin gate rejects it, so the download silently never
+    // starts. The attribute is what routes it through the download path
+    // instead — the same reason the working card sets it.
+    const [anchor] = clickDownload('/home/me/notes.txt')
+    expect(anchor).toBeDefined()
+    expect(anchor!.download).toBe('notes.txt')
+    expect(anchor!.href).toContain('/local-file/home/me/notes.txt?download=1')
+  })
+
+  it('asks the server for the attachment form of the route', () => {
+    const [anchor] = clickDownload('/home/me/report final.pdf')
+    expect(anchor!.href).toContain('?download=1')
+    // Spaces survive as escapes, so the URL is not truncated at the space.
+    expect(anchor!.href).toContain('report%20final.pdf')
+    expect(anchor!.download).toBe('report final.pdf')
+  })
+
+  it('leaves nothing behind in the document', () => {
+    clickDownload('/home/me/notes.txt')
+    expect(document.querySelector('a[download]')).toBeNull()
+  })
+})
+
+describe('fileNameFromPath', () => {
+  it('takes the last segment of posix and windows paths', () => {
+    expect(fileNameFromPath('/home/me/notes.txt')).toBe('notes.txt')
+    expect(fileNameFromPath('C:\\proj\\notes.txt')).toBe('notes.txt')
+    expect(fileNameFromPath('/home/me/')).toBe('me')
+    expect(fileNameFromPath('')).toBe('')
   })
 })
