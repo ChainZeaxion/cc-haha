@@ -1,4 +1,4 @@
-# cc-haha 0.6.6 重实现 — 交接检查点（2026-09-28 更新：26 章 + 三处真根因，54 链，生产已装）
+# cc-haha 0.6.6 重实现 — 交接检查点（2026-09-28 更新：26 章 + 五处真根因，56 链）
 
 ## 最新状态（2026-09-28）
 
@@ -20,6 +20,11 @@
   - **下载「无法从网站上提取文件」（链位 53 `file-download-blob`）**：实测同一路由**无 Origin→200、`Origin: null`→403**。打包版渲染进程在 `file://`，而 DOM 自发的下载请求其 Origin **序列化为 `null`**（门控认 `file://` 却不认 `null`）。**不放行 `null`**（=所有不透明来源的值，恶意页面的 sandbox iframe 即此 ⇒ 等于给本地 API 开后门），改修调用方：`apiGetBlob` 取字节 + blob（app icon 早有同款解法，`client.ts:459-463` 注释写明同一理由）。顺带纠正我早前写进注释的**未取证因果**（「下载卡片能用、树菜单不能」是错的，两者同样失败）。
   - **拆分「真实用量 0」（链位 54 `split-no-double-count`）**：一轮响应拆两条记录**共享 `message.id`**（思考一条 output=0 无 reasoning、正文一条带真值），估算又叠真值 ⇒ think > total ⇒ `max(0,total-think)` 恒 0。按响应 id 归组、真值胜过估算；实时 tracker 与服务端 rollup **两处同病同修**。dev 实测 **6/6 一致**、非思量由 0 变为正数。
 - **生产装机已验证（14:02 deb）**：`App--vk5NH6C.js` 与产物**同名同内容**（含 `createObjectURL`）；`PetRenderer-CzXigudJ.js` 与产物 **md5 逐字节相同**（`78e1e161…`，含 `preWindowAt`/`lastIndex`/`sliceRate`）；sidecar 含 `thinkingEstimatesByResponse`。**三处修复全在生产。**
+- **⚠️ 第四轮（链位 55/56）**：
+  - **下载（55）**：上一版 fetch+blob **反而变成「点击无反应」**。查证＝`file://` 渲染进程里 **blob: URL 不可下载**且不报错（而它的 fetch 一直可用，服务端白名单了 `Origin: file://`）。改为 **IPC `desktop:file:save-copy`**：渲染进程只交源路径，主进程弹保存框 + `copyFile`（目标只来自对话框 ⇒ 未给页面新增写盘能力）；H5 回落 blob。
+  - **TPS（56）**：用户报「还是冲上 1600，尤其 bash 动作时」。bash 期间无解码 ⇒ 说明**持有值虚高**。离线复现：整块重放 **7153**、停顿后积压突发 **3603**（真值 250）。真因＝**打包投递被当成生成节奏**（重放/整块交付/页面忙时排队的中转帧；bash 输出正好占满主线程）。修法＝逐样本只计入到达间隔能支撑其实时速率的样本（上限 5000），延迟首批保留自身间隔。修后 250 / 383。
+  - **我犯的错（已记档）**：① 第一版修法（切片整体到达跨度）无效，判据必须逐样本；② 无头 Chrome 下载实验**无对照组**（两种来源都不落盘）本不该拿来当证据；③ 又并发跑两个重活导致 2 条假失败（`MessageList`/`conversations`，单独复跑全绿）。
+- **本轮验证**：桌面 `tsc -b` 0 错；全量前端 **6350 通过 / 0 失败**（单独跑）；`electron/ipc`+`services` 552/0；`tpsMeter` 27 + `tpsCalibration` 8 + `TpsIndicator` 7 = 42 绿；`handlePreviewLink` 42 绿；链位 55/56 在链终态 worktree apply FAIL=0。
 - **待办**：① 装新 deb 后验证 TPS 不再脉冲 + 拆分显示 + 下载；② 把拆分机制推广到**全部历史会话**（当前按需推导已覆盖打开过的会话；若要一次性持久化进索引＝schema v6 + parser 跳变触发后台全量整理，独立一步）；③ `teammate`/嵌套子代理（一个 `toolUseId` 对多个转录）暂回落正则，未纳入推导。
 
 ---
