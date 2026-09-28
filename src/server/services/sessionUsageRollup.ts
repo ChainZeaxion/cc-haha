@@ -58,10 +58,18 @@ function countToolUsesInEntries(entries: readonly RawEntry[]): number {
  */
 export function computeSubagentUsage(entries: readonly RawEntry[]): SubagentUsage | undefined {
   let outputTokens = 0
-  let thinkTokens = 0
   let sawOutput = false
+  // Grouped by response, because a streamed response arrives as several records:
+  // the thinking one alone (carrying no usage of its own), then the text one with
+  // the usage. Only the latter can report reasoning, so estimating the thinking
+  // record *and* adding its sibling's real count counts the same thinking twice —
+  // a run then reports more thinking than it generated and the UI's
+  // `total - think` collapses to zero. A reported count wins for its response;
+  // the estimate is kept only where nothing was reported.
+  const reportedThinkByResponse = new Map<string, number>()
+  const estimatedThinkByResponse = new Map<string, number>()
 
-  for (const entry of entries) {
+  for (const [index, entry] of entries.entries()) {
     if (entry.type !== 'assistant') continue
     const usage = entry.message?.usage
     if (!usage) continue
@@ -73,13 +81,32 @@ export function computeSubagentUsage(entries: readonly RawEntry[]): SubagentUsag
       sawOutput = true
     }
 
+    // A record with no id cannot be grouped with its siblings, so it stands
+    // alone — the old behavior, which is right for a single-record response.
+    const responseId = entry.message?.id ?? `__record_${index}`
     const reported = getReasoningTokenCountFromUsage(reportedUsage)
-    const part = reported !== undefined && reported > 0
-      ? reported
-      : roughTokenCountEstimationForThinking(
-          entry.message?.content as Parameters<typeof roughTokenCountEstimationForThinking>[0],
-        )
-    if (part > 0) thinkTokens += part
+    if (reported !== undefined && reported > 0) {
+      reportedThinkByResponse.set(
+        responseId,
+        (reportedThinkByResponse.get(responseId) ?? 0) + reported,
+      )
+      continue
+    }
+    const estimate = roughTokenCountEstimationForThinking(
+      entry.message?.content as Parameters<typeof roughTokenCountEstimationForThinking>[0],
+    )
+    if (estimate > 0) {
+      estimatedThinkByResponse.set(
+        responseId,
+        (estimatedThinkByResponse.get(responseId) ?? 0) + estimate,
+      )
+    }
+  }
+
+  let thinkTokens = 0
+  for (const reported of reportedThinkByResponse.values()) thinkTokens += reported
+  for (const [responseId, estimate] of estimatedThinkByResponse) {
+    if (!reportedThinkByResponse.has(responseId)) thinkTokens += estimate
   }
 
   if (!sawOutput) return undefined

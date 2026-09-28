@@ -57,6 +57,19 @@ export type ProgressTracker = {
    * which is how a reader tells "no split available" from "no thinking".
    */
   cumulativeReasoningTokens: number;
+  /**
+   * Thinking estimated for records whose response reported no reasoning, keyed by
+   * response id.
+   *
+   * A streamed response reaches the tracker as several records — the thinking one
+   * alone, then the text one carrying the usage — and only the latter can report
+   * reasoning (measured on the local engine: `output_tokens: 0` with no
+   * reasoning on the thinking record, then the real pair on the text record).
+   * Without this map, the thinking record is estimated *and* its sibling's real
+   * count is added, so a run reported more thinking than it generated in total
+   * (15.7k against 9.3k) and the UI's `total - think` collapsed to zero.
+   */
+  thinkingEstimatesByResponse: Map<string, number>;
   recentActivities: ToolActivity[];
 };
 export function createProgressTracker(): ProgressTracker {
@@ -65,6 +78,7 @@ export function createProgressTracker(): ProgressTracker {
     latestInputTokens: 0,
     cumulativeOutputTokens: 0,
     cumulativeReasoningTokens: 0,
+    thinkingEstimatesByResponse: new Map(),
     recentActivities: []
   };
 }
@@ -116,11 +130,33 @@ export function updateProgressFromMessage(tracker: ProgressTracker, message: Mes
   // A reported 0 counts as "not measured": an engine that fills the field
   // without computing it reports 0, and treating that as a real measurement
   // would suppress the estimate and hide the split entirely.
-  const reported = getReasoningTokenCountFromUsage(usage);
-  tracker.cumulativeReasoningTokens +=
-    reported !== undefined && reported > 0
-      ? reported
-      : roughTokenCountEstimationForThinking(message.message.content);
+    const reported = getReasoningTokenCountFromUsage(usage);
+    const responseId = (message.message as { id?: string }).id;
+    if (reported !== undefined && reported > 0) {
+      // The real count covers this response's thinking, so an estimate made for
+      // an earlier record of the SAME response must be withdrawn rather than
+      // added to (see thinkingEstimatesByResponse).
+      const pending = responseId
+        ? tracker.thinkingEstimatesByResponse.get(responseId)
+        : undefined;
+      if (pending !== undefined && responseId) {
+        tracker.cumulativeReasoningTokens -= pending;
+        tracker.thinkingEstimatesByResponse.delete(responseId);
+      }
+      tracker.cumulativeReasoningTokens += reported;
+    } else {
+      const estimate = roughTokenCountEstimationForThinking(message.message.content);
+      if (estimate > 0) {
+        tracker.cumulativeReasoningTokens += estimate;
+        if (responseId) {
+          tracker.thinkingEstimatesByResponse.set(
+            responseId,
+            (tracker.thinkingEstimatesByResponse.get(responseId) ?? 0) + estimate,
+          );
+        }
+      }
+    }
+    if (tracker.cumulativeReasoningTokens < 0) tracker.cumulativeReasoningTokens = 0;
   for (const content of message.message.content) {
     if (content.type === 'tool_use') {
       tracker.toolUseCount++;

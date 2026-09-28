@@ -29,6 +29,33 @@ function assistant(output: number, content: unknown = [], reasoning?: number): R
 }
 
 const thinking = (text: string) => [{ type: 'thinking', thinking: text }]
+/**
+ * One record of a response that was streamed in several records — the shape the
+ * CLI actually writes: the thinking block lands as its own assistant record with
+ * no usage of its own, and the response's usage (reasoning included) lands on the
+ * text record sharing its id. Measured on the local engine, both records carry
+ * `output_tokens: 0, no reasoning` and `output_tokens: N, reasoning: R`.
+ */
+function assistantOfResponse(
+  id: string,
+  output: number,
+  content: unknown = [],
+  reasoning?: number,
+): RawEntry {
+  return entry({
+    type: 'assistant',
+    message: {
+      id,
+      role: 'assistant',
+      content,
+      usage: {
+        input_tokens: 10,
+        output_tokens: output,
+        ...(reasoning !== undefined ? { reasoning_tokens: reasoning } : {}),
+      },
+    },
+  })
+}
 const toolUse = [{ type: 'tool_use', id: 't1', name: 'Read', input: {} }]
 
 describe('computeSubagentUsage', () => {
@@ -71,6 +98,30 @@ describe('computeSubagentUsage', () => {
     expect(computeSubagentUsage([])).toBeUndefined()
     expect(computeSubagentUsage([assistant(0)])).toBeUndefined()
     expect(computeSubagentUsage([entry({ type: 'user', message: { role: 'user' } })])).toBeUndefined()
+  })
+  it('does not estimate the thinking of a record whose response reported it', () => {
+    // Measured shape (agent-a47f5e65272e0bd40.jsonl): the thinking record carries
+    // output_tokens 0 and no reasoning; its sibling reports the real pair.
+    // Estimating the first on top of the second made a 9.3k run report 15.7k of
+    // thinking, which drove the UI's `total - think` to zero.
+    const usage = computeSubagentUsage([
+      assistantOfResponse('msg_1', 0, thinking('思'.repeat(400))),
+      assistantOfResponse('msg_1', 100, [{ type: 'text', text: 'done' }], 60),
+    ])
+    expect(usage?.outputTokens).toBe(100)
+    expect(usage?.thinkTokens).toBe(60)
+    expect((usage?.totalTokens ?? 0) - (usage?.thinkTokens ?? 0)).toBe(40)
+  })
+
+  it('still estimates when no record of the response reported reasoning', () => {
+    // Same split shape on an engine without the split: the estimate is the only
+    // signal there is, and it must survive.
+    const usage = computeSubagentUsage([
+      assistantOfResponse('msg_2', 0, thinking('思'.repeat(40))),
+      assistantOfResponse('msg_2', 100, [{ type: 'text', text: 'done' }]),
+    ])
+    expect(usage?.outputTokens).toBe(100)
+    expect(usage?.thinkTokens).toBe(10)
   })
 })
 

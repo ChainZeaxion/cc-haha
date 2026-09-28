@@ -348,6 +348,44 @@ describe('thinking share of a run', () => {
     expect(tracker.cumulativeReasoningTokens).toBe(1000)
   })
 
+  test('does not estimate a thinking record whose response reported the count', () => {
+    // Measured shape on the local engine (agent-a47f5e65272e0bd40.jsonl): one
+    // response arrives as two records sharing a message id — the thinking block
+    // alone with `output_tokens: 0` and no reasoning, then the text record with
+    // the real pair. Estimating the first on top of the second made a 9.3k run
+    // report 15.7k of thinking, so the UI's `total - think` read zero.
+    const tracker = createProgressTracker()
+    const record = (output: number, content: unknown, reasoning?: number) => ({
+      type: 'assistant' as const,
+      message: {
+        id: 'msg_1',
+        content,
+        usage: {
+          input_tokens: 10,
+          cache_read_input_tokens: 0,
+          cache_creation_input_tokens: 0,
+          output_tokens: output,
+          ...(reasoning === undefined ? {} : { reasoning_tokens: reasoning }),
+        },
+      },
+    })
+
+    updateProgressFromMessage(
+      tracker,
+      record(0, [{ type: 'thinking', thinking: 'x'.repeat(4000) }]) as never,
+    )
+    updateProgressFromMessage(
+      tracker,
+      record(1200, [{ type: 'text', text: 'done' }], 800) as never,
+    )
+
+    // The withdrawn estimate leaves the engine's own count alone.
+    expect(tracker.cumulativeReasoningTokens).toBe(800)
+    expect(tracker.cumulativeOutputTokens).toBe(1200)
+    // And the non-thinking part stays positive, which is what the bar shows.
+    expect(tracker.cumulativeOutputTokens - tracker.cumulativeReasoningTokens).toBe(400)
+  })
+
   test('reports no thinking share for a run that did not think', () => {
     const tracker = createProgressTracker()
     updateProgressFromMessage(tracker, {
