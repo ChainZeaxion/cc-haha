@@ -43,7 +43,7 @@
 >
 > **2026-09-26 重基**：全部 patch 重基到上游 `068b3ebd`（origin/main 2026-09-25，含 20 个新 commit：CORS 门控重做/切 tab 保视图/历史不全保聊天/内存保存竞态两修/pending 问题超时自动回答/聊天外观偏好/OAuth 2.1.281 对齐/agent-teams/Kimi K3 图片透传/定时任务持久化串行化）。应用方式=按下表从上到下逐章 `git apply --allow-empty`。空 patch（h5-settings-whitelist、h5-mobile-market）内容已被后续章节的共享文件覆盖，apply 后无变化。
 >
-> **当前链规模（2026-09-28）**：共 **56 patch**（54 实 + 2 空）。最新一位：`tps-batched-delivery`（四 补记二：TPS 上千读数真因＝**打包投递被当成生成节奏**，链位 56）。前一位：`file-download-anchor`（五 补记定稿：**下载走 anchor 导航**，链位 55）。再前：`split-no-double-count`（二十六 补记：拆分的「真实用量 0」——一轮响应拆两条记录共享 `message.id`，估算与真值双计，链位 54）。前一位：`file-download-blob`（五 子优化：下载改走 `apiGetBlob`+blob，`file://` 下 DOM 请求的 Origin 是 `null` 被门控拒，链位 53）。再前：`tps-phase-switch-steady-window`（四 子优化⑦：TPS 相位切换脉冲**真根因**——分母不覆盖被它除的 token；稳态读数顺带精确化，链位 52）。前一位：`subagent-usage-split-live`（二十一 子优化⑥：还原会话的 think/非think 拆分 + 组栏运行中实时跟进，链位 51）。再前（链位 44-50）：`tps-burst-anchor`（四 子优化⑤ TPS 脉冲修复，链位 44）、`think-token-truth-chain`（二十一 子优化⑤ 思考 token 真值，链位 45）、`tps-tokens-kind-and-reasoning-passthrough`（四 子优化⑥ kind 归因 + reasoning 透传，链位 46）、`file-download-attr`（五 子优化 下载锚点，链位 47）、`local-index-extra-project-roots`（十 补记 额外索引根，链位 48）、`test-model-env-isolation`（十二 补记 模型 env 隔离，链位 49）、`session-list-multi-root-validation`（十 补记二 列表多根校验，链位 50）。**44-51 八链位验证**：`d89c1405` worktree 按序 apply **FAIL=0**，并集与工作树**逐字节一致**。上一版（链位 43 时）：`background-task-duration-restore`（二十一 子优化④ 补记二：后台任务耗时**恢复三层根因**——窗口被置空 / 通知型任务无起点 / **merge 抹掉 restored `startedAt`**；显示改紧凑 ASCII；补上「会话扩展信息」开关漏网的消息列表内联卡，链位 43）。前一位：`vcc-compact-fallback`（十三 vcc 失败降级兜底，链位 42）。再前：`subagent-background-task-durations`（二十一 子优化④：子代理耗时 + 子代理收纳栏总耗时 + 后台任务耗时，链位 41）。再前：`tps-content-accounting`（四 子优化：TPS 计量改为按内容度量，链位 40）。再前：`tps-real-token-accounting`（四 子优化：TPS 采样改真实 token 口径，链位 37）、`compact-dead-import-cleanup`（策略门禁 dead-imports 清理，链位 38）、`session-speed-and-usage-pairing`（四 子优化：面板生成速度分子分母配对 + transcript usage 去重丢 output 修复，链位 39）。新增：`turn-usage`（二十一 子优化②）、`thinking-badge-order-and-duration`（二十一 子优化①，前端 + API 层）、`baseline-typecheck-fixes`、`autocompact-window-tiers`、`history-transport-bounds`、`file-history-dedup`、`gzip-transport`、`history-first-paint-bound`（前端）、`storage-original-file-bound`（二十二 F 存量瘦身，含新测试文件）、`computer-use-platform-components`（十八 平台化组件选择）、`computer-use-python-path-fallback`（十八 解释器路径回退）、`tps-centered-second-line`（四 费用/TPS 第二行居中）、`h5-mobile-run-records`（二十五 H5 子代理运行记录，链位 36）。
+> **当前链规模（2026-09-28）**：共 **57 patch**（55 实 + 2 空）。最新一位：`session-history-context-durable`（五 补记：打开大会话一直转圈＝**归属投影全量扫盘**，索引落盘后跨进程 2,949ms→37ms，链位 57）。前一位：`tps-batched-delivery`（四 补记二：TPS 上千读数真因＝**打包投递被当成生成节奏**，链位 56）。前一位：`file-download-anchor`（五 补记定稿：**下载走 anchor 导航**，链位 55）。再前：`split-no-double-count`（二十六 补记：拆分的「真实用量 0」——一轮响应拆两条记录共享 `message.id`，估算与真值双计，链位 54）。前一位：`file-download-blob`（五 子优化：下载改走 `apiGetBlob`+blob，`file://` 下 DOM 请求的 Origin 是 `null` 被门控拒，链位 53）。再前：`tps-phase-switch-steady-window`（四 子优化⑦：TPS 相位切换脉冲**真根因**——分母不覆盖被它除的 token；稳态读数顺带精确化，链位 52）。前一位：`subagent-usage-split-live`（二十一 子优化⑥：还原会话的 think/非think 拆分 + 组栏运行中实时跟进，链位 51）。再前（链位 44-50）：`tps-burst-anchor`（四 子优化⑤ TPS 脉冲修复，链位 44）、`think-token-truth-chain`（二十一 子优化⑤ 思考 token 真值，链位 45）、`tps-tokens-kind-and-reasoning-passthrough`（四 子优化⑥ kind 归因 + reasoning 透传，链位 46）、`file-download-attr`（五 子优化 下载锚点，链位 47）、`local-index-extra-project-roots`（十 补记 额外索引根，链位 48）、`test-model-env-isolation`（十二 补记 模型 env 隔离，链位 49）、`session-list-multi-root-validation`（十 补记二 列表多根校验，链位 50）。**44-51 八链位验证**：`d89c1405` worktree 按序 apply **FAIL=0**，并集与工作树**逐字节一致**。上一版（链位 43 时）：`background-task-duration-restore`（二十一 子优化④ 补记二：后台任务耗时**恢复三层根因**——窗口被置空 / 通知型任务无起点 / **merge 抹掉 restored `startedAt`**；显示改紧凑 ASCII；补上「会话扩展信息」开关漏网的消息列表内联卡，链位 43）。前一位：`vcc-compact-fallback`（十三 vcc 失败降级兜底，链位 42）。再前：`subagent-background-task-durations`（二十一 子优化④：子代理耗时 + 子代理收纳栏总耗时 + 后台任务耗时，链位 41）。再前：`tps-content-accounting`（四 子优化：TPS 计量改为按内容度量，链位 40）。再前：`tps-real-token-accounting`（四 子优化：TPS 采样改真实 token 口径，链位 37）、`compact-dead-import-cleanup`（策略门禁 dead-imports 清理，链位 38）、`session-speed-and-usage-pairing`（四 子优化：面板生成速度分子分母配对 + transcript usage 去重丢 output 修复，链位 39）。新增：`turn-usage`（二十一 子优化②）、`thinking-badge-order-and-duration`（二十一 子优化①，前端 + API 层）、`baseline-typecheck-fixes`、`autocompact-window-tiers`、`history-transport-bounds`、`file-history-dedup`、`gzip-transport`、`history-first-paint-bound`（前端）、`storage-original-file-bound`（二十二 F 存量瘦身，含新测试文件）、`computer-use-platform-components`（十八 平台化组件选择）、`computer-use-python-path-fallback`（十八 解释器路径回退）、`tps-centered-second-line`（四 费用/TPS 第二行居中）、`h5-mobile-run-records`（二十五 H5 子代理运行记录，链位 36）。
 >
 > **全链验证（2026-09-27 收尾，决定性）**：在干净基线 `068b3ebd` 的**临时 worktree** 上按上表顺序 `git apply --allow-empty` 全部 **35 个 patch → 失败 0 个**；应用后终态与工作树在**本轮 4 个新 patch 涉及的全部 14 个文件**上**逐字节一致**，全树剩余差值仅为下节「已知非章 delta」。此为权威口径（早前「HEAD 上暂存往返」是非全链验证，已由本次全链取代）。**2026-09-27 追加第 36 位（`h5-mobile-run-records`）与 `tps-indicator`/`turn-usage` 重生成后复验：36 链同样失败 0，第 7 章 8 文件 + `chatStore.test.ts` + `AppShell.{tsx,test.tsx}` 逐字节等于工作树。** **2026-09-27 二次追加第 37/38 位（`tps-real-token-accounting`、`compact-dead-import-cleanup`）后复验：干净重跑 38 链失败 0，本轮 23 个文件（20 TPS + 3 dead-import）**逐字节等于工作树**。** **2026-09-27 三次追加第 39 位（`session-speed-and-usage-pairing`）后复验：干净重跑 39 链失败 0，本轮 13 个文件**逐字节等于工作树**。** **2026-09-27 四次追加：第 40/41/42 位（`tps-content-accounting`、`subagent-background-task-durations`、`vcc-compact-fallback`）随链入库（未单独复记全链）。** **2026-09-27 五次追加第 43 位（`background-task-duration-restore`）：干净 `068b3ebd` worktree 重跑 **43 链失败 0**，本轮 6 文件（`SessionActivityPanel.{tsx,test.tsx}`、`chatStore.{ts,test.ts}`、`MessageList.{tsx,test.tsx}`）**逐字节等于工作树**；生成时以 `HISTORY_STITCH_MAX_PAGES`/`agentGroupSpanMs`/`ingestSubagentTps` 三个「链内既有」标志串反查误记，均为 **0**。**
 
@@ -116,6 +116,7 @@
 | 53 | `patches/file-download-blob.patch` | 五 子优化：**下载改走 `apiGetBlob`+blob**——`file://` 下 DOM 自发的下载请求其 Origin 序列化为 `null`（非 `file://`），服务端 403 `CORS origin not allowed` ⇒ 「无法从网站上提取文件」。**不放行 `null`**（那是所有不透明来源的值，恶意页面的 sandbox iframe 即是 ⇒ 等于给本地 API 开后门），改修调用方；同 app icon 的既有解法（4 文件 133 增） | ✅ 已实施 |
 | 55 | `patches/file-download-anchor.patch` | 五 补记（定稿）：**下载必须走 anchor 导航**——anchor 点击不带 Origin，服务端放行并给 `Content-Disposition`；我误把「`Origin: null` → 403」当成「DOM 下载会被拒」，改 fetch+blob 反而把它推进被拒路径且静默失败。回到初版写法，文件浏览/文件预览一处修好；删掉上一轮的 IPC 机件（2 文件，净 −282 行） | ✅ 已实施 |
 | 56 | `patches/tps-batched-delivery.patch` | 四 补记二：**TPS 上千读数真因＝打包投递被当成生成节奏**——重放/整块交付/页面忙时排队的中转帧，其 token 生成时刻远早于投递时刻；逐样本只计入「到达间隔能支撑其实时速率」的样本（上限 5000），延迟交付的首批保留自身间隔故积压仍按其真实停顿评级。实测 7153→250、3603→383（4 文件） | ✅ 已实施 |
+| 57 | `patches/session-history-context-durable.patch` | 五 补记：**打开大会话「一直转圈」＝归属投影全量扫盘**——为一个 40,119 条消息的会话取一页要**扫 193MB / 2,949ms**（跳过投影仅 6ms）；索引原存 `mkdtemp`+内存 4 项+exit 即删 ⇒ 每次重启/淘汰重扫，还泄漏 634 目录/92MB。改为**索引落盘**（meta 表同事务存 identity/size/mtime/offset/suppressed/指纹，稳定路径 + 每周清理），**跨进程 2,949ms→37ms**（2 文件） | ✅ 已实施 |
 | 54 | `patches/split-no-double-count.patch` | 二十六 补记：**拆分「真实用量 0」**——一轮响应拆成两条记录（思考一条、正文一条，**共享 `message.id`**），只有带 usage 的那条能报 reasoning ⇒ 估算又叠真值（think 15.7k > total 9.3k）⇒ `max(0,total-think)` 恒 0。按响应 id 归组，真值胜过估算；**两处同病同修**（实时 tracker + 还原会话），实测 6/6 一致（4 文件 166 增） | ✅ 已实施 |
 | 52 | `patches/tps-phase-switch-steady-window.patch` | 四 子优化⑦：**TPS 相位切换脉冲真根因**——`total` 与 `span` 不是同一批 token 的时间：锚的条件太窄（停滞冲刷恰落在 `span==400ms` 地板故不进锚）、无前置样本时 `Math.max(span, 400ms)` 凭空造分母（整块交付读 22500）、`computeFallbackTps` 同病。收敛为一条规则：**一批 token 生成于它与前一批之间**（`sliceRate()`：原点取切片前一样本；无前置则丢弃最旧那批；不可计时则持有）。顺带修正稳态读数**系统性偏高 11%**（10 批除 9 个间隔） | ✅ 已实施 |
 | 51 | `patches/subagent-usage-split-live.patch` | 二十一 子优化⑥：**还原会话的 think/非think 拆分 + 组栏运行中实时跟进**——服务端 `sessionUsageRollup` 按 `toolUseId` 从子代理转录推导 usage 随通知下发（完成态权威）；组栏改读**运行中记录**（`agentTaskLiveUsage`）并以完成通知**二次校正**；实时节奏对齐思考徽章 3s（13 文件 781 增） | ✅ 已实施 |
@@ -673,6 +674,35 @@ H5 浏览器端打开文件链接时，`/local-file/<absPath>` 直接内联显�
   - 服务端三态如上表实测。
   - `handlePreviewLink` **38 绿**（下载段重写为「anchor 指向路由」断言）；`electron/ipc`+`services`+`workbench` **653 绿**；全量前端 **6346 绿**；`check:server` **493 文件 5950 绿**；`tsc -b` 0 错；链位 55/56 在链基 worktree apply **FAIL=0**。
 - **入库**：链位 **55** `patches/file-download-anchor.patch`（2 文件）。
+
+### 补记（2026-09-28）：打开大会话「一直转圈」＝归属投影全量扫盘（链位 57）
+
+- **触发（用户 verbatim）**：「老会话打不开」→ 追问后确认为「**一直转圈/很久没反应**」。
+- **定位过程（先证伪、再锁定）**：
+  - 打开门槛**不是**元凶：82 个会话**全是 UUID v4 名**、**无单条 >8MB 记录**（门槛 `HISTORY_SEMANTIC_RECORD_BYTES=8MB`、`isValidSessionId`）。
+  - vcc 扫盘**不是**元凶：`loadCcGlobalIndexByUuid` 实测 60MB→647ms。
+  - git 命令**不是**：仓库内 git 查询 3–4ms。
+  - 索引 DB 查询**不是**：4ms。
+  - **决定性对照**：`GET /api/sessions/<id>` **单独**就要 6.09s（小会话 0.55s）；再按选项切分 ⇒ 真凶是 `projectContext`。
+- **真根因**：`GET /api/sessions/<id>` 调 `getSessionHistoryPage(sessionId)`（**不带** `projectContext:false`）⇒ `projectHistoryPageEntries` → `readHistoryContexts`（`sessionHistoryContext.ts`）为给**一页**算出 `parent_tool_use_id`，把**整个转录从头流式扫一遍**。离线实测：
+
+  | 调用 | 耗时 | 扫描 |
+  |---|---|---|
+  | 默认（含投影） | **2,949ms** | **193,509,210 字节** |
+  | `projectContext:false` | **6ms** | 0 |
+
+  慢约 **500 倍**。代码注释自己写着「Building the ownership index scans the transcript from the start, which is what **stalls the shared server**」——但只有显式传 `projectContext:false` 才跳过，UI 正常打开走的是**会扫描**的那条。
+- **为什么反复转圈**（而不只是第一次慢）：缓存是 **`mkdtemp` 临时目录 + 内存 Map 仅 4 项**，且 `process.once('exit')` 直接 `rm -rf` ⇒ **每次服务重启、每次淘汰都要重扫**。
+- **顺带发现的泄漏**：`/tmp/claude-history-context-*` 累积 **634 个目录 / 92MB**（最早 09-24）——exit 钩子在 SIGKILL/崩溃时根本不执行，且内存只留 4 个、其余 build 完就无人回收。
+- **做法**：把索引的**可续跑状态写进 DB 的 `meta` 表**（`schema/identity/size/mtime/offset/suppressed/fingerprint`），并**与 context 行同事务提交**（保证索引永不与自身内容矛盾）；每个转录的索引放到**稳定路径** `<cc-haha>/db/history-context-v1/<sha256(路径)>.sqlite`（`CC_HAHA_HISTORY_CONTEXT_DIR` 可覆盖）。淘汰只 `close` **不删文件**；`pruneOnce()` 每进程最多一次、删 7 天未动的索引。
+  - **所有失效判定原样保留**（identity/size/mtime/前缀指纹）：索引仍只对建它时那个文件身份+大小+mtime 生效，不一致就丢弃重建。**正确性不变，变的只是「进程内易失」→「跨进程可用」。**
+- **验证（跨进程 = 跨重启）**：冷启动 2,949ms → 第 2 个进程 **37ms** → 第 3 个进程 **36ms**（后两次 `ctxScan=0`）；索引文件仅 **3.3MB**。`sessionHistoryContext.test.ts` **8/8**（新增两条：冷启动复用落盘索引、冷启动仍拒绝被替换的转录）；`check:server` **493 文件 5952 通过 0 失败**。
+- **踩坑记录**：
+  1. **别把「文件大」当成「上下文大」**：该会话 139MB / 4 万条消息，但**送进 API 的上下文只有 73K token**。压缩（auto/手动、vcc/llm）**都不会缩小转录文件**。用户以为「该压缩了」，其实阈值 418K 远没到。
+  2. **先证伪再锁定**：我依次排掉了打开门槛、vcc 扫盘、git、索引 DB 四个「看起来很像」的原因，最后用「单独测元数据端点」把范围从「历史分页」缩到「投影」。
+  3. **离线复现比读代码快得多**：写个脚本直接 import `sessionService` 调同一方法 + 按选项切分，一次就量出 2,949ms vs 6ms；纯读代码很难看出 `projectContext` 默认值是开着的。
+  4. 别用 `pkill -f` 停自己起的进程（同期误杀了用户生产实例，见 `feedback_kill_own_processes_only`）。
+- **入库**：链位 **57** `patches/session-history-context-durable.patch`（2 文件）。
 
 ## 六、设置-关于-更新：禁止更新开关（源§十三，✅ 2026-09-25）
 
