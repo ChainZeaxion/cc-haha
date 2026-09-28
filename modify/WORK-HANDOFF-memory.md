@@ -56,13 +56,13 @@
 - **本轮完成（task#81）**：上游 main `068b3ebd`（09-25，20 commit：pending 问题超时自动回答/聊天外观偏好/CORS 门控重做/OAuth 2.1.281/agent-teams/Kimi K3 图片透传等）融入 custom-066 + 19 patch 全部重基到 068b3ebd。
   - 提交链：a973e578 → `4e25e022`(merge 上游, 5 冲突全并集解决) → `005684ea`(修两处合并吞行+autoQuestion GET 测试期望) → `dbaa10b8`(MessagePayloadRetention 注释对齐上游) → `638c9bca`(AppShell 测试修复+19 patch 重基) → `50e0423f`(docs)。
   - **AppShell 既有回归修复**：chatStore mock 缺 `getSubordinateTpsMeters`（TPS 子代理汇聚引入）→ 补 `() => []`，22/22。
-  - **19 patch 重基法（overlay 终态法）**：worktree@068b3ebd 每章 cp 终态文件→commit→相邻章 diff 出 patch。2 章变空 patch（h5-settings-whitelist/h5-mobile-market，共享文件 delta 被前序章覆盖，无损）；apply 用 `--allow-empty`。
-  - **验证**：fresh worktree@068b3ebd 顺序 apply 19/19 全干净，终态 vs 工作树仅 4 已知非章 delta（bun.lock、TerminalSettings.tsx、providerModels.ts、preview-agent.js）。desktop tsc 0；desktop vitest 12456/2（2=MessageList 一条负载 flaky，隔离 201/201 绿）；server 6854/10（全 flaky，隔离全绿）。
+  - **19 patch 重基法（overlay 终态法）**：worktree@068b3ebd 每章 cp 终态文件→commit→相邻章 diff 出 patch。（2026-09-28：原先 h5-settings-whitelist / h5-mobile-market 两个空补丁**已移除**，链 59→57，此后按序 `git apply` **无需 `--allow-empty`**。）
+  - **验证**：fresh worktree@068b3ebd 顺序 apply 19/19 全干净，终态 vs 工作树为**非章 delta**（截至 2026-09-28 实测 **19 个文件 / +36 −203 行**，含 package.json / preview-agent.js / providerModels.ts / TerminalSettings.tsx / modelEnv.ts / PermissionUpdate.ts 等；清单与来源见优化文档）。desktop tsc 0；desktop vitest 12456/2（2=MessageList 一条负载 flaky，隔离 201/201 绿）；server 6854/10（全 flaky，隔离全绿）。
 - **桌面应用已编译**（合并前源码，符合「先编译当前版本」）：`desktop/build-artifacts/electron/` deb(201MB)+AppImage(253MB)+linux-unpacked，bundle App-C1OyVXUg.js（含 TPS 汇聚徽章，无上游新功能）。
 
-## patch 体系（**23 链**，**基线 068b3ebd**）
+## patch 体系（**57 链**，**基线 068b3ebd**）
 
-顺序（自上而下 `git apply --allow-empty`）：h5-require-token → h5-auto-mode-optin → session-export → h5-settings-parity → h5-terminal-bridge → session-refresh → tps-indicator → file-download → disable-updates → cache-billing → thinking-switch → h5-settings-whitelist(空) → server-test-baseline-zeroing → h5-mobile-quick-actions → vcc-compactor → h5-mobile-market(空) → h5-mobile-scheduled → connector-linux-platform → h5-mobile-market-layout → computer-use-linux-x11 → context-usage-anchor（#85 十九）→ h5-gzip-transport（二十）→ **thinking-tool-timing**（#91 二十一，末位）。
+顺序（自上而下 `git apply`，**无需 `--allow-empty`**）：h5-require-token → h5-auto-mode-optin → session-export → h5-settings-parity → h5-terminal-bridge → session-refresh → tps-indicator → file-download → disable-updates → cache-billing → thinking-switch → server-test-baseline-zeroing → h5-mobile-quick-actions → vcc-compactor → h5-mobile-scheduled → connector-linux-platform → h5-mobile-market-layout → computer-use-linux-x11 → context-usage-anchor（#85 十九）→ h5-gzip-transport（二十）→ **thinking-tool-timing**（#91 二十一，末位）。
 
 ## 工作树未提交项（预期内，非章 delta）
 
