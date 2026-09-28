@@ -6,6 +6,12 @@ import type { ToolUseContext } from '../../Tool.js'
 import type { AgentDefinition } from '../../tools/AgentTool/loadAgentsDir.js'
 import { createAssistantMessage } from '../messages.js'
 
+import { isolateModelDefaultsEnv } from '../../testUtils/modelEnv.js'
+
+// `/agent` and `/team` resolve the active model, so ambient model-override env
+// vars changed the answers and the file failed even when run on its own.
+isolateModelDefaultsEnv()
+
 process.env.ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY ?? 'test-key'
 
 const runAgentMock = mock(() =>
