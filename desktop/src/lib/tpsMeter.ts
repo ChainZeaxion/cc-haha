@@ -68,6 +68,13 @@ const BURST_FLOOR_MS = 400
 // window only up to a settled point drops both cases. The cost is that the
 // readout lags this much, which is below what the eye resolves on a rate.
 const SETTLE_MS = 230
+// Upper bound on the tokens a sample can carry per second of the interval since
+// the previous one. Nothing measured here comes close (the local engines run
+// around 250, the fastest configurations under 1000), so a sample above this is
+// not a decode reading at all: it is a batch whose tokens were generated before
+// they were delivered. Generous on purpose — it only has to separate "delivered
+// as generated" from "delivered at once", and those differ by orders of magnitude.
+const MAX_INSTANT_TPS = 5_000
 const CJK_RE = /[\u3400-\u9fff\u3040-\u30ff\uac00-\ud7af\u3000-\u303f\uff00-\uffef]/
 const WHITESPACE_RE = /\s/
 const NON_CJK_TOKEN_WEIGHT = 1 / 3.5
@@ -476,9 +483,36 @@ export class TpsMeter {
       start += 1
     }
     if (start > lastIndex) return null
+    // Rate only the samples that could have been generated at the pace their
+    // arrival implies. A sample that arrives carrying more tokens than any real
+    // decode could have produced in the gap since the previous one is part of a
+    // BATCH — a replayed prefix, a non-streamed fallback handed over whole, a
+    // backlog the relay delivered at once while the page was busy (a Bash step's
+    // output keeps the main thread occupied in exactly that way). Those tokens
+    // were generated before they arrived, and nothing in this window records
+    // when, so they are left out instead of being charged to an interval they
+    // did not occupy: measured 7153 t/s for a replayed block and 3602 t/s for a
+    // backlog flush, both against a real 250.
+    //
+    // The first sample of a delayed delivery keeps its large gap, so a backlog
+    // is still rated honestly against the pause it was generated across.
     let total = 0
-    for (let i = start; i <= lastIndex; i++) total += this.sampleTokens(samples[i]!)
-    const span = (samples[lastIndex]!.t - origin) / 1000
+    let lastKeptT = 0
+    let kept = 0
+    let previousT = origin
+    for (let i = start; i <= lastIndex; i++) {
+      const sample = samples[i]!
+      const gapMs = sample.t - previousT
+      const tokens = this.sampleTokens(sample)
+      if (gapMs > 0 && tokens / (gapMs / 1000) <= MAX_INSTANT_TPS) {
+        total += tokens
+        lastKeptT = sample.t
+        kept += 1
+      }
+      previousT = sample.t
+    }
+    if (kept === 0) return null
+    const span = (lastKeptT - origin) / 1000
     // Below the floor there is no span worth dividing by, and inventing one
     // (the old behavior: divide by 400 ms regardless) is what produced the
     // thousands-per-second readings this is meant to prevent.

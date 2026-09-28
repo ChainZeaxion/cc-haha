@@ -85,6 +85,7 @@ describe('composer attachment payloads', () => {
       isDesktop: true,
       files: {
         getPathForFile: file => nativePaths.get(file) ?? '',
+        saveCopy: async () => ({ saved: false, reason: 'unsupported' }),
       },
     }
 
@@ -115,6 +116,7 @@ describe('composer attachment payloads', () => {
       isDesktop: true,
       files: {
         getPathForFile: file => nativePaths.get(file) ?? '',
+        saveCopy: async () => ({ saved: false, reason: 'unsupported' }),
       },
     }
 

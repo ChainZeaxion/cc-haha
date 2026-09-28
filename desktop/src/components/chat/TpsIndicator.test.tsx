@@ -4,7 +4,7 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { TpsMeter } from '@/lib/tpsMeter'
 import * as chatStore from '@/stores/chatStore'
 import { useSettingsStore } from '@/stores/settingsStore'
-import { TpsIndicator } from './TpsIndicator'
+import { TpsIndicator, formatTps } from './TpsIndicator'
 
 // Drive the real meters with a fake clock so the sliding windows behave
 // deterministically, and stub only the store lookups.
@@ -66,18 +66,24 @@ it('drops the Σ badge once the subagent stops (its held speed must not inflate 
 })
 
 it('caps the displayed value at 4 digits (9999)', () => {
-  // Relay real token counts far above the display ceiling: 15 live samples of
-  // 2000 tokens over a ~1.4s window ≈ 21k tokens/s.
+  // Asserted on the formatter, not through the meter: a rate that high cannot
+  // come out of the meter any more, because a sample carrying more tokens than
+  // any real decode could produce in its interval is treated as a batch and left
+  // out (that rule is what stopped the 1600+ t/s readings). The cap stays as the
+  // display's own guarantee for any source.
+  expect(formatTps(21_000)).toBe('9999')
+  expect(formatTps(9999)).toBe('9999')
+  expect(formatTps(250)).toBe('250')
+})
+
+it('reports an exact (ids) reading without the approximate mark', () => {
+  // A plausible stream from the exact tier: 50 tokens per 200 ms flush = 250 t/s.
   for (let i = 0; i < 20; i++) {
-    now += 100
-    ownMeter.pushTokens(2000)
+    now += 200
+    ownMeter.pushTokens(50)
   }
   const { container } = render(<TpsIndicator sessionId="main" />)
   const indicator = container.querySelector('[data-testid="tps-indicator"]')!
-  const numberText = indicator.textContent?.replace(/TPS|t\/s|Σ\d+/g, '').trim() ?? ''
-  expect(Number(numberText)).toBe(9999)
-  // The reading comes from the exact (relayed ids) tier, so the tooltip must
-  // not advertise it as approximate.
   expect(indicator).toHaveAttribute('data-tps-source', 'ids')
   expect(indicator).not.toHaveAttribute('title', expect.stringContaining('≈'))
 })

@@ -1,4 +1,5 @@
 import { apiGetBlob } from '../api/client'
+import { getDesktopHost } from './desktopHost'
 import { classifyPreviewLink } from './previewLinkRouter'
 import { shouldOfferStaticHtmlPreview } from './htmlPreviewPolicy'
 
@@ -83,6 +84,28 @@ export function localFileUrl(base: string, absPath: string): string {
  * @returns whether the file was handed to the browser to save.
  */
 export async function downloadLocalFile(absolutePath: string): Promise<boolean> {
+  // In the desktop shell the file is on this machine already, so the shell can
+  // copy it — no origin, no CORS, no blob. That route exists because the two the
+  // page can attempt both fail here, for reasons the page cannot see:
+  //   - a download the DOM starts itself is a cross-site request from the
+  //     `file://` page's opaque origin, and the server refuses `null` (403), and
+  //   - a `blob:` URL minted in that opaque origin is not downloadable either.
+  // The second is what turned "download failed" into "nothing happens at all".
+  const host = getDesktopHost()
+  if (host.files?.saveCopy) {
+    try {
+      const result = await host.files.saveCopy(absolutePath, fileNameFromPath(absolutePath))
+      if (result.saved) return true
+      // A cancelled dialog is a decision, not a failure: fall through would
+      // re-open a second prompt.
+      if (result.reason === 'cancelled') return false
+    } catch (error) {
+      console.warn(
+        `[download] ${absolutePath}: shell copy failed: ${error instanceof Error ? error.message : String(error)}`,
+      )
+      return false
+    }
+  }
   try {
     // An empty base so the helper yields the path the API client wants.
     const path = `${localFileUrl('', absolutePath)}?download=1`

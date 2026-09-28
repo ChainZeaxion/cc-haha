@@ -564,3 +564,66 @@ describe('TpsMeter at a generation-phase handoff', () => {
     expect(meter.value()).toBeLessThan(steady * 1.35)
   })
 })
+
+describe('TpsMeter with batched delivery', () => {
+  afterEach(() => vi.restoreAllMocks())
+
+  /**
+   * A burst is not a decode reading. The tokens in it were generated before they
+   * were delivered (a replayed prefix, a non-streamed fallback handed over whole,
+   * a backlog the relay delivered while the page was busy — a Bash step's output
+   * keeps the main thread occupied exactly that way), and nothing in the window
+   * records when. Counting them against any interval here is what produced the
+   * readings the user kept seeing climb past 1600 t/s.
+   */
+  function clock() {
+    let now = 1_000_000
+    vi.spyOn(performance, 'now').mockImplementation(() => now)
+    return { advance: (ms: number) => { now += ms } }
+  }
+
+  function steady(meter: TpsMeter, advance: (ms: number) => void, flushes = 25) {
+    // 50 tokens per 200 ms flush = a real 250 t/s.
+    for (let i = 0; i < flushes; i++) {
+      advance(200)
+      meter.pushTokens(50)
+    }
+    expect(meter.value()).toBeCloseTo(250, 0)
+  }
+
+  it('holds the real rate when a whole block is delivered in one burst', () => {
+    const { advance } = clock()
+    const meter = new TpsMeter(1500, 2000)
+    steady(meter, advance)
+
+    // 9000 tokens across 20 frames arriving 5 ms apart: nothing could generate
+    // that fast, so these are not decode samples. Measured 7153 t/s before the
+    // rate was restricted to samples that arrived at their generation pace.
+    for (let i = 0; i < 20; i++) {
+      advance(5)
+      meter.pushTokens(450)
+    }
+    advance(300)
+    expect(meter.value()).toBeCloseTo(250, 0)
+  })
+
+  it('does not read a tool-pause backlog as a burst', () => {
+    const { advance } = clock()
+    const meter = new TpsMeter(1500, 2000)
+    steady(meter, advance)
+
+    // A bash step: 900 ms with nothing, then the queued frames arrive together.
+    advance(900)
+    for (let i = 0; i < 12; i++) {
+      advance(5)
+      meter.pushTokens(400)
+    }
+    advance(300)
+
+    // The first delayed batch keeps its own gap, so it is rated against the
+    // pause it was generated across; the rest are batches and are left out. The
+    // result stays in the same league as the real rate instead of the ~3600 the
+    // whole burst used to be charged for.
+    expect(meter.value()).toBeLessThan(600)
+  })
+})

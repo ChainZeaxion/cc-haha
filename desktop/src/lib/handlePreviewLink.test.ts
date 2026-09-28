@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 // jsdom implements neither, and the helper only needs them to produce a string.
 if (typeof URL.createObjectURL !== 'function') {
@@ -327,6 +327,82 @@ describe('downloadLocalFile', () => {
       restore()
       createSpy.mockRestore()
       warn.mockRestore()
+    }
+  })
+})
+
+describe('downloadLocalFile via the desktop shell', () => {
+  const originalHost = Object.getOwnPropertyDescriptor(window, 'desktopHost')
+  const saveCopy = vi.fn()
+
+  function stubHost(kind: 'electron' | 'browser') {
+    Object.defineProperty(window, 'desktopHost', {
+      configurable: true,
+      value: kind === 'electron'
+        ? { kind, isDesktop: true, files: { getPathForFile: () => '', saveCopy } }
+        : { kind, isDesktop: false, files: { saveCopy: async () => ({ saved: false, reason: 'unsupported' }) } },
+    })
+  }
+
+  function clickDownload() {
+    const clicked: HTMLAnchorElement[] = []
+    const create = document.createElement.bind(document)
+    const spy = vi.spyOn(document, 'createElement').mockImplementation((tag: string) => {
+      const el = create(tag)
+      if (tag === 'a') {
+        const anchor = el as HTMLAnchorElement
+        anchor.click = () => clicked.push(anchor)
+      }
+      return el
+    })
+    return { clicked, restore: () => spy.mockRestore() }
+  }
+
+  beforeEach(() => {
+    saveCopy.mockReset()
+    apiGetBlob.mockReset()
+  })
+  afterEach(() => {
+    if (originalHost) Object.defineProperty(window, 'desktopHost', originalHost)
+    else delete (window as { desktopHost?: unknown }).desktopHost
+  })
+
+  it('lets the shell copy the file instead of downloading it in the page', async () => {
+    // The page cannot download this file itself: a download the DOM starts is a
+    // cross-site request from the file:// page's opaque origin (server refuses
+    // `null`), and a blob: URL minted there is not downloadable either — which
+    // is why the entry went from "download failed" to doing nothing at all.
+    stubHost('electron')
+    saveCopy.mockResolvedValue({ saved: true, path: '/home/me/下载/notes.txt' })
+
+    await expect(downloadLocalFile('/home/me/notes.txt')).resolves.toBe(true)
+    expect(saveCopy).toHaveBeenCalledWith('/home/me/notes.txt', 'notes.txt')
+    // Nothing went through the page: no fetch, and no blob to click.
+    expect(apiGetBlob).not.toHaveBeenCalled()
+  })
+
+  it('treats a cancelled dialog as a decision, not as a failure to retry', async () => {
+    stubHost('electron')
+    saveCopy.mockResolvedValue({ saved: false, reason: 'cancelled' })
+
+    await expect(downloadLocalFile('/home/me/notes.txt')).resolves.toBe(false)
+    // A second mechanism must not fire: it would re-prompt the user.
+    expect(apiGetBlob).not.toHaveBeenCalled()
+  })
+
+  it('saves through the page when the shell has no copy capability', async () => {
+    // H5 in a browser: no shell, and there the page's own download works because
+    // it is an ordinary http origin rather than an opaque one.
+    stubHost('browser')
+    apiGetBlob.mockResolvedValue(new Blob(['x']))
+    const createSpy = vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:h5')
+    const { clicked, restore } = clickDownload()
+    try {
+      await expect(downloadLocalFile('/home/me/notes.txt')).resolves.toBe(true)
+      expect(clicked[0]?.download).toBe('notes.txt')
+    } finally {
+      restore()
+      createSpy.mockRestore()
     }
   })
 })

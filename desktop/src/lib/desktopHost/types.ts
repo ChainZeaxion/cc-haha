@@ -53,6 +53,18 @@ export type DialogSaveOptions = {
 }
 
 /**
+ * Outcome of {@link DesktopHost['files']['saveCopy']}. A refusal is not an error:
+ * the user cancelling and the shell lacking the capability both land here, and
+ * the caller's fallback differs (nothing to do vs. save through the page).
+ */
+export type DesktopFileSaveResult = {
+  saved: boolean
+  path?: string
+  reason?: 'cancelled' | 'unsupported' | 'invalid-source' | 'copy-failed'
+  message?: string
+}
+
+/**
  * What the renderer settled on, reported to the native shell so the window
  * background and the OS-drawn chrome can match it.
  */
@@ -411,6 +423,16 @@ export type DesktopHost = {
   }
   files: {
     getPathForFile(file: File): string
+    /**
+     * Save a copy of a local file where the user chooses.
+     *
+     * Takes the SOURCE path rather than bytes: the file is already on this
+     * machine, so the shell can copy it and nothing about the copy has to travel
+     * through the page (see downloadLocalFile for why the page's own download
+     * attempts cannot work here). The destination comes from a native save
+     * dialog, so a caller proposes only the name, never the location.
+     */
+    saveCopy(sourcePath: string, suggestedName?: string): Promise<DesktopFileSaveResult>
   }
   events: {
     listen<T>(eventName: string, handler: (payload: T) => void): Promise<DesktopHostUnlisten>

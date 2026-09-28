@@ -38,7 +38,7 @@ const MAX_DISPLAY_TPS = 9999
 type TpsTier = 'red' | 'orange' | 'green' | 'purple'
 
 /** Display integer, capped at 4 digits (see MAX_DISPLAY_TPS). */
-function formatTps(tps: number): string {
+export function formatTps(tps: number): string {
   const rounded = Math.round(tps)
   return String(Math.min(rounded, MAX_DISPLAY_TPS))
 }
