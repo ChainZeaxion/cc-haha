@@ -2331,6 +2331,23 @@ export function MessageList({
     }
     return statuses
   }, [backgroundAgentTasks])
+  // What the runs still in flight have produced so far. A running dispatch
+  // reports progress on every turn, and a reader waiting on a group of agents
+  // wants the number to move rather than appear only once the last one lands.
+  // Only running tasks are keyed: a settled run's notification already carries
+  // its final numbers, and this must not shadow them with a stale snapshot.
+  const agentTaskLiveUsage = useMemo<Record<string, { totalTokens?: number; thinkTokens?: number }>>(() => {
+    const usage: Record<string, { totalTokens?: number; thinkTokens?: number }> = {}
+    for (const task of Object.values(backgroundAgentTasks ?? {})) {
+      if (!task.toolUseId || task.status !== 'running') continue
+      if (!task.usage) continue
+      usage[task.toolUseId] = {
+        ...(task.usage.totalTokens !== undefined ? { totalTokens: task.usage.totalTokens } : {}),
+        ...(task.usage.thinkTokens !== undefined ? { thinkTokens: task.usage.thinkTokens } : {}),
+      }
+    }
+    return usage
+  }, [backgroundAgentTasks])
   const hasRunningBackgroundTasks = hasAnyRunningBackgroundTasks(backgroundAgentTasks)
   const pendingPermissions = listPendingPermissions(sessionState)
   const activeAskUserQuestionToolUseId =
@@ -3562,6 +3579,7 @@ export function MessageList({
             childToolCallsByParent={childToolCallsByParent}
             agentTaskNotifications={agentTaskNotifications}
             agentTaskStatuses={agentTaskStatuses}
+            agentTaskLiveUsage={agentTaskLiveUsage}
             activeThinkingId={activeThinkingId}
             isStreaming={
               chatState === 'tool_executing' &&

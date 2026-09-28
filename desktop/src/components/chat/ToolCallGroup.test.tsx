@@ -36,7 +36,12 @@ function result(id: string, timestamp: number): ToolResult {
   }
 }
 
-function renderGroup(toolCalls: ToolCall[], results: ToolResult[], notifications: Record<string, AgentTaskNotification> = {}) {
+function renderGroup(
+  toolCalls: ToolCall[],
+  results: ToolResult[],
+  notifications: Record<string, AgentTaskNotification> = {},
+  liveUsage: Record<string, { totalTokens?: number; thinkTokens?: number }> = {},
+) {
   return render(
     <ToolCallGroup
       sessionId="session-1"
@@ -44,6 +49,7 @@ function renderGroup(toolCalls: ToolCall[], results: ToolResult[], notifications
       resultMap={new Map(results.map((item) => [item.toolUseId, item]))}
       childToolCallsByParent={new Map()}
       agentTaskNotifications={notifications}
+      agentTaskLiveUsage={liveUsage}
     />,
   )
 }
@@ -181,6 +187,45 @@ describe('subagent group usage', () => {
 
     const usage = document.querySelector('[data-agent-group-usage="true"]')
     expect(usage?.textContent?.replace(/\s+/g, '')).toBe('22.00k+8.00k')
+  })
+
+  it('counts what a still-running run has produced so far', () => {
+    // Waiting on a dispatch means watching the total climb. Before this, the
+    // header had nothing to show until the last agent finished, so six agents
+    // running for minutes reported nothing at all.
+    renderGroup([agentCall('a', Date.now() - 1_000)], [], {}, { a: { totalTokens: 12_000 } })
+
+    const usage = document.querySelector('[data-agent-group-usage="true"]')
+    expect(usage?.textContent?.replace(/\s+/g, '')).toBe('≈12.00k')
+  })
+
+  it('shows the live split while a run is in flight', () => {
+    // Same contract as a settled run: thinking is withheld from the API, so the
+    // running numbers split too rather than showing one total.
+    renderGroup(
+      [agentCall('a', Date.now() - 1_000)],
+      [],
+      {},
+      { a: { totalTokens: 30_000, thinkTokens: 22_000 } },
+    )
+
+    const usage = document.querySelector('[data-agent-group-usage="true"]')
+    expect(usage?.textContent?.replace(/\s+/g, '')).toBe('≈22.00k+8.00k')
+  })
+
+  it('drops the live figures once the completion notification lands', () => {
+    // The notification is authoritative and final. If the live entry lingered,
+    // the bar would keep printing a snapshot taken mid-run instead of the run's
+    // real total — the correction step in this design.
+    renderGroup(
+      [agentCall('a', 1_000)],
+      [withUsage('a', 61_000, 40_000)],
+      { a: { taskId: 'task-a', toolUseId: 'a', status: 'completed', usage: { totalTokens: 40_000, thinkTokens: 30_000 } } },
+      {},
+    )
+
+    const usage = document.querySelector('[data-agent-group-usage="true"]')
+    expect(usage?.textContent?.replace(/\s+/g, '')).toBe('30.00k+10.00k')
   })
 
   it('hides the header usage and duration when session extended info is off', () => {

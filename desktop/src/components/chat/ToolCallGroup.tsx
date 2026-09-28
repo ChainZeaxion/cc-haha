@@ -3,7 +3,7 @@ import { BookMarked, ChevronDown, ChevronRight, CircleCheck, Settings } from 'lu
 import { ToolCallBlock, type ToolCallChrome } from './ToolCallBlock'
 import { TurnDownloadCard } from './DownloadReferencesCard'
 import { ActivityGroup } from './ActivityGroup'
-import { ThinkingBlock } from './ThinkingBlock'
+import { LIVE_ELAPSED_REFRESH_MS, ThinkingBlock } from './ThinkingBlock'
 import {
   activityStepToolCalls,
   agentGroupSpanMs,
@@ -111,6 +111,15 @@ type Props = {
   childToolCallsByParent: Map<string, ToolCall[]>
   agentTaskNotifications: Record<string, AgentTaskNotification>
   agentTaskStatuses?: Record<string, BackgroundAgentTask['status']>
+  /**
+   * Tokens the runs still in flight have produced so far, keyed by tool call.
+   *
+   * A dispatched group reports progress on every turn, and someone waiting on
+   * six agents wants the total to climb while they wait rather than appear all
+   * at once at the end. Absent entries (and settled runs) fall back to the
+   * completion notification, which carries the final, authoritative numbers.
+   */
+  agentTaskLiveUsage?: Record<string, { totalTokens?: number; thinkTokens?: number }>
   activeThinkingId?: string | null
   showOpenRun?: boolean
   /** When true, the last tool is still executing. */
@@ -127,14 +136,6 @@ export type OpenAgentRunPayload = {
   title: string
 }
 
-/**
- * How often a still-running dispatch re-reads the clock for its elapsed total.
- *
- * Matches the cadence the panel refreshes subagent progress at, so the elapsed
- * clock and the figures beside it move together instead of one lagging.
- */
-export const AGENT_GROUP_LIVE_REFRESH_MS = 5000
-
 export const ToolCallGroup = memo(function ToolCallGroup({
   sessionId,
   onOpenAgentRun,
@@ -145,6 +146,7 @@ export const ToolCallGroup = memo(function ToolCallGroup({
   childToolCallsByParent,
   agentTaskNotifications,
   agentTaskStatuses,
+  agentTaskLiveUsage,
   activeThinkingId,
   showOpenRun = true,
   isStreaming,
@@ -180,6 +182,7 @@ export const ToolCallGroup = memo(function ToolCallGroup({
               childToolCallsByParent={childToolCallsByParent}
               agentTaskNotifications={agentTaskNotifications}
               agentTaskStatuses={agentTaskStatuses}
+              agentTaskLiveUsage={agentTaskLiveUsage}
               activeThinkingId={activeThinkingId}
               showOpenRun={showOpenRun}
               isStreaming={isStreaming}
@@ -205,6 +208,7 @@ export const ToolCallGroup = memo(function ToolCallGroup({
         childToolCallsByParent={childToolCallsByParent}
         agentTaskNotifications={agentTaskNotifications}
         agentTaskStatuses={agentTaskStatuses}
+        agentTaskLiveUsage={agentTaskLiveUsage}
         activeThinkingId={activeThinkingId}
         showOpenRun={showOpenRun}
         isStreaming={isStreaming}
@@ -227,6 +231,7 @@ function ToolCallGroupContent({
   childToolCallsByParent,
   agentTaskNotifications,
   agentTaskStatuses,
+  agentTaskLiveUsage,
   activeThinkingId,
   showOpenRun = true,
   isStreaming,
@@ -286,6 +291,7 @@ function ToolCallGroupContent({
             childToolCallsByParent={childToolCallsByParent}
             agentTaskNotifications={agentTaskNotifications}
             agentTaskStatuses={agentTaskStatuses}
+            agentTaskLiveUsage={agentTaskLiveUsage}
             activeThinkingId={activeThinkingId}
             showOpenRun={showOpenRun}
             isStreaming={isStreaming}
@@ -322,6 +328,7 @@ function ToolCallGroupContent({
         childToolCallsByParent={childToolCallsByParent}
         agentTaskNotifications={agentTaskNotifications}
         agentTaskStatuses={agentTaskStatuses}
+        agentTaskLiveUsage={agentTaskLiveUsage}
         showOpenRun={showOpenRun}
       />
     )
@@ -477,6 +484,7 @@ function AgentToolGroup({
   childToolCallsByParent,
   agentTaskNotifications,
   agentTaskStatuses,
+  agentTaskLiveUsage,
   showOpenRun = true,
 }: Props) {
   const { expanded, toggleExpanded } = useExpandableCardState()
@@ -499,13 +507,13 @@ function AgentToolGroup({
   // A running dispatch keeps its clock moving. Elapsed wall time is the thing a
   // reader watches while waiting, and a frozen number reads as a hung run, so
   // the in-flight members are closed at "now" and the clock is re-read on a
-  // cadence. 5s is what the panel refreshes progress at, so the number and the
-  // underlying figures stay in step rather than one lagging the other.
+  // cadence. It shares the thinking badge's cadence so every live counter on a
+  // run moves in the same steps rather than each on its own rhythm.
   const [liveNowMs, setLiveNowMs] = useState(() => Date.now())
   useEffect(() => {
     if (!isAnyRunning) return
     setLiveNowMs(Date.now())
-    const timer = setInterval(() => setLiveNowMs(Date.now()), AGENT_GROUP_LIVE_REFRESH_MS)
+    const timer = setInterval(() => setLiveNowMs(Date.now()), LIVE_ELAPSED_REFRESH_MS)
     return () => clearInterval(timer)
   }, [isAnyRunning])
   // Wall-clock span of the whole dispatch — earliest start to latest end, NOT
@@ -521,16 +529,23 @@ function AgentToolGroup({
   )))
   const totalDurationLabel = totalDuration === undefined ? '' : formatDuration(totalDuration)
   // Tokens add up where the span does not: a dispatched group runs in parallel,
-  // but the work its members did is not shared between them.
+  // but the work its members did is not shared between them. A member still in
+  // flight contributes what it has reported so far — the completion
+  // notification is the authoritative figure and replaces it the moment the run
+  // settles, so the number climbs towards the truth instead of appearing at the
+  // end. Both sources come from the runtime, so this is not an estimate of
+  // tokens, only of "how many there will be".
   const totalTokens = agentGroupTokens(toolCalls.map((toolCall) => agentRunTokens(
-    agentTaskNotifications[toolCall.toolUseId]?.usage?.totalTokens,
+    agentTaskLiveUsage?.[toolCall.toolUseId]?.totalTokens
+      ?? agentTaskNotifications[toolCall.toolUseId]?.usage?.totalTokens,
     resultMap.get(toolCall.toolUseId),
   )))
   // The thinking share, when the runtime reported one. It emits the split only
   // while the thinking itself is withheld, so a present count is exactly the
   // case where the bar should show `think + rest` instead of one total.
   const thinkTokens = agentGroupThinkTokens(toolCalls.map((toolCall) => agentRunThinkTokens(
-    agentTaskNotifications[toolCall.toolUseId]?.usage?.thinkTokens,
+    agentTaskLiveUsage?.[toolCall.toolUseId]?.thinkTokens
+      ?? agentTaskNotifications[toolCall.toolUseId]?.usage?.thinkTokens,
     resultMap.get(toolCall.toolUseId),
   )))
   const tokenParts = agentTokenParts(totalTokens, thinkTokens)
