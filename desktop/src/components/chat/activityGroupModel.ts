@@ -83,15 +83,33 @@ export function agentRunInterval(
   toolCall: Pick<ToolCall, 'timestamp'>,
   result: Pick<ToolResult, 'timestamp'> | undefined,
   reportedDurationMs?: number,
+  /**
+   * Wall clock to close an in-flight run's interval with, when it has neither a
+   * result nor a reported duration.
+   *
+   * Without it a running member contributes no span at all, so a dispatch's
+   * clock stops at its last finished member and only moves once the whole group
+   * ends — which reads as a hung run rather than a busy one. Only consulted when
+   * there is no result, so a finished run's interval is untouched.
+   */
+  liveEndMs?: number,
 ): AgentRunInterval | undefined {
   const startMs = toolCall.timestamp
-  if (!Number.isFinite(startMs)) return undefined
+  // `> 0` as well as finite: an absent timestamp defaults to 0, and closing that
+  // at the live clock would print a span measured from 1970.
+  if (!Number.isFinite(startMs) || startMs <= 0) return undefined
   if (typeof reportedDurationMs === 'number' && Number.isFinite(reportedDurationMs) && reportedDurationMs > 0) {
     return { startMs, endMs: startMs + reportedDurationMs }
   }
-  const endMs = result?.timestamp
-  if (typeof endMs !== 'number' || !Number.isFinite(endMs) || endMs < startMs) return undefined
-  return { startMs, endMs }
+  if (result) {
+    const endMs = result.timestamp
+    if (typeof endMs !== 'number' || !Number.isFinite(endMs) || endMs < startMs) return undefined
+    return { startMs, endMs }
+  }
+  if (typeof liveEndMs === 'number' && Number.isFinite(liveEndMs) && liveEndMs >= startMs) {
+    return { startMs, endMs: liveEndMs }
+  }
+  return undefined
 }
 
 /**

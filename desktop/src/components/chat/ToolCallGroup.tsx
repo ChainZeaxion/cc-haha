@@ -1,4 +1,4 @@
-import { memo, useCallback, useMemo, useState, Fragment} from 'react'
+import { memo, useCallback, useEffect, useMemo, useState, Fragment} from 'react'
 import { BookMarked, ChevronDown, ChevronRight, CircleCheck, Settings } from 'lucide-react'
 import { ToolCallBlock, type ToolCallChrome } from './ToolCallBlock'
 import { TurnDownloadCard } from './DownloadReferencesCard'
@@ -126,6 +126,14 @@ export type OpenAgentRunPayload = {
   toolUseId: string
   title: string
 }
+
+/**
+ * How often a still-running dispatch re-reads the clock for its elapsed total.
+ *
+ * Matches the cadence the panel refreshes subagent progress at, so the elapsed
+ * clock and the figures beside it move together instead of one lagging.
+ */
+export const AGENT_GROUP_LIVE_REFRESH_MS = 5000
 
 export const ToolCallGroup = memo(function ToolCallGroup({
   sessionId,
@@ -488,15 +496,28 @@ function AgentToolGroup({
   const errorPresent = statuses.some((status) => status === 'failed')
   const allComplete = statuses.every((status) => status === 'done')
   const anyStopped = statuses.some((status) => status === 'stopped')
+  // A running dispatch keeps its clock moving. Elapsed wall time is the thing a
+  // reader watches while waiting, and a frozen number reads as a hung run, so
+  // the in-flight members are closed at "now" and the clock is re-read on a
+  // cadence. 5s is what the panel refreshes progress at, so the number and the
+  // underlying figures stay in step rather than one lagging the other.
+  const [liveNowMs, setLiveNowMs] = useState(() => Date.now())
+  useEffect(() => {
+    if (!isAnyRunning) return
+    setLiveNowMs(Date.now())
+    const timer = setInterval(() => setLiveNowMs(Date.now()), AGENT_GROUP_LIVE_REFRESH_MS)
+    return () => clearInterval(timer)
+  }, [isAnyRunning])
   // Wall-clock span of the whole dispatch — earliest start to latest end, NOT
   // the sum of the members: the runtime runs a dispatched group in parallel, so
-  // three concurrent 2-minute agents are 2 minutes, not 6. Members still in
-  // flight contribute nothing until they report or settle, so the number only
-  // ever grows towards the truth.
-  const totalDuration = agentGroupSpanMs(toolCalls.map((toolCall) => agentRunInterval(
+  // three concurrent 2-minute agents are 2 minutes, not 6. Until a member
+  // reports or settles it is closed at "now", so the number only ever grows
+  // towards the truth and never has to wait for the whole dispatch to end.
+  const totalDuration = agentGroupSpanMs(toolCalls.map((toolCall, index) => agentRunInterval(
     toolCall,
     resultMap.get(toolCall.toolUseId),
     agentTaskNotifications[toolCall.toolUseId]?.usage?.durationMs,
+    statuses[index] === 'running' || statuses[index] === 'starting' ? liveNowMs : undefined,
   )))
   const totalDurationLabel = totalDuration === undefined ? '' : formatDuration(totalDuration)
   // Tokens add up where the span does not: a dispatched group runs in parallel,
@@ -538,6 +559,9 @@ function AgentToolGroup({
           <span className="inline-flex shrink-0 items-baseline gap-[3px] whitespace-nowrap text-right text-[12px] text-[var(--color-text-secondary)]">
             <span>{t('toolGroup.agentTotalUsage')}</span>
             <span data-agent-group-usage="true" className="inline-flex items-baseline gap-[3px] tabular-nums">
+              {/* While members are still in flight the total only covers what has
+                  been reported so far, so it is marked as the estimate it is. */}
+              {isAnyRunning ? <span className="opacity-70">≈</span> : null}
               {/* `think + rest` while thinking is withheld; a single total once
                   it is returned. The separator mirrors the activity digest's. */}
               {tokenParts.map((part, index) => (
@@ -553,6 +577,9 @@ function AgentToolGroup({
           <span className="inline-flex shrink-0 items-baseline gap-[3px] whitespace-nowrap text-right text-[12px] text-[var(--color-text-secondary)]">
             <span>{t('toolGroup.agentTotalDuration')}</span>
             <span data-agent-group-duration="true" className="tabular-nums">
+              {/* Same reason as the usage: the span is still open, so the clock
+                  reads as elapsed-so-far rather than a settled total. */}
+              {isAnyRunning ? <span className="opacity-70">≈</span> : null}
               {totalDurationLabel}
             </span>
           </span>

@@ -402,6 +402,26 @@ describe('subagent run duration', () => {
     expect(agentRunInterval({ timestamp: 5_000 }, { timestamp: 1_000 }, undefined)).toBeUndefined()
   })
 
+  it('closes a run still in flight at the supplied wall clock', () => {
+    // The dispatch's clock has to move while agents run; without this the span
+    // stops at the last member that finished and the bar looks hung.
+    expect(agentRunInterval({ timestamp: 1_000 }, undefined, undefined, 46_000))
+      .toEqual({ startMs: 1_000, endMs: 46_000 })
+  })
+
+  it('ignores the live clock once a run has settled', () => {
+    // A settled run's own numbers are the truth; the ticking clock must not
+    // stretch it into "still running".
+    expect(agentRunInterval({ timestamp: 1_000 }, { timestamp: 121_000 }, undefined, 999_000))
+      .toEqual({ startMs: 1_000, endMs: 121_000 })
+    expect(agentRunInterval({ timestamp: 1_000 }, { timestamp: 1_050 }, 180_000, 999_000))
+      .toEqual({ startMs: 1_000, endMs: 181_000 })
+  })
+
+  it('refuses a live clock that predates the run', () => {
+    expect(agentRunInterval({ timestamp: 10_000 }, undefined, undefined, 4_000)).toBeUndefined()
+  })
+
   it('spans the group instead of summing it, because a dispatch runs in parallel', () => {
     // Three agents dispatched together, each taking two minutes. Serial logic
     // would say 6m; wall clock is 2m.

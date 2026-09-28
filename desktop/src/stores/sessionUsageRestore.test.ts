@@ -6,7 +6,8 @@ import {
   agentRunTokens,
   agentTokenParts,
 } from '../components/chat/activityGroupModel'
-import type { AgentTaskNotification, MessageEntry } from '../types/chat'
+import type { AgentTaskNotification } from '../types/chat'
+import type { MessageEntry } from '../types/session'
 import { reconstructRunActivityFromTranscript } from './chatStore'
 
 const TOOL_USE_ID = 'call_subagent_1'

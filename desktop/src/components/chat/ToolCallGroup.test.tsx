@@ -94,15 +94,27 @@ describe('subagent run duration', () => {
     expect(rowDurations()).toEqual(['3m0s'])
   })
 
-  it('omits the duration while a synchronous run is still in flight', () => {
-    // No result and no incoming report: there is no trustworthy anchor, so
-    // neither the row nor the header may guess a number.
-    renderGroup([agentCall('a', 1_000)], [])
+  it('shows an estimate for the elapsed time while a synchronous run is in flight', () => {
+    // Waiting on a dispatch means watching elapsed time, so the header reports
+    // it from the moment the call starts rather than staying blank until the
+    // whole group ends. It is marked ≈ because the span is still open.
+    renderGroup([agentCall('a', Date.now() - 30_000)], [])
+
+    const headerDuration = document.querySelector('[data-agent-group-duration="true"]')
+    expect(headerDuration?.textContent).toContain('≈')
+    expect(headerDuration?.textContent).toMatch(/30s|31s/)
 
     const header = screen.getByRole('button', { name: /agent/i })
-    expect(document.querySelector('[data-agent-group-duration="true"]')).toBeNull()
     fireEvent.click(header)
+    // Rows keep reporting settled numbers only; the summary is what ticks.
     expect(rowDurations()).toEqual([])
+  })
+
+  it('omits the elapsed estimate when the call has no usable start', () => {
+    // An absent timestamp defaults to 0, and closing that at "now" would print a
+    // span measured from 1970.
+    renderGroup([agentCall('a', 0)], [])
+    expect(document.querySelector('[data-agent-group-duration="true"]')).toBeNull()
   })
 })
 
