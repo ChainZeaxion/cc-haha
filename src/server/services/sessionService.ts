@@ -623,6 +623,18 @@ type SessionListSummaryCacheEntry = {
   summary: SessionListSummary
 }
 
+/**
+ * How far into a transcript the presence check reads before giving up.
+ *
+ * Deliberately generous: the check stops at the first qualifying entry, so a
+ * real transcript costs only its first few KB, and this cap only decides what to
+ * do with a file whose head is a long run of non-conversation records (large
+ * `file-history-snapshot` entries, for instance). 8 MB is far past the point
+ * where a placeholder would have shown its first real message, while still being
+ * a rounding error against the hundreds of MB the unbounded read used to parse.
+ */
+const TRANSCRIPT_PRESENCE_SCAN_BYTES = 8 * 1024 * 1024
+
 const DEFAULT_SESSION_LIST_CACHE_MAX_ENTRIES = 16
 const DEFAULT_SESSION_LIST_SUMMARY_CACHE_MAX_ENTRIES = 20_000
 
@@ -1202,6 +1214,46 @@ export class SessionService {
 
   private async readJsonlFile(filePath: string): Promise<RawEntry[]> {
     return (await this.readJsonlFileWithDiagnostics(filePath)).entries
+  }
+
+  /**
+   * Whether a transcript holds real conversation, read from the head only.
+   *
+   * `hasConversationTranscript` asks an existential question, so a full parse
+   * answers it at unbounded cost: this used to read and `JSON.parse` the whole
+   * file, and because one session id can exist under several discovery roots it
+   * did so for each match — measured 4–6 s per `findSessionFile` for a 139 MB
+   * session that also existed as a 184 MB copy, on a path nearly every session
+   * endpoint takes. Reading until the first qualifying entry answers the same
+   * question, and the cap keeps a pathological head (all metadata, no message)
+   * from scanning a giant file.
+   */
+  private async hasConversationTranscriptInFile(filePath: string): Promise<boolean> {
+    const stream = createReadStream(filePath, {
+      encoding: 'utf8',
+      start: 0,
+      end: TRANSCRIPT_PRESENCE_SCAN_BYTES - 1,
+    })
+    const lines = createInterface({ input: stream, crlfDelay: Infinity })
+    try {
+      for await (const line of lines) {
+        const trimmed = line.trim()
+        if (!trimmed) continue
+        let parsed: RawEntry
+        try {
+          parsed = JSON.parse(trimmed) as RawEntry
+        } catch {
+          continue
+        }
+        if (this.hasConversationTranscript([parsed])) return true
+      }
+      return false
+    } catch (err: unknown) {
+      if ((err as NodeJS.ErrnoException).code === 'ENOENT') return false
+      throw err
+    } finally {
+      stream.destroy()
+    }
   }
 
   private async readTargetedJsonlEntries(
@@ -2759,15 +2811,15 @@ export class SessionService {
                 sessionId,
                 projectsRoots!,
               )
-              // The index already validated this exact path, so one bounded read
-              // here only serves transcript-vs-placeholder ordering. The
-              // filesystem fallback below stays mtime-only because it runs on
-              // every reader call and must not do unbounded full reads.
-              const entries = await this.readJsonlFile(match.filePath)
+              // Only transcript-vs-placeholder ordering is needed here, so this
+              // reads the head rather than the whole file: a full parse cost 4-6 s
+              // per call for a large session with copies under several roots, on
+              // the path nearly every session endpoint takes. The filesystem
+              // fallback below stays mtime-only for the same reason.
               hydratedMatches.push({
                 ...match,
                 mtimeMs: stat.mtimeMs,
-                hasTranscript: this.hasConversationTranscript(entries),
+                hasTranscript: await this.hasConversationTranscriptInFile(match.filePath),
               })
             } catch (error) {
               if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
