@@ -2319,6 +2319,16 @@ export function pythonRuntimeFor(platform: NodeJS.Platform): PythonRuntimeCompon
 
 > **口径**：补丁 58–60 与链 1–57 相互独立（无人共享文件），可**在任何位置**应用；实测按「链序 + 58,59,60」得到终态与工作树仅差上述 2 个排除项。
 
+**产物核验（2026-09-28 19:06 deb）**：重建后逐项验证改动**真的进了包**（注意打包器用**反引号**表示字符串，用 `"`/`'` grep 会全部漏掉——我因此一度误判）：
+
+| 改动 | 产物内证据 |
+|---|---|
+| `providerModels` 固定 `'en'` | `localeCompare(t.group,\`en\`,{sensitivity:\`base\`})`（旧形态 `localeCompare(t.group,void 0` **已消失**） |
+| `TerminalSettings` 非安全上下文回退 | ``typeof crypto<\`u\`&&\`randomUUID\`in crypto?crypto.randomUUID():\`t-${Date.now()}-...`` |
+| sidecar 由近期树构建 | 链位 55 新增字面量 `history-context-v1` 命中；`query_message_normalization_end`（与 bound-thinking 同文件的 checkpoint）命中 |
+
+⚠️ **sidecar 侧无法用 grep 逐行证明**：函数名被**压缩改名**（既有标识符 `shouldSendThinkingToAPI` 也 0 命中），而 `api/claude.ts` 的 bound-thinking、`PermissionUpdate` 的 Proxy 化**都不新增字符串字面量**⇒无锚可查。其新鲜度由**流程证据**保证：构建脚本先 `rm -rf` 旧 sidecar 再 `bun run build:sidecars`，且构建时工作树干净、处于含本章的 `43a36c50`。
+
 ## 附录：交接备注（2026-09-27 更新）
 
 - #83 测试失败：前端全量 vitest 12456 pass/2 fail（2=MessageList 同一用例负载 flaky，已加 timeout:5000 缓解+孪生已同步）；server 侧 `bun run check:server` 本地坑=shell snapshot 把 `process.cwd()` 重置回 gov-managerment-plan（bun -e 实证），绕过法=/tmp/srv-exit.sh 逐文件 exit-code 判定（权威=CI 干净 checkout 无 .js 孪生双重收集）。
