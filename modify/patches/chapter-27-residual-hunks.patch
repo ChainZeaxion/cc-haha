@@ -1,0 +1,110 @@
+diff --git a/desktop/package.json b/desktop/package.json
+index f0efe855..cb55297c 100644
+--- a/desktop/package.json
++++ b/desktop/package.json
+@@ -87,6 +87,8 @@
+   "scripts": {
+     "dev": "vite",
+     "build": "bun run build:preview-agent && node ./node_modules/typescript/bin/tsc -b && node ./node_modules/vite/bin/vite.js build",
++    "build:renderer": "node ./node_modules/vite/bin/vite.js build",
++    "typecheck": "node ./node_modules/typescript/bin/tsc --noEmit",
+     "prepare:node-pty": "bun run ./scripts/prepare-node-pty.ts",
+     "build:electron": "bun run prepare:node-pty && bun build ./electron/main.ts --outfile ./electron-dist/main.cjs --target node --format cjs --external electron --external node-pty --external @ngrok/ngrok && bun build ./electron/preload.ts --outfile ./electron-dist/preload.cjs --target node --format cjs --external electron && bun build ./electron/pet-preload.ts --outfile ./electron-dist/pet-preload.cjs --target node --format cjs --external electron && bun build ./electron/preview-preload.ts --outfile ./electron-dist/preview-preload.cjs --target node --format cjs --external electron",
+     "build:preview-agent": "bun run ./scripts/build-preview-agent.ts",
+diff --git a/desktop/src/lib/providerModels.ts b/desktop/src/lib/providerModels.ts
+index f60151df..6faebdf0 100644
+--- a/desktop/src/lib/providerModels.ts
++++ b/desktop/src/lib/providerModels.ts
+@@ -37,9 +37,12 @@ export function groupProviderModels(
+     else groups.set(group, [{ ...model, id }])
+   }
+ 
++  // 'en' (not the host default) so ASCII and CJK group names sort the same on
++  // every OS — the host locale is often zh, which orders CJK before Latin and
++  // puts the "其他" fallback above the real provider names.
+   return [...groups.entries()]
+     .map(([group, groupModels]) => ({ group, models: groupModels }))
+-    .sort((a, b) => a.group.localeCompare(b.group, undefined, { sensitivity: 'base' }))
++    .sort((a, b) => a.group.localeCompare(b.group, 'en', { sensitivity: 'base' }))
+ }
+ 
+ /**
+diff --git a/desktop/src/pages/TerminalSettings.tsx b/desktop/src/pages/TerminalSettings.tsx
+index 4cd7b3dc..ab0ec54d 100644
+--- a/desktop/src/pages/TerminalSettings.tsx
++++ b/desktop/src/pages/TerminalSettings.tsx
+@@ -34,6 +34,14 @@ const STATUS_LABEL_KEYS: Record<TerminalStatus, TranslationKey> = {
+   unavailable: 'settings.terminal.status.unavailable',
+ }
+ 
++// crypto.randomUUID is only defined in secure contexts (https / localhost).
++// H5 reached over a LAN IP (http://192.168.x.x:port) is a non-secure context,
++// where the call would throw — mirror McpSettings' createId fallback.
++function createTerminalRequestId() {
++  if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) return crypto.randomUUID()
++  return `t-${Date.now()}-${Math.random().toString(36).slice(2)}`
++}
++
+ function findScrollableAncestor(element: HTMLElement, deltaY: number): HTMLElement | null {
+   let parent = element.parentElement
+   while (parent) {
+@@ -197,7 +205,7 @@ export function TerminalSettings({
+     const host = hostRef.current
+     if (!host) return Promise.resolve()
+ 
+-    const requestId = crypto.randomUUID()
++    const requestId = createTerminalRequestId()
+     let exitedDuringStart = false
+     const startToken = runtime.startToken + 1
+     runtime.startToken = startToken
+diff --git a/src/services/api/claude.ts b/src/services/api/claude.ts
+index 16e1b3af..f5b9074f 100644
+--- a/src/services/api/claude.ts
++++ b/src/services/api/claude.ts
+@@ -97,7 +97,7 @@ import {
+   type SystemPrompt,
+ } from "../../utils/systemPromptType.js";
+ import { tokenCountFromLastAPIResponse } from "../../utils/tokens.js";
+-import { shouldSendThinkingToAPI } from "../../utils/thinking.js";
++import { modelUsesBoundThinking, shouldSendThinkingToAPI } from "../../utils/thinking.js";
+ import { getDynamicConfig_BLOCKS_ON_INIT } from "../analytics/growthbook.js";
+ import {
+   currentLimits,
+@@ -1423,7 +1423,11 @@ async function* queryModel(
+     // When the "send thinking back to the API" toggle is OFF (default),
+     // strip the previous turn's thinking blocks from the request body to
+     // save prefill tokens. Local history always keeps them.
+-    { stripThinking: !shouldSendThinkingToAPI() },
++    // Exception: bound-thinking models (Fable 5.1) need the replayed
++    // thinking blocks in the request so the API can drop the ones bound
++    // to an old prefix (block_binding drop_block); stripping them breaks
++    // replay after a system change.
++    { stripThinking: !shouldSendThinkingToAPI() && !modelUsesBoundThinking(options.model) },
+   );
+   queryCheckpoint("query_message_normalization_end");
+ 
+diff --git a/src/utils/permissions/PermissionUpdate.ts b/src/utils/permissions/PermissionUpdate.ts
+index 0ba39c84..93b44802 100644
+--- a/src/utils/permissions/PermissionUpdate.ts
++++ b/src/utils/permissions/PermissionUpdate.ts
+@@ -26,8 +26,18 @@ import { addPermissionRulesToSettings } from './permissionsLoader.js'
+ 
+ /* eslint-disable @typescript-eslint/no-require-imports */
+ // permissionSetup imports this module back (`applyPermissionUpdate`), so a
+-// static import would close a cycle. Resolve it at call time instead.
+-const permissionSetupModule = require('./permissionSetup.js') as typeof import('./permissionSetup.js')
++// static import would close a cycle. Resolve it at call time instead — via a
++// getter, because a require() that runs during the cycle (i.e. at this module's
++// top level) returns permissionSetup's namespace before its exports exist, and
++// it keeps returning that empty object. Deferring until the first call lands
++// after both modules are evaluated.
++const permissionSetupModule: typeof import('./permissionSetup.js') = new Proxy(
++  {},
++  {
++    get: (_target, prop) =>
++      require('./permissionSetup.js')[(prop as string)],
++  },
++)
+ /* eslint-enable @typescript-eslint/no-require-imports */
+ 
+ // Re-export for backwards compatibility

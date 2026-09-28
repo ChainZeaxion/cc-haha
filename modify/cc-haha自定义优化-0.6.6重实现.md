@@ -37,7 +37,7 @@
 | 上下文/压缩 | 二十四 上下文压缩阈值按窗口分档（软触发百分比 + 硬触发绝对下限） | —（新增） | ✅ 已实施 |
 | 功能特性/显示 | 二十五 轮次用量 + think 用量 + 收纳栏 综合优化 | —（新增） | ➡ 已并入第二十一章（子优化②） |
 
-| 工程/登记 | 二十七 未纳入章节链的既有改动（测试环境隔离 / vcc 校准脚本 / 章内残余 delta） | —（登记，不新增 patch） | ✅ 已登记 |
+| 工程/登记 | 二十七 未纳入章节链的既有改动（测试环境隔离 / vcc 校准脚本 / 章内残余 delta） | `chapter-27-test-env-isolation` / `chapter-27-vcc-calibration-scripts` / `chapter-27-residual-hunks`（链位 58–60） | ✅ 已补补丁 |
 
 ## 📦 联动 Patches
 
@@ -45,7 +45,7 @@
 >
 > **2026-09-26 重基**：全部 patch 重基到上游 `068b3ebd`（origin/main 2026-09-25，含 20 个新 commit：CORS 门控重做/切 tab 保视图/历史不全保聊天/内存保存竞态两修/pending 问题超时自动回答/聊天外观偏好/OAuth 2.1.281 对齐/agent-teams/Kimi K3 图片透传/定时任务持久化串行化）。应用方式=按下表从上到下逐章 `git apply`（**不需要 `--allow-empty`**）。
 >
-> **当前链规模（2026-09-28）**：共 **57 patch**（**全部实体，无空补丁**）。最新一位：`transcript-metadata-durable`（五 补记三：**元数据投影落盘**，冷进程首开 10.24s→0.016s，链位 59）。前一位：`session-find-bounded-read`（五 补记二：**findSessionFile 全量解析转录**，4345ms→2ms，链位 58）。再前：`session-history-context-durable`（五 补记：归属投影全量扫盘，索引落盘，链位 57）。前一位：`tps-batched-delivery`（四 补记二：TPS 上千读数真因＝**打包投递被当成生成节奏**，链位 56）。前一位：`file-download-anchor`（五 补记定稿：**下载走 anchor 导航**，链位 55）。再前：`split-no-double-count`（二十六 补记：拆分的「真实用量 0」——一轮响应拆两条记录共享 `message.id`，估算与真值双计，链位 54）。前一位：`file-download-blob`（五 子优化：下载改走 `apiGetBlob`+blob，`file://` 下 DOM 请求的 Origin 是 `null` 被门控拒，链位 53）。再前：`tps-phase-switch-steady-window`（四 子优化⑦：TPS 相位切换脉冲**真根因**——分母不覆盖被它除的 token；稳态读数顺带精确化，链位 52）。前一位：`subagent-usage-split-live`（二十一 子优化⑥：还原会话的 think/非think 拆分 + 组栏运行中实时跟进，链位 51）。再前（链位 44-50）：`tps-burst-anchor`（四 子优化⑤ TPS 脉冲修复，链位 44）、`think-token-truth-chain`（二十一 子优化⑤ 思考 token 真值，链位 45）、`tps-tokens-kind-and-reasoning-passthrough`（四 子优化⑥ kind 归因 + reasoning 透传，链位 46）、`file-download-attr`（五 子优化 下载锚点，链位 47）、`local-index-extra-project-roots`（十 补记 额外索引根，链位 48）、`test-model-env-isolation`（十二 补记 模型 env 隔离，链位 49）、`session-list-multi-root-validation`（十 补记二 列表多根校验，链位 50）。**44-51 八链位验证**：`d89c1405` worktree 按序 apply **FAIL=0**，并集与工作树**逐字节一致**。上一版（链位 43 时）：`background-task-duration-restore`（二十一 子优化④ 补记二：后台任务耗时**恢复三层根因**——窗口被置空 / 通知型任务无起点 / **merge 抹掉 restored `startedAt`**；显示改紧凑 ASCII；补上「会话扩展信息」开关漏网的消息列表内联卡，链位 43）。前一位：`vcc-compact-fallback`（十三 vcc 失败降级兜底，链位 42）。再前：`subagent-background-task-durations`（二十一 子优化④：子代理耗时 + 子代理收纳栏总耗时 + 后台任务耗时，链位 41）。再前：`tps-content-accounting`（四 子优化：TPS 计量改为按内容度量，链位 40）。再前：`tps-real-token-accounting`（四 子优化：TPS 采样改真实 token 口径，链位 37）、`compact-dead-import-cleanup`（策略门禁 dead-imports 清理，链位 38）、`session-speed-and-usage-pairing`（四 子优化：面板生成速度分子分母配对 + transcript usage 去重丢 output 修复，链位 39）。新增：`turn-usage`（二十一 子优化②）、`thinking-badge-order-and-duration`（二十一 子优化①，前端 + API 层）、`baseline-typecheck-fixes`、`autocompact-window-tiers`、`history-transport-bounds`、`file-history-dedup`、`gzip-transport`、`history-first-paint-bound`（前端）、`storage-original-file-bound`（二十二 F 存量瘦身，含新测试文件）、`computer-use-platform-components`（十八 平台化组件选择）、`computer-use-python-path-fallback`（十八 解释器路径回退）、`tps-centered-second-line`（四 费用/TPS 第二行居中）、`h5-mobile-run-records`（二十五 H5 子代理运行记录，链位 36）。
+> **当前链规模（2026-09-28）**：共 **60 patch**（**全部实体，无空补丁**）。最新三位：`chapter-27-test-env-isolation` / `chapter-27-vcc-calibration-scripts` / `chapter-27-residual-hunks`（**链位 58–60**，二十七章：把此前「只登记不产补丁」的既有改动全部补成补丁）。**至此「基线 + 全链」100% 复现工作树**——实测干净 worktree@`068b3ebd` 按 1→60 依次 apply **60/60 成功**，终态与工作树差异**仅剩 2 个有意排除项**：`bun.lock`（锁文件随依赖解析变化）与 `desktop/src-tauri/resources/preview-agent.js`（构建产物，纳入补丁会在每次构建后失效）。前一位（性能三连）：`transcript-metadata-durable`（元数据投影落盘 10.24s→0.016s，链位 57）、`session-find-bounded-read`（findSessionFile 4345ms→2ms，链位 56）、`session-history-context-durable`（归属投影索引落盘，链位 55）。完整链位见上表。
 >
 > **全链验证（2026-09-28 复核，最新口径）**：干净 worktree@`068b3ebd` 上按上表顺序 `git apply --index` **57 个 patch → 失败 0 个**，且**无需 `--allow-empty`**（两个空补丁已移除，见下）。终态 vs 工作树（仅 `src`/`desktop`）剩余 **19 个文件的「非章 delta」**——这些改动来自未纳入章节体系的提交，**属预期内**，清单与原因见下节。
 >
@@ -128,6 +128,9 @@
 | 55 | `patches/session-history-context-durable.patch` | 五 补记：**打开大会话「一直转圈」＝归属投影全量扫盘**——为一个 40,119 条消息的会话取一页要**扫 193MB / 2,949ms**（跳过投影仅 6ms）；索引原存 `mkdtemp`+内存 4 项+exit 即删 ⇒ 每次重启/淘汰重扫，还泄漏 634 目录/92MB。改为**索引落盘**（meta 表同事务存 identity/size/mtime/offset/suppressed/指纹，稳定路径 + 每周清理），**跨进程 2,949ms→37ms**（2 文件） | ✅ 已实施 |
 | 56 | `patches/session-find-bounded-read.patch` | 五 补记二：**大会话一直转圈＝`findSessionFile` 全量解析转录**——判定「有没有真实对话」时把整个文件读完+逐行 JSON.parse，而同一 id 在多个发现根下各有一份（139.7MB+184.5MB）⇒ 每次解析约 320MB，**单次 4–6 秒**，且几乎每个会话端点都走它。改为只读文件头、命中即停（8MB 上限）。findSessionFile **4345→2ms**，大会话热态打开 **6.9s→0.010s**（2 文件） | ✅ 已实施 |
 | 57 | `patches/transcript-metadata-durable.patch` | 五 补记三：**元数据投影落盘**——冷进程首开大会话仍要 9.6s（该投影本就需要一次全量遍历算 messageCount/最后时间戳，且两份拷贝各建一次）；投影是几 KB 纯标量 ⇒ 落盘 + 只认同 signature，**10.24s → 0.016s**（链位 57/58 治重复开销，本条治冷启动）（3 文件） | ✅ 已实施 |
+| 60 | `patches/chapter-27-residual-hunks.patch` | 二十七 27.3：**章内残余 hunk**——`api/claude.ts` bound-thinking 模型（Fable 5.1）需回放思考块（`modelUsesBoundThinking`，剥离会破坏 system 变更后的重放）；`providerModels` 排序固定 `'en'`（宿主 zh 会把 CJK 排到拉丁之前，「其他」组顶到真实 provider 名之上）；`TerminalSettings` 的 `createTerminalRequestId()` 在非安全上下文（H5 经 LAN IP）无 `crypto.randomUUID` 故回退时间戳+随机串；`package.json` 去掉与 `build`/`tsc -b` 口径重复的两个脚本；`PermissionUpdate` require 环改 **Proxy getter**（顶层 require 在环中拿到的是空命名空间且会一直返回它）。与 58/59 合计补齐 21 个「无补丁触及」的文件（5 文件） | ✅ 已实施 |
+| 59 | `patches/chapter-27-vcc-calibration-scripts.patch` | 二十七 27.2：**vcc 片段模式校准/判分脚本**——`scripts/vcc-slice-calibration.ts`(1076 行) + `scripts/vcc-slice-judge.ts`(439 行)，随「局部压缩接入 vcc 片段模式 + 语料校准」引入；`.gitignore` 排除**机器生成的报告**（含会话原文与真实语料，入库的是手写版）。属**测量工具**而非产品代码，故原未纳入章节（3 文件） | ✅ 已实施 |
+| 58 | `patches/chapter-27-test-env-isolation.patch` | 二十七 27.1：**测试环境隔离与遗留失败清零**——新增 `src/testUtils/modelEnv.ts`（`isolateModelDefaultsEnv()` 存/剥离/还原模型相关 env），并接入 12 个用例（模型 4 个 + `effort.agent` + `thinking` + `print.sessionMessage` + `client` + `computerUse` + `builtInAgentOverrides` + `system` + `coreSchemas.modelInfo`）。根因＝**桌面 dev 会把 `CLAUDE_CODE_*` 导出进进程**，致同一批用例**单跑失败、官方 runner 全绿**——是环境泄漏不是真缺陷（13 文件） | ✅ 已实施 |
 
 > **已知非章 delta（有意不入 patch，链终态与工作树的结构性差值）**：`#83` 测试修复族（`src/testUtils/modelEnv.ts` 及 11 个 `*.test.ts`：`print.sessionMessage`/`constants/system`/`coreSchemas.modelInfo`/`api/client`/`skills/bundled/computerUse`/`builtInAgentOverrides`/`effort.agent`/`model/{agent,fable,opus55,opus5}`/`__tests__/thinking`/`permissions/PermissionUpdate`）、`MessageList.test.tsx`（flaky 超时放宽，见附录）、`TerminalSettings.tsx`、`lib/providerModels.ts`、`services/api/claude.ts`（bound-thinking WIP）、`desktop/package.json`（本轮新增 `build:renderer`/`typecheck` 两条 **dev 脚本**，electron-builder 打包时会剥离 `scripts`，故不影响产物）、`bun.lock`。
 
@@ -2254,9 +2257,10 @@ export function pythonRuntimeFor(platform: NodeJS.Platform): PythonRuntimeCompon
 
 ---
 
-## 二十七、未纳入章节链的既有改动（✅ 已登记，2026-09-28）
+## 二十七、未纳入章节链的既有改动（✅ 2026-09-28 已补为链位 58–60）
 
-> **本章不新增 patch**，用于登记「存在于工作树、但**不在任何章节补丁里**」的改动。
+> **本章已补齐 patch**：链位 **58–60**。此前本章只「登记」不产补丁，导致「基线 + 全链」无法 100% 复现工作树；现已把全部可入库改动提取成三个补丁。
+> **补丁后复现度**：干净 worktree@`068b3ebd` 按链序 apply **60/60 成功**，终态与工作树差异**仅剩 2 个有意排除项**（`bun.lock`、`desktop/src-tauri/resources/preview-agent.js`，理由见 27.4）。
 >
 > **背景**：`custom-066` 相对上游基线 `068b3ebd` 共有 **99 个提交**，而章节链只形式化了其中 **57 个** patch。因此「基线 + 全链」**无法 100% 复现工作树**——差额即本章所列。
 >
@@ -2299,13 +2303,21 @@ export function pythonRuntimeFor(platform: NodeJS.Platform): PythonRuntimeCompon
 
 ⚠️ `api/claude.ts` 那条是**待办性质**：章八/二十一的补丁重生成时未包含它（早前记录写作「bound-thinking WIP delta」）。若要让链完整，应把它并回对应章的补丁。
 
-### 27.4 如何让链 100% 复现工作树（待办）
+### 27.4 链复现度：已达成（2026-09-28）
 
-按上文逐项生成补丁即可，但**两项不建议纳入**：
+已按上文分三组生成补丁（链位 58–60），**两项有意不纳入**：
 1. `desktop/src-tauri/resources/preview-agent.js` —— 构建产物，纳入补丁会在每次构建后失效；
 2. `bun.lock` —— 锁文件，随依赖解析变化。
 
-其余（测试隔离、vcc 脚本、`api/claude.ts` 的 bound-thinking、`TerminalSettings` 回退、`providerModels` 排序、`package.json` 脚本、`.gitignore`）**都是可入库的真实改动**，若要追求「基线+链==工作树」，应把它们补成第 58 位补丁（或并回各自章节）。
+其余 21 个文件**已全部补成补丁**：
+
+| 链位 | patch | 组 | 文件数 | 内容 |
+|---|---|---|---|---|
+| 58 | `chapter-27-test-env-isolation.patch` | 27.1 | 13 | `modelEnv.ts` + 12 个用例接入（`CLAUDE_CODE_ATTRIBUTION_HEADER` / `CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS` 等继承 env 污染） |
+| 59 | `chapter-27-vcc-calibration-scripts.patch` | 27.2 | 3 | vcc 片段模式校准/判分脚本 + `.gitignore` 排除机生成报告 |
+| 60 | `chapter-27-residual-hunks.patch` | 27.3 | 5 | `api/claude.ts` bound-thinking、`providerModels` 排序固定 `'en'`、`TerminalSettings` 非安全上下文回退、`package.json` 脚本清理、`PermissionUpdate` require 环 Proxy 化 |
+
+> **口径**：补丁 58–60 与链 1–57 相互独立（无人共享文件），可**在任何位置**应用；实测按「链序 + 58,59,60」得到终态与工作树仅差上述 2 个排除项。
 
 ## 附录：交接备注（2026-09-27 更新）
 

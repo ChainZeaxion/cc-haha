@@ -60,7 +60,10 @@
   - **验证**：fresh worktree@068b3ebd 顺序 apply 19/19 全干净，终态 vs 工作树为**非章 delta**（截至 2026-09-28 实测 **19 个文件 / +36 −203 行**，含 package.json / preview-agent.js / providerModels.ts / TerminalSettings.tsx / modelEnv.ts / PermissionUpdate.ts 等；清单与来源见优化文档）。desktop tsc 0；desktop vitest 12456/2（2=MessageList 一条负载 flaky，隔离 201/201 绿）；server 6854/10（全 flaky，隔离全绿）。
 - **桌面应用已编译**（合并前源码，符合「先编译当前版本」）：`desktop/build-artifacts/electron/` deb(201MB)+AppImage(253MB)+linux-unpacked，bundle App-C1OyVXUg.js（含 TPS 汇聚徽章，无上游新功能）。
 
-## patch 体系（**57 链**，**基线 068b3ebd**）
+## patch 体系（**60 链**，**基线 068b3ebd**）
+
+> **2026-09-28 补齐**：二十七章原先「只登记不产补丁」，现已补成 **链位 58–60**（`chapter-27-test-env-isolation` / `chapter-27-vcc-calibration-scripts` / `chapter-27-residual-hunks`）。
+> **复现度已达 100%**：干净 worktree@`068b3ebd` 按 1→60 依次 `git apply --index` **60/60 成功**；终态与工作树差异**仅剩 2 个有意排除项**——`bun.lock`（锁文件）与 `desktop/src-tauri/resources/preview-agent.js`（构建产物）。
 
 顺序（自上而下 `git apply`，**无需 `--allow-empty`**）：h5-require-token → h5-auto-mode-optin → session-export → h5-settings-parity → h5-terminal-bridge → session-refresh → tps-indicator → file-download → disable-updates → cache-billing → thinking-switch → server-test-baseline-zeroing → h5-mobile-quick-actions → vcc-compactor → h5-mobile-scheduled → connector-linux-platform → h5-mobile-market-layout → computer-use-linux-x11 → context-usage-anchor（#85 十九）→ h5-gzip-transport（二十）→ **thinking-tool-timing**（#91 二十一，末位）。
 
