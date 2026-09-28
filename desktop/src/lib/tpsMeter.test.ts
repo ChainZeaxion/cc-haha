@@ -130,9 +130,13 @@ describe('real-token accounting', () => {
       meter.pushTokens(3)
     }
     expect(meter.source()).toBe('ids')
-    // 30 tokens over the 900ms span the samples occupy.
+    // 30 tokens over the 1000ms those batches cover. The denominator runs from
+    // the batch *before* the first one to the last one, because a batch's
+    // tokens are produced between it and its predecessor: ten batches of 3
+    // cover ten 100 ms intervals (30 t/s), not the nine in-window gaps — the
+    // 33.3 this used to assert, an 11% over-read on every steady reading.
     expect(meter.windowTokens()).toBeCloseTo(30, 5)
-    expect(meter.value()).toBeCloseTo(30 / 0.9, 1)
+    expect(meter.value()).toBeCloseTo(30, 1)
   })
 
   it('learns from the real usage so the window matches the real token total', () => {
@@ -244,7 +248,10 @@ describe('real-token accounting', () => {
       meter.push('你好世界')
     }
     expect(meter.windowTokens()).toBeCloseTo(40, 5)
-    expect(meter.value()).toBeCloseTo(40 / 0.9, 1)
+    // Same arithmetic as the ids case above: ten four-token batches cover 1 s,
+    // so 40 t/s — the prose is read at its own character density, and the
+    // denominator now counts every batch's own interval.
+    expect(meter.value()).toBeCloseTo(40, 1)
   })
 
   it('predicts the measured mixed call instead of staying at the neutral 1.0', () => {
@@ -492,18 +499,68 @@ describe('TpsMeter at a generation-phase handoff', () => {
     expect(meter.value()).toBeLessThan(300)
   })
 
-  it('leaves steady decoding on the in-window span', () => {
+  it('reads steady decoding exactly, anchor and all', () => {
     let now = 1_000_000
     vi.spyOn(performance, 'now').mockImplementation(() => now)
 
     const meter = new TpsMeter()
     meter.beginCall()
-    // 200 tps held for 3 s: the anchor must not lengthen the denominator here,
-    // because no samples were lost.
+    // 200 tps held for 3 s. The anchor lengthens the denominator by one batch
+    // interval here too, and that is correct rather than a concession: the
+    // extra interval is exactly the one the batch before the window covers, so
+    // k batches of 40 over k 200 ms intervals read 200 — not the 222 the
+    // unanchored form gave by charging ten batches to nine gaps.
     for (let i = 0; i < 15; i++) {
       now += 200
       meter.pushTokens(40)
     }
-    expect(meter.value()).toBeGreaterThan(180)
+    expect(meter.value()).toBeCloseTo(200, 0)
+  })
+
+  it('does not read a backlog as a burst one flush later', () => {
+    // The reported spike, in its exact shape: the anchor used to apply only
+    // when the in-window span fell *below* the floor, so a flush arriving
+    // ~400 ms after the stall — span == floor — skipped it and charged the
+    // whole backlog to 400 ms. With a team's tokens behind it that is the
+    // thousands-per-second the indicator pinned at.
+    let now = 1_000_000
+    vi.spyOn(performance, 'now').mockImplementation(() => now)
+
+    const meter = new TpsMeter()
+    meter.beginCall()
+    for (let i = 0; i < 15; i++) {
+      now += 200
+      meter.pushTokens(40)
+    }
+    const steady = meter.value()
+
+    now += 2500
+    meter.pushTokens(600)     // the backlog of the stall
+    now += 400
+    meter.pushTokens(40)      // normal generation again, span == the floor
+
+    expect(meter.value()).toBeLessThan(steady * 1.35)
+  })
+
+  it('holds the last rate instead of rating a block handed over in one sample', () => {
+    // A whole thinking block can arrive in a single frame. Its tokens were
+    // generated over an interval nothing in the window records, so there is no
+    // rate to compute — dividing them by the floor anyway read 22500 t/s. The
+    // honest answer is the rate already held.
+    let now = 1_000_000
+    vi.spyOn(performance, 'now').mockImplementation(() => now)
+
+    const meter = new TpsMeter()
+    meter.beginCall()
+    for (let i = 0; i < 15; i++) {
+      now += 200
+      meter.pushTokens(40)
+    }
+    const steady = meter.value()
+
+    now += 200
+    meter.pushTokens(9000)
+
+    expect(meter.value()).toBeLessThan(steady * 1.35)
   })
 })
