@@ -152,6 +152,15 @@ export class TpsMeter {
 
   // Learned coefficients and the least-squares accumulators behind them. They
   // describe the model, not this window, so reset() keeps them.
+  /**
+   * Arrival time of the sample just before the window's first one. A window's
+   * in-span says how fast samples arrived, not how long the tokens inside them
+   * took to generate, and the two stop agreeing across a pause: at a phase
+   * switch the engine stalls, the relay keeps batching, and the backlog flushes
+   * as one fat sample. Anchoring to this instead of to the burst floor is what
+   * keeps that backlog from reading as a burst — see value().
+   */
+  private preWindowAt = 0
   private kCjk = 1
   private kAscii = 1
   private sCC = 0
@@ -405,7 +414,21 @@ export class TpsMeter {
     const total = this.windowTokens()
     const first = this.samples[0]!
     const last = this.samples[this.samples.length - 1]!
-    const span = (last.t - first.t) / 1000
+    let span = (last.t - first.t) / 1000
+    // A span under the floor is not a fast decoder, it is a window that lost
+    // samples: generation stalled (the tool → content handoff, where a tool runs
+    // for seconds with nothing streaming) and what arrived afterwards was
+    // generated across that stall. Dividing those tokens by a fixed 400 ms turns
+    // the gap into a burst, which is the 2-5x spike at the think → tool →
+    // content boundaries. The last sample before the window is evidence of when
+    // generation stopped, so its arrival is the honest denominator. A rate that
+    // comes out below the sparse threshold is held by the boundary guard below
+    // rather than shown, so a genuinely idle stretch cannot read as slow
+    // decoding either. Steady decoding has a span well above the floor and never
+    // enters here.
+    if (span < BURST_FLOOR_MS / 1000 && this.preWindowAt > 0 && this.preWindowAt < first.t) {
+      span = (last.t - this.preWindowAt) / 1000
+    }
     // Burst guard: on mobile a batched ws delivery can collapse the
     // intra-window span to near-zero, so a small floor (BURST_FLOOR_MS)
     // prevents total/span from reading in the hundreds. Using the full window
@@ -425,6 +448,13 @@ export class TpsMeter {
 
   reset(): void {
     this.samples = []
+    // A source switch mid-stream resets the window to avoid mixing units, but
+    // the tokens either side of it split one continuous generation, so the
+    // anchor survives: without it the first flush after the switch lands alone
+    // in an empty window and is divided by the burst floor instead of by the
+    // time it actually took. Reset also fires on reconnect and retry, where the
+    // gap is real generation time too, so there is nothing to distinguish.
+    this.preWindowAt = this.lastPushAt
     this.everStreamed = false
     this.lastPushAt = 0
     this.fallbackTps = 0
@@ -494,7 +524,9 @@ export class TpsMeter {
   private prune(): void {
     const cutoff = performance.now() - this.windowMs
     while (this.samples.length > 0 && this.samples[0]!.t < cutoff) {
-      this.samples.shift()
+      // Keep the last one to fall out: it is the anchor a sparse window is
+      // extended back to.
+      this.preWindowAt = this.samples.shift()!.t
     }
   }
 }
@@ -550,7 +582,45 @@ export function aggregateMeterReadings(
   return { visible: true, tps: own.value(), activeSubs }
 }
 
+/**
+ * Coefficients {@link estimateTokens} should use, when a model's have been
+ * learned. `null` means the neutral default (one token per CJK character, one
+ * per 3.5 others).
+ *
+ * Module-level because the callers are pure functions invoked from render (the
+ * thought badge, the activity digest) and a client is looking at one model at a
+ * time; the alternative is threading a model id through every one of them. A
+ * client showing two models at once would need this per session.
+ */
+let estimationCalibration: TpsCalibration | null = null
+
+/**
+ * Point the content-based estimates at a model's learned tokenizer density.
+ *
+ * The badge and the digest can only measure characters, so their number is a
+ * guess until the meter has reconciled text against the real `output_tokens` a
+ * call reported. Those learned coefficients are what makes the guess track the
+ * real count (the meter learns them against real usage); using the neutral
+ * default while the calibration sits unread in storage is what left the
+ * estimate further off than it needed to be.
+ */
+export function setEstimationCalibration(calibration: TpsCalibration | null | undefined): void {
+  estimationCalibration = calibration
+    && Number.isFinite(calibration.kCjk) && calibration.kCjk > 0
+    && Number.isFinite(calibration.kAscii) && calibration.kAscii > 0
+    ? {
+        kCjk: clamp(calibration.kCjk, K_MIN, K_MAX),
+        kAscii: clamp(calibration.kAscii, K_MIN, K_MAX),
+      }
+    : null
+}
+
 export function estimateTokens(text: string): number {
   const { cjk, ascii } = textUnits(text)
-  return cjk + ascii
+  // Same shape the meter uses (see `value()`), so a learned calibration means
+  // the same thing in both places. With no calibration the multipliers are 1,
+  // which is exactly the neutral default this used to return.
+  const kCjk = estimationCalibration?.kCjk ?? 1
+  const kAscii = estimationCalibration?.kAscii ?? 1
+  return cjk * kCjk + ascii * kAscii
 }

@@ -1,5 +1,5 @@
 import { describe, expect, it, vi, afterEach } from 'vitest'
-import { TpsMeter, aggregateMeterReadings, estimateTokens } from './tpsMeter'
+import { TpsMeter, aggregateMeterReadings, estimateTokens, setEstimationCalibration } from './tpsMeter'
 
 describe('TpsMeter fallback', () => {
   afterEach(() => vi.restoreAllMocks())
@@ -84,7 +84,30 @@ describe('TpsMeter fallback', () => {
     // Empty / whitespace-only input never over-counts.
     expect(estimateTokens('')).toBe(0)
     expect(estimateTokens('   \n\t')).toBe(0)
-  })
+    })
+
+    it("estimates with the model's learned coefficients when one is set", () => {
+      // The neutral default is only a guess at a tokenizer's density. Once the
+      // meter has reconciled text against the real output_tokens a call
+      // reported, that guess is worse than what it learned -- which is why the
+      // numbers are persisted at all.
+      setEstimationCalibration({ kCjk: 0.8, kAscii: 1.6 })
+      expect(estimateTokens('你好世界，')).toBeCloseTo(5 * 0.8, 5)
+      expect(estimateTokens('abcdefg')).toBeCloseTo((7 / 3.5) * 1.6, 5)
+
+      // Clearing returns to neutral, so a session with no calibration behaves
+      // exactly as it did before the coefficients existed.
+      setEstimationCalibration(null)
+      expect(estimateTokens('你好世界，')).toBeCloseTo(5, 5)
+      expect(estimateTokens('abcdefg')).toBeCloseTo(2, 5)
+    })
+
+    it('ignores a non-positive or malformed calibration', () => {
+      setEstimationCalibration({ kCjk: 0, kAscii: 1.5 })
+      expect(estimateTokens('你好世界，')).toBeCloseTo(5, 5)
+      setEstimationCalibration(undefined)
+      expect(estimateTokens('abcdefg')).toBeCloseTo(2, 5)
+    })
 })
 
 describe('real-token accounting', () => {
@@ -405,5 +428,82 @@ describe('aggregateMeterReadings', () => {
     // 5-min idle: even though the window is drained, nothing new arrived.
     now += 6 * 60 * 1000
     expect(aggregateMeterReadings(own, [], now, 5 * 60 * 1000).visible).toBe(false)
+  })
+})
+
+describe('TpsMeter at a generation-phase handoff', () => {
+  afterEach(() => vi.restoreAllMocks())
+
+  /**
+   * The relay batches ids on a 200 ms timer, so samples are flushes. When
+   * generation stalls — the tool → content handoff, where a tool runs for
+   * seconds with nothing streaming — the window drains, and the flush that
+   * follows lands alone. A rate computed from one sample's arrival gap (zero)
+   * falls back to BURST_FLOOR_MS, so the flush reads as a burst proportional to
+   * how long generation was actually stopped: the reported 2-5x spike.
+   */
+  it('does not turn a stall-and-flush into a burst', () => {
+    let now = 1_000_000
+    vi.spyOn(performance, 'now').mockImplementation(() => now)
+
+    const meter = new TpsMeter()
+    meter.beginCall()
+    // Steady 200 tps: a 40-token flush every 200 ms.
+    for (let i = 0; i < 15; i++) {
+      now += 200
+      meter.pushTokens(40)
+    }
+    const steady = meter.value()
+    expect(steady).toBeGreaterThan(150)
+
+    // A tool runs: 2.5 s with nothing streaming, which drains the window.
+    // Generation resumes at the same rate and its first flush carries 2.5 s of
+    // tokens. Reading that against the 400 ms floor would report ~1200 tps.
+    now += 2500
+    meter.pushTokens(500)
+    const afterStall = meter.value()
+
+    expect(afterStall).toBeLessThan(steady * 1.35)
+    // The stall is the denominator, so the answer is the real rate: 500 tokens
+    // over ~2.7 s of stopped generation.
+    expect(afterStall).toBeGreaterThan(150)
+  })
+
+  it('keeps the anchor when the source switches mid-stream', () => {
+    let now = 1_000_000
+    vi.spyOn(performance, 'now').mockImplementation(() => now)
+
+    const meter = new TpsMeter()
+    meter.beginCall()
+    for (let i = 0; i < 15; i++) {
+      now += 200
+      meter.pushTokens(40)
+    }
+
+    // Ids start arriving, so the window is reset to avoid mixing units. The
+    // tokens either side of it split one continuous generation, so the next
+    // flush must still be divided by the time since generation last advanced.
+    now += 2500
+    meter.reset()
+    meter.beginCall()
+    now += 200
+    meter.pushTokens(500)
+
+    expect(meter.value()).toBeLessThan(300)
+  })
+
+  it('leaves steady decoding on the in-window span', () => {
+    let now = 1_000_000
+    vi.spyOn(performance, 'now').mockImplementation(() => now)
+
+    const meter = new TpsMeter()
+    meter.beginCall()
+    // 200 tps held for 3 s: the anchor must not lengthen the denominator here,
+    // because no samples were lost.
+    for (let i = 0; i < 15; i++) {
+      now += 200
+      meter.pushTokens(40)
+    }
+    expect(meter.value()).toBeGreaterThan(180)
   })
 })
