@@ -153,6 +153,24 @@ describe('subagent group usage', () => {
     expect(rowText).not.toContain('k')
   })
 
+  it('splits into thinking + the rest when the runtime reported the reasoning share', () => {
+    // The runtime emits the split only while the thinking itself is withheld, so
+    // a present count is the case where the bar must show two numbers: without
+    // it, a 30k run reads as 30k of answer when 22k of it was deliberation.
+    const withSplit = (id: string, total: number, think: number): ToolResult => ({
+      id: `result-${id}`,
+      type: 'tool_result',
+      toolUseId: id,
+      content: `agentId: ${id} (use SendMessage with to: '${id}')\n<usage>total_tokens: ${total}\ntool_uses: 3\nduration_ms: 1000\noutput_tokens: ${total}\nthink_tokens: ${think}</usage>`,
+      isError: false,
+      timestamp: 61_000,
+    })
+    renderGroup([agentCall('a', 1_000)], [withSplit('a', 30_000, 22_000)])
+
+    const usage = document.querySelector('[data-agent-group-usage="true"]')
+    expect(usage?.textContent?.replace(/\s+/g, '')).toBe('22.00k+8.00k')
+  })
+
   it('hides the header usage and duration when session extended info is off', () => {
     useSettingsStore.setState({ sessionExtendedInfo: false })
     const toolCalls = [agentCall('a', 1_000), agentCall('b', 1_000)]

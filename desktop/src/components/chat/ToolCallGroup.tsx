@@ -1,4 +1,4 @@
-import { memo, useCallback, useMemo, useState } from 'react'
+import { memo, useCallback, useMemo, useState, Fragment} from 'react'
 import { BookMarked, ChevronDown, ChevronRight, CircleCheck, Settings } from 'lucide-react'
 import { ToolCallBlock, type ToolCallChrome } from './ToolCallBlock'
 import { TurnDownloadCard } from './DownloadReferencesCard'
@@ -7,11 +7,13 @@ import { ThinkingBlock } from './ThinkingBlock'
 import {
   activityStepToolCalls,
   agentGroupSpanMs,
+  agentGroupThinkTokens,
   agentGroupTokens,
+  agentRunThinkTokens,
+  agentTokenParts,
   agentRunDurationMs,
   agentRunInterval,
   agentRunTokens,
-  formatActivityTokens,
   toActivitySteps,
   toolCallDurationMs,
   type ActivityStep,
@@ -503,7 +505,14 @@ function AgentToolGroup({
     agentTaskNotifications[toolCall.toolUseId]?.usage?.totalTokens,
     resultMap.get(toolCall.toolUseId),
   )))
-  const totalTokensLabel = totalTokens === undefined ? '' : formatActivityTokens(totalTokens)
+  // The thinking share, when the runtime reported one. It emits the split only
+  // while the thinking itself is withheld, so a present count is exactly the
+  // case where the bar should show `think + rest` instead of one total.
+  const thinkTokens = agentGroupThinkTokens(toolCalls.map((toolCall) => agentRunThinkTokens(
+    agentTaskNotifications[toolCall.toolUseId]?.usage?.thinkTokens,
+    resultMap.get(toolCall.toolUseId),
+  )))
+  const tokenParts = agentTokenParts(totalTokens, thinkTokens)
 
   return (
     <div className="overflow-hidden rounded-[var(--radius-lg)] border border-[var(--color-border)] bg-[var(--color-surface-container-lowest)]">
@@ -525,11 +534,18 @@ function AgentToolGroup({
             the summary bar has the slack to spend on it. Label and number are two
             elements joined by a 3px gap rather than one string with a space, because
             a full space between a CJK label and a digit reads as a hole at this size. */}
-        {sessionExtendedInfo !== false && totalTokensLabel && (
+        {sessionExtendedInfo !== false && tokenParts.length > 0 && (
           <span className="inline-flex shrink-0 items-baseline gap-[3px] whitespace-nowrap text-right text-[12px] text-[var(--color-text-secondary)]">
             <span>{t('toolGroup.agentTotalUsage')}</span>
-            <span data-agent-group-usage="true" className="tabular-nums">
-              {totalTokensLabel}
+            <span data-agent-group-usage="true" className="inline-flex items-baseline gap-[3px] tabular-nums">
+              {/* `think + rest` while thinking is withheld; a single total once
+                  it is returned. The separator mirrors the activity digest's. */}
+              {tokenParts.map((part, index) => (
+                <Fragment key={index}>
+                  {index > 0 ? <span className="opacity-60">+</span> : null}
+                  <span>{part}</span>
+                </Fragment>
+              ))}
             </span>
           </span>
         )}

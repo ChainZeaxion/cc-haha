@@ -19,6 +19,8 @@ import { getAgentTranscriptPath } from '../../utils/sessionStorage.js';
 import { evictTaskOutput, getTaskOutputPath, initTaskOutputAsSymlink } from '../../utils/task/diskOutput.js';
 import { PANEL_GRACE_MS, registerTask, updateTaskState } from '../../utils/task/framework.js';
 import { emitTaskProgress } from '../../utils/task/sdkProgress.js';
+import { roughTokenCountEstimationForThinking } from '../../services/tokenEstimation.js';
+import { shouldSendThinkingToAPI } from '../../utils/thinking.js';
 import { emitTaskTerminatedSdk } from '../../utils/sdkEventQueue.js';
 import type { TaskState } from '../types.js';
 export type ToolActivity = {
@@ -34,6 +36,8 @@ export type ToolActivity = {
 export type AgentProgress = {
   toolUseCount: number;
   tokenCount: number;
+  /** Thinking share of `tokenCount`; undefined when the engine reported none. */
+  reasoningTokens?: number;
   lastActivity?: ToolActivity;
   recentActivities?: ToolActivity[];
   summary?: string;
@@ -46,6 +50,12 @@ export type ProgressTracker = {
   // so we keep the latest value. output_tokens is per-turn, so we sum those.
   latestInputTokens: number;
   cumulativeOutputTokens: number;
+  /**
+   * How much of `cumulativeOutputTokens` was thinking. Summed per turn for the
+   * same reason output is. Stays 0 when the engine reports no reasoning split,
+   * which is how a reader tells "no split available" from "no thinking".
+   */
+  cumulativeReasoningTokens: number;
   recentActivities: ToolActivity[];
 };
 export function createProgressTracker(): ProgressTracker {
@@ -53,11 +63,34 @@ export function createProgressTracker(): ProgressTracker {
     toolUseCount: 0,
     latestInputTokens: 0,
     cumulativeOutputTokens: 0,
+    cumulativeReasoningTokens: 0,
     recentActivities: []
   };
 }
+/**
+ * Tokens an agent run has generated — the basis the UI shows as its "usage".
+ *
+ * Output only. `latestInputTokens` (input plus cache) is accumulated as well,
+ * but it describes the window the run has read, which grows with how much
+ * context it was handed rather than with the work it did; adding it to the
+ * output count made a long-context run look far busier than a long-output one.
+ * The synchronous path was moved onto this same basis, so a run's number means
+ * the same thing however it was dispatched.
+ */
 export function getTokenCountFromTracker(tracker: ProgressTracker): number {
-  return tracker.latestInputTokens + tracker.cumulativeOutputTokens;
+  return tracker.cumulativeOutputTokens;
+}
+
+/**
+ * How many of the run's output tokens were thinking, or `undefined` when the
+ * engine never reported a split — an absent number, not a zero one.
+ */
+export function getReasoningTokenCountFromTracker(
+  tracker: ProgressTracker
+): number | undefined {
+  return tracker.cumulativeReasoningTokens > 0
+    ? tracker.cumulativeReasoningTokens
+    : undefined;
 }
 
 /**
@@ -74,6 +107,18 @@ export function updateProgressFromMessage(tracker: ProgressTracker, message: Mes
   // Keep latest input (it's cumulative in the API), sum outputs
   tracker.latestInputTokens = usage.input_tokens + (usage.cache_creation_input_tokens ?? 0) + (usage.cache_read_input_tokens ?? 0);
   tracker.cumulativeOutputTokens += usage.output_tokens;
+  // Prefer the engine's own reasoning count; fall back to estimating this
+  // turn's thinking when it reports none, so the split survives on endpoints
+  // that do not measure it. The field is not in the SDK usage type, hence the
+  // cast (the same treatment updateUsage() gives it on the way in).
+  // Per turn, never both: a turn's real count already covers its thinking.
+  const reasoningTokens = (
+    usage as unknown as { reasoning_tokens?: number }
+  ).reasoning_tokens;
+  tracker.cumulativeReasoningTokens +=
+    typeof reasoningTokens === 'number' && Number.isFinite(reasoningTokens)
+      ? reasoningTokens
+      : roughTokenCountEstimationForThinking(message.message.content);
   for (const content of message.message.content) {
     if (content.type === 'tool_use') {
       tracker.toolUseCount++;
@@ -99,6 +144,7 @@ export function getProgressUpdate(tracker: ProgressTracker): AgentProgress {
   return {
     toolUseCount: tracker.toolUseCount,
     tokenCount: getTokenCountFromTracker(tracker),
+    reasoningTokens: getReasoningTokenCountFromTracker(tracker),
     lastActivity: tracker.recentActivities.length > 0 ? tracker.recentActivities[tracker.recentActivities.length - 1] : undefined,
     recentActivities: [...tracker.recentActivities]
   };
@@ -219,6 +265,10 @@ export function enqueueAgentNotification({
     totalTokens: number;
     toolUses: number;
     durationMs: number;
+    /** Generated tokens; equals `totalTokens`, named for what it counts. */
+    outputTokens?: number;
+    /** Thinking share of the output. Absent when the engine reported no split. */
+    reasoningTokens?: number;
   };
   toolUseId?: string;
   worktreePath?: string;
@@ -252,7 +302,22 @@ export function enqueueAgentNotification({
   const outputPath = getTaskOutputPath(taskId);
   const toolUseIdLine = toolUseId ? `\n<${TOOL_USE_ID_TAG}>${toolUseId}</${TOOL_USE_ID_TAG}>` : '';
   const resultSection = finalMessage ? `\n<result>${finalMessage}</result>` : '';
-  const usageSection = usage ? `\n<usage><total_tokens>${usage.totalTokens}</total_tokens><tool_uses>${usage.toolUses}</tool_uses><duration_ms>${usage.durationMs}</duration_ms></usage>` : '';
+  // `total_tokens` is kept as-is for every existing reader (task notification
+  // policy, subagent run service, the desktop's own regex). `output_tokens`
+  // states the same number under the name that says what it counts — generated
+  // tokens — and `think_tokens` is the part of it spent thinking. On a reasoning
+  // model that part is most of the total, so one number cannot stand in for the
+  // pair; it is emitted only when the engine measured one.
+  // The split is emitted only when the thinking itself is not being returned to
+  // the caller: with the content in hand a single total is enough to read, and
+  // without it the numbers are the only way to see that most of the cost was
+  // thinking. Gating here keeps the decision with the side that knows the switch
+  // and the numbers; the reader just renders the shape it was handed.
+  const showSplit = usage?.reasoningTokens != null && !shouldSendThinkingToAPI();
+  const reasoningSection = showSplit
+    ? `<output_tokens>${usage.outputTokens ?? usage.totalTokens}</output_tokens><think_tokens>${usage.reasoningTokens}</think_tokens>`
+    : '';
+  const usageSection = usage ? `\n<usage><total_tokens>${usage.totalTokens}</total_tokens>${reasoningSection}<tool_uses>${usage.toolUses}</tool_uses><duration_ms>${usage.durationMs}</duration_ms></usage>` : '';
   const worktreeSection = worktreePath ? `\n<${WORKTREE_TAG}><${WORKTREE_PATH_TAG}>${worktreePath}</${WORKTREE_PATH_TAG}>${worktreeBranch ? `<${WORKTREE_BRANCH_TAG}>${worktreeBranch}</${WORKTREE_BRANCH_TAG}>` : ''}</${WORKTREE_TAG}>` : '';
   const message = `<${TASK_NOTIFICATION_TAG}>
 <${TASK_ID_TAG}>${taskId}</${TASK_ID_TAG}>${toolUseIdLine}
@@ -277,7 +342,13 @@ export function enqueueAgentNotification({
       usage: usage ? {
         total_tokens: usage.totalTokens,
         tool_uses: usage.toolUses,
-        duration_ms: usage.durationMs
+        duration_ms: usage.durationMs,
+        ...(usage.reasoningTokens != null && !shouldSendThinkingToAPI()
+          ? {
+              output_tokens: usage.outputTokens ?? usage.totalTokens,
+              think_tokens: usage.reasoningTokens
+            }
+          : {})
       } : undefined,
       ownerAgentId
     });

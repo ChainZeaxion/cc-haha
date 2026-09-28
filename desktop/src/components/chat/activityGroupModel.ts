@@ -138,6 +138,68 @@ export function agentGroupTokens(
   return measured ? total : undefined
 }
 
+/**
+ * Thinking tokens one agent run reported, or `undefined` when it reported none.
+ *
+ * Read from the notification when the runtime carried it there, otherwise from
+ * the run's own result text — the synchronous dispatch puts its numbers in the
+ * result, where the transcript keeps them as ordinary text. `undefined` rather
+ * than 0, because "no thinking" and "not measured" are different claims and the
+ * label below says different things for each.
+ */
+export function agentRunThinkTokens(
+  reportedThinkTokens: number | undefined,
+  result: Pick<ToolResult, 'content'> | undefined,
+): number | undefined {
+  if (
+    typeof reportedThinkTokens === 'number' &&
+    Number.isFinite(reportedThinkTokens) &&
+    reportedThinkTokens > 0
+  ) {
+    return reportedThinkTokens
+  }
+  if (!result || typeof result.content === 'undefined') return undefined
+  const match = /\bthink_tokens:\s*(\d+)/.exec(extractTextContent(result.content))
+  if (!match) return undefined
+  const tokens = Number(match[1])
+  return Number.isFinite(tokens) && tokens > 0 ? tokens : undefined
+}
+
+/** Thinking tokens a whole agent group reported; `undefined` when none did. */
+export function agentGroupThinkTokens(
+  tokens: ReadonlyArray<number | undefined>,
+): number | undefined {
+  let total = 0
+  let measured = false
+  for (const value of tokens) {
+    if (typeof value !== 'number' || !Number.isFinite(value) || value <= 0) continue
+    total += value
+    measured = true
+  }
+  return measured ? total : undefined
+}
+
+/**
+ * Token label parts for an agent group.
+ *
+ * The runtime emits the split only when the thinking itself is not returned to
+ * the reader (see the CLI's shouldSendThinkingToAPI gate): with the reasoning
+ * visible, one total is readable; with it hidden, the numbers are the only
+ * evidence that most of the cost was thinking. So the absence of a reasoning
+ * count is the signal to show a single total, not a prompt to guess one.
+ */
+export function agentTokenParts(
+  totalTokens: number | undefined,
+  thinkTokens: number | undefined,
+): string[] {
+  if (totalTokens === undefined) return []
+  if (thinkTokens === undefined) return [formatActivityTokens(totalTokens)]
+  return [
+    formatActivityTokens(thinkTokens),
+    formatActivityTokens(Math.max(0, totalTokens - thinkTokens)),
+  ]
+}
+
 /** One run's own length, for the row that shows it. */
 export function agentRunDurationMs(interval: AgentRunInterval | undefined): number | undefined {
   return interval ? interval.endMs - interval.startMs : undefined
@@ -379,17 +441,28 @@ export function activityTokenUsage(
   steps: ActivityStep[],
   resultMap: Map<string, ToolResult>,
 ): ActivityTokenUsage {
+  const thinkingSteps = steps.filter(
+    (step): step is Extract<ActivityStep, { kind: 'thinking' }> => step.kind === 'thinking',
+  )
+  // All-or-nothing, so the total is one measurement rather than a blend: every
+  // thought needs its engine count for the sum to be comparable with itself.
+  // Partial coverage falls back to estimating the lot, which is what the badge
+  // does per block too.
+  const realThinking = thinkingSteps.length > 0
+    && thinkingSteps.every((step) => (step.message.thinkingTokens ?? 0) > 0)
+
   let thinkingTokens = 0
   let toolTokens = 0
-  let thinkingIsEstimated = true
+  const thinkingIsEstimated = !realThinking
 
-  for (const step of steps) {
-    if (step.kind === 'thinking') {
-      if (step.message.content.trim().length > 0) {
-        thinkingTokens += estimateTokens(step.message.content)
-      }
-      continue
+  for (const step of thinkingSteps) {
+    if (realThinking) thinkingTokens += step.message.thinkingTokens ?? 0
+    else if (step.message.content.trim().length > 0) {
+      thinkingTokens += estimateTokens(step.message.content)
     }
+  }
+  for (const step of steps) {
+    if (step.kind !== 'tool') continue
     const result = resultMap.get(step.toolCall.toolUseId)
     if (result && typeof result.content !== 'undefined') {
       toolTokens += estimateTokens(extractTextContent(result.content))

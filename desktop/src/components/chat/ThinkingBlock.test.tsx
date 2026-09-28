@@ -180,3 +180,30 @@ describe('ThinkingBlock', () => {
     expect(second.container.querySelector('[data-thinking-content="expanded"]')).not.toBeNull()
   })
 })
+
+describe('exact thinking tokens', () => {
+  // The badge used to read only content, so it reported a character estimate.
+  // Across one session's turns that estimate missed by ~60% at the median,
+  // because a turn's real output also carries reasoning scaffolding and
+  // tool-call framing no character count can see. When the engine's id side
+  // channel supplied a count, that count is what the number should be.
+  it('prefers the engine count over the character estimate', () => {
+    const content = 'x'.repeat(3500) // ~1000 tokens by the heuristic
+    expect(formatThinkingTokens(content)).toBe('1.00k')
+    expect(formatThinkingTokens(content, 4210)).toBe('4.21k')
+  })
+
+  it('falls back to the estimate when no count was reported', () => {
+    const content = '你好世界'
+    expect(formatThinkingTokens(content, undefined)).toBe(
+      formatThinkingTokens(content),
+    )
+    // A zero is "not measured", not "nothing was generated".
+    expect(formatThinkingTokens(content, 0)).toBe(formatThinkingTokens(content))
+  })
+
+  it('shows the engine count in the badge label', () => {
+    const label = thinkingBadgeLabel('some thinking text', 12_000, 0, false, undefined, 3300)
+    expect(label).toContain('3.30k')
+  })
+})

@@ -30,7 +30,7 @@ export const EMPTY_USAGE: Readonly<NonNullableUsage> = {
 export function normalizeUsage(
   usage: Partial<BetaUsage> | null | undefined,
 ): NonNullableUsage {
-  return {
+  const normalized: NonNullableUsage = {
     input_tokens: usage?.input_tokens ?? EMPTY_USAGE.input_tokens,
     cache_creation_input_tokens:
       usage?.cache_creation_input_tokens ??
@@ -59,4 +59,22 @@ export function normalizeUsage(
     iterations: usage?.iterations ?? EMPTY_USAGE.iterations,
     speed: usage?.speed ?? EMPTY_USAGE.speed,
   }
+  // The reasoning split a compatible engine reports is not part of the SDK
+  // usage type, so it is attached with a cast (the same treatment
+  // updateUsage() gives the streaming path). On a reasoning model most of
+  // output_tokens is thinking, and only this field says how much — a caller
+  // that cannot tell the two apart cannot size either.
+  const reasoningTokens = (
+    usage as unknown as { reasoning_tokens?: number } | null | undefined
+  )?.reasoning_tokens
+  if (
+    typeof reasoningTokens === 'number' &&
+    Number.isFinite(reasoningTokens) &&
+    reasoningTokens > 0
+  ) {
+    ;(
+      normalized as unknown as { reasoning_tokens?: number }
+    ).reasoning_tokens = reasoningTokens
+  }
+  return normalized
 }

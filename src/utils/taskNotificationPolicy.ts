@@ -23,6 +23,9 @@ export type ParsedTaskNotification = {
     total_tokens: number
     tool_uses: number
     duration_ms: number
+    /** Generated tokens; the thinking share is `think_tokens` when reported. */
+    output_tokens?: number
+    think_tokens?: number
   }
 }
 
@@ -43,6 +46,8 @@ export function parseTaskNotificationXml(text: string): ParsedTaskNotification {
   const totalTokens = getTagValue(usageContent, 'total_tokens')
   const toolUses = getTagValue(usageContent, 'tool_uses')
   const durationMs = getTagValue(usageContent, 'duration_ms')
+  const outputTokens = getTagValue(usageContent, 'output_tokens')
+  const thinkTokens = getTagValue(usageContent, 'think_tokens')
 
   return {
     taskId: getTagValue(text, TASK_ID_TAG) ?? '',
@@ -59,6 +64,12 @@ export function parseTaskNotificationXml(text: string): ParsedTaskNotification {
             total_tokens: parseInt(totalTokens, 10),
             tool_uses: parseInt(toolUses, 10),
             duration_ms: durationMs ? parseInt(durationMs, 10) : 0,
+            // Present only when the engine measured a reasoning split; their
+            // absence is what tells a reader the split is unknown.
+            ...(outputTokens
+              ? { output_tokens: parseInt(outputTokens, 10) }
+              : {}),
+            ...(thinkTokens ? { think_tokens: parseInt(thinkTokens, 10) } : {}),
           }
         : undefined,
   }

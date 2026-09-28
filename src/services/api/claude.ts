@@ -3596,6 +3596,18 @@ export function updateUsage(
     inference_geo: usage.inference_geo,
     iterations: partUsage.iterations ?? usage.iterations,
     speed: (partUsage as BetaUsage).speed ?? usage.speed,
+    // reasoning_tokens: how much of output_tokens the model spent thinking.
+    // Reported by compatible engines, absent from SDK types and from the
+    // Anthropic schema, so it is kept off NonNullableUsage and read back with a
+    // cast (same treatment as cache_deleted_input_tokens below). Uses the > 0
+    // guard the input fields use: a later delta's 0 must not erase a real value.
+    reasoning_tokens:
+      (partUsage as unknown as { reasoning_tokens?: number })
+        .reasoning_tokens != null &&
+      (partUsage as unknown as { reasoning_tokens: number }).reasoning_tokens > 0
+        ? (partUsage as unknown as { reasoning_tokens: number }).reasoning_tokens
+        : ((usage as unknown as { reasoning_tokens?: number }).reasoning_tokens ??
+          0),
   };
 }
 

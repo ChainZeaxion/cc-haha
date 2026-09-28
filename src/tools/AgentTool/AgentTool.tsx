@@ -11,7 +11,7 @@ import { startAgentSummarization } from '../../services/AgentSummary/agentSummar
 import { getFeatureValue_CACHED_MAY_BE_STALE } from '../../services/analytics/growthbook.js';
 import { type AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS, logEvent } from '../../services/analytics/index.js';
 import { clearDumpState } from '../../services/api/dumpPrompts.js';
-import { completeAgentTask as completeAsyncAgent, createActivityDescriptionResolver, createProgressTracker, enqueueAgentNotification, failAgentTask as failAsyncAgent, getProgressUpdate, getTokenCountFromTracker, isLocalAgentTask, killAsyncAgent, registerAgentForeground, registerAsyncAgent, unregisterAgentForeground, updateAgentProgress as updateAsyncAgentProgress, updateProgressFromMessage } from '../../tasks/LocalAgentTask/LocalAgentTask.js';
+import { completeAgentTask as completeAsyncAgent, createActivityDescriptionResolver, createProgressTracker, enqueueAgentNotification, failAgentTask as failAsyncAgent, getProgressUpdate, getReasoningTokenCountFromTracker, getTokenCountFromTracker, isLocalAgentTask, killAsyncAgent, registerAgentForeground, registerAsyncAgent, unregisterAgentForeground, updateAgentProgress as updateAsyncAgentProgress, updateProgressFromMessage } from '../../tasks/LocalAgentTask/LocalAgentTask.js';
 import { checkRemoteAgentEligibility, formatPreconditionError, getRemoteTaskSessionUrl, registerRemoteAgentTask } from '../../tasks/RemoteAgentTask/RemoteAgentTask.js';
 import { assembleToolPool } from '../../tools.js';
 import { asAgentId } from '../../types/ids.js';
@@ -46,6 +46,7 @@ import { BackgroundHint } from '../BashTool/UI.js';
 import { FILE_READ_TOOL_NAME } from '../FileReadTool/prompt.js';
 import { spawnTeammate } from '../shared/spawnMultiAgent.js';
 import { setAgentColor } from './agentColorManager.js';
+import { shouldSendThinkingToAPI } from '../../utils/thinking.js';
 import { agentToolResultSchema, classifyHandoffIfNeeded, emitAgentToolActivitiesForMessage, emitTaskProgress, extractPartialResult, finalizeAgentTool, getLastToolUseName, runAsyncAgentLifecycle } from './agentToolUtils.js';
 import { GENERAL_PURPOSE_AGENT } from './built-in/generalPurposeAgent.js';
 import { AGENT_TOOL_NAME, LEGACY_AGENT_TOOL_NAME, ONE_SHOT_BUILTIN_AGENT_TYPES } from './constants.js';
@@ -998,7 +999,9 @@ export const AgentTool = buildTool({
                       usage: {
                         totalTokens: getTokenCountFromTracker(tracker),
                         toolUses: agentResult.totalToolUseCount,
-                        durationMs: agentResult.totalDurationMs
+                        durationMs: agentResult.totalDurationMs,
+                        outputTokens: getTokenCountFromTracker(tracker),
+                        reasoningTokens: getReasoningTokenCountFromTracker(tracker)
                       },
                       toolUseId: toolUseContext.toolUseId
                     });
@@ -1206,11 +1209,17 @@ export const AgentTool = buildTool({
                 status: syncAgentError ? 'failed' : wasAborted ? 'stopped' : 'completed',
                 output_file: '',
                 summary: description,
-                usage: {
-                  total_tokens: progress.tokenCount,
-                  tool_uses: progress.toolUseCount,
-                  duration_ms: Date.now() - agentStartTime
-                },
+                  usage: {
+                    total_tokens: progress.tokenCount,
+                    tool_uses: progress.toolUseCount,
+                    duration_ms: Date.now() - agentStartTime,
+                    ...(progress.reasoningTokens != null
+                      ? {
+                          output_tokens: progress.tokenCount,
+                          think_tokens: progress.reasoningTokens
+                        }
+                      : {})
+                  },
                 ...(toolUseContext.agentId ? { owner_agent_id: toolUseContext.agentId } : {})
               });
             }
@@ -1410,7 +1419,9 @@ The agent is now running and will receive instructions via mailbox.`
           text: `agentId: ${data.agentId} (use SendMessage with to: '${data.agentId}' to continue this agent)${worktreeInfoText}
 <usage>total_tokens: ${data.totalTokens}
 tool_uses: ${data.totalToolUseCount}
-duration_ms: ${data.totalDurationMs}</usage>`
+duration_ms: ${data.totalDurationMs}${data.reasoningTokens != null && !shouldSendThinkingToAPI() ? `
+output_tokens: ${data.totalTokens}
+think_tokens: ${data.reasoningTokens}` : ''}</usage>`
         }]
       };
     }

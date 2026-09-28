@@ -23,6 +23,7 @@ export function ThinkingBlock({
   isActive = false,
   disclosureKey,
   thinkingDurationMs,
+  thinkingTokens,
   liveStartAt,
 }: {
   content: string
@@ -32,6 +33,9 @@ export function ThinkingBlock({
   /** Wall-clock ms this block spent generating, once finished (live settle or
    * transcript replay). */
   thinkingDurationMs?: number
+  /** Exact tokens the engine generated for this block, when the id side channel
+   * reported them. Preferred over the character estimate below. */
+  thinkingTokens?: number
   /** Wall-clock epoch the block started generating (the message `timestamp`,
    * anchored to the server's first sight of the block). While the block is
    * still active the badge ticks against this, refreshed every 3s. */
@@ -122,12 +126,12 @@ export function ThinkingBlock({
         ) : (
           <span className="flex-1" />
         )}
-        {sessionExtendedInfo !== false && thinkingBadgeLabel(content, thinkingDurationMs, liveElapsedMs, isActive, liveAnchorMs) && (
+        {sessionExtendedInfo !== false && thinkingBadgeLabel(content, thinkingDurationMs, liveElapsedMs, isActive, liveAnchorMs, thinkingTokens) && (
           <span
             data-thinking-usage="true"
             className="shrink-0 whitespace-nowrap font-mono text-[10px] tabular-nums text-[var(--color-text-tertiary)]"
           >
-            {thinkingBadgeLabel(content, thinkingDurationMs, liveElapsedMs, isActive, liveAnchorMs)}
+            {thinkingBadgeLabel(content, thinkingDurationMs, liveElapsedMs, isActive, liveAnchorMs, thinkingTokens)}
           </span>
         )}
         <span aria-hidden="true" className="shrink-0 text-[8px] text-[var(--color-text-tertiary)]">
@@ -176,25 +180,37 @@ export function thinkingBadgeLabel(
   liveElapsedMs: number,
   isActive: boolean,
   liveStartAt: number | undefined,
+  thinkingTokens?: number,
 ): string {
   if (content.trim().length === 0) return ''
   if (isActive) {
     if (liveStartAt === undefined) return ''
-    return `${formatThinkingTokens(content)} · ${formatThinkingDuration(liveElapsedMs)}`
+    return `${formatThinkingTokens(content, thinkingTokens)} · ${formatThinkingDuration(liveElapsedMs)}`
   }
   // Missing or non-positive both mean "never measured": older transcripts, and
   // blocks whose start anchor was never seen (a length of exactly 0 is not a
   // real generation span). Either way the token count stands alone rather than
   // pairing with a confident `0.0s`.
   if (thinkingDurationMs === undefined || thinkingDurationMs <= 0) {
-    return formatThinkingTokens(content)
+    return formatThinkingTokens(content, thinkingTokens)
   }
-  return `${formatThinkingTokens(content)} · ${formatThinkingDuration(thinkingDurationMs)}`
+  return `${formatThinkingTokens(content, thinkingTokens)} · ${formatThinkingDuration(thinkingDurationMs)}`
 }
 
-/** Thinking token count as `xx.xk`, two decimals (`1.23k`, `12.50k`). */
-export function formatThinkingTokens(text: string): string {
-  return `${(estimateTokens(text) / 1000).toFixed(2)}k`
+/**
+ * Thinking token count as `xx.xk`, two decimals (`1.23k`, `12.50k`).
+ *
+ * An exact count wins when the engine reported one. The fallback is a
+ * character heuristic (CJK one each, others 1/3.5, scaled by the model's
+ * learned coefficients), and it is measurably wrong: across one session's turns
+ * it missed by ~60% at the median, because a turn's real output also carries
+ * reasoning scaffolding and tool-call framing that no character count can see.
+ */
+export function formatThinkingTokens(text: string, thinkingTokens?: number): string {
+  const tokens = typeof thinkingTokens === 'number' && thinkingTokens > 0
+    ? thinkingTokens
+    : estimateTokens(text)
+  return `${(tokens / 1000).toFixed(2)}k`
 }
 
 /**
