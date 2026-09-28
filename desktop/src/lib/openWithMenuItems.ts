@@ -94,11 +94,11 @@ export function openWithMenuDeps(
               await copyTextToClipboard(result.content)
             })().catch(() => {})
           },
-          // A file is the only context with something to save; the download goes
-          // through the local server's attachment route so the browser streams it
-          // and the server's header fixes the saved name.
+          // A file is the only context with something to save. The helper fetches
+          // the bytes through the API client and saves a blob; see it for why a
+          // plain anchor at the route cannot work from this renderer.
           downloadFile: (absolutePath: string) => {
-            downloadLocalFile(absolutePath)
+            void downloadLocalFile(absolutePath)
           },
         }
       : {}),

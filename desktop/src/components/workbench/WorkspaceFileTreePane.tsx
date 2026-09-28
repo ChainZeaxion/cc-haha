@@ -403,7 +403,9 @@ export function WorkspaceFileTreePane({
               size="sm"
               data-testid="workspace-tree-download"
               onClick={() => {
-                downloadLocalFile(resolveAbsoluteOpenPath(menu.row.path, workDir ?? undefined))
+                // Failure is reported by the helper (it logs the reason); the menu
+                // still closes, so a failed save never leaves the row stuck open.
+                void downloadLocalFile(resolveAbsoluteOpenPath(menu.row.path, workDir ?? undefined))
                 closeMenu()
               }}
             >

@@ -1,4 +1,17 @@
-import { describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+
+// jsdom implements neither, and the helper only needs them to produce a string.
+if (typeof URL.createObjectURL !== 'function') {
+  URL.createObjectURL = () => 'blob:test'
+}
+if (typeof URL.revokeObjectURL !== 'function') {
+  URL.revokeObjectURL = () => {}
+}
+
+const apiGetBlob = vi.fn()
+vi.mock('../api/client', () => ({
+  apiGetBlob: (...args: unknown[]) => apiGetBlob(...args),
+}))
 import {
   downloadLocalFile,
   fileNameFromPath,
@@ -229,9 +242,9 @@ describe('previewFsUrl (unchanged, regression guard)', () => {
 
 describe('downloadLocalFile', () => {
   // This entry had no test at all, which is how it shipped unable to download:
-  // the list card (user-clicked, carries `download`) worked while the tree menu
-  // and the open-with menu (both routed here) did not.
-  function clickDownload(path: string) {
+  // the only other entry (the list card) is an anchor the user clicks, and both
+  // failed the same way for the same reason.
+  function clickDownload() {
     const clicked: HTMLAnchorElement[] = []
     const create = document.createElement.bind(document)
     const spy = vi.spyOn(document, 'createElement').mockImplementation((tag: string) => {
@@ -242,37 +255,79 @@ describe('downloadLocalFile', () => {
       }
       return el
     })
-    try {
-      downloadLocalFile(path)
-    } finally {
-      spy.mockRestore()
-    }
-    return clicked
+    return { clicked, restore: () => spy.mockRestore() }
   }
 
-  it('marks the anchor as a download so the click does not become a navigation', () => {
-    // Without `download`, an anchor click navigates the window. In the packaged
-    // app that navigation is a cross-site request from a `file://` renderer and
-    // the sidecar's origin gate rejects it, so the download silently never
-    // starts. The attribute is what routes it through the download path
-    // instead — the same reason the working card sets it.
-    const [anchor] = clickDownload('/home/me/notes.txt')
-    expect(anchor).toBeDefined()
-    expect(anchor!.download).toBe('notes.txt')
-    expect(anchor!.href).toContain('/local-file/home/me/notes.txt?download=1')
+  beforeEach(() => apiGetBlob.mockReset())
+
+  it('fetches the bytes through the API client rather than pointing the DOM at the route', async () => {
+    // The whole point: a URL the DOM loads by itself carries neither the
+    // Authorization header nor an Origin the server trusts, and the packaged
+    // renderer's origin serializes to `null` for it — measured 403 against a
+    // route that answers 200 to the API client.
+    apiGetBlob.mockResolvedValue(new Blob(['hello']))
+    const createSpy = vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:test-url')
+
+    const { clicked, restore } = clickDownload()
+    let saved: boolean | undefined
+    try {
+      saved = await downloadLocalFile('/home/me/notes.txt')
+      expect(apiGetBlob).toHaveBeenCalledWith('/local-file/home/me/notes.txt?download=1')
+      expect(createSpy).toHaveBeenCalledOnce()
+      expect(clicked[0]?.href).toContain('blob:test-url')
+      expect(clicked[0]?.download).toBe('notes.txt')
+    } finally {
+      restore()
+      createSpy.mockRestore()
+    }
+    expect(saved).toBe(true)
   })
 
-  it('asks the server for the attachment form of the route', () => {
-    const [anchor] = clickDownload('/home/me/report final.pdf')
-    expect(anchor!.href).toContain('?download=1')
-    // Spaces survive as escapes, so the URL is not truncated at the space.
-    expect(anchor!.href).toContain('report%20final.pdf')
-    expect(anchor!.download).toBe('report final.pdf')
+  it('keeps the server route and the saved name for a path with spaces', async () => {
+    apiGetBlob.mockResolvedValue(new Blob(['x']))
+    const { clicked, restore } = clickDownload()
+    try {
+      await downloadLocalFile('/home/me/report final.pdf')
+    } finally {
+      restore()
+    }
+    expect(apiGetBlob).toHaveBeenCalledWith('/local-file/home/me/report%20final.pdf?download=1')
+    expect(clicked[0]?.download).toBe('report final.pdf')
   })
 
-  it('leaves nothing behind in the document', () => {
-    clickDownload('/home/me/notes.txt')
+  it('leaves nothing behind in the document', async () => {
+    apiGetBlob.mockResolvedValue(new Blob(['x']))
+    const { restore } = clickDownload()
+    try {
+      await downloadLocalFile('/home/me/notes.txt')
+    } finally {
+      restore()
+    }
     expect(document.querySelector('a[download]')).toBeNull()
+  })
+
+  it('reports failure instead of throwing when the save path fails', async () => {
+    // The callers are fire-and-forget menu handlers, so a rejection here would
+    // become an unhandled one and the user would see nothing at all. The failure
+    // is staged in the save step rather than in the mock: an exception thrown
+    // from inside a vitest mock is recorded as a test failure of its own, which
+    // would mask what this is checking.
+    apiGetBlob.mockResolvedValue(new Blob(['x']))
+    const createSpy = vi.spyOn(URL, 'createObjectURL').mockImplementation(() => {
+      throw new Error('blob rejected')
+    })
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const { clicked, restore } = clickDownload()
+    try {
+      const saved = await downloadLocalFile('/home/me/notes.txt')
+      expect(saved).toBe(false)
+      expect(clicked).toHaveLength(0)
+      expect(warn).toHaveBeenCalled()
+    } finally {
+      restore()
+      createSpy.mockRestore()
+      warn.mockRestore()
+    }
   })
 })
 

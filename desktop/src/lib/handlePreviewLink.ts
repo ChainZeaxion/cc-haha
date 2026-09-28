@@ -1,6 +1,6 @@
+import { apiGetBlob } from '../api/client'
 import { classifyPreviewLink } from './previewLinkRouter'
 import { shouldOfferStaticHtmlPreview } from './htmlPreviewPolicy'
-import { getServerBaseUrl } from './desktopRuntime'
 
 export type PreviewLinkReveal = { line: number; column?: number }
 
@@ -62,29 +62,51 @@ export function localFileUrl(base: string, absPath: string): string {
 }
 
 /**
- * Download a file through the local server's `/local-file/<abs-path>?download=1`
- * route, which streams it with an RFC 5987 `Content-Disposition: attachment`
- * header. A temporary anchor is used rather than `fetch` so the browser
- * downloads the binary as-is (no need to buffer the whole file or guess a
- * `Blob` MIME type) and the server's attachment header drives the saved name.
+ * Save a file through the local server's `/local-file/<abs-path>?download=1`
+ * route.
  *
- * The `download` attribute is set even though the server also sends the header,
- * because it is what makes the click a download rather than a navigation: an
- * anchor without it navigates the window, and in the packaged app the renderer
- * is loaded from `file://`, where such a request to the sidecar is a cross-site
- * one that the origin gate rejects. The download list card — the entry that
- * works — sets it for the same reason, as do the app's other programmatic
- * downloads.
+ * The bytes are fetched through the app's own API client and handed to the DOM as
+ * a blob URL, instead of pointing an anchor straight at the route. A URL the DOM
+ * loads is a request the browser issues by itself, and it carries neither the
+ * Authorization header the API client attaches nor an Origin the server trusts:
+ * the packaged renderer runs at `file://`, whose origin serializes to `null` for
+ * exactly this kind of request, and the server refuses `null`. Measured against
+ * the running app — the same route answers 200 for no Origin and 403
+ * `CORS origin not allowed` for `Origin: null`, which is why the download began
+ * and then failed ("无法从网站上提取文件") rather than never starting.
+ *
+ * Fetching first uses the credential path every other call already uses;
+ * `apiGetBlob` documents the same reasoning for app icons, which hit the
+ * identical wall. The cost is that the file is held in memory to build the blob,
+ * the trade this app already makes for its icon and export downloads.
+ *
+ * @returns whether the file was handed to the browser to save.
  */
-export function downloadLocalFile(absolutePath: string): void {
-  const url = `${localFileUrl(getServerBaseUrl(), absolutePath)}?download=1`
-  const anchor = document.createElement('a')
-  anchor.href = url
-  anchor.download = fileNameFromPath(absolutePath)
-  anchor.rel = 'noopener'
-  document.body.appendChild(anchor)
-  anchor.click()
-  anchor.remove()
+export async function downloadLocalFile(absolutePath: string): Promise<boolean> {
+  try {
+    // An empty base so the helper yields the path the API client wants.
+    const path = `${localFileUrl('', absolutePath)}?download=1`
+    const blob = await apiGetBlob(path)
+    const url = URL.createObjectURL(blob)
+    const anchor = document.createElement('a')
+    anchor.href = url
+    // Still named here: the blob URL has no filename of its own, so the server's
+    // Content-Disposition cannot drive the saved name through this path.
+    anchor.download = fileNameFromPath(absolutePath)
+    anchor.rel = 'noopener'
+    document.body.appendChild(anchor)
+    anchor.click()
+    anchor.remove()
+    // Released on the next task: the click above has already been dispatched, and
+    // revoking synchronously can cancel a download that has not started yet.
+    setTimeout(() => URL.revokeObjectURL(url), 0)
+    return true
+  } catch (error) {
+    console.warn(
+      `[download] ${absolutePath} failed: ${error instanceof Error ? error.message : String(error)}`,
+    )
+    return false
+  }
 }
 
 /** Last path segment, for the download's suggested save name. */
