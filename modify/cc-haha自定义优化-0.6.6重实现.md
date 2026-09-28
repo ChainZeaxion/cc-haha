@@ -43,7 +43,7 @@
 >
 > **2026-09-26 重基**：全部 patch 重基到上游 `068b3ebd`（origin/main 2026-09-25，含 20 个新 commit：CORS 门控重做/切 tab 保视图/历史不全保聊天/内存保存竞态两修/pending 问题超时自动回答/聊天外观偏好/OAuth 2.1.281 对齐/agent-teams/Kimi K3 图片透传/定时任务持久化串行化）。应用方式=按下表从上到下逐章 `git apply --allow-empty`。空 patch（h5-settings-whitelist、h5-mobile-market）内容已被后续章节的共享文件覆盖，apply 后无变化。
 >
-> **当前链规模（2026-09-27）**：共 **43 patch**（41 实 + 2 空）。最新一位：`background-task-duration-restore`（二十一 子优化④ 补记二：后台任务耗时**恢复三层根因**——窗口被置空 / 通知型任务无起点 / **merge 抹掉 restored `startedAt`**；显示改紧凑 ASCII；补上「会话扩展信息」开关漏网的消息列表内联卡，链位 43）。前一位：`vcc-compact-fallback`（十三 vcc 失败降级兜底，链位 42）。再前：`subagent-background-task-durations`（二十一 子优化④：子代理耗时 + 子代理收纳栏总耗时 + 后台任务耗时，链位 41）。再前：`tps-content-accounting`（四 子优化：TPS 计量改为按内容度量，链位 40）。再前：`tps-real-token-accounting`（四 子优化：TPS 采样改真实 token 口径，链位 37）、`compact-dead-import-cleanup`（策略门禁 dead-imports 清理，链位 38）、`session-speed-and-usage-pairing`（四 子优化：面板生成速度分子分母配对 + transcript usage 去重丢 output 修复，链位 39）。新增：`turn-usage`（二十一 子优化②）、`thinking-badge-order-and-duration`（二十一 子优化①，前端 + API 层）、`baseline-typecheck-fixes`、`autocompact-window-tiers`、`history-transport-bounds`、`file-history-dedup`、`gzip-transport`、`history-first-paint-bound`（前端）、`storage-original-file-bound`（二十二 F 存量瘦身，含新测试文件）、`computer-use-platform-components`（十八 平台化组件选择）、`computer-use-python-path-fallback`（十八 解释器路径回退）、`tps-centered-second-line`（四 费用/TPS 第二行居中）、`h5-mobile-run-records`（二十五 H5 子代理运行记录，链位 36）。
+> **当前链规模（2026-09-28）**：共 **51 patch**（49 实 + 2 空）。最新一位：`subagent-usage-split-live`（二十一 子优化⑥：还原会话的 think/非think 拆分 + 组栏运行中实时跟进，链位 51）。前七位（链位 44-50）：`tps-burst-anchor`（四 子优化⑤ TPS 脉冲修复，链位 44）、`think-token-truth-chain`（二十一 子优化⑤ 思考 token 真值，链位 45）、`tps-tokens-kind-and-reasoning-passthrough`（四 子优化⑥ kind 归因 + reasoning 透传，链位 46）、`file-download-attr`（五 子优化 下载锚点，链位 47）、`local-index-extra-project-roots`（十 补记 额外索引根，链位 48）、`test-model-env-isolation`（十二 补记 模型 env 隔离，链位 49）、`session-list-multi-root-validation`（十 补记二 列表多根校验，链位 50）。**44-51 八链位验证**：`d89c1405` worktree 按序 apply **FAIL=0**，并集与工作树**逐字节一致**。上一版（链位 43 时）：`background-task-duration-restore`（二十一 子优化④ 补记二：后台任务耗时**恢复三层根因**——窗口被置空 / 通知型任务无起点 / **merge 抹掉 restored `startedAt`**；显示改紧凑 ASCII；补上「会话扩展信息」开关漏网的消息列表内联卡，链位 43）。前一位：`vcc-compact-fallback`（十三 vcc 失败降级兜底，链位 42）。再前：`subagent-background-task-durations`（二十一 子优化④：子代理耗时 + 子代理收纳栏总耗时 + 后台任务耗时，链位 41）。再前：`tps-content-accounting`（四 子优化：TPS 计量改为按内容度量，链位 40）。再前：`tps-real-token-accounting`（四 子优化：TPS 采样改真实 token 口径，链位 37）、`compact-dead-import-cleanup`（策略门禁 dead-imports 清理，链位 38）、`session-speed-and-usage-pairing`（四 子优化：面板生成速度分子分母配对 + transcript usage 去重丢 output 修复，链位 39）。新增：`turn-usage`（二十一 子优化②）、`thinking-badge-order-and-duration`（二十一 子优化①，前端 + API 层）、`baseline-typecheck-fixes`、`autocompact-window-tiers`、`history-transport-bounds`、`file-history-dedup`、`gzip-transport`、`history-first-paint-bound`（前端）、`storage-original-file-bound`（二十二 F 存量瘦身，含新测试文件）、`computer-use-platform-components`（十八 平台化组件选择）、`computer-use-python-path-fallback`（十八 解释器路径回退）、`tps-centered-second-line`（四 费用/TPS 第二行居中）、`h5-mobile-run-records`（二十五 H5 子代理运行记录，链位 36）。
 >
 > **全链验证（2026-09-27 收尾，决定性）**：在干净基线 `068b3ebd` 的**临时 worktree** 上按上表顺序 `git apply --allow-empty` 全部 **35 个 patch → 失败 0 个**；应用后终态与工作树在**本轮 4 个新 patch 涉及的全部 14 个文件**上**逐字节一致**，全树剩余差值仅为下节「已知非章 delta」。此为权威口径（早前「HEAD 上暂存往返」是非全链验证，已由本次全链取代）。**2026-09-27 追加第 36 位（`h5-mobile-run-records`）与 `tps-indicator`/`turn-usage` 重生成后复验：36 链同样失败 0，第 7 章 8 文件 + `chatStore.test.ts` + `AppShell.{tsx,test.tsx}` 逐字节等于工作树。** **2026-09-27 二次追加第 37/38 位（`tps-real-token-accounting`、`compact-dead-import-cleanup`）后复验：干净重跑 38 链失败 0，本轮 23 个文件（20 TPS + 3 dead-import）**逐字节等于工作树**。** **2026-09-27 三次追加第 39 位（`session-speed-and-usage-pairing`）后复验：干净重跑 39 链失败 0，本轮 13 个文件**逐字节等于工作树**。** **2026-09-27 四次追加：第 40/41/42 位（`tps-content-accounting`、`subagent-background-task-durations`、`vcc-compact-fallback`）随链入库（未单独复记全链）。** **2026-09-27 五次追加第 43 位（`background-task-duration-restore`）：干净 `068b3ebd` worktree 重跑 **43 链失败 0**，本轮 6 文件（`SessionActivityPanel.{tsx,test.tsx}`、`chatStore.{ts,test.ts}`、`MessageList.{tsx,test.tsx}`）**逐字节等于工作树**；生成时以 `HISTORY_STITCH_MAX_PAGES`/`agentGroupSpanMs`/`ingestSubagentTps` 三个「链内既有」标志串反查误记，均为 **0**。**
 
@@ -106,6 +106,14 @@
 | 41 | `patches/subagent-background-task-durations.patch` | 二十一 子优化④：**子代理耗时 + 子代理收纳栏总耗时 + 后台任务耗时**（汇总栏取**区间并集跨度**而非求和——子代理是并发派发；`agentRunInterval`/`agentGroupSpanMs` 另立，因全 Agent 组不进 `ActivityGroup`；新建 `ToolCallGroup.test`） | ✅ 已实施 |
 | 42 | `patches/vcc-compact-fallback.patch` | 十三 vcc 失败降级兜底（抛错/空摘要 → 回落既有 LLM 摘要路径，避免自动压缩熔断静默停摆） | ✅ 已实施 |
 | 43 | `patches/background-task-duration-restore.patch` | 二十一 子优化④ 补记二：后台任务耗时**恢复三层根因**（①`historyComplete=false` 时窗口被整空 → 跨度类重建改用已加载窗口；②通知型任务无起点 → 用其 `toolUseId` 的工具调用时刻回填；③**merge 把 restored `startedAt` 取成 `now`** → 保留调用方起点）+ 显示改紧凑 ASCII（`4m1s`）+ 消息列表内联卡耗时纳入「会话扩展信息」开关（6 文件 464 行） | ✅ 已实施 |
+| 44 | `patches/tps-burst-anchor.patch` | 四 子优化⑤：**TPS 脉冲修复**——`value()` 缺「刚滑出窗口的样本」锚（`preWindowAt`），流切换处窗口塌缩时积压 token 被 400ms 地板除 ⇒ 生产实测爆到 1000-2000 t/s（真值 230-280，4-7×）；附估算校准接线 `setEstimationCalibration`（2 文件 175 增） | ✅ 已实施 |
+| 45 | `patches/think-token-truth-chain.patch` | 二十一 子优化⑤：**思考 token 走引擎真值**——代理透传 `reasoning_tokens` → usage 保活强转 → `ProgressTracker` 逐轮「真值否则估算」→ `AgentTaskNotification` 带 `output_tokens`/`think_tokens` → 桌面拆分渲染；契约=**发射方决定形态**（21 文件 669 增） | ✅ 已实施 |
+| 46 | `patches/tps-tokens-kind-and-reasoning-passthrough.patch` | 四 子优化⑥：`tps_tokens` 带 **kind**（thinking/content/tool）供思考徽章取**精确单块** token（转录无此字段，只能估）；代理层透传 `reasoning_tokens`（兼容 vLLM `completion_tokens_details` 与 Responses `output_tokens_details`，12 文件 232 增） | ✅ 已实施 |
+| 47 | `patches/file-download-attr.patch` | 五 子优化：`downloadLocalFile` 补 `anchor.download`——缺它则点击是**导航**而非下载，打包版渲染进程 `file://` 下该请求即跨站、被来源门控拒掉（「点了没反应」）；该入口此前**零测试**（2 文件 75 增，含 4 条测试） | ✅ 已实施 |
+| 48 | `patches/local-index-extra-project-roots.patch` | 十 补记：`CC_HAHA_EXTRA_PROJECT_ROOTS` **额外索引根**——dev 实例用自己的 `CLAUDE_CONFIG_DIR` ⇒ 发现根随之变成自己的，真实目录的会话永不出现；该配置可额外索引真实 `projects/`（3 文件 222 增） | ✅ 已实施 |
+| 49 | `patches/test-model-env-isolation.patch` | 十二 补记：三处模型 env 敏感用例接入 `isolateModelDefaultsEnv`——本机导出的 `CLAUDE_CODE_MODEL_CONTEXT_WINDOWS` 等泄漏致 `modelContextWindows`/`ultracode`/`processSlashCommand` **单跑也失败**；官方 runner 逐文件独立进程 + env 白名单故免疫（3 文件 20 增） | ✅ 已实施 |
+| 50 | `patches/session-list-multi-root-validation.patch` | 十 补记二：会话列表**逐行校验改按全部索引根**——只认本配置目录的根时，额外根来的行被判越界并被 `catch` **静默丢弃**（于是 `total` 报得对、行数只剩 2）；平铺 2 → 84、侧边栏分组恢复（1 文件 70 增） | ✅ 已实施 |
+| 51 | `patches/subagent-usage-split-live.patch` | 二十一 子优化⑥：**还原会话的 think/非think 拆分 + 组栏运行中实时跟进**——服务端 `sessionUsageRollup` 按 `toolUseId` 从子代理转录推导 usage 随通知下发（完成态权威）；组栏改读**运行中记录**（`agentTaskLiveUsage`）并以完成通知**二次校正**；实时节奏对齐思考徽章 3s（13 文件 781 增） | ✅ 已实施 |
 
 > **已知非章 delta（有意不入 patch，链终态与工作树的结构性差值）**：`#83` 测试修复族（`src/testUtils/modelEnv.ts` 及 11 个 `*.test.ts`：`print.sessionMessage`/`constants/system`/`coreSchemas.modelInfo`/`api/client`/`skills/bundled/computerUse`/`builtInAgentOverrides`/`effort.agent`/`model/{agent,fable,opus55,opus5}`/`__tests__/thinking`/`permissions/PermissionUpdate`）、`MessageList.test.tsx`（flaky 超时放宽，见附录）、`TerminalSettings.tsx`、`lib/providerModels.ts`、`services/api/claude.ts`（bound-thinking WIP）、`desktop/package.json`（本轮新增 `build:renderer`/`typecheck` 两条 **dev 脚本**，electron-builder 打包时会剥离 `scripts`，故不影响产物）、`bun.lock`。
 
@@ -1976,12 +1984,63 @@ export function pythonRuntimeFor(platform: NodeJS.Platform): PythonRuntimeCompon
 
 ---
 
+## 二十六、子代理「think / 非think」拆分显示 + 组栏运行中实时跟进（✅ 2026-09-28）
+
+### 需求背景（用户 verbatim）
+
+> 「开发服务里面，还是只能看到2个会话…（另）子代理总收纳栏还是显示着150K总用量」
+> 「我认为应该彻底解决…正确来说，**think 不回传就应该显示成 think用量+非think用量**。而现在我看到的还是只有在 think回传 情况下才会显示的一条 总用量。」
+> 「对派发子代理这个总收纳栏上面显示的 **用量和耗时，做实时跟进**，比如每隔5秒刷新进度，而不是必须等所有子代理完成，当然所有子代理完成后可以做**二次校验修正显示**。」
+> 「把心跳5s跟think的 3s tick 对齐也行，让整体数据变化步骤尽量一致性也比较好。」
+
+### 根因（三段，均已实测取证）
+
+**(1) 历史转录里根本没有拆分。** 契约本身早已实现——`AgentTool.tsx:1420-1424` 会把 `output_tokens`/`think_tokens` 写进 Agent 工具结果的 `<usage>`，但**仅在** `data.reasoningTokens != null && !shouldSendThinkingToAPI()` 时。pilot 会话 `f1be2b52` 实测：**58/58** 个 `<usage>` 块只有 `total_tokens/tool_uses/duration_ms`，且其中 `total_tokens` 是**旧口径**——子代理最后一次调用的**上下文窗口**（描述它读了什么，不是它产出了什么）。
+
+**(2) 数据其实在，只是没被呈现。** 该会话 76 个 `general-purpose` 子代理各自的转录里有逐轮 `usage` 与 `thinking` 块：Σ`output_tokens` = **727,879**，Σthink = **457,285**，**60/76 带思考**。
+
+**(3) 还原路径拿不到 usage，组栏读错了地方。** `SessionTaskNotification`（`sessionService.ts:279`）**无 `usage` 字段** ⇒ 还原会话只能正则抓结果文本里的 `total_tokens`。而运行中：子代理**每轮**都发 `task_progress`（前台 `AgentTool.tsx:1107`、后台 `982` / `agentToolUtils.ts:706`）并落到 `session.backgroundAgentTasks`，**组栏却读的是「已完成通知」`agentTaskNotifications`** ⇒ 整组跑完才有数字。
+
+### 实施
+
+**服务端推导（链位 51）**：新增 `src/server/services/sessionUsageRollup.ts`——按 `toolUseId` 关联子代理转录（走 `subagents/*.meta.json` 的 `toolUseId`），逐轮累加 output，思考取「引擎真值，否则按 thinking 块估算」，与实时路径 `finalizeAgentTool` **同口径**；结果作为 `usage` 随 `taskNotifications` 下发。缓存按既有 `getSessionMessagesSignature` 失效（已含每个 `agent-*.jsonl` 的 mtime）。
+
+**客户端实时（同链位）**：组栏新增 `agentTaskLiveUsage`（`MessageList` 由 `backgroundAgentTasks` 派生，**只取 `status==='running'`**），聚合时「运行中记录优先、否则回落完成通知」；耗时用**墙钟跨度**（在飞成员以 now 闭合），数字标 **≈**；完成态完全不变 ⇒ 完成通知即**二次校正**，陈旧快照绝不盖住终值。实时节奏复用思考徽章的 `LIVE_ELAPSED_REFRESH_MS`（3s）。
+
+**契约保持**：`think` 回传时不下发 `thinkTokens` ⇒ 界面回到单一总量（探针实测：开启后 thinkTokens 条数 = 0，Σtotal 不变）。
+
+### 验证
+
+- **数字对账**（pilot `f1be2b52`）：API 返回 **60** 条带 usage，Σtotal = **727,879**、Σthink = **457,330**，与独立手工核算（727,879 / 457,285）一致；单次请求 **≈0.18s**。
+- `bun run check:server` **files=493 passed-tests=5947 failed-tests=0**（EXIT=0）；前端全量 **6341 passed / 0 failed**；`tsc -b` 0 错。
+- 8 个新链位（44-51）在 `d89c1405` worktree 按序 apply **FAIL=0**，并集与工作树**逐字节一致**。
+
+### 踩坑记录
+
+1. **修好「发现」不等于修好「列表」**：给索引加了额外根后 `discovered=84/indexed=84/ready`，但列表仍只有 2 条。原因是**第二层**——`validateIndexedTranscriptPath` 的调用方只传「本配置目录的根」，额外根来的行被判越界，而且是在 `catch` 里**静默丢弃**。所以 `total` 报得对、行数却少，**极易误判为已修好**。教训：改完「发现/索引」必须验**返回条数**，不能只看 status 的 discovered/indexed。
+2. **测试文件里的类型错误会被 vitest 放行、被 `tsc -b` 拦住**：`sessionUsageRestore.test.ts` 从 `types/chat` 导入了并不存在的 `MessageEntry`（实为 `types/session`），vitest 不做类型检查所以本地全绿，而 deb 构建第一步 `tsc -b` 直接失败、整个打包中断。教训：**涉及 desktop 的改动必跑 `tsc -b`**，别把 vitest 绿当类型安全。
+3. **跨层 prop 必须逐跳核对**：`agentTaskLiveUsage` 我加了「类型 + `AgentToolGroup` 解构」，但漏了包装组件 `ToolCallGroupContent` 的 4 处渲染与 2 处解构 ⇒ prop 恒为 `undefined`、运行中永远没数字。是新写的「运行中应有数字」测试把它逼出来的。教训：加跨层 prop 时用 `grep` 数一遍渲染点，别只改 `interface`。
+4. **`0` 不等于「已测量」**：`getReasoningTokenCountFromUsage` 返回 0 是合法值（引擎确实没思考），但调用方写成 `typeof === 'number'` / `?? ` 就把 0 当成了「测到了」，从而**跳过估算、把拆分整个藏掉**。修法是 `reported > 0 ? reported : 估算`（`agentToolUtils.ts` 与 `LocalAgentTask.tsx` 两处同口径）。
+5. **「目录级测试失败」的真因（细化附录旧结论）**：`bun test src/utils` 一次报 34 fail 而官方 `bun run check:server` 全绿。两类根因已实测定位：① **`mock.module` 泄漏**——Bun 1.3.14 的 `mock.restore()` **不还原 `mock.module`**，且该调用被**提升**（连 mock 之前的 `await import` 也拿到 mock），故「先存真身再 mock 回去」也不可行；整目录加 `--isolate` 可把 33 条降到 6。② **ambient env 泄漏**——本机导出的 `CLAUDE_CODE_MODEL_CONTEXT_WINDOWS` 等使 `modelContextWindows`/`ultracode`/`processSlashCommand` **单跑也失败**，修法是接入既有 `isolateModelDefaultsEnv()`。官方 runner 天生免疫（**逐文件独立进程 + 环境变量白名单**）。
+6. **TPS 脉冲的真凶是「分母」而不是「分子」**：生产实测 1000-2000 t/s（真值 230-280）。起初怀疑引擎/校准，实测生产 bundle 里**根本没有** `preWindowAt` —— 该修法（链位 44）此前**从未提交**，只存在于工作区，所以重装任何既有 deb 都不会好。教训：**现象像配置问题，先确认「生产跑的是哪份制品、含不含该修法」**（比对 bundle 时间与 hash 比读代码快得多）。
+7. **子代理目录不能按「本实例的 projects 根」推导**：`findSubagentAgentIdByToolUseId` 原用 `getProjectsDir()` 拼路径，对**额外索引根**下的会话（如 dev 挂的生产目录）会找错位置。改为由该会话自己的转录路径推导，并把 sidecar 列表抽成 `listSubagentSidecars` 一次读全（否则按 `toolUseId` 逐个查会反复遍历目录）。
+8. **别用 `pkill -f` 重启本地服务**：`pkill -f "port 7788"` 会**匹配到承载该命令的 shell 自身**（命令行里含同一字符串），把自己的会话打断（本次多次 exit 144）。正确做法是用 `ss -ltnpH 'sport = :7788'` 取端口持有者 PID 再 `kill`；且 `kill` 父进程不会带走 `bun run` 的子进程，需按端口持有者清。
+9. **心跳不一定要加**：原以为要给服务端加 5s 定时器，核过才发现 `task_progress` **每轮都发**、桌面早就收得到 ⇒ 整个「运行中用量」是**纯客户端**改动。教训：加新机制前先确认既有链路的实际行为（`grep` 调用点 + 看落到哪个 store），否则会造出第二套数据源。
+
+### Patch
+
+`patches/subagent-usage-split-live.patch`（链位 **51**，13 文件 781 增）+ 关联 `tps-burst-anchor.patch`(44) / `think-token-truth-chain.patch`(45) / `tps-tokens-kind-and-reasoning-passthrough.patch`(46) / `file-download-attr.patch`(47) / `local-index-extra-project-roots.patch`(48) / `test-model-env-isolation.patch`(49) / `session-list-multi-root-validation.patch`(50)。全链 **43 → 51**。
+
+---
+
 ## 附录：交接备注（2026-09-27 更新）
 
 - #83 测试失败：前端全量 vitest 12456 pass/2 fail（2=MessageList 同一用例负载 flaky，已加 timeout:5000 缓解+孪生已同步）；server 侧 `bun run check:server` 本地坑=shell snapshot 把 `process.cwd()` 重置回 gov-managerment-plan（bun -e 实证），绕过法=/tmp/srv-exit.sh 逐文件 exit-code 判定（权威=CI 干净 checkout 无 .js 孪生双重收集）。
 - #84 deb：desktop/scripts/build-linux.sh LINUX_TARGETS=deb SKIP_INSTALL=1（先 tsc 孪生同步，TS5096 不阻断）。
 - **编译耗时实况（2026-09-27 实测）**：`bun run build` = preview-agent 0s + `tsc -b` **45s** + `vite build` **3s** ≈ **48s**；`tsc -b` 冷/热同价（删 `tsconfig.tsbuildinfo` 不额外花钱，实测冷 46s）；完整 deb 打包（热缓存）约 **2–3 分钟**。故「编译一次 >20 分钟拿不到结果」的成因是**调用姿势**而非编译本身：`timeout 1200 ... | tail -20` 的兜底超时 + 管道缓冲使输出到进程结束才可见，再叠加多个重活（build/vitest×2）抢 CPU。**规矩**：长命令走后台 + 日志文件轮询，禁止 `| tail -N` 阻塞；同一时刻只跑一个重活；纯前端迭代用新增的 `bun run build:renderer`（**实测 3.01s**，对比 `build` 的 48s）。
-- **同一工作树内的「目录级测试失败」多为并发污染**：`bun test src/utils/computerUse/` 整目录跑出 24 fail，而**逐个文件隔离跑全部 0 fail**（27/27 文件）。判定真回归前先隔离复跑。
+- **同一工作树内的「目录级测试失败」多为并发污染**：`bun test src/utils/computerUse/` 整目录跑出 24 fail，而**逐个文件隔离跑全部 0 fail**（27/27 文件）。判定真回归前先隔离复跑。（**2026-09-28 细化根因**：① `mock.module` 泄漏——Bun 1.3.14 的 `mock.restore()` **不还** `mock.module`，且该调用被**提升**（连 mock 之前的 `await import` 也拿到 mock），故「先存真身再 mock 回去」不可行；整目录加 `--isolate` 可 33→6。② ambient env 泄漏——`CLAUDE_CODE_MODEL_CONTEXT_WINDOWS` 等致 **单跑也失败**，修法=接入 `isolateModelDefaultsEnv()`。权威口径仍是 `bun run check:server`：逐文件独立进程 + env 白名单继承，**天生免疫**。详见二十六章踩坑⑤。）
+- **重启本地 dev 服务禁用 `pkill -f`**（2026-09-28 踩坑）：`pkill -f "port 7788"` 会匹配到**承载该命令的 shell 自身**（命令行含同一字符串），把自己的会话打断（多次 exit 144）。正确：`ss -ltnpH 'sport = :7788'` 取端口持有者 PID 再 `kill`；且 `kill` 父进程**不带走** `bun run` 子进程，须按端口持有者清。启动脚本 `/tmp/start7788.sh`（含 `CLAUDE_CONFIG_DIR` + `CC_HAHA_EXTRA_PROJECT_ROOTS`）。
+- **desktop 改动必过 `tsc -b`；vitest 绿 ≠ 类型安全**（2026-09-28 踩坑）：测试文件里的类型错误被 vitest 放行，却让 deb 构建第一步 `tsc -b` 失败、**整包中断**。纯前端快验可用 `bun run build:renderer`（3s），但入库前必须跑一次 `tsc -b`（~45s）。
 
 ### ⚠️ 坑：根 `tsc --noEmit` 的 3500+ 报错**不是缺陷**
 
