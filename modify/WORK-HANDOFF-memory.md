@@ -1,4 +1,4 @@
-# cc-haha 0.6.6 重实现 — 交接检查点（2026-09-28 更新：26 章 + TPS 脉冲真根因，52 链）
+# cc-haha 0.6.6 重实现 — 交接检查点（2026-09-28 更新：26 章 + 三处真根因，54 链，生产已装）
 
 ## 最新状态（2026-09-28）
 
@@ -16,6 +16,10 @@
 - **dev 服务**：7788 已重启（`/tmp/start7788.sh`，含 `CC_HAHA_EXTRA_PROJECT_ROOTS=/home/zeaxion/.claude/projects`）。
 - **⚠️ TPS 脉冲第二轮（链位 52，`tps-phase-switch-steady-window.patch`）**：用户反馈装新 deb 后**仍**在相位切换处爆到 9999。查证 = 链位 44 的锚**确实在**生产 bundle 里（非制品陈旧），是**锚的条件太窄**（停滞冲刷恰落在 `span==400ms` 地板故不进锚）。离线复现 5 场景定位三处同源缺陷，收敛为一条规则（私有 `sliceRate()`：**一批 token 生成于它与前一批之间**；无前置样本则丢弃最旧那批；不可计时则持有），并按用户要求只算**稳态段**（`SETTLE_MS=230`）。正向副作用：稳态读数**精确化**（旧式 10 批除 9 个间隔，系统性偏高 11%）。**仍需重编 deb 并安装**。
   - 踩坑：① 自己写的反向遍历 `lastIndex=i; startIndex=i` 使 lastIndex 停在最旧索引 ⇒ 持有值恒 0（被测试当场抓住）；② 一度想给 `endCall` 加合理性上限，按证据否掉（其两入参在生产**同口径**：`QueryEngine` 的 `result` 里 `usage=totalUsage` 配 `decode_ms=totalDecodeMs`）；③ **验修法不能只 grep 符号**——锚「在制品里」不等于「生效」。
+- **⚠️ 第三轮（链位 53/54，均已进生产）**：用户实测报两处——
+  - **下载「无法从网站上提取文件」（链位 53 `file-download-blob`）**：实测同一路由**无 Origin→200、`Origin: null`→403**。打包版渲染进程在 `file://`，而 DOM 自发的下载请求其 Origin **序列化为 `null`**（门控认 `file://` 却不认 `null`）。**不放行 `null`**（=所有不透明来源的值，恶意页面的 sandbox iframe 即此 ⇒ 等于给本地 API 开后门），改修调用方：`apiGetBlob` 取字节 + blob（app icon 早有同款解法，`client.ts:459-463` 注释写明同一理由）。顺带纠正我早前写进注释的**未取证因果**（「下载卡片能用、树菜单不能」是错的，两者同样失败）。
+  - **拆分「真实用量 0」（链位 54 `split-no-double-count`）**：一轮响应拆两条记录**共享 `message.id`**（思考一条 output=0 无 reasoning、正文一条带真值），估算又叠真值 ⇒ think > total ⇒ `max(0,total-think)` 恒 0。按响应 id 归组、真值胜过估算；实时 tracker 与服务端 rollup **两处同病同修**。dev 实测 **6/6 一致**、非思量由 0 变为正数。
+- **生产装机已验证（14:02 deb）**：`App--vk5NH6C.js` 与产物**同名同内容**（含 `createObjectURL`）；`PetRenderer-CzXigudJ.js` 与产物 **md5 逐字节相同**（`78e1e161…`，含 `preWindowAt`/`lastIndex`/`sliceRate`）；sidecar 含 `thinkingEstimatesByResponse`。**三处修复全在生产。**
 - **待办**：① 装新 deb 后验证 TPS 不再脉冲 + 拆分显示 + 下载；② 把拆分机制推广到**全部历史会话**（当前按需推导已覆盖打开过的会话；若要一次性持久化进索引＝schema v6 + parser 跳变触发后台全量整理，独立一步）；③ `teammate`/嵌套子代理（一个 `toolUseId` 对多个转录）暂回落正则，未纳入推导。
 
 ---

@@ -43,7 +43,7 @@
 >
 > **2026-09-26 重基**：全部 patch 重基到上游 `068b3ebd`（origin/main 2026-09-25，含 20 个新 commit：CORS 门控重做/切 tab 保视图/历史不全保聊天/内存保存竞态两修/pending 问题超时自动回答/聊天外观偏好/OAuth 2.1.281 对齐/agent-teams/Kimi K3 图片透传/定时任务持久化串行化）。应用方式=按下表从上到下逐章 `git apply --allow-empty`。空 patch（h5-settings-whitelist、h5-mobile-market）内容已被后续章节的共享文件覆盖，apply 后无变化。
 >
-> **当前链规模（2026-09-28）**：共 **52 patch**（50 实 + 2 空）。最新一位：`tps-phase-switch-steady-window`（四 子优化⑦：TPS 相位切换脉冲**真根因**——分母不覆盖被它除的 token；稳态读数顺带精确化，链位 52）。前一位：`subagent-usage-split-live`（二十一 子优化⑥：还原会话的 think/非think 拆分 + 组栏运行中实时跟进，链位 51）。再前（链位 44-50）：`tps-burst-anchor`（四 子优化⑤ TPS 脉冲修复，链位 44）、`think-token-truth-chain`（二十一 子优化⑤ 思考 token 真值，链位 45）、`tps-tokens-kind-and-reasoning-passthrough`（四 子优化⑥ kind 归因 + reasoning 透传，链位 46）、`file-download-attr`（五 子优化 下载锚点，链位 47）、`local-index-extra-project-roots`（十 补记 额外索引根，链位 48）、`test-model-env-isolation`（十二 补记 模型 env 隔离，链位 49）、`session-list-multi-root-validation`（十 补记二 列表多根校验，链位 50）。**44-51 八链位验证**：`d89c1405` worktree 按序 apply **FAIL=0**，并集与工作树**逐字节一致**。上一版（链位 43 时）：`background-task-duration-restore`（二十一 子优化④ 补记二：后台任务耗时**恢复三层根因**——窗口被置空 / 通知型任务无起点 / **merge 抹掉 restored `startedAt`**；显示改紧凑 ASCII；补上「会话扩展信息」开关漏网的消息列表内联卡，链位 43）。前一位：`vcc-compact-fallback`（十三 vcc 失败降级兜底，链位 42）。再前：`subagent-background-task-durations`（二十一 子优化④：子代理耗时 + 子代理收纳栏总耗时 + 后台任务耗时，链位 41）。再前：`tps-content-accounting`（四 子优化：TPS 计量改为按内容度量，链位 40）。再前：`tps-real-token-accounting`（四 子优化：TPS 采样改真实 token 口径，链位 37）、`compact-dead-import-cleanup`（策略门禁 dead-imports 清理，链位 38）、`session-speed-and-usage-pairing`（四 子优化：面板生成速度分子分母配对 + transcript usage 去重丢 output 修复，链位 39）。新增：`turn-usage`（二十一 子优化②）、`thinking-badge-order-and-duration`（二十一 子优化①，前端 + API 层）、`baseline-typecheck-fixes`、`autocompact-window-tiers`、`history-transport-bounds`、`file-history-dedup`、`gzip-transport`、`history-first-paint-bound`（前端）、`storage-original-file-bound`（二十二 F 存量瘦身，含新测试文件）、`computer-use-platform-components`（十八 平台化组件选择）、`computer-use-python-path-fallback`（十八 解释器路径回退）、`tps-centered-second-line`（四 费用/TPS 第二行居中）、`h5-mobile-run-records`（二十五 H5 子代理运行记录，链位 36）。
+> **当前链规模（2026-09-28）**：共 **54 patch**（52 实 + 2 空）。最新一位：`split-no-double-count`（二十六 补记：拆分的「真实用量 0」——一轮响应拆两条记录共享 `message.id`，估算与真值双计，链位 54）。前一位：`file-download-blob`（五 子优化：下载改走 `apiGetBlob`+blob，`file://` 下 DOM 请求的 Origin 是 `null` 被门控拒，链位 53）。再前：`tps-phase-switch-steady-window`（四 子优化⑦：TPS 相位切换脉冲**真根因**——分母不覆盖被它除的 token；稳态读数顺带精确化，链位 52）。前一位：`subagent-usage-split-live`（二十一 子优化⑥：还原会话的 think/非think 拆分 + 组栏运行中实时跟进，链位 51）。再前（链位 44-50）：`tps-burst-anchor`（四 子优化⑤ TPS 脉冲修复，链位 44）、`think-token-truth-chain`（二十一 子优化⑤ 思考 token 真值，链位 45）、`tps-tokens-kind-and-reasoning-passthrough`（四 子优化⑥ kind 归因 + reasoning 透传，链位 46）、`file-download-attr`（五 子优化 下载锚点，链位 47）、`local-index-extra-project-roots`（十 补记 额外索引根，链位 48）、`test-model-env-isolation`（十二 补记 模型 env 隔离，链位 49）、`session-list-multi-root-validation`（十 补记二 列表多根校验，链位 50）。**44-51 八链位验证**：`d89c1405` worktree 按序 apply **FAIL=0**，并集与工作树**逐字节一致**。上一版（链位 43 时）：`background-task-duration-restore`（二十一 子优化④ 补记二：后台任务耗时**恢复三层根因**——窗口被置空 / 通知型任务无起点 / **merge 抹掉 restored `startedAt`**；显示改紧凑 ASCII；补上「会话扩展信息」开关漏网的消息列表内联卡，链位 43）。前一位：`vcc-compact-fallback`（十三 vcc 失败降级兜底，链位 42）。再前：`subagent-background-task-durations`（二十一 子优化④：子代理耗时 + 子代理收纳栏总耗时 + 后台任务耗时，链位 41）。再前：`tps-content-accounting`（四 子优化：TPS 计量改为按内容度量，链位 40）。再前：`tps-real-token-accounting`（四 子优化：TPS 采样改真实 token 口径，链位 37）、`compact-dead-import-cleanup`（策略门禁 dead-imports 清理，链位 38）、`session-speed-and-usage-pairing`（四 子优化：面板生成速度分子分母配对 + transcript usage 去重丢 output 修复，链位 39）。新增：`turn-usage`（二十一 子优化②）、`thinking-badge-order-and-duration`（二十一 子优化①，前端 + API 层）、`baseline-typecheck-fixes`、`autocompact-window-tiers`、`history-transport-bounds`、`file-history-dedup`、`gzip-transport`、`history-first-paint-bound`（前端）、`storage-original-file-bound`（二十二 F 存量瘦身，含新测试文件）、`computer-use-platform-components`（十八 平台化组件选择）、`computer-use-python-path-fallback`（十八 解释器路径回退）、`tps-centered-second-line`（四 费用/TPS 第二行居中）、`h5-mobile-run-records`（二十五 H5 子代理运行记录，链位 36）。
 >
 > **全链验证（2026-09-27 收尾，决定性）**：在干净基线 `068b3ebd` 的**临时 worktree** 上按上表顺序 `git apply --allow-empty` 全部 **35 个 patch → 失败 0 个**；应用后终态与工作树在**本轮 4 个新 patch 涉及的全部 14 个文件**上**逐字节一致**，全树剩余差值仅为下节「已知非章 delta」。此为权威口径（早前「HEAD 上暂存往返」是非全链验证，已由本次全链取代）。**2026-09-27 追加第 36 位（`h5-mobile-run-records`）与 `tps-indicator`/`turn-usage` 重生成后复验：36 链同样失败 0，第 7 章 8 文件 + `chatStore.test.ts` + `AppShell.{tsx,test.tsx}` 逐字节等于工作树。** **2026-09-27 二次追加第 37/38 位（`tps-real-token-accounting`、`compact-dead-import-cleanup`）后复验：干净重跑 38 链失败 0，本轮 23 个文件（20 TPS + 3 dead-import）**逐字节等于工作树**。** **2026-09-27 三次追加第 39 位（`session-speed-and-usage-pairing`）后复验：干净重跑 39 链失败 0，本轮 13 个文件**逐字节等于工作树**。** **2026-09-27 四次追加：第 40/41/42 位（`tps-content-accounting`、`subagent-background-task-durations`、`vcc-compact-fallback`）随链入库（未单独复记全链）。** **2026-09-27 五次追加第 43 位（`background-task-duration-restore`）：干净 `068b3ebd` worktree 重跑 **43 链失败 0**，本轮 6 文件（`SessionActivityPanel.{tsx,test.tsx}`、`chatStore.{ts,test.ts}`、`MessageList.{tsx,test.tsx}`）**逐字节等于工作树**；生成时以 `HISTORY_STITCH_MAX_PAGES`/`agentGroupSpanMs`/`ingestSubagentTps` 三个「链内既有」标志串反查误记，均为 **0**。**
 
@@ -113,6 +113,8 @@
 | 48 | `patches/local-index-extra-project-roots.patch` | 十 补记：`CC_HAHA_EXTRA_PROJECT_ROOTS` **额外索引根**——dev 实例用自己的 `CLAUDE_CONFIG_DIR` ⇒ 发现根随之变成自己的，真实目录的会话永不出现；该配置可额外索引真实 `projects/`（3 文件 222 增） | ✅ 已实施 |
 | 49 | `patches/test-model-env-isolation.patch` | 十二 补记：三处模型 env 敏感用例接入 `isolateModelDefaultsEnv`——本机导出的 `CLAUDE_CODE_MODEL_CONTEXT_WINDOWS` 等泄漏致 `modelContextWindows`/`ultracode`/`processSlashCommand` **单跑也失败**；官方 runner 逐文件独立进程 + env 白名单故免疫（3 文件 20 增） | ✅ 已实施 |
 | 50 | `patches/session-list-multi-root-validation.patch` | 十 补记二：会话列表**逐行校验改按全部索引根**——只认本配置目录的根时，额外根来的行被判越界并被 `catch` **静默丢弃**（于是 `total` 报得对、行数只剩 2）；平铺 2 → 84、侧边栏分组恢复（1 文件 70 增） | ✅ 已实施 |
+| 53 | `patches/file-download-blob.patch` | 五 子优化：**下载改走 `apiGetBlob`+blob**——`file://` 下 DOM 自发的下载请求其 Origin 序列化为 `null`（非 `file://`），服务端 403 `CORS origin not allowed` ⇒ 「无法从网站上提取文件」。**不放行 `null`**（那是所有不透明来源的值，恶意页面的 sandbox iframe 即是 ⇒ 等于给本地 API 开后门），改修调用方；同 app icon 的既有解法（4 文件 133 增） | ✅ 已实施 |
+| 54 | `patches/split-no-double-count.patch` | 二十六 补记：**拆分「真实用量 0」**——一轮响应拆成两条记录（思考一条、正文一条，**共享 `message.id`**），只有带 usage 的那条能报 reasoning ⇒ 估算又叠真值（think 15.7k > total 9.3k）⇒ `max(0,total-think)` 恒 0。按响应 id 归组，真值胜过估算；**两处同病同修**（实时 tracker + 还原会话），实测 6/6 一致（4 文件 166 增） | ✅ 已实施 |
 | 52 | `patches/tps-phase-switch-steady-window.patch` | 四 子优化⑦：**TPS 相位切换脉冲真根因**——`total` 与 `span` 不是同一批 token 的时间：锚的条件太窄（停滞冲刷恰落在 `span==400ms` 地板故不进锚）、无前置样本时 `Math.max(span, 400ms)` 凭空造分母（整块交付读 22500）、`computeFallbackTps` 同病。收敛为一条规则：**一批 token 生成于它与前一批之间**（`sliceRate()`：原点取切片前一样本；无前置则丢弃最旧那批；不可计时则持有）。顺带修正稳态读数**系统性偏高 11%**（10 批除 9 个间隔） | ✅ 已实施 |
 | 51 | `patches/subagent-usage-split-live.patch` | 二十一 子优化⑥：**还原会话的 think/非think 拆分 + 组栏运行中实时跟进**——服务端 `sessionUsageRollup` 按 `toolUseId` 从子代理转录推导 usage 随通知下发（完成态权威）；组栏改读**运行中记录**（`agentTaskLiveUsage`）并以完成通知**二次校正**；实时节奏对齐思考徽章 3s（13 文件 781 增） | ✅ 已实施 |
 
@@ -593,6 +595,31 @@ H5 浏览器端打开文件链接时，`/local-file/<absPath>` 直接内联显�
 - Patch：`modify/patches/file-download.patch`（**20 文件 951 行**，含 3 前端新文件 mode 100644 + 6 文件浏览下载入口文件；2026-09-26 因第四章子代理汇聚新增 i18n 键而连锁重生成）。**19 patch 全链 `git apply` 干净且逐字节等于工作树（仅 5 已知非章 delta）**。
 
 ---
+
+### 子优化（2026-09-28）：下载改走 blob 取字节——`file://` 下 DOM 自己的请求 Origin 是 `null`（链位 53）
+
+- **触发（用户 verbatim）**：「文件浏览的两个下载触发，虽然是可以触发下载，但是提示**"无法从网站上提取文件"**，也要修。」
+- **实测定位**（对运行中的 8877 直接 curl 同一路由 `/local-file/<abs>?download=1`）：
+
+  | 请求 Origin | 结果 |
+  |---|---|
+  | 无 | **200**（正常返回 6719 字节） |
+  | `http://127.0.0.1:8877` / `localhost:8877` | **200** |
+  | `file://` | **200** |
+  | **`null`** | **403 `CORS origin not allowed`** |
+
+  打包版渲染进程在 `file://`（`main.ts` 的 `rendererEntry()` → `loadFile`），而**由 DOM 发起的下载请求，其 Origin 序列化为 `null`** —— 不是 `file://`。服务端 `resolveCors`（`middleware/cors.ts`）只在「无 Origin ／ 本机 Origin ／ H5 白名单」三者之一放行，`null` 不在其中，于是下载能发起、随即被拒。
+- **为什么不用「放行 `null`」**：`null` 是**所有不透明来源**的序列化值，恶意网页里的 `sandbox` iframe 正是这个来源 —— 放行它等于让任意网站驱动本地 API（读会话、读文件）。`file://` 不同：网页无法伪造它。所以修的是**调用方**，不是门控。
+- **修法**：`downloadLocalFile` 改为 `apiGetBlob`（`desktop/src/api/client.ts`）取字节 → `URL.createObjectURL` → 带 `download` 的临时锚点点击。**本仓库对 app icon 早已是同一解法**，`client.ts:459-463` 的注释写明了同一条理由：DOM 直接加载的资源**既带不了 Authorization 也带不了可信 Origin**；改为「先取字节」就走上了其余调用一样的凭证路径。代价＝文件经内存转 blob（与既有的图标/导出下载同一取舍）。
+  - blob URL 无文件名，故仍显式设 `anchor.download = fileNameFromPath(...)`（此时服务端的 `Content-Disposition` 帮不上忙）。
+  - `URL.revokeObjectURL` 延到下一个 task：同步撤销可能取消尚未开始的下载。
+  - 两个调用点（文件树菜单、「打开方式」菜单）改为 `void downloadLocalFile(...)`；助手自身**吞掉失败并记录原因**（调用方是即发即忘的菜单回调，抛出只会变成 unhandled rejection，用户什么都看不到）。
+- **踩坑记录**：
+  1. **我早前在代码注释里写了一个未经验证的因果**：称「下载卡片能用、树菜单不能」。实测两者**同样失败**（下载卡片是用户点击的锚点，DOM 点击的下载请求 Origin 同为 `null`）。**教训：写进注释的因果也要有取证，否则它会留在代码里误导下一个人（包括未来的自己）。**
+  2. **测试里让 vitest mock 抛异常会污染结果**：`mockRejectedValue` / `mockImplementation(async () => { throw … })` 都被 vitest 记为一条**独立失败**（未消费的拒绝承诺），即便调用方已 await 并 catch，表现为「测试明明写了 catch 却红」。改为把失败**布置在保存步骤**（`URL.createObjectURL` 抛）即可干净地验证「失败被吞、不抛给调用方」。同步抛出的 `mockImplementation(() => { throw … })` 同样会被计为失败。
+  3. `jsdom` 既无 `createObjectURL` 也无 `revokeObjectURL`，需在测试顶部兜底定义。
+- **验证**：`handlePreviewLink.test` **39 全绿**（其中 4 条为改写后的下载用例：走 API 客户端而非 DOM、保留路由与文件名、DOM 无残留、失败返回 false 且不抛）；桌面 `tsc -b` **0 错**；全量前端测试见交接快照。
+- **入库**：链位 **53** `patches/file-download-blob.patch`（4 文件 133 增 / 54 删）。
 
 ## 六、设置-关于-更新：禁止更新开关（源§十三，✅ 2026-09-25）
 
@@ -2046,6 +2073,26 @@ export function pythonRuntimeFor(platform: NodeJS.Platform): PythonRuntimeCompon
 - **数字对账**（pilot `f1be2b52`）：API 返回 **60** 条带 usage，Σtotal = **727,879**、Σthink = **457,330**，与独立手工核算（727,879 / 457,285）一致；单次请求 **≈0.18s**。
 - `bun run check:server` **files=493 passed-tests=5947 failed-tests=0**（EXIT=0）；前端全量 **6341 passed / 0 failed**；`tsc -b` 0 错。
 - 8 个新链位（44-51）在 `d89c1405` worktree 按序 apply **FAIL=0**，并集与工作树**逐字节一致**。
+
+### 补记（2026-09-28）：拆分的「真实用量 0」——一轮响应拆两条记录，估算与真值双计（链位 54）
+
+- **触发（用户 verbatim）**：「派发子代理的总收纳栏上面显示的**用量和耗时**…（改动后）你**未思考的用量是0**，思考的用量是真实用量，这个要修正一下。」
+- **取证实录**（用户当轮派发的 6 个文案子代理，`agent-a47f5e65272e0bd40.jsonl`）：
+
+  | 记录 | `message.id` | `output_tokens` | `reasoning_tokens` | 内容 |
+  |---|---|---|---|---|
+  | 轮1 | `msg_adb…` | **0** | 无 | 思考 **31165** 字符 |
+  | 轮2 | `msg_adb…` | 9300 | 6777 | 正文 4484 字符 |
+
+  **一轮响应被拆成两条 assistant 记录**（思考一条、正文一条，**共享 `message.id`**，3 个文件里形态一致），且只有带 usage 的那条能报 reasoning。于是：31165 字符的思考被**估算**（≈8.9k），又叠上同响应真实的 6777 ⇒ **think 15.7k > total 9.3k** ⇒ 界面 `Math.max(0, total - think)` 恒为 **0**，显示成「只有思考 + 真实用量 0」。
+- **修法**：按**响应 id 归组**，某响应报了真值就**丢弃**它先前那条拆分记录的估算。
+  - CLI 侧（`LocalAgentTask.tsx` 的 tracker）：新增 `thinkingEstimatesByResponse: Map<id, number>`；遇到 `reported > 0` 时先把同 id 的估算**减掉**再计真值。
+  - 服务端（`sessionUsageRollup.computeSubagentUsage`，批量版）：先收集 `reportedThinkByResponse` 与 `estimatedThinkByResponse`，最后「有真值的响应**不采用**估算」。
+  - 无 `message.id` 的记录维持原逐条行为（对单记录响应本就正确）。
+  - **两处同病同修**：实时 tracker 与还原会话各加一条钉住该形状的测试。
+- **验证（真实数据，dev 实例）**：取用户那批 6 个子代理，比对新代码 API 返回 vs 独立算出的期望值 —— **6/6 完全一致**，非思考分量由 **0** 变为 **3332 / 2523 / 3654 / 4286 / 4192 / 2721**；该会话 66 条带 usage 的通知中 `think > total` **0 条**、非思考恰为 0 **0 条**（原先即此现象）；合计 Σtotal=**798,076**、Σthink=**506,819** ⇒ 非思考 **291,257**。
+- **入库**：链位 **54** `patches/split-no-double-count.patch`（4 文件 166 增 / 14 删）。
+- **同类风险（留给后人）**：凡「估算 + 真值」两条源累加到同一个数的地方，都要先确认**两者描述的是不是同一批 token**。本仓库的流式解析本就会把一轮响应拆成多条记录 —— `utils/tokens.ts` 的 `getAssistantMessageId` 正是为识别「同源拆分记录」而存在，排数字异常时应先看**同一 `message.id` 下有几条记录、各自带哪些字段**。
 
 ### 踩坑记录
 
