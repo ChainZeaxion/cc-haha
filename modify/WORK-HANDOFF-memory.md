@@ -21,11 +21,11 @@
   - **拆分「真实用量 0」（链位 54 `split-no-double-count`）**：一轮响应拆两条记录**共享 `message.id`**（思考一条 output=0 无 reasoning、正文一条带真值），估算又叠真值 ⇒ think > total ⇒ `max(0,total-think)` 恒 0。按响应 id 归组、真值胜过估算；实时 tracker 与服务端 rollup **两处同病同修**。dev 实测 **6/6 一致**、非思量由 0 变为正数。
 - **生产装机已验证（14:02 deb）**：`App--vk5NH6C.js` 与产物**同名同内容**（含 `createObjectURL`）；`PetRenderer-CzXigudJ.js` 与产物 **md5 逐字节相同**（`78e1e161…`，含 `preWindowAt`/`lastIndex`/`sliceRate`）；sidecar 含 `thinkingEstimatesByResponse`。**三处修复全在生产。**
 - **⚠️ 第四轮（链位 55/56）**：
-  - **下载（55）**：上一版 fetch+blob **反而变成「点击无反应」**。查证＝`file://` 渲染进程里 **blob: URL 不可下载**且不报错（而它的 fetch 一直可用，服务端白名单了 `Origin: file://`）。改为 **IPC `desktop:file:save-copy`**：渲染进程只交源路径，主进程弹保存框 + `copyFile`（目标只来自对话框 ⇒ 未给页面新增写盘能力）；H5 回落 blob。
+  - **下载（55，第三次才做对）**：用户第三轮点破方向——「**文件浏览、文件预览的卡片是坏的，对话卡片能下**」。那句「能下」就是反证：卡片用的是**裸 anchor 指向 `/local-file/...?download=1`**，一直是好的。实测三态决定性地说明问题：**无 Origin（anchor 点击＝导航）→ 200 + `Content-Disposition`**；`Origin: null`（fetch）→ **403**；`Origin: file://` → 200。我此前测到 403 就断定「DOM 下载会被拒」，**错把导航当成了 fetch**（导航不带 Origin）；改 fetch+blob 反而把请求推进被拒路径，且 blob 在不透明来源不可下载**且不报错** ⇒ 现象升级为「毫无反应」。修法＝`downloadLocalFile` 回到初版形状（建 anchor→href 指路由→click），文件浏览/文件预览共用一个函数，删掉错误的 IPC 机件（7 文件，净 −282 行）。**真机验证：打包 app 的 `file://` 渲染进程里 anchor 导航下载真的落盘（CDP 捕获，内容一致）。**
   - **TPS（56）**：用户报「还是冲上 1600，尤其 bash 动作时」。bash 期间无解码 ⇒ 说明**持有值虚高**。离线复现：整块重放 **7153**、停顿后积压突发 **3603**（真值 250）。真因＝**打包投递被当成生成节奏**（重放/整块交付/页面忙时排队的中转帧；bash 输出正好占满主线程）。修法＝逐样本只计入到达间隔能支撑其实时速率的样本（上限 5000），延迟首批保留自身间隔。修后 250 / 383。
-  - **我犯的错（已记档）**：① 第一版修法（切片整体到达跨度）无效，判据必须逐样本；② 无头 Chrome 下载实验**无对照组**（两种来源都不落盘）本不该拿来当证据；③ 又并发跑两个重活导致 2 条假失败（`MessageList`/`conversations`，单独复跑全绿）。
-- **本轮验证**：桌面 `tsc -b` 0 错；全量前端 **6350 通过 / 0 失败**（单独跑）；`electron/ipc`+`services` 552/0；`tpsMeter` 27 + `tpsCalibration` 8 + `TpsIndicator` 7 = 42 绿；`handlePreviewLink` 42 绿；链位 55/56 在链终态 worktree apply FAIL=0。
-- **待办**：① 装新 deb 后验证 TPS 不再脉冲 + 拆分显示 + 下载；② 把拆分机制推广到**全部历史会话**（当前按需推导已覆盖打开过的会话；若要一次性持久化进索引＝schema v6 + parser 跳变触发后台全量整理，独立一步）；③ `teammate`/嵌套子代理（一个 `toolUseId` 对多个转录）暂回落正则，未纳入推导。
+  - **我犯的错（已记档）**：① 抱着「DOM 下载被拒」的假设连改两轮，而**同代码里的可用入口（卡片）就是反证却没用**；② 把**构造的** `Origin: null` 请求当成真实点击的形状；③ 无头 Chrome 下载实验**无对照组**不该当证据；④ 并发跑两个重活致 2 条假失败（单独复跑全绿）；⑤ **用 `pkill -f` 误杀了用户的生产实例**——往后只按精确 PID 停自己起的进程。
+- **本轮验证**：桌面 `tsc -b` 0 错；全量前端 **6346 通过 / 0 失败**；`check:server` **493 文件 5950 通过 / 0 失败**；`electron/ipc`+`services`+`workbench` **653 绿**；`handlePreviewLink` **38 绿**（下载段重写）；`tpsMeter`27+`tpsCalibration`8+`TpsIndicator`7=42 绿；链位 55/56 在链基 worktree apply **FAIL=0**；**真机 CDP：打包 app 里 anchor 导航下载落盘 PASS**。
+- **待办**：① 装新 deb 后验证 TPS 不再脉冲 + 下载（文件浏览/文件预览两处）；② 把拆分机制推广到**全部历史会话**（当前按需推导已覆盖打开过的会话；若要一次性持久化进索引＝schema v6 + parser 跳变触发后台全量整理，独立一步）；③ `teammate`/嵌套子代理（一个 `toolUseId` 对多个转录）暂回落正则，未纳入推导。
 
 ---
 

@@ -43,7 +43,7 @@
 >
 > **2026-09-26 重基**：全部 patch 重基到上游 `068b3ebd`（origin/main 2026-09-25，含 20 个新 commit：CORS 门控重做/切 tab 保视图/历史不全保聊天/内存保存竞态两修/pending 问题超时自动回答/聊天外观偏好/OAuth 2.1.281 对齐/agent-teams/Kimi K3 图片透传/定时任务持久化串行化）。应用方式=按下表从上到下逐章 `git apply --allow-empty`。空 patch（h5-settings-whitelist、h5-mobile-market）内容已被后续章节的共享文件覆盖，apply 后无变化。
 >
-> **当前链规模（2026-09-28）**：共 **56 patch**（54 实 + 2 空）。最新一位：`tps-batched-delivery`（四 补记二：TPS 上千读数真因＝**打包投递被当成生成节奏**，链位 56）。前一位：`file-download-main-process`（五 补记：下载改建 IPC 由主进程保存，链位 55）。再前：`split-no-double-count`（二十六 补记：拆分的「真实用量 0」——一轮响应拆两条记录共享 `message.id`，估算与真值双计，链位 54）。前一位：`file-download-blob`（五 子优化：下载改走 `apiGetBlob`+blob，`file://` 下 DOM 请求的 Origin 是 `null` 被门控拒，链位 53）。再前：`tps-phase-switch-steady-window`（四 子优化⑦：TPS 相位切换脉冲**真根因**——分母不覆盖被它除的 token；稳态读数顺带精确化，链位 52）。前一位：`subagent-usage-split-live`（二十一 子优化⑥：还原会话的 think/非think 拆分 + 组栏运行中实时跟进，链位 51）。再前（链位 44-50）：`tps-burst-anchor`（四 子优化⑤ TPS 脉冲修复，链位 44）、`think-token-truth-chain`（二十一 子优化⑤ 思考 token 真值，链位 45）、`tps-tokens-kind-and-reasoning-passthrough`（四 子优化⑥ kind 归因 + reasoning 透传，链位 46）、`file-download-attr`（五 子优化 下载锚点，链位 47）、`local-index-extra-project-roots`（十 补记 额外索引根，链位 48）、`test-model-env-isolation`（十二 补记 模型 env 隔离，链位 49）、`session-list-multi-root-validation`（十 补记二 列表多根校验，链位 50）。**44-51 八链位验证**：`d89c1405` worktree 按序 apply **FAIL=0**，并集与工作树**逐字节一致**。上一版（链位 43 时）：`background-task-duration-restore`（二十一 子优化④ 补记二：后台任务耗时**恢复三层根因**——窗口被置空 / 通知型任务无起点 / **merge 抹掉 restored `startedAt`**；显示改紧凑 ASCII；补上「会话扩展信息」开关漏网的消息列表内联卡，链位 43）。前一位：`vcc-compact-fallback`（十三 vcc 失败降级兜底，链位 42）。再前：`subagent-background-task-durations`（二十一 子优化④：子代理耗时 + 子代理收纳栏总耗时 + 后台任务耗时，链位 41）。再前：`tps-content-accounting`（四 子优化：TPS 计量改为按内容度量，链位 40）。再前：`tps-real-token-accounting`（四 子优化：TPS 采样改真实 token 口径，链位 37）、`compact-dead-import-cleanup`（策略门禁 dead-imports 清理，链位 38）、`session-speed-and-usage-pairing`（四 子优化：面板生成速度分子分母配对 + transcript usage 去重丢 output 修复，链位 39）。新增：`turn-usage`（二十一 子优化②）、`thinking-badge-order-and-duration`（二十一 子优化①，前端 + API 层）、`baseline-typecheck-fixes`、`autocompact-window-tiers`、`history-transport-bounds`、`file-history-dedup`、`gzip-transport`、`history-first-paint-bound`（前端）、`storage-original-file-bound`（二十二 F 存量瘦身，含新测试文件）、`computer-use-platform-components`（十八 平台化组件选择）、`computer-use-python-path-fallback`（十八 解释器路径回退）、`tps-centered-second-line`（四 费用/TPS 第二行居中）、`h5-mobile-run-records`（二十五 H5 子代理运行记录，链位 36）。
+> **当前链规模（2026-09-28）**：共 **56 patch**（54 实 + 2 空）。最新一位：`tps-batched-delivery`（四 补记二：TPS 上千读数真因＝**打包投递被当成生成节奏**，链位 56）。前一位：`file-download-anchor`（五 补记定稿：**下载走 anchor 导航**，链位 55）。再前：`split-no-double-count`（二十六 补记：拆分的「真实用量 0」——一轮响应拆两条记录共享 `message.id`，估算与真值双计，链位 54）。前一位：`file-download-blob`（五 子优化：下载改走 `apiGetBlob`+blob，`file://` 下 DOM 请求的 Origin 是 `null` 被门控拒，链位 53）。再前：`tps-phase-switch-steady-window`（四 子优化⑦：TPS 相位切换脉冲**真根因**——分母不覆盖被它除的 token；稳态读数顺带精确化，链位 52）。前一位：`subagent-usage-split-live`（二十一 子优化⑥：还原会话的 think/非think 拆分 + 组栏运行中实时跟进，链位 51）。再前（链位 44-50）：`tps-burst-anchor`（四 子优化⑤ TPS 脉冲修复，链位 44）、`think-token-truth-chain`（二十一 子优化⑤ 思考 token 真值，链位 45）、`tps-tokens-kind-and-reasoning-passthrough`（四 子优化⑥ kind 归因 + reasoning 透传，链位 46）、`file-download-attr`（五 子优化 下载锚点，链位 47）、`local-index-extra-project-roots`（十 补记 额外索引根，链位 48）、`test-model-env-isolation`（十二 补记 模型 env 隔离，链位 49）、`session-list-multi-root-validation`（十 补记二 列表多根校验，链位 50）。**44-51 八链位验证**：`d89c1405` worktree 按序 apply **FAIL=0**，并集与工作树**逐字节一致**。上一版（链位 43 时）：`background-task-duration-restore`（二十一 子优化④ 补记二：后台任务耗时**恢复三层根因**——窗口被置空 / 通知型任务无起点 / **merge 抹掉 restored `startedAt`**；显示改紧凑 ASCII；补上「会话扩展信息」开关漏网的消息列表内联卡，链位 43）。前一位：`vcc-compact-fallback`（十三 vcc 失败降级兜底，链位 42）。再前：`subagent-background-task-durations`（二十一 子优化④：子代理耗时 + 子代理收纳栏总耗时 + 后台任务耗时，链位 41）。再前：`tps-content-accounting`（四 子优化：TPS 计量改为按内容度量，链位 40）。再前：`tps-real-token-accounting`（四 子优化：TPS 采样改真实 token 口径，链位 37）、`compact-dead-import-cleanup`（策略门禁 dead-imports 清理，链位 38）、`session-speed-and-usage-pairing`（四 子优化：面板生成速度分子分母配对 + transcript usage 去重丢 output 修复，链位 39）。新增：`turn-usage`（二十一 子优化②）、`thinking-badge-order-and-duration`（二十一 子优化①，前端 + API 层）、`baseline-typecheck-fixes`、`autocompact-window-tiers`、`history-transport-bounds`、`file-history-dedup`、`gzip-transport`、`history-first-paint-bound`（前端）、`storage-original-file-bound`（二十二 F 存量瘦身，含新测试文件）、`computer-use-platform-components`（十八 平台化组件选择）、`computer-use-python-path-fallback`（十八 解释器路径回退）、`tps-centered-second-line`（四 费用/TPS 第二行居中）、`h5-mobile-run-records`（二十五 H5 子代理运行记录，链位 36）。
 >
 > **全链验证（2026-09-27 收尾，决定性）**：在干净基线 `068b3ebd` 的**临时 worktree** 上按上表顺序 `git apply --allow-empty` 全部 **35 个 patch → 失败 0 个**；应用后终态与工作树在**本轮 4 个新 patch 涉及的全部 14 个文件**上**逐字节一致**，全树剩余差值仅为下节「已知非章 delta」。此为权威口径（早前「HEAD 上暂存往返」是非全链验证，已由本次全链取代）。**2026-09-27 追加第 36 位（`h5-mobile-run-records`）与 `tps-indicator`/`turn-usage` 重生成后复验：36 链同样失败 0，第 7 章 8 文件 + `chatStore.test.ts` + `AppShell.{tsx,test.tsx}` 逐字节等于工作树。** **2026-09-27 二次追加第 37/38 位（`tps-real-token-accounting`、`compact-dead-import-cleanup`）后复验：干净重跑 38 链失败 0，本轮 23 个文件（20 TPS + 3 dead-import）**逐字节等于工作树**。** **2026-09-27 三次追加第 39 位（`session-speed-and-usage-pairing`）后复验：干净重跑 39 链失败 0，本轮 13 个文件**逐字节等于工作树**。** **2026-09-27 四次追加：第 40/41/42 位（`tps-content-accounting`、`subagent-background-task-durations`、`vcc-compact-fallback`）随链入库（未单独复记全链）。** **2026-09-27 五次追加第 43 位（`background-task-duration-restore`）：干净 `068b3ebd` worktree 重跑 **43 链失败 0**，本轮 6 文件（`SessionActivityPanel.{tsx,test.tsx}`、`chatStore.{ts,test.ts}`、`MessageList.{tsx,test.tsx}`）**逐字节等于工作树**；生成时以 `HISTORY_STITCH_MAX_PAGES`/`agentGroupSpanMs`/`ingestSubagentTps` 三个「链内既有」标志串反查误记，均为 **0**。**
 
@@ -114,7 +114,7 @@
 | 49 | `patches/test-model-env-isolation.patch` | 十二 补记：三处模型 env 敏感用例接入 `isolateModelDefaultsEnv`——本机导出的 `CLAUDE_CODE_MODEL_CONTEXT_WINDOWS` 等泄漏致 `modelContextWindows`/`ultracode`/`processSlashCommand` **单跑也失败**；官方 runner 逐文件独立进程 + env 白名单故免疫（3 文件 20 增） | ✅ 已实施 |
 | 50 | `patches/session-list-multi-root-validation.patch` | 十 补记二：会话列表**逐行校验改按全部索引根**——只认本配置目录的根时，额外根来的行被判越界并被 `catch` **静默丢弃**（于是 `total` 报得对、行数只剩 2）；平铺 2 → 84、侧边栏分组恢复（1 文件 70 增） | ✅ 已实施 |
 | 53 | `patches/file-download-blob.patch` | 五 子优化：**下载改走 `apiGetBlob`+blob**——`file://` 下 DOM 自发的下载请求其 Origin 序列化为 `null`（非 `file://`），服务端 403 `CORS origin not allowed` ⇒ 「无法从网站上提取文件」。**不放行 `null`**（那是所有不透明来源的值，恶意页面的 sandbox iframe 即是 ⇒ 等于给本地 API 开后门），改修调用方；同 app icon 的既有解法（4 文件 133 增） | ✅ 已实施 |
-| 55 | `patches/file-download-main-process.patch` | 五 补记：**下载改建 IPC，由主进程保存**——上一版 fetch+blob 反而变成「点击无反应」（`file://` 渲染进程里 blob: URL **不可下载**且不报错）；本机文件无需过页面，改为渲染进程交**源路径**、主进程弹保存框并 `copyFile`（目标只来自对话框，调用方仅能建议文件名）。H5 回落 blob（11 文件） | ✅ 已实施 |
+| 55 | `patches/file-download-anchor.patch` | 五 补记（定稿）：**下载必须走 anchor 导航**——anchor 点击不带 Origin，服务端放行并给 `Content-Disposition`；我误把「`Origin: null` → 403」当成「DOM 下载会被拒」，改 fetch+blob 反而把它推进被拒路径且静默失败。回到初版写法，文件浏览/文件预览一处修好；删掉上一轮的 IPC 机件（2 文件，净 −282 行） | ✅ 已实施 |
 | 56 | `patches/tps-batched-delivery.patch` | 四 补记二：**TPS 上千读数真因＝打包投递被当成生成节奏**——重放/整块交付/页面忙时排队的中转帧，其 token 生成时刻远早于投递时刻；逐样本只计入「到达间隔能支撑其实时速率」的样本（上限 5000），延迟交付的首批保留自身间隔故积压仍按其真实停顿评级。实测 7153→250、3603→383（4 文件） | ✅ 已实施 |
 | 54 | `patches/split-no-double-count.patch` | 二十六 补记：**拆分「真实用量 0」**——一轮响应拆成两条记录（思考一条、正文一条，**共享 `message.id`**），只有带 usage 的那条能报 reasoning ⇒ 估算又叠真值（think 15.7k > total 9.3k）⇒ `max(0,total-think)` 恒 0。按响应 id 归组，真值胜过估算；**两处同病同修**（实时 tracker + 还原会话），实测 6/6 一致（4 文件 166 增） | ✅ 已实施 |
 | 52 | `patches/tps-phase-switch-steady-window.patch` | 四 子优化⑦：**TPS 相位切换脉冲真根因**——`total` 与 `span` 不是同一批 token 的时间：锚的条件太窄（停滞冲刷恰落在 `span==400ms` 地板故不进锚）、无前置样本时 `Math.max(span, 400ms)` 凭空造分母（整块交付读 22500）、`computeFallbackTps` 同病。收敛为一条规则：**一批 token 生成于它与前一批之间**（`sliceRate()`：原点取切片前一样本；无前置则丢弃最旧那批；不可计时则持有）。顺带修正稳态读数**系统性偏高 11%**（10 批除 9 个间隔） | ✅ 已实施 |
@@ -648,20 +648,31 @@ H5 浏览器端打开文件链接时，`/local-file/<absPath>` 直接内联显�
 - **验证**：`handlePreviewLink.test` **39 全绿**（其中 4 条为改写后的下载用例：走 API 客户端而非 DOM、保留路由与文件名、DOM 无残留、失败返回 false 且不抛）；桌面 `tsc -b` **0 错**；全量前端测试见交接快照。
 - **入库**：链位 **53** `patches/file-download-blob.patch`（4 文件 133 增 / 54 删）。
 
-### 补记（2026-09-28）：下载改建 IPC 由主进程保存（链位 55）
+### 补记（2026-09-28 定稿）：下载必须走 **anchor 导航**，不是 fetch（链位 55）
 
-- **触发（用户 verbatim）**：「两处下载点击**无反应**了。」（上一版改走 fetch+blob 之后）
-- **为什么上一版是错的（我自己的错误，记录以免重犯）**：我断定「DOM 直接下载被 Origin 门控拒」，于是改成 `apiGetBlob` 取字节 + blob URL。查证后前半句成立、结论却不成立：**打包版渲染进程是 `file://`**（`rendererEntry()` 对 `isPackaged` 返回文件系统路径 → `loadFile`），它的 fetch 带 `Origin: file://`，而服务端**专门白名单了这个值**（`middleware/cors.ts` 的 `LOCAL_DESKTOP_ORIGINS = new Set(['file://'])`），所以应用自己的 fetch 一直是通的。真正无法工作的环节是**保存**：在不透明来源里创建的 `blob:` URL **不可下载**，浏览器又不会报错——于是从「下载失败(403)」变成「毫无反应」。**教训：`file://` 与 `null` 是两种来源，服务端白名单证明 Electron 发的是前者；而 DOM 发起的下载是后者。别把两者混为一谈。**
-- **修法（不再依赖浏览器下载机制）**：新增 IPC 通道 `desktop:file:save-copy`。渲染进程只交**源路径**（文件本就在本机，连 fetch 都不必），主进程 `saveFileCopy`（`electron/services/fileSave.ts`）弹原生保存对话框 → `copyFile`；默认目录用 `app.getPath('downloads')`（本机 `~/Downloads` 不存在、XDG 指向 `~/下载`，只有问 Electron 才落对地方）。
-  - **权限边界**：目标路径**永远来自对话框**，调用方只能建议文件名；校验器 `fileSaveCopy` 拒绝含 `/` 或 `\` 的 `suggestedName`（否则等于让页面给对话框预置路径）与含控制字符/超长的路径。因此**没有给渲染进程新增任意写盘能力**。
-  - H5（浏览器主机）无此能力时回落原有 blob 路径（那里是普通 http 来源，页面内下载本来就正常）。
-  - 取消对话框＝用户决定，**不再回落到第二种机制**（否则会第二次弹窗）。
+- **触发（用户 verbatim）**：先「两处下载点击**无反应**」→ 我改 fetch+blob；再「**还是点了没反应**」→ 我改主进程 IPC；第三次用户直接指出方向错了：「**文件浏览、文件预览的卡片是坏的，[对话里的卡片]能下，你搞错方向**」。
+- **关键在那句「能下」**：对话里的下载卡片（`DownloadReferencesCard`）用的是**裸 anchor 指向 `/local-file/...?download=1`**，它一直是好的 ⇒ 那条「DOM 直接指向路由」的老路**本来就是通的**，我前两轮的两次「修」是把它越改越坏。
+- **实测三态（决定性证据）**：
+
+  | 请求形状 | 服务端 |
+  |---|---|
+  | **无 Origin**（anchor 点击＝导航） | **200 + `Content-Disposition: attachment`** |
+  | `Origin: null`（fetch） | 403 |
+  | `Origin: file://`（应用自身 fetch） | 200 |
+
+- **我的推理错在哪**：我测到 `Origin: null` → 403，就断定「DOM 下载会被服务端拒」。但 **anchor 点击是导航、不是 fetch——导航不带 Origin**，于是走「无 Origin」那条放行路径。这正是卡片一直能用的原因。我改成 `fetch` 反而主动把请求推进了被拒的那条路；而「**不透明来源里 mint 的 `blob:` URL 不可下载**」又让失败变成**静默**（无异常、无提示），所以现象从「下载失败(403)」升级为「点了毫无反应」。
+- **做法**：`downloadLocalFile` 回到初版（`6c7d4a62`）的形状——建 anchor → `href` 指路由 → 带 `download` 名 → `click()`，同步返回。**文件浏览（右键）与文件预览（打开方式 → 下载）都走这一个函数，一处修好两处**；对话卡片无需改动。顺带删掉上一轮在错误前提下加的整套 IPC 机件（`desktop:file:save-copy` 通道 + `files.saveCopy` + `services/fileSave.ts` 等 **7 文件**），净 **−282 行**。
 - **踩坑记录**：
-  1. **headless 下载实验无效**：我用无头 Chrome 测「file:// 页面下载 blob 是否被拒」，结果**文件来源与 http 对照组都没产生文件** ⇒ 无头模式默认不落盘，实验无效。**若当时据此下结论就会错**。真正定案靠的是：读 `rendererEntry`（确认来源）+ 服务端白名单（确认 fetch 可用）+ 代码里 blob 不可下载这一 Chromium 行为。**教训：实验先要有能区分真假的对照组，否则别拿它当证据。**
-  2. **`file://` 页面 fetch 实测带 `Origin: null`**（无头 Chrome + 本机回显服务器实测），但**Electron 发的是 `file://`**（由 `LOCAL_DESKTOP_ORIGINS` 反推）。两者行为不同，**不能拿 Chrome 的结论套 Electron**。
-  3. 给既有 `electronHost.files` 命名空间加方法时，我用脚本按「首个匹配行之后插入」，结果插进了 `getPathForFile` 的函数体内部（TS1109）。**改这类小对象还是逐行 Edit 更稳**。
-- **验证**：`handlePreviewLink.test` **42**（新增 3 条：走外壳复制不 fetch、取消不回落、无能力时回落页面）；`electron/ipc` + `electron/services` 共 **552 通过 / 0 失败**；桌面 `tsc -b` 0 错；全量前端 **6350 通过 / 0 失败**；产物内 `app.asar` 含 `desktop:file:save-copy`、前端含 `saveCopy`。
-- **入库**：链位 **55** `patches/file-download-main-process.patch`（11 文件）。
+  1. **最贵的错：抱着自己的假设不放**。连续两轮都在「DOM 下载被拒」这个前提上打补丁升级（blob → IPC），而**反证一直摆在眼前**——同一份代码里的另一个入口（卡片）能用。**当现象里存在一个能用的同类入口时，它就是现成的对照实验，先看它为什么能行。**
+  2. **「测到 403」≠「这条请求会被 403」**：403 是我**构造**的形状（`Origin: null`）得到的，真实点击走的是**另一种形状**（导航、无 Origin）。**先确认自己复刻的是不是真实请求，再去解释结果。**
+  3. **静默失败把方向带偏**：blob 不可下载时**不报错**，于是「下载失败」变成「毫无反应」，让我误判成更底层的权限问题。**失败模式的变化本身就是线索。**
+  4. 无头 Chrome 上的「file:// 页面能否下载 blob」实验**没有有效对照组**（两种来源都不落盘），当时就不该拿它当证据。
+  5. 收尾时我用 `pkill -f "claude-code-desktop"` **把用户正在用的生产实例一起杀了**。往后**只按精确 PID 停自己起的进程**（先用唯一 profile 串列出 PID、逐个确认再 kill），**绝不用模式匹配杀**。
+- **验证（真机，不只是单测）**：
+  - **打包 app 的 `file://` 渲染进程里真落盘**：CDP 把下载目录指到 `/tmp/e2e-nav-out`，在页面里点同形状的 anchor → **文件写出且内容一致（PASS）**。这是「导航下载可用」的直接证据。
+  - 服务端三态如上表实测。
+  - `handlePreviewLink` **38 绿**（下载段重写为「anchor 指向路由」断言）；`electron/ipc`+`services`+`workbench` **653 绿**；全量前端 **6346 绿**；`check:server` **493 文件 5950 绿**；`tsc -b` 0 错；链位 55/56 在链基 worktree apply **FAIL=0**。
+- **入库**：链位 **55** `patches/file-download-anchor.patch`（2 文件）。
 
 ## 六、设置-关于-更新：禁止更新开关（源§十三，✅ 2026-09-25）
 
