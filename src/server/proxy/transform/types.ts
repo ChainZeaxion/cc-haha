@@ -85,6 +85,14 @@ export type OpenAICompatibleUsage = {
   total_tokens?: number
   input_tokens_details?: { cached_tokens?: number }
   prompt_tokens_details?: { cached_tokens?: number }
+  /**
+   * How many of the completion tokens were reasoning. Carried so a caller can
+   * separate a model's deliberation from its answer: on a reasoning model the
+   * two differ by several times, and one total cannot express either. vLLM
+   * reports this shape; `output_tokens_details` is the Responses one.
+   */
+  completion_tokens_details?: { reasoning_tokens?: number }
+  output_tokens_details?: { reasoning_tokens?: number }
   cache_read_input_tokens?: number
   cache_creation_input_tokens?: number
 }
@@ -287,5 +295,7 @@ export type AnthropicResponse = {
     output_tokens: number
     cache_read_input_tokens?: number
     cache_creation_input_tokens?: number
+    /** Extension: reasoning share of `output_tokens`, when upstream reported it. */
+    reasoning_tokens?: number
   }
 }
