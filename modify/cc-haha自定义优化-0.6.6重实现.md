@@ -43,7 +43,7 @@
 >
 > **2026-09-26 重基**：全部 patch 重基到上游 `068b3ebd`（origin/main 2026-09-25，含 20 个新 commit：CORS 门控重做/切 tab 保视图/历史不全保聊天/内存保存竞态两修/pending 问题超时自动回答/聊天外观偏好/OAuth 2.1.281 对齐/agent-teams/Kimi K3 图片透传/定时任务持久化串行化）。应用方式=按下表从上到下逐章 `git apply --allow-empty`。空 patch（h5-settings-whitelist、h5-mobile-market）内容已被后续章节的共享文件覆盖，apply 后无变化。
 >
-> **当前链规模（2026-09-28）**：共 **51 patch**（49 实 + 2 空）。最新一位：`subagent-usage-split-live`（二十一 子优化⑥：还原会话的 think/非think 拆分 + 组栏运行中实时跟进，链位 51）。前七位（链位 44-50）：`tps-burst-anchor`（四 子优化⑤ TPS 脉冲修复，链位 44）、`think-token-truth-chain`（二十一 子优化⑤ 思考 token 真值，链位 45）、`tps-tokens-kind-and-reasoning-passthrough`（四 子优化⑥ kind 归因 + reasoning 透传，链位 46）、`file-download-attr`（五 子优化 下载锚点，链位 47）、`local-index-extra-project-roots`（十 补记 额外索引根，链位 48）、`test-model-env-isolation`（十二 补记 模型 env 隔离，链位 49）、`session-list-multi-root-validation`（十 补记二 列表多根校验，链位 50）。**44-51 八链位验证**：`d89c1405` worktree 按序 apply **FAIL=0**，并集与工作树**逐字节一致**。上一版（链位 43 时）：`background-task-duration-restore`（二十一 子优化④ 补记二：后台任务耗时**恢复三层根因**——窗口被置空 / 通知型任务无起点 / **merge 抹掉 restored `startedAt`**；显示改紧凑 ASCII；补上「会话扩展信息」开关漏网的消息列表内联卡，链位 43）。前一位：`vcc-compact-fallback`（十三 vcc 失败降级兜底，链位 42）。再前：`subagent-background-task-durations`（二十一 子优化④：子代理耗时 + 子代理收纳栏总耗时 + 后台任务耗时，链位 41）。再前：`tps-content-accounting`（四 子优化：TPS 计量改为按内容度量，链位 40）。再前：`tps-real-token-accounting`（四 子优化：TPS 采样改真实 token 口径，链位 37）、`compact-dead-import-cleanup`（策略门禁 dead-imports 清理，链位 38）、`session-speed-and-usage-pairing`（四 子优化：面板生成速度分子分母配对 + transcript usage 去重丢 output 修复，链位 39）。新增：`turn-usage`（二十一 子优化②）、`thinking-badge-order-and-duration`（二十一 子优化①，前端 + API 层）、`baseline-typecheck-fixes`、`autocompact-window-tiers`、`history-transport-bounds`、`file-history-dedup`、`gzip-transport`、`history-first-paint-bound`（前端）、`storage-original-file-bound`（二十二 F 存量瘦身，含新测试文件）、`computer-use-platform-components`（十八 平台化组件选择）、`computer-use-python-path-fallback`（十八 解释器路径回退）、`tps-centered-second-line`（四 费用/TPS 第二行居中）、`h5-mobile-run-records`（二十五 H5 子代理运行记录，链位 36）。
+> **当前链规模（2026-09-28）**：共 **52 patch**（50 实 + 2 空）。最新一位：`tps-phase-switch-steady-window`（四 子优化⑦：TPS 相位切换脉冲**真根因**——分母不覆盖被它除的 token；稳态读数顺带精确化，链位 52）。前一位：`subagent-usage-split-live`（二十一 子优化⑥：还原会话的 think/非think 拆分 + 组栏运行中实时跟进，链位 51）。再前（链位 44-50）：`tps-burst-anchor`（四 子优化⑤ TPS 脉冲修复，链位 44）、`think-token-truth-chain`（二十一 子优化⑤ 思考 token 真值，链位 45）、`tps-tokens-kind-and-reasoning-passthrough`（四 子优化⑥ kind 归因 + reasoning 透传，链位 46）、`file-download-attr`（五 子优化 下载锚点，链位 47）、`local-index-extra-project-roots`（十 补记 额外索引根，链位 48）、`test-model-env-isolation`（十二 补记 模型 env 隔离，链位 49）、`session-list-multi-root-validation`（十 补记二 列表多根校验，链位 50）。**44-51 八链位验证**：`d89c1405` worktree 按序 apply **FAIL=0**，并集与工作树**逐字节一致**。上一版（链位 43 时）：`background-task-duration-restore`（二十一 子优化④ 补记二：后台任务耗时**恢复三层根因**——窗口被置空 / 通知型任务无起点 / **merge 抹掉 restored `startedAt`**；显示改紧凑 ASCII；补上「会话扩展信息」开关漏网的消息列表内联卡，链位 43）。前一位：`vcc-compact-fallback`（十三 vcc 失败降级兜底，链位 42）。再前：`subagent-background-task-durations`（二十一 子优化④：子代理耗时 + 子代理收纳栏总耗时 + 后台任务耗时，链位 41）。再前：`tps-content-accounting`（四 子优化：TPS 计量改为按内容度量，链位 40）。再前：`tps-real-token-accounting`（四 子优化：TPS 采样改真实 token 口径，链位 37）、`compact-dead-import-cleanup`（策略门禁 dead-imports 清理，链位 38）、`session-speed-and-usage-pairing`（四 子优化：面板生成速度分子分母配对 + transcript usage 去重丢 output 修复，链位 39）。新增：`turn-usage`（二十一 子优化②）、`thinking-badge-order-and-duration`（二十一 子优化①，前端 + API 层）、`baseline-typecheck-fixes`、`autocompact-window-tiers`、`history-transport-bounds`、`file-history-dedup`、`gzip-transport`、`history-first-paint-bound`（前端）、`storage-original-file-bound`（二十二 F 存量瘦身，含新测试文件）、`computer-use-platform-components`（十八 平台化组件选择）、`computer-use-python-path-fallback`（十八 解释器路径回退）、`tps-centered-second-line`（四 费用/TPS 第二行居中）、`h5-mobile-run-records`（二十五 H5 子代理运行记录，链位 36）。
 >
 > **全链验证（2026-09-27 收尾，决定性）**：在干净基线 `068b3ebd` 的**临时 worktree** 上按上表顺序 `git apply --allow-empty` 全部 **35 个 patch → 失败 0 个**；应用后终态与工作树在**本轮 4 个新 patch 涉及的全部 14 个文件**上**逐字节一致**，全树剩余差值仅为下节「已知非章 delta」。此为权威口径（早前「HEAD 上暂存往返」是非全链验证，已由本次全链取代）。**2026-09-27 追加第 36 位（`h5-mobile-run-records`）与 `tps-indicator`/`turn-usage` 重生成后复验：36 链同样失败 0，第 7 章 8 文件 + `chatStore.test.ts` + `AppShell.{tsx,test.tsx}` 逐字节等于工作树。** **2026-09-27 二次追加第 37/38 位（`tps-real-token-accounting`、`compact-dead-import-cleanup`）后复验：干净重跑 38 链失败 0，本轮 23 个文件（20 TPS + 3 dead-import）**逐字节等于工作树**。** **2026-09-27 三次追加第 39 位（`session-speed-and-usage-pairing`）后复验：干净重跑 39 链失败 0，本轮 13 个文件**逐字节等于工作树**。** **2026-09-27 四次追加：第 40/41/42 位（`tps-content-accounting`、`subagent-background-task-durations`、`vcc-compact-fallback`）随链入库（未单独复记全链）。** **2026-09-27 五次追加第 43 位（`background-task-duration-restore`）：干净 `068b3ebd` worktree 重跑 **43 链失败 0**，本轮 6 文件（`SessionActivityPanel.{tsx,test.tsx}`、`chatStore.{ts,test.ts}`、`MessageList.{tsx,test.tsx}`）**逐字节等于工作树**；生成时以 `HISTORY_STITCH_MAX_PAGES`/`agentGroupSpanMs`/`ingestSubagentTps` 三个「链内既有」标志串反查误记，均为 **0**。**
 
@@ -113,6 +113,7 @@
 | 48 | `patches/local-index-extra-project-roots.patch` | 十 补记：`CC_HAHA_EXTRA_PROJECT_ROOTS` **额外索引根**——dev 实例用自己的 `CLAUDE_CONFIG_DIR` ⇒ 发现根随之变成自己的，真实目录的会话永不出现；该配置可额外索引真实 `projects/`（3 文件 222 增） | ✅ 已实施 |
 | 49 | `patches/test-model-env-isolation.patch` | 十二 补记：三处模型 env 敏感用例接入 `isolateModelDefaultsEnv`——本机导出的 `CLAUDE_CODE_MODEL_CONTEXT_WINDOWS` 等泄漏致 `modelContextWindows`/`ultracode`/`processSlashCommand` **单跑也失败**；官方 runner 逐文件独立进程 + env 白名单故免疫（3 文件 20 增） | ✅ 已实施 |
 | 50 | `patches/session-list-multi-root-validation.patch` | 十 补记二：会话列表**逐行校验改按全部索引根**——只认本配置目录的根时，额外根来的行被判越界并被 `catch` **静默丢弃**（于是 `total` 报得对、行数只剩 2）；平铺 2 → 84、侧边栏分组恢复（1 文件 70 增） | ✅ 已实施 |
+| 52 | `patches/tps-phase-switch-steady-window.patch` | 四 子优化⑦：**TPS 相位切换脉冲真根因**——`total` 与 `span` 不是同一批 token 的时间：锚的条件太窄（停滞冲刷恰落在 `span==400ms` 地板故不进锚）、无前置样本时 `Math.max(span, 400ms)` 凭空造分母（整块交付读 22500）、`computeFallbackTps` 同病。收敛为一条规则：**一批 token 生成于它与前一批之间**（`sliceRate()`：原点取切片前一样本；无前置则丢弃最旧那批；不可计时则持有）。顺带修正稳态读数**系统性偏高 11%**（10 批除 9 个间隔） | ✅ 已实施 |
 | 51 | `patches/subagent-usage-split-live.patch` | 二十一 子优化⑥：**还原会话的 think/非think 拆分 + 组栏运行中实时跟进**——服务端 `sessionUsageRollup` 按 `toolUseId` 从子代理转录推导 usage 随通知下发（完成态权威）；组栏改读**运行中记录**（`agentTaskLiveUsage`）并以完成通知**二次校正**；实时节奏对齐思考徽章 3s（13 文件 781 增） | ✅ 已实施 |
 
 > **已知非章 delta（有意不入 patch，链终态与工作树的结构性差值）**：`#83` 测试修复族（`src/testUtils/modelEnv.ts` 及 11 个 `*.test.ts`：`print.sessionMessage`/`constants/system`/`coreSchemas.modelInfo`/`api/client`/`skills/bundled/computerUse`/`builtInAgentOverrides`/`effort.agent`/`model/{agent,fable,opus55,opus5}`/`__tests__/thinking`/`permissions/PermissionUpdate`）、`MessageList.test.tsx`（flaky 超时放宽，见附录）、`TerminalSettings.tsx`、`lib/providerModels.ts`、`services/api/claude.ts`（bound-thinking WIP）、`desktop/package.json`（本轮新增 `build:renderer`/`typecheck` 两条 **dev 脚本**，electron-builder 打包时会剥离 `scripts`，故不影响产物）、`bun.lock`。
@@ -519,6 +520,37 @@ ids 帧 = 0（tps_tokens 从未发出）
 - **原理**：外层宽度由最宽子项（费用徽章）决定；`items-center` 使较窄的 TPS 行**在费用徽章正下方水平居中**，两行宽度不对等时方才对仗工整（原先靠右对齐，视觉重心偏右）。
 - **踩坑（本轮走过的弯路，记录以免重犯）**：曾一度把两行**改成单行并排**（并在 `TpsIndicator` 删掉 `vertical` 分支），属**理解错需求**——用户要的是「两行 + 居中」，不是「合并成一行」。已回退：`TpsIndicator.tsx` 恢复原样（`vertical` 分支保留），故该文件**不在本 patch 内**。
 - **验证**：`TpsIndicator`(4) + `AppShell` + `ActiveSession`(34) 三文件 vitest **60/60 全绿**；35 链中该 patch 2 文件与工作树**逐字节一致**。
+
+### 子优化（2026-09-28）：TPS 相位切换脉冲的**真根因**——分母不覆盖被它除的那些 token（链位 52）
+
+- **触发（用户 verbatim，第二轮）**：「TPS还是在数据还是在异常飙升，尤其是动作阶段切换，比如思考切工具，正文切思考。尤其是在思考结束后，经常夸张飙升到**9999**t/s」+「所以TPS信息，前0.23s和后0.23数据，不能直接取，应该取**稳态数据**。延迟0.23s的时间稳态后再变动也不是不行。」
+- **前置事实**：链位 44 的 `preWindowAt` 锚**已在生产 bundle 中**（实测 `/opt/.../PetRenderer-CYfWUDvl.js` 含该符号）⇒ 不是制品陈旧，是**锚的覆盖不足**。故本轮先**离线复现**再改（见下）。
+- **复现（离线，5 个场景，真值 250 t/s、200ms 批）**：
+
+  | 场景 | 改前 | 改后 |
+  |---|---|---|
+  | S1 稳态 | 285.7（偏高 14%） | **250.0（精确）** |
+  | **S2 停顿后积压冲刷，再 400ms 读数** | **1625** | **240** |
+  | S3 reset 后首个冲刷 | 125 | 0（持有） |
+  | **S4 整块一次交付的单样本** | **22500** | 0（持有） |
+  | S5 `endCall(9000, 900ms)` 持有值 | 10000 | 10000（**未改**，见「未处理」） |
+
+- **根因（一句话）**：`value()` 的 `total` 与 `span` **不是同一批 token 的时间**。三处具体缺陷：
+  1. **锚的条件太窄**：原为 `span < 400ms && …`。而停滞后的冲刷**恰好**落在 `span == 400ms`（地板值）上 ⇒ 不进锚 ⇒ 积压被 400ms 除 ⇒ S2。
+  2. **没有前置样本时凭空造速率**：窗口里只有样本（整块交付、回合开场）时 `span=0`，代码 `Math.max(span, 400ms)` **编**出 400ms 分母 ⇒ S4 = 9000/0.4 = 22500。
+  3. **`computeFallbackTps` 同病**：`span < 0.05s` 时 `total / 0.5s`，把「无证据」当成「窗口长度是可用的分母」；且它按「窗口内首末样本」取跨度，同样漏掉首批 token 的生成区间 ⇒ 持有值也爆（S5 那条路径）。
+- **修法（收敛成一条规则，落在一个私有方法 `sliceRate()` 里）**：
+  > **一批 token 是在它与前一批之间生成的**。因此切片的诚实分母 =「**切片之前那一个样本** → 切片最后一个样本」；`prune()` 正好把那个样本留作 `preWindowAt`。没有前置样本时，切片里**最旧**的那一批没有自己的区间，**丢弃它**而不是摊给剩下的跨度。整片都不可计时 → 返回 `null`，调用方**持有**上一个真值。
+  - `value()`：按用户要求**只算稳态段**——丢掉比 `now - SETTLE_MS(230ms)` 更新的样本（引导沿正是一批「部分冲刷」或停滞的积压），再交给 `sliceRate()`；`null` 或低于稀疏阈值 → 持有。**不再有 `Math.max(span, 地板)` 这个会造数的兜底**。
+  - `computeFallbackTps()`：同一规则（同样以前置样本为原点）；返回 0 = **未测得**，故 `push()`/`pushTokens()` 改为 `if (held > 0)` 才覆盖持有值——**0 不是「速率为零」**。
+  - 副作用（正向）：稳态读数**精确**了。旧式把 10 批 token 除以 9 个窗口内间隔，**系统性偏高 11%**（250→285.7、40→44.4、30→33.3）；新式 k 批覆盖 k 个间隔，读数即真值。两条旧断言因此更正（已注明依据）。
+- **踩坑记录（本轮的弯路，务必留档）**：
+  1. **自己写出的循环 bug 被测试当场抓住**：在 `computeFallbackTps` 里反向遍历时写了 `lastIndex = i; startIndex = i`，`lastIndex` 每轮被覆盖、最终停在**最旧**索引 ⇒ 切片长度恒为 1 ⇒ 持有值恒为 0（表现为「停顿后读数掉 0」）。修法：反向遍历中**首个命中即最新**，`lastIndex` 只能在 `lastIndex < 0` 时赋值一次。**教训：反向扫描里「首」与「末」必须分别只赋一次。**
+  2. **一度想给 `endCall` 加「合理性上限」，按证据否掉了**：`endCall(real, decode_ms)` 的两个入参在生产里**同口径**——`QueryEngine.ts` 的 `result` 事件里 `usage: this.totalUsage`（回合总量）配 `decode_ms: this.totalDecodeMs`（回合总量），`ws/handler` 原样转发。S5 的 `9000 token / 900ms` 是**手工构造的极端输入**（真机不可能：本地引擎约 250 t/s，9000 token 需 ~36s），故**不加护栏**。留作已知边界。
+  3. **`preWindowAt` 锚「已在生产」不等于「已生效」**：锚存在（grep 得到符号）但条件太窄，等于**没修**。**教训：验修法不能只 grep 符号，要复现失败场景看数值。**
+- **最终形态**：`total` 与 `span` 恒为**同一批 token 的同一段时间**；任何无法计时的切片一律**持有**而非外推。叠加 UI 侧既有的 30/70 指数平滑，相位切换处应不再出现脉冲。
+- **验证**：`tpsMeter`(23→**25**)/`tpsCalibration`(8)/`TpsIndicator`(6) = **39 全绿**（新增 2 条回归：`does not read a backlog as a burst one flush later`、`holds the last rate instead of rating a block handed over in one sample`）；桌面 `tsc -b` **0 错**；全量前端测试见本轮交接快照。
+- **入库**：链位 **52** `patches/tps-phase-switch-steady-window.patch`（1 文件 +2 测试）。
 
 ## 五、文件下载桥接功能（源§十二，✅ 2026-09-24）
 

@@ -1,4 +1,4 @@
-# cc-haha 0.6.6 重实现 — 交接检查点（2026-09-28 更新：二十六章完成，51 链，deb 重编中）
+# cc-haha 0.6.6 重实现 — 交接检查点（2026-09-28 更新：26 章 + TPS 脉冲真根因，52 链）
 
 ## 最新状态（2026-09-28）
 
@@ -14,6 +14,8 @@
 - **文档**：新增二十六章（含 **9 条踩坑**）；链位表 43 → 51；链规模行更新；附录补 2 条操作性教训（`pkill -f` 自匹配、`tsc -b` 是入库闸门）。
 - **deb**：`/tmp/deb-build-4.log`（含全部 11 提交，与链终态一致）；产物 `desktop/build-artifacts/electron/Claude-Code-Haha-0.6.6-linux-amd64.deb`。**待安装验证。**
 - **dev 服务**：7788 已重启（`/tmp/start7788.sh`，含 `CC_HAHA_EXTRA_PROJECT_ROOTS=/home/zeaxion/.claude/projects`）。
+- **⚠️ TPS 脉冲第二轮（链位 52，`tps-phase-switch-steady-window.patch`）**：用户反馈装新 deb 后**仍**在相位切换处爆到 9999。查证 = 链位 44 的锚**确实在**生产 bundle 里（非制品陈旧），是**锚的条件太窄**（停滞冲刷恰落在 `span==400ms` 地板故不进锚）。离线复现 5 场景定位三处同源缺陷，收敛为一条规则（私有 `sliceRate()`：**一批 token 生成于它与前一批之间**；无前置样本则丢弃最旧那批；不可计时则持有），并按用户要求只算**稳态段**（`SETTLE_MS=230`）。正向副作用：稳态读数**精确化**（旧式 10 批除 9 个间隔，系统性偏高 11%）。**仍需重编 deb 并安装**。
+  - 踩坑：① 自己写的反向遍历 `lastIndex=i; startIndex=i` 使 lastIndex 停在最旧索引 ⇒ 持有值恒 0（被测试当场抓住）；② 一度想给 `endCall` 加合理性上限，按证据否掉（其两入参在生产**同口径**：`QueryEngine` 的 `result` 里 `usage=totalUsage` 配 `decode_ms=totalDecodeMs`）；③ **验修法不能只 grep 符号**——锚「在制品里」不等于「生效」。
 - **待办**：① 装新 deb 后验证 TPS 不再脉冲 + 拆分显示 + 下载；② 把拆分机制推广到**全部历史会话**（当前按需推导已覆盖打开过的会话；若要一次性持久化进索引＝schema v6 + parser 跳变触发后台全量整理，独立一步）；③ `teammate`/嵌套子代理（一个 `toolUseId` 对多个转录）暂回落正则，未纳入推导。
 
 ---
