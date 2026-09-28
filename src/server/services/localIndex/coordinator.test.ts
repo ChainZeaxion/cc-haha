@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it } from 'bun:test'
 import { getEventListeners } from 'node:events'
 import { appendFile, chmod, mkdir, mkdtemp, readdir, rm, stat, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { dirname, join } from 'node:path'
+import { delimiter, dirname, join } from 'node:path'
 import type { LocalIndexDatabase } from './database.js'
 import {
   createLocalIndexCoordinator,
@@ -10,6 +10,7 @@ import {
   discoverTranscriptSources,
   type LocalIndexCoordinator,
 } from './coordinator.js'
+import { resolveExtraProjectRoots } from './config.js'
 import type {
   IndexedSessionRow,
   PersistedBackfillState,
@@ -2324,5 +2325,94 @@ describe('discoverActivityTranscriptSources', () => {
     // into a full filesystem walk.
     expect(result.candidates.some(candidate => candidate.path.endsWith('agent-x.jsonl')))
       .toBe(false)
+  })
+})
+
+describe('extra project roots', () => {
+  // A dev instance has its own CLAUDE_CONFIG_DIR, so its discovery root holds only
+  // the sessions it created and the real config dir's conversations never show.
+  // Listing that dir here is what makes the dev server display the real history.
+  const ENV_KEY = 'CC_HAHA_EXTRA_PROJECT_ROOTS'
+
+  afterEach(() => {
+    delete process.env[ENV_KEY]
+  })
+
+  it('parses a delimiter-separated list, trimming blanks', () => {
+    delete process.env[ENV_KEY]
+    expect(resolveExtraProjectRoots()).toEqual([])
+    expect(resolveExtraProjectRoots('')).toEqual([])
+    expect(resolveExtraProjectRoots(` /a ${delimiter}/b ${delimiter} `)).toEqual(['/a', '/b'])
+  })
+
+  it("indexes sessions from an extra root alongside the scope's own", async () => {
+    const scope = await createTempDir('extra-root-scope')
+    const real = await createTempDir('extra-root-real')
+    await createRealTranscript(scope, '-dev', 'dev-session', 'dev')
+    await createRealTranscript(real, '-prod', 'prod-session', 'prod')
+    process.env[ENV_KEY] = join(real, 'projects')
+
+    const emitted: SessionSourceCandidate[] = []
+    const result = await discoverTranscriptSources(
+      scope,
+      new AbortController().signal,
+      async candidates => {
+        emitted.push(...candidates)
+      },
+    )
+
+    expect(result).toEqual({ complete: true })
+    expect(emitted.map(candidate => candidate.sessionId).sort())
+      .toEqual(['dev-session', 'prod-session'])
+    // projectPath stays the raw directory name, so the row's work dir is still derivable.
+    expect(emitted.find(candidate => candidate.sessionId === 'prod-session')?.projectPath)
+      .toBe('-prod')
+  })
+
+  it('skips a missing extra root instead of degrading the scan', async () => {
+    const scope = await createTempDir('extra-root-missing')
+    await createRealTranscript(scope, '-dev', 'dev-session', 'dev')
+    process.env[ENV_KEY] = join(scope, 'does-not-exist')
+
+    const emitted: SessionSourceCandidate[] = []
+    const result = await discoverTranscriptSources(
+      scope,
+      new AbortController().signal,
+      async candidates => {
+        emitted.push(...candidates)
+      },
+    )
+
+    // A root that is not there is optional: the scope still indexed cleanly.
+    expect(result).toEqual({ complete: true })
+    expect(emitted.map(candidate => candidate.sessionId)).toEqual(['dev-session'])
+  })
+
+  it('reports the root missing only when no root exists at all', async () => {
+    const scope = await createTempDir('extra-root-none')
+    process.env[ENV_KEY] = join(scope, 'also-missing')
+
+    const result = await discoverTranscriptSources(
+      scope,
+      new AbortController().signal,
+      async () => {},
+    )
+
+    expect(result).toEqual({ complete: true, rootMissing: true })
+  })
+
+  it('includes extra roots in activity discovery', async () => {
+    const scope = await createTempDir('extra-root-activity')
+    const real = await createTempDir('extra-root-activity-real')
+    await mkdir(join(real, 'projects', '-prod'), { recursive: true })
+    await writeFile(join(real, 'projects', '-prod', 'prod-session.jsonl'), '')
+    process.env[ENV_KEY] = join(real, 'projects')
+
+    const result = await discoverActivityTranscriptSources(
+      scope,
+      new AbortController().signal,
+    )
+
+    expect(result.candidates.map(candidate => candidate.sessionId)).toEqual(['prod-session'])
   })
 })
