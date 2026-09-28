@@ -627,3 +627,52 @@ describe('TpsMeter with batched delivery', () => {
     expect(meter.value()).toBeLessThan(600)
   })
 })
+
+describe('TpsMeter concurrent streams', () => {
+  afterEach(() => vi.restoreAllMocks())
+
+  function clock(start = 1_000_000) {
+    const ref = { now: start }
+    vi.spyOn(performance, 'now').mockImplementation(() => ref.now)
+    return ref
+  }
+
+  it("measures a stream's pace against its own last chunk, not another stream's", () => {
+    const ref = clock()
+    const meter = new TpsMeter(1500, 500)
+
+    // Three decoders — a main turn plus two subagents — each emit 5 units every
+    // 100 ms: 50 units/s apiece, 150 together. They interleave inside a single
+    // tick, 0.5 ms apart, which is what the relay does with several runs in
+    // flight.
+    const streams = ['main', 'sub-a', 'sub-b']
+    for (let tick = 0; tick < 30; tick++) {
+      for (const stream of streams) {
+        ref.now += 0.5
+        meter.push('中'.repeat(5), { external: true, stream })
+      }
+      ref.now += 100
+    }
+
+    // Per stream this is 5 units per 100 ms, so the window holds 150 units/s.
+    // Against the neighbouring chunk it would be 5/0.0005 = 10 000 units/s —
+    // every sample discarded as a batch, and the readout collapsing to the held
+    // value, which is how four subagents pinned the indicator at a third of the
+    // engine's real rate.
+    expect(meter.value()).toBeGreaterThan(120)
+    expect(meter.value()).toBeLessThan(180)
+  })
+
+  it('still reads an untagged single stream at its own rate', () => {
+    const ref = clock()
+    const meter = new TpsMeter(1500, 500)
+
+    for (let tick = 0; tick < 30; tick++) {
+      ref.now += 100
+      meter.push('中'.repeat(5))
+    }
+
+    expect(meter.value()).toBeGreaterThan(40)
+    expect(meter.value()).toBeLessThan(60)
+  })
+})

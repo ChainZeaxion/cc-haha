@@ -45,7 +45,9 @@
 >
 > **2026-09-26 重基**：全部 patch 重基到上游 `068b3ebd`（origin/main 2026-09-25，含 20 个新 commit：CORS 门控重做/切 tab 保视图/历史不全保聊天/内存保存竞态两修/pending 问题超时自动回答/聊天外观偏好/OAuth 2.1.281 对齐/agent-teams/Kimi K3 图片透传/定时任务持久化串行化）。应用方式=按下表从上到下逐章 `git apply`（**不需要 `--allow-empty`**）。
 >
-> **当前链规模（2026-09-28）**：共 **60 patch**（**全部实体，无空补丁**）。最新三位：`chapter-27-test-env-isolation` / `chapter-27-vcc-calibration-scripts` / `chapter-27-residual-hunks`（**链位 58–60**，二十七章：把此前「只登记不产补丁」的既有改动全部补成补丁）。**至此「基线 + 全链」100% 复现工作树**——实测干净 worktree@`068b3ebd` 按 1→60 依次 apply **60/60 成功**，终态与工作树差异**仅剩 2 个有意排除项**：`bun.lock`（锁文件随依赖解析变化）与 `desktop/src-tauri/resources/preview-agent.js`（构建产物，纳入补丁会在每次构建后失效）。前一位（性能三连）：`transcript-metadata-durable`（元数据投影落盘 10.24s→0.016s，链位 57）、`session-find-bounded-read`（findSessionFile 4345ms→2ms，链位 56）、`session-history-context-durable`（归属投影索引落盘，链位 55）。完整链位见上表。
+> **当前链规模（2026-09-29）**：共 **61 patch**（**全部实体，无空补丁**）。链位 61 = `subagent-live-metrics`（二十一章 子优化⑤：子代理运行中用量/耗时爬升 + 移动端紧凑 + **TPS 汇聚子代理读数修复**；**保留链尾、未与链位 21 融合**，理由见二十一章子优化⑤的链位说明）。**同时重生成链位 54 `tps-batched-delivery`**（187→316 行）：把 `sliceRate()` 的可行性过滤从「全局间隔」改为「同一流的间隔」——多流交织时前者误杀约 70% 样本，使 4 子代理并发下 UI 读数只有引擎真值的 1/3。两条均经**反向应用旧补丁 → 正向应用新补丁 → 逐字节比对工作区**往返验证（10/10 文件一致）。
+>
+> **（历史，2026-09-28）链规模 60 patch**（**全部实体，无空补丁**）。最新三位：`chapter-27-test-env-isolation` / `chapter-27-vcc-calibration-scripts` / `chapter-27-residual-hunks`（**链位 58–60**，二十七章：把此前「只登记不产补丁」的既有改动全部补成补丁）。**至此「基线 + 全链」100% 复现工作树**——实测干净 worktree@`068b3ebd` 按 1→60 依次 apply **60/60 成功**，终态与工作树差异**仅剩 2 个有意排除项**：`bun.lock`（锁文件随依赖解析变化）与 `desktop/src-tauri/resources/preview-agent.js`（构建产物，纳入补丁会在每次构建后失效）。前一位（性能三连）：`transcript-metadata-durable`（元数据投影落盘 10.24s→0.016s，链位 57）、`session-find-bounded-read`（findSessionFile 4345ms→2ms，链位 56）、`session-history-context-durable`（归属投影索引落盘，链位 55）。完整链位见上表。
 >
 > **全链验证（2026-09-28 复核，最新口径）**：干净 worktree@`068b3ebd` 上按上表顺序 `git apply --index` **57 个 patch → 失败 0 个**，且**无需 `--allow-empty`**（两个空补丁已移除，见下）。终态 vs 工作树（仅 `src`/`desktop`）剩余 **19 个文件的「非章 delta」**——这些改动来自未纳入章节体系的提交，**属预期内**，清单与原因见下节。
 >
@@ -124,10 +126,11 @@
 | 51 | `patches/file-download-blob.patch` | 五 子优化：**下载改走 `apiGetBlob`+blob**——`file://` 下 DOM 自发的下载请求其 Origin 序列化为 `null`（非 `file://`），服务端 403 `CORS origin not allowed` ⇒ 「无法从网站上提取文件」。**不放行 `null`**（那是所有不透明来源的值，恶意页面的 sandbox iframe 即是 ⇒ 等于给本地 API 开后门），改修调用方；同 app icon 的既有解法（4 文件 133 增） | ✅ 已实施 |
 | 52 | `patches/split-no-double-count.patch` | 二十六 补记：**拆分「真实用量 0」**——一轮响应拆成两条记录（思考一条、正文一条，**共享 `message.id`**），只有带 usage 的那条能报 reasoning ⇒ 估算又叠真值（think 15.7k > total 9.3k）⇒ `max(0,total-think)` 恒 0。按响应 id 归组，真值胜过估算；**两处同病同修**（实时 tracker + 还原会话），实测 6/6 一致（4 文件 166 增） | ✅ 已实施 |
 | 53 | `patches/file-download-anchor.patch` | 五 补记（定稿）：**下载必须走 anchor 导航**——anchor 点击不带 Origin，服务端放行并给 `Content-Disposition`；我误把「`Origin: null` → 403」当成「DOM 下载会被拒」，改 fetch+blob 反而把它推进被拒路径且静默失败。回到初版写法，文件浏览/文件预览一处修好；删掉上一轮的 IPC 机件（2 文件，净 −282 行） | ✅ 已实施 |
-| 54 | `patches/tps-batched-delivery.patch` | 四 补记二：**TPS 上千读数真因＝打包投递被当成生成节奏**——重放/整块交付/页面忙时排队的中转帧，其 token 生成时刻远早于投递时刻；逐样本只计入「到达间隔能支撑其实时速率」的样本（上限 5000），延迟交付的首批保留自身间隔故积压仍按其真实停顿评级。实测 7153→250、3603→383（4 文件） | ✅ 已实施 |
+| 54 | `patches/tps-batched-delivery.patch` | 四 补记二：**TPS 上千读数真因＝打包投递被当成生成节奏**——重放/整块交付/页面忙时排队的中转帧，其 token 生成时刻远早于投递时刻；逐样本只计入「到达间隔能支撑其实时速率」的样本（上限 5000），延迟交付的首批保留自身间隔故积压仍按其真实停顿评级。实测 7153→250、3603→383（4 文件）。**2026-09-29 修订（187→316 行）**：原过滤按「距**上一个样本**的间隔」判定，隐含**单流前提**；子代理文本折进父米表同一 `samples` 数组后多流交织（帧间隔中位数 0.246ms、66.5% <1ms），正常的 5 单位分片落在别的流之后 0.5ms 即算出 10000 t/s 而被当作「批量投递」丢弃，**实测丢弃 70–73%**，4 子代理并发时 UI 读数仅引擎真值的 1/3。改为**按流间隔**（`Sample.stream` + `ingestSubagentTps` 传 `runAgentId`；窗口内首样本回退 `origin` 保守保留），离线重放 74.7 → **244.5**（无过滤上限 252.7），端到端逐秒对齐。防「批量重放」的原意完整保留。4 文件 | ✅ 已实施 |
 | 55 | `patches/session-history-context-durable.patch` | 五 补记：**打开大会话「一直转圈」＝归属投影全量扫盘**——为一个 40,119 条消息的会话取一页要**扫 193MB / 2,949ms**（跳过投影仅 6ms）；索引原存 `mkdtemp`+内存 4 项+exit 即删 ⇒ 每次重启/淘汰重扫，还泄漏 634 目录/92MB。改为**索引落盘**（meta 表同事务存 identity/size/mtime/offset/suppressed/指纹，稳定路径 + 每周清理），**跨进程 2,949ms→37ms**（2 文件） | ✅ 已实施 |
 | 56 | `patches/session-find-bounded-read.patch` | 五 补记二：**大会话一直转圈＝`findSessionFile` 全量解析转录**——判定「有没有真实对话」时把整个文件读完+逐行 JSON.parse，而同一 id 在多个发现根下各有一份（139.7MB+184.5MB）⇒ 每次解析约 320MB，**单次 4–6 秒**，且几乎每个会话端点都走它。改为只读文件头、命中即停（8MB 上限）。findSessionFile **4345→2ms**，大会话热态打开 **6.9s→0.010s**（2 文件） | ✅ 已实施 |
 | 57 | `patches/transcript-metadata-durable.patch` | 五 补记三：**元数据投影落盘**——冷进程首开大会话仍要 9.6s（该投影本就需要一次全量遍历算 messageCount/最后时间戳，且两份拷贝各建一次）；投影是几 KB 纯标量 ⇒ 落盘 + 只认同 signature，**10.24s → 0.016s**（链位 57/58 治重复开销，本条治冷启动）（3 文件） | ✅ 已实施 |
+| 61 | `patches/subagent-live-metrics.patch` | 二十一 子优化⑤：**子代理运行中用量/耗时真正爬升 + 移动端紧凑 + TPS 汇聚子代理读数修复**——（a）`subagentLiveChars` 累积器 + 3s 节流把在飞子代理的用量写进 `backgroundAgentTasks`，收纳栏数字**运行中就爬升**而非末尾跳变；（b）`useCompactMetrics()`（新增）驱动紧凑形态，本次进一步收紧 `gap-px tracking-tighter`，并修掉内层 `data-agent-group-usage` **硬编码 `gap-[3px]` 不随 compact 收敛**的问题；（c）**TPS 主修复**：`tpsMeter` 的 `Sample` 加 `stream` 标记、`ingestSubagentTps` 传 `runAgentId`，使可行性过滤按**同一流**的间隔判定——多流交织下原「全局间隔」判定误杀约 70% 样本，4 子代理并发时 UI 只有引擎真值的 **1/3**（实测 80 vs 250；修后逐秒对齐 346/331、387/387、381/382）。**⚠️ 本条保留链尾（链位 61），未与链位 21 融合**（详见二十一章子优化⑤）（5 文件） | ✅ 已实施 |
 | 60 | `patches/chapter-27-residual-hunks.patch` | 二十七 27.3：**章内残余 hunk**——`api/claude.ts` bound-thinking 模型（Fable 5.1）需回放思考块（`modelUsesBoundThinking`，剥离会破坏 system 变更后的重放）；`providerModels` 排序固定 `'en'`（宿主 zh 会把 CJK 排到拉丁之前，「其他」组顶到真实 provider 名之上）；`TerminalSettings` 的 `createTerminalRequestId()` 在非安全上下文（H5 经 LAN IP）无 `crypto.randomUUID` 故回退时间戳+随机串；`package.json` 去掉与 `build`/`tsc -b` 口径重复的两个脚本；`PermissionUpdate` require 环改 **Proxy getter**（顶层 require 在环中拿到的是空命名空间且会一直返回它）。与 58/59 合计补齐 21 个「无补丁触及」的文件（5 文件） | ✅ 已实施 |
 | 59 | `patches/chapter-27-vcc-calibration-scripts.patch` | 二十七 27.2：**vcc 片段模式校准/判分脚本**——`scripts/vcc-slice-calibration.ts`(1076 行) + `scripts/vcc-slice-judge.ts`(439 行)，随「局部压缩接入 vcc 片段模式 + 语料校准」引入；`.gitignore` 排除**机器生成的报告**（含会话原文与真实语料，入库的是手写版）。属**测量工具**而非产品代码，故原未纳入章节（3 文件） | ✅ 已实施 |
 | 58 | `patches/chapter-27-test-env-isolation.patch` | 二十七 27.1：**测试环境隔离与遗留失败清零**——新增 `src/testUtils/modelEnv.ts`（`isolateModelDefaultsEnv()` 存/剥离/还原模型相关 env），并接入 12 个用例（模型 4 个 + `effort.agent` + `thinking` + `print.sessionMessage` + `client` + `computerUse` + `builtInAgentOverrides` + `system` + `coreSchemas.modelInfo`）。根因＝**桌面 dev 会把 `CLAUDE_CODE_*` 导出进进程**，致同一批用例**单跑失败、官方 runner 全绿**——是环境泄漏不是真缺陷（13 文件） | ✅ 已实施 |
@@ -1819,6 +1822,76 @@ export function pythonRuntimeFor(platform: NodeJS.Platform): PythonRuntimeCompon
 7. **格式统一不要顺手扩大范围**：首次实现时把共享的 `formatDurationSeconds`/`formatDurationMs` 一并改成 ASCII，连带影响轮次页脚、消息列表、流式计时，**超出用户要求的「仅后台任务」**，被用户点名退回。已全部 `git checkout` 还原。**共享函数的调用方数量就是改动的爆炸半径——先数调用方，再决定改共享还是改本地。**
 
 **验证（链位 43）**：`tsc --noEmit` **0 错**；`chatStore.test` **369**（+3）、`SessionActivityPanel.test` **26**（+1 断言更新）、`MessageList.test` **202**（+1）；桌面全量 **6315 通过 / 0 失败**；干净的 `068b3ebd` worktree 重跑 **43 链失败 0**，本轮 **6 文件逐字节等于工作树**。
+
+### 子优化⑤ 子代理运行中用量/耗时真正爬升 + 移动端紧凑 + **TPS 汇聚子代理读数修复**（2026-09-28/29）
+
+**Patch**：`modify/patches/subagent-live-metrics.patch`（5 文件，**链位 61，独立新增**）。
+
+> ⚠️ **链位说明（重要）**：本条**未与链位 21（`thinking-tool-timing`）融合**。链位 21 位于链中段，而链位 22→60 中有 **10+ 个补丁**同样改 `ToolCallGroup.tsx` / `MessageList.tsx` / `chatStore.ts`（含链位 49 `subagent-usage-split-live`）——把本条的 hunk 折回链位 21 会让它们**逐个重放失败**，必须连锁重生成整段下游。已与用户确认：**保留链位 61，仅在本文档登记归属第二十一章**（零级联，链仍 N/N 可重放）。
+
+**需求（用户 verbatim）**：「子代理收纳栏内的用量和耗时攀升」；「移动端浏览器访问后看到的这里 用量和耗时，让显示再紧凑点，字符间距稍微紧凑点」；「主会话的TPS汇聚子代理汇聚不准确」；「测试的子代理，要让它跑完，否则后端引擎被你多批次执行导致排队」。
+
+---
+
+#### ⑤-1 TPS 汇聚子代理读数只有真值 1/3（核心 bug）
+
+**现象**：4 个子代理并发时，主会话 TPS 指示器稳定在 **80–140 t/s**，而引擎实测 **240–450 t/s** —— 恰好约 **1/3**。单流（仅主会话）时 UI 与引擎 **1:1 吻合**。
+
+**测量方法（双轨）**：headless chromium 驱动真实 UI 发起 4 子代理（每个 ≥2000 字散文），每 2s 同时读 ①页面上的 TPS 指示器 ②引擎 `vllm:generation_tokens_total` / `num_requests_running`。**`num_requests_running` 稳定为 4** ⇒ 引擎**确实真并发**，故问题在客户端计量，**不是**调度/排队。
+
+**根因**：`tpsMeter.ts` 的 `sliceRate()` 里那道「可行性过滤」——
+
+```ts
+if (gapMs > 0 && tokens / (gapMs / 1000) <= MAX_INSTANT_TPS) { /* 计入 */ }   // MAX_INSTANT_TPS = 5000
+```
+
+它的前提是「一个样本里的 token 是在**上一个样本**到达至今生成的」。**这只对单流成立**。子代理文本经 `ingestSubagentTps` 折进**父米表同一个 `samples` 数组**，多流交织后相邻两个样本常来自**不同流**：实测帧到达间隔**中位数 0.246 ms**、**66.5% 小于 1 ms**。于是一个正常的 5 单位分片落在另一个流的样本之后 0.5 ms ⇒ 算出 **10 000 t/s** ⇒ 被判为「批量投递」**丢弃**。实测丢弃约 **70–73%**。
+
+**离线重放取证**（录制真实 WS 帧后按米表算法原样重跑，亚毫秒时间戳 + 真实中文）：
+
+| 方案 | 20s 后均值 |
+|---|---|
+| 现状（全局间隔过滤） | **74.7** |
+| 无过滤（上限参考） | 252.7 |
+| **按流间隔过滤** | **244.5** ✅ |
+
+**修法**：`Sample` 增加 `stream?`；`push(text, { stream })` / `pushTokens(n, stream)` 记录来源流；`sliceRate()` 的可行性判定改用「**同一流**的上一样本」的间隔——该流在窗口内的首样本回退到 `origin`（**保守保留**，不因缺少参照而丢弃）。接线：`ingestSubagentTps(parentSessionId, event, msg.runAgentId)`。**防「批量重放」的原始意图完整保留**（某条流自己一次性吐出积压时仍会被正确识别并剔除）。
+
+**端到端复验**（修后同一实验）：
+
+| 时刻 | UI | 引擎 |
+|---|---|---|
+| 63s | 346 | 331 |
+| 73s | 387 | 387 |
+| 85s | 381 | 382 |
+
+**回归测试**：`tpsMeter.test.ts` 新增 2 例（三流交织 / 单流不回归）。**旧逻辑下新用例失败**（读到 `49.3`，期望 `>120`）——证明用例真的钉住了该 bug，而非「永远绿的装饰」。
+
+#### ⑤-2 移动端用量/耗时更紧凑
+
+- 收纳栏汇总行 compact 态：`gap-[2px] text-[11px] tracking-tight` → **`gap-px text-[11px] tracking-tighter`**。
+- **内层 `data-agent-group-usage` 的 `gap-[3px]` 原本是硬编码的**，不随 compact 收紧——「20.39k + 6.37k」内部一直是松的。改为 compact 时 `gap-px`（与 `≈`/`+` 分隔符同步）。
+- 轮次页脚（`TurnCompletionStamp`）：`gap-1.5 tracking-tight` → **`gap-1 tracking-tighter`**。
+
+#### ⑤-3 移动端「用量不涨、只有耗时涨」排查（**保留未结**）
+
+- **两处 UI 共用同一条渲染路径**（`ToolCallGroup.tsx` 的 `data-agent-group-usage`），**无移动端专用组件** ⇒ 不是样式/组件分支问题。
+- **耗时是本地时钟**（不依赖服务器），**用量必须由服务器推新数据** ⇒ 「耗时涨、用量不涨」= **客户端没收到新数据**。
+- **已排除缓存**：`index.html` 响应头 `Cache-Control: no-store`，资源为内容哈希名 ⇒ 不存在「旧 index 引用旧 bundle」。
+- **已排除门控**：`useCompactMetrics()` 与 `isMobileShell` 用的是**同一条件**（`useMobileViewport() && !desktopRuntime`）；实测 390px 视口 `matchMedia('(max-width:767px)')` 为 `true`，且移动壳层（汉堡菜单 + 「新建会话」落地页）正常渲染 ⇒ 紧凑形态在移动端**确实生效**（用户截图按 DPR 3 换算 ≈11 CSS px 亦印证）。
+- 用户刷新后恢复正常 ⇒ 判为**页面驻留过久 / 未重载**。**未取到该时刻的 bundle 名证据，如实登记为未结。**
+
+---
+
+**踩坑记录**：
+
+1. **探针自身的 bug 会伪装成产品 bug（本次最贵的一课）**：首版重放脚本用 `Date.now()`（1 ms 粒度）当帧时间戳，导致 **66% 的帧间隔为 0** 被自己的脚本丢弃；又用 ASCII 填充字符（`'x'.repeat(n)`，÷3.5）代替真实中文（≈1 单位/字），单位差 **3.5 倍**。两者叠加一度得出**错误结论「过滤器不是主因、只差 3%」**。改用 CDP `Network.webSocketFrameReceived.timestamp`（亚毫秒）**并记录原文文本**后，结论才翻转成「过滤器就是主因」。**教训：测量脚本的精度与编码必须先用已知量校准（例如单流段 UI 应 ≈ 引擎），再用来解释异常段。**
+2. **`POST /api/sessions/<id>/chat` 只入队、不驱动执行**：用它发起的「4 子代理」实验里引擎始终 `0 tok/s`、`run=0`，白等 75 s 还以为是并发问题。**必须走 UI 真发**：`document.querySelector('[data-composer-editor]').focus()` + CDP `Input.insertText` + Enter（编辑器是 ProseMirror，不能直接改 `.value`）。
+3. **既有注释会误导排查方向**：`aggregateMeterReadings` 的注释写着「子代理文本已折进 `own`，**不得再求和**（会双计）」，一眼看去像「聚合漏了子代理」。实际 `subordinates` 只用于「是否显示 / 空闲超时 / 活跃数」。**症状出在米表的读数，不在聚合函数** —— 别被注释锚定。
+4. **复现实验必须让子代理跑完**：中途 kill 会把多个批次残留在引擎里排队，污染后续所有测量（用户点名）。判定办法：`vllm:num_requests_running` 回到 0 才算排空。
+5. **「紧凑形态没生效」未必是没生效**：手机截图 1170 px 是**物理像素**，按 DPR 3 换算是 390 CSS px，11 px 字号在图上看着仍有 33 px 高。**判大小要用 DPR 换算后的 CSS px，别用截图原始像素。**
+
+**验证**：`tsc --noEmit` **0 错**；`tpsMeter.test` **29 通过**（+2，且新用例在旧逻辑下必红）；端到端 UI 与引擎逐秒对齐。
 
 ## 二十二、历史记录膨胀（`toolUseResult.originalFile`）致大体积会话打不开（✅ 主要实施：A+B+E+G+H+F；C 证伪，2026-09-26）
 

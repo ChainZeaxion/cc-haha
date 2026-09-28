@@ -40,7 +40,7 @@ export function TurnCompletionStamp({ completion }: Props) {
   return (
     <span
       data-turn-completion
-      className={`inline-flex min-w-0 items-center whitespace-nowrap font-medium tabular-nums text-[var(--color-text-tertiary)] ${compactMetrics ? 'gap-1.5 tracking-tight' : 'gap-2'}`}
+      className={`inline-flex min-w-0 items-center whitespace-nowrap font-medium tabular-nums text-[var(--color-text-tertiary)] ${compactMetrics ? 'gap-1 tracking-tighter' : 'gap-2'}`}
     >
       <span title={formatExactMessageTimestamp(completion.completedAt, locale) || clockLabel}>
         {clockLabel}

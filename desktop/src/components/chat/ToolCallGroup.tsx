@@ -580,9 +580,9 @@ function AgentToolGroup({
             elements joined by a 3px gap rather than one string with a space, because
             a full space between a CJK label and a digit reads as a hole at this size. */}
         {sessionExtendedInfo !== false && tokenParts.length > 0 && (
-          <span className={`inline-flex shrink-0 items-baseline whitespace-nowrap text-right text-[var(--color-text-secondary)] ${compactMetrics ? 'gap-[2px] text-[11px] tracking-tight' : 'gap-[3px] text-[12px]'}`}>
+          <span className={`inline-flex shrink-0 items-baseline whitespace-nowrap text-right text-[var(--color-text-secondary)] ${compactMetrics ? 'gap-px text-[11px] tracking-tighter' : 'gap-[3px] text-[12px]'}`}>
             <span>{t('toolGroup.agentTotalUsage')}</span>
-            <span data-agent-group-usage="true" className="inline-flex items-baseline gap-[3px] tabular-nums">
+            <span data-agent-group-usage="true" className={`inline-flex items-baseline tabular-nums ${compactMetrics ? 'gap-px' : 'gap-[3px]'}`}>
               {/* While members are still in flight the total only covers what has
                   been reported so far, so it is marked as the estimate it is. */}
               {isAnyRunning ? <span className="opacity-70">≈</span> : null}
@@ -598,7 +598,7 @@ function AgentToolGroup({
           </span>
         )}
         {sessionExtendedInfo !== false && totalDurationLabel && (
-          <span className={`inline-flex shrink-0 items-baseline whitespace-nowrap text-right text-[var(--color-text-secondary)] ${compactMetrics ? 'gap-[2px] text-[11px] tracking-tight' : 'gap-[3px] text-[12px]'}`}>
+          <span className={`inline-flex shrink-0 items-baseline whitespace-nowrap text-right text-[var(--color-text-secondary)] ${compactMetrics ? 'gap-px text-[11px] tracking-tighter' : 'gap-[3px] text-[12px]'}`}>
             <span>{t('toolGroup.agentTotalDuration')}</span>
             <span data-agent-group-duration="true" className="tabular-nums">
               {/* Same reason as the usage: the span is still open, so the clock

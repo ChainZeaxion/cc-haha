@@ -1109,10 +1109,15 @@ export function getSubordinateTpsMeters(sessionId: string): TpsMeter[] {
  * Whole-block `thinking` hand-overs (complete === true) are skipped: their
  * fragments already arrived as deltas, so counting both would double the
  * subagent's token rate in the sliding window.
+ *
+ * `stream` is the run this text came from. The parent's window ends up holding
+ * every running subagent's chunks at once, and the meter has to tell one
+ * decoder's rhythm from another's: see TpsMeter.push and sliceRate.
  */
 function ingestSubagentTps(
   parentSessionId: string,
   event: Extract<ServerMessage, { type: 'agent_run_event' }>['event'],
+  stream: string | undefined,
 ): void {
   if (!isTpsEnabled()) return
   // `external` keeps these frames out of the parent's call accounting: they
@@ -1121,12 +1126,12 @@ function ingestSubagentTps(
   // token estimate is text-based, so it is measured the same way the parent's
   // own prose is — no coefficient has to be guessed for this path.
   if (event.type === 'content_delta') {
-    if (event.text) getSessionTpsMeter(parentSessionId).push(event.text, { external: true })
-    if (event.toolInput) getSessionTpsMeter(parentSessionId).push(event.toolInput, { external: true })
+    if (event.text) getSessionTpsMeter(parentSessionId).push(event.text, { external: true, stream })
+    if (event.toolInput) getSessionTpsMeter(parentSessionId).push(event.toolInput, { external: true, stream })
     return
   }
   if (event.type === 'thinking' && event.complete !== true && event.text) {
-    getSessionTpsMeter(parentSessionId).push(event.text, { external: true })
+    getSessionTpsMeter(parentSessionId).push(event.text, { external: true, stream })
   }
 }
 
@@ -4733,7 +4738,7 @@ export const useChatStore = create<ChatStore>((setState, get) => {
       // while it is closed the frames below are buffered instead of applied —
       // so without this the main indicator would ignore subagent output. The
       // text is meter-only and never rendered into the main conversation.
-      ingestSubagentTps(sessionId, msg.event)
+      ingestSubagentTps(sessionId, msg.event, msg.runAgentId)
       // Attribute the same deltas to the run they belong to, so its usage
       // climbs while it works instead of appearing only at the end.
       ingestSubagentLiveUsage(sessionId, msg.runAgentId, msg.event)

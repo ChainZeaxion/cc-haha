@@ -138,6 +138,16 @@ type Sample = {
   ascii: number
   /** Relayed exact token count (0 for text samples). */
   ids: number
+  /**
+   * Which concurrently-decoding stream this sample came from. Undefined for the
+   * session's own output, which is the only stream in the single-stream case.
+   *
+   * Several streams (the main turn plus every running subagent) interleave into
+   * one sample list, so "the gap since the previous sample" is not the interval
+   * this sample's tokens were produced over unless the previous sample came from
+   * the same stream. See sliceRate().
+   */
+  stream?: string
 }
 
 function clamp(value: number, min: number, max: number): number {
@@ -206,7 +216,10 @@ export class TpsMeter {
    * is the text itself, which a whole block carries just as well as a
    * fragment does.
    */
-  push(text: string, options: { wholeBlock?: boolean; external?: boolean } = {}): void {
+  push(
+    text: string,
+    options: { wholeBlock?: boolean; external?: boolean; stream?: string } = {},
+  ): void {
     const now = performance.now()
     this.lastPushAt = now
     this.everStreamed = true
@@ -216,7 +229,13 @@ export class TpsMeter {
       if (!external) this.noteCallFrame(now)
       return
     }
-    this.samples.push({ t: now, cjk, ascii, ids: 0 })
+    this.samples.push({
+      t: now,
+      cjk,
+      ascii,
+      ids: 0,
+      ...(options.stream ? { stream: options.stream } : {}),
+    })
     if (!external) this.noteCallFrame(now, cjk, ascii)
     // A slice with no timable span reports 0 — that means "no measurement",
     // not "the rate is zero", so the held speed keeps its last real value.
@@ -228,11 +247,17 @@ export class TpsMeter {
    * Feed a real token count relayed by the sidecar (the engine's per-chunk
    * `token_ids`). These are exact, so they bypass calibration entirely.
    */
-  pushTokens(tokens: number): void {
+  pushTokens(tokens: number, stream?: string): void {
     const count = Math.floor(tokens)
     if (!Number.isFinite(count) || count <= 0) return
     const now = performance.now()
-    this.samples.push({ t: now, cjk: 0, ascii: 0, ids: count })
+    this.samples.push({
+      t: now,
+      cjk: 0,
+      ascii: 0,
+      ids: count,
+      ...(stream ? { stream } : {}),
+    })
     this.lastPushAt = now
     this.everStreamed = true
     this.noteCallFrame(now, 0, 0, count)
@@ -496,12 +521,28 @@ export class TpsMeter {
     //
     // The first sample of a delayed delivery keeps its large gap, so a backlog
     // is still rated honestly against the pause it was generated across.
+    //
+    // The gap has to be measured against the previous sample of the SAME stream.
+    // The window holds several streams at once — the main turn and every running
+    // subagent interleave into this one list — and a neighbouring sample usually
+    // belongs to a different one, so the overall gap is a fraction of the
+    // interval the tokens actually took. Measured against it, a normal 5-token
+    // chunk landing 0.3 ms after another stream's chunk reads as 16 000 t/s and
+    // is thrown away as a batch; with four subagents decoding that discarded
+    // ~70% of the window and pinned the readout at ~75 t/s while the engine was
+    // truly doing 250. Per-stream, the same data rates 245.
+    //
+    // A stream whose previous sample lies before the slice falls back to
+    // `origin`, which is the conservative choice: it keeps the sample rather
+    // than discarding it for lack of a reference.
     let total = 0
     let lastKeptT = 0
     let kept = 0
-    let previousT = origin
+    const previousByStream = new Map<string, number>()
     for (let i = start; i <= lastIndex; i++) {
       const sample = samples[i]!
+      const key = sample.stream ?? ''
+      const previousT = previousByStream.get(key) ?? origin
       const gapMs = sample.t - previousT
       const tokens = this.sampleTokens(sample)
       if (gapMs > 0 && tokens / (gapMs / 1000) <= MAX_INSTANT_TPS) {
@@ -509,7 +550,7 @@ export class TpsMeter {
         lastKeptT = sample.t
         kept += 1
       }
-      previousT = sample.t
+      previousByStream.set(key, sample.t)
     }
     if (kept === 0) return null
     const span = (lastKeptT - origin) / 1000

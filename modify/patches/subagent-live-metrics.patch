@@ -28,7 +28,7 @@ index 89dfe358..ffb190e6 100644
    const pendingPermissions = listPendingPermissions(sessionState)
    const activeAskUserQuestionToolUseId =
 diff --git a/desktop/src/components/chat/ToolCallGroup.tsx b/desktop/src/components/chat/ToolCallGroup.tsx
-index b86bc19b..ff25fa24 100644
+index b86bc19b..8941c837 100644
 --- a/desktop/src/components/chat/ToolCallGroup.tsx
 +++ b/desktop/src/components/chat/ToolCallGroup.tsx
 @@ -4,6 +4,7 @@ import { ToolCallBlock, type ToolCallChrome } from './ToolCallBlock'
@@ -73,26 +73,29 @@ index b86bc19b..ff25fa24 100644
    const totalDurationLabel = totalDuration === undefined ? '' : formatDuration(totalDuration)
    // Tokens add up where the span does not: a dispatched group runs in parallel,
    // but the work its members did is not shared between them. A member still in
-@@ -571,7 +580,7 @@ function AgentToolGroup({
+@@ -571,9 +580,9 @@ function AgentToolGroup({
              elements joined by a 3px gap rather than one string with a space, because
              a full space between a CJK label and a digit reads as a hole at this size. */}
          {sessionExtendedInfo !== false && tokenParts.length > 0 && (
 -          <span className="inline-flex shrink-0 items-baseline gap-[3px] whitespace-nowrap text-right text-[12px] text-[var(--color-text-secondary)]">
-+          <span className={`inline-flex shrink-0 items-baseline whitespace-nowrap text-right text-[var(--color-text-secondary)] ${compactMetrics ? 'gap-[2px] text-[11px] tracking-tight' : 'gap-[3px] text-[12px]'}`}>
++          <span className={`inline-flex shrink-0 items-baseline whitespace-nowrap text-right text-[var(--color-text-secondary)] ${compactMetrics ? 'gap-px text-[11px] tracking-tighter' : 'gap-[3px] text-[12px]'}`}>
              <span>{t('toolGroup.agentTotalUsage')}</span>
-             <span data-agent-group-usage="true" className="inline-flex items-baseline gap-[3px] tabular-nums">
+-            <span data-agent-group-usage="true" className="inline-flex items-baseline gap-[3px] tabular-nums">
++            <span data-agent-group-usage="true" className={`inline-flex items-baseline tabular-nums ${compactMetrics ? 'gap-px' : 'gap-[3px]'}`}>
                {/* While members are still in flight the total only covers what has
+                   been reported so far, so it is marked as the estimate it is. */}
+               {isAnyRunning ? <span className="opacity-70">≈</span> : null}
 @@ -589,7 +598,7 @@ function AgentToolGroup({
            </span>
          )}
          {sessionExtendedInfo !== false && totalDurationLabel && (
 -          <span className="inline-flex shrink-0 items-baseline gap-[3px] whitespace-nowrap text-right text-[12px] text-[var(--color-text-secondary)]">
-+          <span className={`inline-flex shrink-0 items-baseline whitespace-nowrap text-right text-[var(--color-text-secondary)] ${compactMetrics ? 'gap-[2px] text-[11px] tracking-tight' : 'gap-[3px] text-[12px]'}`}>
++          <span className={`inline-flex shrink-0 items-baseline whitespace-nowrap text-right text-[var(--color-text-secondary)] ${compactMetrics ? 'gap-px text-[11px] tracking-tighter' : 'gap-[3px] text-[12px]'}`}>
              <span>{t('toolGroup.agentTotalDuration')}</span>
              <span data-agent-group-duration="true" className="tabular-nums">
                {/* Same reason as the usage: the span is still open, so the clock
 diff --git a/desktop/src/components/chat/TurnCompletionStamp.tsx b/desktop/src/components/chat/TurnCompletionStamp.tsx
-index 4dd1d5e0..c0b97e27 100644
+index 4dd1d5e0..b52d4fdc 100644
 --- a/desktop/src/components/chat/TurnCompletionStamp.tsx
 +++ b/desktop/src/components/chat/TurnCompletionStamp.tsx
 @@ -1,4 +1,5 @@
@@ -114,7 +117,7 @@ index 4dd1d5e0..c0b97e27 100644
      <span
        data-turn-completion
 -      className="inline-flex min-w-0 items-center gap-2 whitespace-nowrap text-[11px] font-medium tabular-nums text-[var(--color-text-tertiary)]"
-+      className={`inline-flex min-w-0 items-center whitespace-nowrap font-medium tabular-nums text-[var(--color-text-tertiary)] ${compactMetrics ? 'gap-1.5 tracking-tight' : 'gap-2'}`}
++      className={`inline-flex min-w-0 items-center whitespace-nowrap font-medium tabular-nums text-[var(--color-text-tertiary)] ${compactMetrics ? 'gap-1 tracking-tighter' : 'gap-2'}`}
      >
        <span title={formatExactMessageTimestamp(completion.completedAt, locale) || clockLabel}>
          {clockLabel}
@@ -141,13 +144,41 @@ index 00000000..dc1920be
 +  return isMobileViewport && !isDesktopRuntime()
 +}
 diff --git a/desktop/src/stores/chatStore.ts b/desktop/src/stores/chatStore.ts
-index c4f1f7c6..0b77ef2f 100644
+index c4f1f7c6..fe491f99 100644
 --- a/desktop/src/stores/chatStore.ts
 +++ b/desktop/src/stores/chatStore.ts
-@@ -1130,6 +1130,84 @@ function ingestSubagentTps(
+@@ -1109,10 +1109,15 @@ export function getSubordinateTpsMeters(sessionId: string): TpsMeter[] {
+  * Whole-block `thinking` hand-overs (complete === true) are skipped: their
+  * fragments already arrived as deltas, so counting both would double the
+  * subagent's token rate in the sliding window.
++ *
++ * `stream` is the run this text came from. The parent's window ends up holding
++ * every running subagent's chunks at once, and the meter has to tell one
++ * decoder's rhythm from another's: see TpsMeter.push and sliceRate.
+  */
+ function ingestSubagentTps(
+   parentSessionId: string,
+   event: Extract<ServerMessage, { type: 'agent_run_event' }>['event'],
++  stream: string | undefined,
+ ): void {
+   if (!isTpsEnabled()) return
+   // `external` keeps these frames out of the parent's call accounting: they
+@@ -1121,13 +1126,91 @@ function ingestSubagentTps(
+   // token estimate is text-based, so it is measured the same way the parent's
+   // own prose is — no coefficient has to be guessed for this path.
+   if (event.type === 'content_delta') {
+-    if (event.text) getSessionTpsMeter(parentSessionId).push(event.text, { external: true })
+-    if (event.toolInput) getSessionTpsMeter(parentSessionId).push(event.toolInput, { external: true })
++    if (event.text) getSessionTpsMeter(parentSessionId).push(event.text, { external: true, stream })
++    if (event.toolInput) getSessionTpsMeter(parentSessionId).push(event.toolInput, { external: true, stream })
+     return
    }
- }
- 
+   if (event.type === 'thinking' && event.complete !== true && event.text) {
+-    getSessionTpsMeter(parentSessionId).push(event.text, { external: true })
++    getSessionTpsMeter(parentSessionId).push(event.text, { external: true, stream })
++  }
++}
++
 +/**
 + * Live output of a running subagent, attributed to the run it came from.
 + *
@@ -177,7 +208,7 @@ index c4f1f7c6..0b77ef2f 100644
 +  if (!acc) {
 +    acc = { text: 0, thinking: 0, wroteAt: 0 }
 +    subagentLiveChars.set(key, acc)
-+  }
+   }
 +  if (event.type === 'content_delta') {
 +    acc.text += (event.text?.length ?? 0) + (event.toolInput?.length ?? 0)
 +  } else if (event.type === 'thinking' && event.complete !== true && event.text) {
@@ -224,15 +255,15 @@ index c4f1f7c6..0b77ef2f 100644
 +      })),
 +    }
 +  })
-+}
-+
+ }
+ 
  // Streaming throttle for content_delta. Buffers must be per-session because
- // multiple desktop tabs can stream at the same time.
- const pendingDeltaBySession = new Map<string, string>()
-@@ -4656,6 +4734,9 @@ export const useChatStore = create<ChatStore>((setState, get) => {
+@@ -4655,7 +4738,10 @@ export const useChatStore = create<ChatStore>((setState, get) => {
+       // while it is closed the frames below are buffered instead of applied —
        // so without this the main indicator would ignore subagent output. The
        // text is meter-only and never rendered into the main conversation.
-       ingestSubagentTps(sessionId, msg.event)
+-      ingestSubagentTps(sessionId, msg.event)
++      ingestSubagentTps(sessionId, msg.event, msg.runAgentId)
 +      // Attribute the same deltas to the run they belong to, so its usage
 +      // climbs while it works instead of appearing only at the end.
 +      ingestSubagentLiveUsage(sessionId, msg.runAgentId, msg.event)
