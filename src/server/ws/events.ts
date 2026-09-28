@@ -85,7 +85,7 @@ export type ServerMessage =
    * desktop feeds it to the TPS meter, which then ignores the text frames it
    * duplicates. Sent only for endpoints that reported token ids.
    */
-  | { type: 'tps_tokens'; tokens: number }
+  | { type: 'tps_tokens'; tokens: number; kind: 'thinking' | 'content' | 'tool' }
   | { type: 'tool_use_complete'; toolName: string; toolUseId: string; originalToolUseId?: string; input: unknown; parentToolUseId?: string }
   | { type: 'tool_result'; toolUseId: string; originalToolUseId?: string; content: unknown; isError: boolean; parentToolUseId?: string }
   | {

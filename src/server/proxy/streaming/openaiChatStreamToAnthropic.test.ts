@@ -157,6 +157,37 @@ describe('real token id side channel', () => {
     return { counts, output }
   }
 
+  async function collectKinds(input: string) {
+    const seen: Array<{ count: number; kind: string }> = []
+    const source = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(new TextEncoder().encode(input))
+        controller.close()
+      },
+    })
+    await new Response(openaiChatStreamToAnthropic(source, 'fixture', {
+      onTokenIds: (count, kind) => seen.push({ count, kind }),
+    })).text()
+    return seen
+  }
+
+  test('tags each count with what the chunk carries', async () => {
+    // A count alone cannot answer "how many tokens did this thought take": one
+    // response interleaves reasoning, content and tool input, and only the
+    // chunk itself knows which of the three it is.
+    const seen = await collectKinds(
+      idsChunk([1, 2], { reasoning_content: 'thinking...' })
+      + idsChunk([3], { content: 'answer' })
+      + idsChunk([4, 5, 6], { tool_calls: [{ index: 0, function: { arguments: '{}' } }] })
+      + 'data: [DONE]\n\n',
+    )
+    expect(seen).toEqual([
+      { count: 2, kind: 'thinking' },
+      { count: 1, kind: 'content' },
+      { count: 3, kind: 'tool' },
+    ])
+  })
+
   function idsChunk(ids: number[], delta: Record<string, unknown> = { content: 'x' }, finish: string | null = null) {
     return `data: ${JSON.stringify({ id: 'fixture', choices: [{ index: 0, delta, finish_reason: finish, token_ids: ids }] })}\n\n`
   }

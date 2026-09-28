@@ -7,7 +7,9 @@
  * server registers its broadcaster here once, at startup, instead.
  */
 
-type TpsTokenSink = (sessionId: string, tokens: number) => void
+import type { TokenChunkKind } from './streaming/openaiChatStreamToAnthropic.js'
+
+type TpsTokenSink = (sessionId: string, tokens: number, kind: TokenChunkKind) => void
 
 let sink: TpsTokenSink | null = null
 
@@ -16,7 +18,11 @@ export function setTpsTokenSink(next: TpsTokenSink | null): void {
 }
 
 /** No-op until a sink is registered (headless runs, tests). */
-export function emitTpsTokens(sessionId: string, tokens: number): void {
+export function emitTpsTokens(
+  sessionId: string,
+  tokens: number,
+  kind: TokenChunkKind,
+): void {
   if (tokens <= 0) return
-  sink?.(sessionId, tokens)
+  sink?.(sessionId, tokens, kind)
 }

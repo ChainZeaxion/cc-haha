@@ -27,6 +27,7 @@ import { openaiChatToAnthropic } from './transform/openaiChatToAnthropic.js'
 import { openaiResponsesToAnthropic } from './transform/openaiResponsesToAnthropic.js'
 import { openaiChatStreamToAnthropic } from './streaming/openaiChatStreamToAnthropic.js'
 import { emitTpsTokens } from './tpsTokenSink.js'
+import { TOKEN_CHUNK_KINDS, type TokenChunkKind } from './streaming/openaiChatStreamToAnthropic.js'
 import { openaiResponsesStreamToAnthropic } from './streaming/openaiResponsesStreamToAnthropic.js'
 import type { AnthropicRequest } from './transform/types.js'
 import { getProxyFetchOptions } from '../../utils/proxy.js'
@@ -949,7 +950,10 @@ function isLocalEngineHost(hostname: string): boolean {
  * endpoint never reported token ids, so the parameter is not asked for again.
  */
 function createTpsTokenRelay(sessionId: string | null, baseUrl: string) {
-  let pending = 0
+  // One counter per kind. A single total cannot be split after the fact, and
+  // the kinds are what a consumer attributes: the thought badge wants the
+  // reasoning count, which is only a fraction of the response.
+  const pending: Record<TokenChunkKind, number> = { thinking: 0, content: 0, tool: 0 }
   let flushTimer: ReturnType<typeof setTimeout> | null = null
   let sawTokenIds = false
   const origin = endpointOrigin(baseUrl)
@@ -964,18 +968,21 @@ function createTpsTokenRelay(sessionId: string | null, baseUrl: string) {
 
   const flush = () => {
     flushTimer = null
-    if (!sessionId || pending <= 0) return
-    const tokens = pending
-    pending = 0
-    emitTpsTokens(sessionId, tokens)
+    if (!sessionId) return
+    for (const kind of TOKEN_CHUNK_KINDS) {
+      const tokens = pending[kind]
+      if (tokens <= 0) continue
+      pending[kind] = 0
+      emitTpsTokens(sessionId, tokens, kind)
+    }
   }
 
   return {
-    onTokenIds(count: number) {
+    onTokenIds(count: number, kind: TokenChunkKind) {
       if (count <= 0) return
       sawTokenIds = true
       clearTimeout(probeTimer)
-      pending += count
+      pending[kind] += count
       if (flushTimer === null) {
         flushTimer = setTimeout(flush, TPS_TOKEN_FLUSH_MS)
         flushTimer.unref?.()

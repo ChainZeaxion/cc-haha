@@ -19,7 +19,7 @@ import { randomSpinnerVerb } from '../config/spinnerVerbs'
 import { notifyDesktop } from '../lib/desktopNotifications'
 import { createAsyncRefreshCoalescer } from '../lib/asyncRefreshCoalescer'
 import { deriveSessionTitle, isPlaceholderSessionTitle } from '../lib/sessionTitle'
-import { TpsMeter, isTpsEnabled } from '../lib/tpsMeter'
+import { TpsMeter, isTpsEnabled, setEstimationCalibration } from '../lib/tpsMeter'
 import { loadTpsCalibration, saveTpsCalibration } from '../lib/tpsCalibration'
 import { t } from '../i18n'
 import {
@@ -1019,7 +1019,11 @@ export function getSessionTpsMeter(sessionId: string): TpsMeter {
     // Seed what earlier sessions with this model measured, so a fresh session
     // does not under-read until its first call completes.
     const model = tpsModelFor(sessionId)
-    meter.setCalibration(loadTpsCalibration(model))
+    const seeded = loadTpsCalibration(model)
+    meter.setCalibration(seeded)
+    // The badge/digest estimate from characters, so they want the same learned
+    // coefficients the meter reads its rate with.
+    setEstimationCalibration(seeded)
     tpsCalibrationModelBySession.set(sessionId, model)
     tpsMeterBySession.set(sessionId, meter)
   }
@@ -4989,7 +4993,9 @@ export const useChatStore = create<ChatStore>((setState, get) => {
         if (isTpsEnabled() && msg.modelId) {
           const meter = getSessionTpsMeter(sessionId)
           saveTpsCalibration(tpsCalibrationModelBySession.get(sessionId), meter.calibration())
-          meter.setCalibration(loadTpsCalibration(msg.modelId))
+          const next = loadTpsCalibration(msg.modelId)
+          meter.setCalibration(next)
+          setEstimationCalibration(next)
           tpsCalibrationModelBySession.set(sessionId, msg.modelId)
         }
         const selected = useSessionRuntimeStore.getState().selections[sessionId]
@@ -5588,9 +5594,36 @@ export const useChatStore = create<ChatStore>((setState, get) => {
         break
 
       case 'tps_tokens': {
-        // The engine reported real per-chunk token ids. These counts are exact,
-        // so this session's text frames must no longer be sampled — they carry
-        // the same tokens and would double the rate (see pushTpsFrame).
+        // The engine reported real per-chunk token ids, tagged with what the
+        // chunk carried. Reasoning tokens belong to the thought block open right
+        // now, and this is the only source of an exact per-thought count: the
+        // transcript has no such field, so the badge otherwise has to infer it
+        // from content (measured ~60% off).
+        //
+        // Attributed only while a thought block is open. A batch arriving after
+        // the block closed belongs to content or tool input by then, so it is
+        // dropped rather than guessed at; batches are 200 ms, so the loss is a
+        // fraction of a thought, not a thought.
+        if (msg.kind === 'thinking') {
+          update((s) => {
+            const activeId = s.activeThinkingId
+            if (!activeId) return {}
+            const index = s.messages.findIndex(
+              (message) => message.id === activeId && message.type === 'thinking',
+            )
+            if (index < 0) return {}
+            const block = s.messages[index]
+            if (!block || block.type !== 'thinking') return {}
+            const messages = [...s.messages]
+            messages[index] = {
+              ...block,
+              thinkingTokens: (block.thinkingTokens ?? 0) + msg.tokens,
+            }
+            return { messages }
+          })
+        }
+        // The same counts are exact feed for the TPS meter, where the sampled
+        // text frames would otherwise double-count them.
         if (!isTpsEnabled()) break
         const meter = getSessionTpsMeter(sessionId)
         if (!tpsIdsModeBySession.get(sessionId)) {
@@ -5616,7 +5649,9 @@ export const useChatStore = create<ChatStore>((setState, get) => {
           // Only bank it when a coefficient actually moved: persisting the
           // neutral 1.0 values would tell the next session nothing.
           if (learned) {
-            saveTpsCalibration(tpsCalibrationModelBySession.get(sessionId), meter.calibration())
+            const calibration = meter.calibration()
+            saveTpsCalibration(tpsCalibrationModelBySession.get(sessionId), calibration)
+            setEstimationCalibration(calibration)
           }
         }
         if (consumeAllPendingTaskToolUseIds(sessionId)) {
@@ -6571,9 +6606,13 @@ function normalizeBackgroundTaskUsage(value: unknown): BackgroundAgentTaskUsage 
   const totalTokens = record.total_tokens ?? record.totalTokens
   const toolUses = record.tool_uses ?? record.toolUses
   const durationMs = record.duration_ms ?? record.durationMs
+  const outputTokens = record.output_tokens ?? record.outputTokens
+  const thinkTokens = record.think_tokens ?? record.thinkTokens
   if (typeof totalTokens === 'number') usage.totalTokens = totalTokens
   if (typeof toolUses === 'number') usage.toolUses = toolUses
   if (typeof durationMs === 'number') usage.durationMs = durationMs
+  if (typeof outputTokens === 'number') usage.outputTokens = outputTokens
+  if (typeof thinkTokens === 'number') usage.thinkTokens = thinkTokens
   return Object.keys(usage).length > 0 ? usage : undefined
 }
 

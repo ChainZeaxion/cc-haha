@@ -10635,13 +10635,42 @@ describe('chatStore history mapping', () => {
     useChatStore.setState({ sessions: { [sessionId]: makeSession() } })
 
     // Relay a real count, then the text of those same tokens.
-    useChatStore.getState().handleServerMessage(sessionId, { type: 'tps_tokens', tokens: 40 })
+    useChatStore.getState().handleServerMessage(sessionId, { type: 'tps_tokens', tokens: 40, kind: 'content' })
     useChatStore.getState().handleServerMessage(sessionId, { type: 'content_delta', text: 'x'.repeat(200) })
 
     const meter = getSessionTpsMeter(sessionId)
     expect(meter.source()).toBe('ids')
     // Only the relayed 40 tokens — the text frame would have added ~57 more.
     expect(meter.windowTokens()).toBeCloseTo(40, 5)
+  })
+
+  it('attributes relayed reasoning tokens to the open thought block', () => {
+    const sessionId = '__thinking-tokens'
+    useChatStore.setState({ sessions: { [sessionId]: makeSession() } })
+
+    // Open a thought block, then stream its reasoning.
+    useChatStore.getState().handleServerMessage(sessionId, { type: 'thinking', text: 'first thought' })
+    useChatStore.getState().handleServerMessage(sessionId, { type: 'tps_tokens', tokens: 12, kind: 'thinking' })
+    useChatStore.getState().handleServerMessage(sessionId, { type: 'tps_tokens', tokens: 30, kind: 'thinking' })
+    // Content tokens are not part of the thought and must not land on it.
+    useChatStore.getState().handleServerMessage(sessionId, { type: 'tps_tokens', tokens: 99, kind: 'content' })
+
+    const thinking = useChatStore.getState().sessions[sessionId]!.messages
+      .find((message) => message.type === 'thinking')
+    expect(thinking?.type === 'thinking' ? thinking.thinkingTokens : undefined).toBe(42)
+  })
+
+  it('drops reasoning tokens that arrive with no thought block open', () => {
+    const sessionId = '__thinking-tokens-none'
+    useChatStore.setState({ sessions: { [sessionId]: makeSession() } })
+
+    useChatStore.getState().handleServerMessage(sessionId, { type: 'tps_tokens', tokens: 15, kind: 'thinking' })
+
+    // Nothing to attribute to, so nothing is invented anywhere.
+    expect(
+      useChatStore.getState().sessions[sessionId]!.messages
+        .some((message) => message.type === 'thinking'),
+    ).toBe(false)
   })
 
   it('drops the sampling window when the transport reconnects', () => {

@@ -298,8 +298,8 @@ export function startServer(port = PORT, host = HOST) {
   // The proxy reads real per-chunk token counts off local engines and needs to
   // push them to the session's client. It cannot import the WS layer (that
   // would close a cycle through titleService), so the wiring lives here.
-  setTpsTokenSink((sessionId, tokens) => {
-    sendToSession(sessionId, { type: 'tps_tokens', tokens })
+  setTpsTokenSink((sessionId, tokens, kind) => {
+    sendToSession(sessionId, { type: 'tps_tokens', tokens, kind })
   })
 
   const publicAccess = new PublicAccessServer({

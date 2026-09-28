@@ -108,7 +108,7 @@ export type ServerMessage =
    * feeds the TPS meter exactly, and the text frames it duplicates are then
    * ignored. Only sent for endpoints that reported token ids.
    */
-  | { type: 'tps_tokens'; tokens: number }
+  | { type: 'tps_tokens'; tokens: number; kind: 'thinking' | 'content' | 'tool' }
   | { type: 'tool_use_complete'; toolName: string; toolUseId: string; originalToolUseId?: string; input: unknown; parentToolUseId?: string }
   | { type: 'tool_result'; toolUseId: string; originalToolUseId?: string; content: unknown; isError: boolean; parentToolUseId?: string }
   | {
@@ -298,6 +298,10 @@ export type AgentTaskNotification = {
 
 export type BackgroundAgentTaskUsage = {
   totalTokens?: number
+  /** Generated tokens; the thinking share is `thinkTokens` when reported. */
+  outputTokens?: number
+  /** Thinking share of the output. Absent when the engine reported no split. */
+  thinkTokens?: number
   toolUses?: number
   durationMs?: number
 }
@@ -365,7 +369,7 @@ export type UIMessage =
    * simply do not carry it, and the turn then shows no total.
    */
   | { id: string; type: 'assistant_text'; content: string; transcriptMessageId?: string; timestamp: number; model?: string; usage?: MessageUsage; usageKey?: string }
-  | { id: string; type: 'thinking'; content: string; timestamp: number; /** Wall-clock ms this block spent generating; set on completion (live) or mapped from the transcript (history). */ thinkingDurationMs?: number; usage?: MessageUsage; usageKey?: string }
+  | { id: string; type: 'thinking'; content: string; timestamp: number; /** Wall-clock ms this block spent generating; set on completion (live) or mapped from the transcript (history). */ thinkingDurationMs?: number; /** Exact tokens the engine generated for this block, summed from the id side channel while it streamed. Absent on history (the transcript does not carry it) and when the engine reports no ids — the badge falls back to estimating from content then. */ thinkingTokens?: number; usage?: MessageUsage; usageKey?: string }
   | {
       id: string
       type: 'tool_use'
