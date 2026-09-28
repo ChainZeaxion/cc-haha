@@ -1,6 +1,7 @@
 import { splitSessionReferenceContext } from './sessionReferenceContext.js'
 import { parseSessionCollaborationEnvelope } from '../../utils/sessionCollaborationEnvelope.js'
 import { readHistoryContexts } from './sessionHistoryContext.js'
+import { readStoredTranscriptMetadata, writeStoredTranscriptMetadata } from './transcriptMetadataCache.js'
 import { recoverBoundedSessionHistory, type SessionHistoryRecovery } from './sessionHistoryRecovery.js'
 /**
  * Session Service — 会话文件的读写操作封装
@@ -1372,6 +1373,13 @@ export class SessionService {
     }, 'recovery')
   }
 
+  /** Keeps the in-memory layer small; the durable copy is what makes a miss cheap. */
+  private enforceMetadataProjectionCacheCapacity(): void {
+    while (this.metadataProjectionCache.size > 32) {
+      this.metadataProjectionCache.delete(this.metadataProjectionCache.keys().next().value!)
+    }
+  }
+
   private async scanSessionListSummary(
     filePath: string,
     projectDir: string,
@@ -1394,6 +1402,21 @@ export class SessionService {
       this.metadataProjectionCache.delete(key)
       this.metadataProjectionCache.set(key, cached)
       return cached
+    }
+    // A fresh process used to rescan every transcript it touched; the projection
+    // is a few KB of scalars, so a stored copy saves that full pass on the first
+    // open of a large session. It is trusted only for the exact signature it was
+    // built from, so a stale entry costs a scan rather than a wrong answer.
+    const stored = await readStoredTranscriptMetadata<{
+      summary: SessionListSummary
+      launchInfo: SessionLaunchInfo
+      customTitle: string | null
+      complete: boolean
+    }>(this.getConfigDir(), filePath, signature, projectDir)
+    if (stored) {
+      this.metadataProjectionCache.set(key, { signature, ...stored })
+      this.enforceMetadataProjectionCacheCapacity()
+      return stored
     }
     const requestKey = `${key}\0${signature}`
     const pending = this.metadataProjectionRequests.get(requestKey)
@@ -1476,7 +1499,8 @@ export class SessionService {
       }
       this.metadataProjectionCache.delete(key)
       this.metadataProjectionCache.set(key, { signature: scan.sourceVersion, ...result })
-      while (this.metadataProjectionCache.size > 32) this.metadataProjectionCache.delete(this.metadataProjectionCache.keys().next().value!)
+      this.enforceMetadataProjectionCacheCapacity()
+      writeStoredTranscriptMetadata(this.getConfigDir(), filePath, scan.sourceVersion, projectDir, result)
       return result
     }, 'metadata')
     this.metadataProjectionRequests.set(requestKey, request)
