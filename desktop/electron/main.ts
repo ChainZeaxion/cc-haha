@@ -11,7 +11,6 @@ import {
 import { ElectronServerRuntime } from './services/serverRuntime'
 import { appendHostDiagnostic, electronHostDiagnosticsFile, sanitizeHostDiagnostic } from './services/sidecarManager'
 import { openDialog, saveDialog } from './services/dialogs'
-import { saveFileCopy } from './services/fileSave'
 import { openExternalUrl, openSystemPath, openSystemSettingsUrl } from './services/shell'
 import {
   notificationPermissionState,
@@ -718,8 +717,6 @@ function registerIpcHandlers() {
     openDialog(currentWindow(event), payload as Parameters<typeof openDialog>[1]))
   registerHandler(ELECTRON_IPC_CHANNELS.dialogSave, (event, payload) =>
     saveDialog(currentWindow(event), payload as Parameters<typeof saveDialog>[1]))
-  registerHandler(ELECTRON_IPC_CHANNELS.fileSaveCopy, (event, payload) =>
-    saveFileCopy(currentWindow(event), payload as Parameters<typeof saveFileCopy>[1]))
   registerHandler(ELECTRON_IPC_CHANNELS.updateCheck, (_event, payload) =>
     getUpdaterService().checkForUpdates(payload as Parameters<ElectronUpdaterService['checkForUpdates']>[0]))
   registerHandler(ELECTRON_IPC_CHANNELS.updateDownload, () => getUpdaterService().downloadUpdate(event => {

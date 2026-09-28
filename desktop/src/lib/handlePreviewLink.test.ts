@@ -1,16 +1,12 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 
-// jsdom implements neither, and the helper only needs them to produce a string.
-if (typeof URL.createObjectURL !== 'function') {
-  URL.createObjectURL = () => 'blob:test'
-}
-if (typeof URL.revokeObjectURL !== 'function') {
-  URL.revokeObjectURL = () => {}
-}
-
-const apiGetBlob = vi.fn()
-vi.mock('../api/client', () => ({
-  apiGetBlob: (...args: unknown[]) => apiGetBlob(...args),
+// A fixed base so the built URL is deterministic; the real one comes from the
+// desktop runtime, which has no meaning in jsdom.
+const getServerBaseUrl = vi.fn(() => 'http://127.0.0.1:8787')
+vi.mock('./desktopRuntime', async (importOriginal) => ({
+  // Keep the module's other exports: previewLinkRouter needs isLoopbackHostname.
+  ...(await importOriginal<typeof import('./desktopRuntime')>()),
+  getServerBaseUrl: () => getServerBaseUrl(),
 }))
 import {
   downloadLocalFile,
@@ -241,9 +237,13 @@ describe('previewFsUrl (unchanged, regression guard)', () => {
 })
 
 describe('downloadLocalFile', () => {
-  // This entry had no test at all, which is how it shipped unable to download:
-  // the only other entry (the list card) is an anchor the user clicks, and both
-  // failed the same way for the same reason.
+  // A click on an anchor is a navigation, not a fetch: the browser attaches no
+  // Origin header, so the request reaches the server on the no-Origin path every
+  // other navigation uses and the file is served. This is the same shape the
+  // chat's download card has always used, and the only one that works from the
+  // packaged renderer, whose page is `file://` — an opaque origin can neither pass
+  // a CORS check (a fetch attaches `Origin: null`, which the server refuses) nor
+  // download a `blob:` URL it minted itself.
   function clickDownload() {
     const clicked: HTMLAnchorElement[] = []
     const create = document.createElement.bind(document)
@@ -258,152 +258,42 @@ describe('downloadLocalFile', () => {
     return { clicked, restore: () => spy.mockRestore() }
   }
 
-  beforeEach(() => apiGetBlob.mockReset())
+  afterEach(() => getServerBaseUrl.mockClear())
 
-  it('fetches the bytes through the API client rather than pointing the DOM at the route', async () => {
-    // The whole point: a URL the DOM loads by itself carries neither the
-    // Authorization header nor an Origin the server trusts, and the packaged
-    // renderer's origin serializes to `null` for it — measured 403 against a
-    // route that answers 200 to the API client.
-    apiGetBlob.mockResolvedValue(new Blob(['hello']))
-    const createSpy = vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:test-url')
-
+  it('points an anchor straight at the server route', () => {
     const { clicked, restore } = clickDownload()
-    let saved: boolean | undefined
+    let initiated: boolean | undefined
     try {
-      saved = await downloadLocalFile('/home/me/notes.txt')
-      expect(apiGetBlob).toHaveBeenCalledWith('/local-file/home/me/notes.txt?download=1')
-      expect(createSpy).toHaveBeenCalledOnce()
-      expect(clicked[0]?.href).toContain('blob:test-url')
-      expect(clicked[0]?.download).toBe('notes.txt')
+      initiated = downloadLocalFile('/home/me/notes.txt')
     } finally {
       restore()
-      createSpy.mockRestore()
     }
-    expect(saved).toBe(true)
+    expect(clicked[0]?.href).toBe('http://127.0.0.1:8787/local-file/home/me/notes.txt?download=1')
+    expect(clicked[0]?.download).toBe('notes.txt')
+    expect(initiated).toBe(true)
   })
 
-  it('keeps the server route and the saved name for a path with spaces', async () => {
-    apiGetBlob.mockResolvedValue(new Blob(['x']))
+  it('keeps the route encoded and the saved name for a path with spaces', () => {
     const { clicked, restore } = clickDownload()
     try {
-      await downloadLocalFile('/home/me/report final.pdf')
+      downloadLocalFile('/home/me/report final.pdf')
     } finally {
       restore()
     }
-    expect(apiGetBlob).toHaveBeenCalledWith('/local-file/home/me/report%20final.pdf?download=1')
+    expect(clicked[0]?.href).toBe(
+      'http://127.0.0.1:8787/local-file/home/me/report%20final.pdf?download=1',
+    )
     expect(clicked[0]?.download).toBe('report final.pdf')
   })
 
-  it('leaves nothing behind in the document', async () => {
-    apiGetBlob.mockResolvedValue(new Blob(['x']))
+  it('leaves nothing behind in the document', () => {
     const { restore } = clickDownload()
     try {
-      await downloadLocalFile('/home/me/notes.txt')
+      downloadLocalFile('/home/me/notes.txt')
     } finally {
       restore()
     }
     expect(document.querySelector('a[download]')).toBeNull()
-  })
-
-  it('reports failure instead of throwing when the save path fails', async () => {
-    // The callers are fire-and-forget menu handlers, so a rejection here would
-    // become an unhandled one and the user would see nothing at all. The failure
-    // is staged in the save step rather than in the mock: an exception thrown
-    // from inside a vitest mock is recorded as a test failure of its own, which
-    // would mask what this is checking.
-    apiGetBlob.mockResolvedValue(new Blob(['x']))
-    const createSpy = vi.spyOn(URL, 'createObjectURL').mockImplementation(() => {
-      throw new Error('blob rejected')
-    })
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
-    const { clicked, restore } = clickDownload()
-    try {
-      const saved = await downloadLocalFile('/home/me/notes.txt')
-      expect(saved).toBe(false)
-      expect(clicked).toHaveLength(0)
-      expect(warn).toHaveBeenCalled()
-    } finally {
-      restore()
-      createSpy.mockRestore()
-      warn.mockRestore()
-    }
-  })
-})
-
-describe('downloadLocalFile via the desktop shell', () => {
-  const originalHost = Object.getOwnPropertyDescriptor(window, 'desktopHost')
-  const saveCopy = vi.fn()
-
-  function stubHost(kind: 'electron' | 'browser') {
-    Object.defineProperty(window, 'desktopHost', {
-      configurable: true,
-      value: kind === 'electron'
-        ? { kind, isDesktop: true, files: { getPathForFile: () => '', saveCopy } }
-        : { kind, isDesktop: false, files: { saveCopy: async () => ({ saved: false, reason: 'unsupported' }) } },
-    })
-  }
-
-  function clickDownload() {
-    const clicked: HTMLAnchorElement[] = []
-    const create = document.createElement.bind(document)
-    const spy = vi.spyOn(document, 'createElement').mockImplementation((tag: string) => {
-      const el = create(tag)
-      if (tag === 'a') {
-        const anchor = el as HTMLAnchorElement
-        anchor.click = () => clicked.push(anchor)
-      }
-      return el
-    })
-    return { clicked, restore: () => spy.mockRestore() }
-  }
-
-  beforeEach(() => {
-    saveCopy.mockReset()
-    apiGetBlob.mockReset()
-  })
-  afterEach(() => {
-    if (originalHost) Object.defineProperty(window, 'desktopHost', originalHost)
-    else delete (window as { desktopHost?: unknown }).desktopHost
-  })
-
-  it('lets the shell copy the file instead of downloading it in the page', async () => {
-    // The page cannot download this file itself: a download the DOM starts is a
-    // cross-site request from the file:// page's opaque origin (server refuses
-    // `null`), and a blob: URL minted there is not downloadable either — which
-    // is why the entry went from "download failed" to doing nothing at all.
-    stubHost('electron')
-    saveCopy.mockResolvedValue({ saved: true, path: '/home/me/下载/notes.txt' })
-
-    await expect(downloadLocalFile('/home/me/notes.txt')).resolves.toBe(true)
-    expect(saveCopy).toHaveBeenCalledWith('/home/me/notes.txt', 'notes.txt')
-    // Nothing went through the page: no fetch, and no blob to click.
-    expect(apiGetBlob).not.toHaveBeenCalled()
-  })
-
-  it('treats a cancelled dialog as a decision, not as a failure to retry', async () => {
-    stubHost('electron')
-    saveCopy.mockResolvedValue({ saved: false, reason: 'cancelled' })
-
-    await expect(downloadLocalFile('/home/me/notes.txt')).resolves.toBe(false)
-    // A second mechanism must not fire: it would re-prompt the user.
-    expect(apiGetBlob).not.toHaveBeenCalled()
-  })
-
-  it('saves through the page when the shell has no copy capability', async () => {
-    // H5 in a browser: no shell, and there the page's own download works because
-    // it is an ordinary http origin rather than an opaque one.
-    stubHost('browser')
-    apiGetBlob.mockResolvedValue(new Blob(['x']))
-    const createSpy = vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:h5')
-    const { clicked, restore } = clickDownload()
-    try {
-      await expect(downloadLocalFile('/home/me/notes.txt')).resolves.toBe(true)
-      expect(clicked[0]?.download).toBe('notes.txt')
-    } finally {
-      restore()
-      createSpy.mockRestore()
-    }
   })
 })
 

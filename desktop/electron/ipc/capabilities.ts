@@ -113,28 +113,6 @@ const petWindowDrag: Validator = value => {
     && Math.abs(value[key]) <= 1_000_000)
 }
 
-const MAX_SAVE_PATH_LENGTH = 4_096
-
-/**
- * Copy one local file to a path the user picks in a native save dialog.
- *
- * The renderer names only the SOURCE; the destination always comes back from the
- * dialog, so this cannot be used to write wherever a page asks. That is also why
- * the suggested name is validated as a bare filename: a value carrying a
- * separator would let the caller seed the dialog with a path of its choosing.
- */
-const fileSaveCopy: Validator = value => {
-  if (!isRecord(value) || !hasOnlyKeys(value, ['sourcePath', 'suggestedName'])) return false
-  const { sourcePath, suggestedName } = value
-  if (typeof sourcePath !== 'string' || sourcePath.length === 0) return false
-  if (sourcePath.length > MAX_SAVE_PATH_LENGTH) return false
-  if (/[\u0000-\u001f\u007f-\u009f]/.test(sourcePath)) return false
-  if (suggestedName === undefined) return true
-  if (typeof suggestedName !== 'string' || suggestedName.length > 255) return false
-  if (/[\u0000-\u001f\u007f-\u009f]/.test(suggestedName)) return false
-  return !suggestedName.includes('/') && !suggestedName.includes('\\')
-}
-
 const commandInvoke: Validator = value =>
   isRecord(value)
   && typeof value.command === 'string'
@@ -371,7 +349,6 @@ export const ELECTRON_IPC_VALIDATORS = {
   [ELECTRON_IPC_CHANNELS.petsFocusSession]: sessionIdPayload,
   [ELECTRON_IPC_CHANNELS.dialogOpen]: optionalRecord,
   [ELECTRON_IPC_CHANNELS.dialogSave]: optionalRecord,
-  [ELECTRON_IPC_CHANNELS.fileSaveCopy]: fileSaveCopy,
   [ELECTRON_IPC_CHANNELS.updateCheck]: updateCheckOptions,
   [ELECTRON_IPC_CHANNELS.updateDownload]: noPayload,
   [ELECTRON_IPC_CHANNELS.updateInstall]: noPayload,

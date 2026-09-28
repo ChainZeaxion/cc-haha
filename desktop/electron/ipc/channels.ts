@@ -34,7 +34,6 @@ export const ELECTRON_IPC_CHANNELS = {
   petsFocusSession: 'desktop:pets:focus-session',
   dialogOpen: 'desktop:dialog:open',
   dialogSave: 'desktop:dialog:save',
-  fileSaveCopy: 'desktop:file:save-copy',
   updateCheck: 'desktop:update:check',
   updateDownload: 'desktop:update:download',
   updateInstall: 'desktop:update:install',

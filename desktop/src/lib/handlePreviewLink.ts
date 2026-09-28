@@ -1,5 +1,4 @@
-import { apiGetBlob } from '../api/client'
-import { getDesktopHost } from './desktopHost'
+import { getServerBaseUrl } from './desktopRuntime'
 import { classifyPreviewLink } from './previewLinkRouter'
 import { shouldOfferStaticHtmlPreview } from './htmlPreviewPolicy'
 
@@ -63,73 +62,33 @@ export function localFileUrl(base: string, absPath: string): string {
 }
 
 /**
- * Save a file through the local server's `/local-file/<abs-path>?download=1`
- * route.
+ * Save a file by pointing an anchor at the local server's
+ * `/local-file/<abs-path>?download=1` route.
  *
- * The bytes are fetched through the app's own API client and handed to the DOM as
- * a blob URL, instead of pointing an anchor straight at the route. A URL the DOM
- * loads is a request the browser issues by itself, and it carries neither the
- * Authorization header the API client attaches nor an Origin the server trusts:
- * the packaged renderer runs at `file://`, whose origin serializes to `null` for
- * exactly this kind of request, and the server refuses `null`. Measured against
- * the running app — the same route answers 200 for no Origin and 403
- * `CORS origin not allowed` for `Origin: null`, which is why the download began
- * and then failed ("无法从网站上提取文件") rather than never starting.
+ * A click on an anchor is a navigation, not a fetch. The browser sends no Origin
+ * header with it, so the request reaches the server on the no-Origin path every
+ * other navigation uses and the file is served with its Content-Disposition
+ * intact. This is the only shape that works from the packaged renderer, whose
+ * page is `file://`: an opaque origin can neither pass a CORS check (the fetch
+ * path attaches `Origin: null`, which the server refuses) nor download a `blob:`
+ * URL it minted itself. Routing the bytes through `apiGetBlob` — and later through
+ * a main-process copy — is what reduced a working download to a click that did
+ * nothing.
  *
- * Fetching first uses the credential path every other call already uses;
- * `apiGetBlob` documents the same reasoning for app icons, which hit the
- * identical wall. The cost is that the file is held in memory to build the blob,
- * the trade this app already makes for its icon and export downloads.
- *
- * @returns whether the file was handed to the browser to save.
+ * @returns whether the download was initiated.
  */
-export async function downloadLocalFile(absolutePath: string): Promise<boolean> {
-  // In the desktop shell the file is on this machine already, so the shell can
-  // copy it — no origin, no CORS, no blob. That route exists because the two the
-  // page can attempt both fail here, for reasons the page cannot see:
-  //   - a download the DOM starts itself is a cross-site request from the
-  //     `file://` page's opaque origin, and the server refuses `null` (403), and
-  //   - a `blob:` URL minted in that opaque origin is not downloadable either.
-  // The second is what turned "download failed" into "nothing happens at all".
-  const host = getDesktopHost()
-  if (host.files?.saveCopy) {
-    try {
-      const result = await host.files.saveCopy(absolutePath, fileNameFromPath(absolutePath))
-      if (result.saved) return true
-      // A cancelled dialog is a decision, not a failure: fall through would
-      // re-open a second prompt.
-      if (result.reason === 'cancelled') return false
-    } catch (error) {
-      console.warn(
-        `[download] ${absolutePath}: shell copy failed: ${error instanceof Error ? error.message : String(error)}`,
-      )
-      return false
-    }
-  }
-  try {
-    // An empty base so the helper yields the path the API client wants.
-    const path = `${localFileUrl('', absolutePath)}?download=1`
-    const blob = await apiGetBlob(path)
-    const url = URL.createObjectURL(blob)
-    const anchor = document.createElement('a')
-    anchor.href = url
-    // Still named here: the blob URL has no filename of its own, so the server's
-    // Content-Disposition cannot drive the saved name through this path.
-    anchor.download = fileNameFromPath(absolutePath)
-    anchor.rel = 'noopener'
-    document.body.appendChild(anchor)
-    anchor.click()
-    anchor.remove()
-    // Released on the next task: the click above has already been dispatched, and
-    // revoking synchronously can cancel a download that has not started yet.
-    setTimeout(() => URL.revokeObjectURL(url), 0)
-    return true
-  } catch (error) {
-    console.warn(
-      `[download] ${absolutePath} failed: ${error instanceof Error ? error.message : String(error)}`,
-    )
-    return false
-  }
+export function downloadLocalFile(absolutePath: string): boolean {
+  const url = `${localFileUrl(getServerBaseUrl(), absolutePath)}?download=1`
+  const anchor = document.createElement('a')
+  anchor.href = url
+  // The server's Content-Disposition names a cross-origin save; this names it for
+  // the same-origin case (the in-app browser) too.
+  anchor.download = fileNameFromPath(absolutePath)
+  anchor.rel = 'noopener'
+  document.body.appendChild(anchor)
+  anchor.click()
+  anchor.remove()
+  return true
 }
 
 /** Last path segment, for the download's suggested save name. */

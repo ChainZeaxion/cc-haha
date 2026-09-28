@@ -108,8 +108,6 @@ export function createElectronHost(bridge: ElectronHostBridge): DesktopHost {
         const legacyPath = (file as File & { path?: unknown }).path
         return typeof legacyPath === 'string' ? legacyPath : ''
       },
-      saveCopy: (sourcePath, suggestedName) =>
-        invoke(ELECTRON_IPC_CHANNELS.fileSaveCopy, { sourcePath, suggestedName }),
     },
     events: {
       listen: (_eventName, handler) => subscribe(ELECTRON_EVENT_CHANNELS.event, handler),

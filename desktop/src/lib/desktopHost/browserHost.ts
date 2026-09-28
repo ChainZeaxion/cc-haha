@@ -114,11 +114,6 @@ export const browserHost: DesktopHost = {
       const legacyPath = (file as File & { path?: unknown }).path
       return typeof legacyPath === 'string' ? legacyPath : ''
     },
-    // A browser cannot copy a file it was not given, and has no native dialog;
-    // callers fall back to saving through the page (see downloadLocalFile).
-    async saveCopy() {
-      return { saved: false, reason: 'unsupported' }
-    },
   },
   events: {
     async listen() {
