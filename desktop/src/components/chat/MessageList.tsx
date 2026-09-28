@@ -2339,15 +2339,21 @@ export function MessageList({
   const agentTaskLiveUsage = useMemo<Record<string, { totalTokens?: number; thinkTokens?: number }>>(() => {
     const usage: Record<string, { totalTokens?: number; thinkTokens?: number }> = {}
     for (const task of Object.values(backgroundAgentTasks ?? {})) {
-      if (!task.toolUseId || task.status !== 'running') continue
-      if (!task.usage) continue
+      if (!task.toolUseId || !task.usage) continue
+      // A settled run whose notification carried numbers is authoritative and
+      // must not be shadowed. But a run the user stopped (or one that died)
+      // closes with no usage at all — there `task.usage` holds the last figure
+      // reported while it was alive, and dropping it would blank the readout at
+      // the very moment it becomes the only record of what the run did.
+      const settledFinal = agentTaskNotifications[task.toolUseId]?.usage?.totalTokens
+      if (task.status !== 'running' && settledFinal !== undefined) continue
       usage[task.toolUseId] = {
         ...(task.usage.totalTokens !== undefined ? { totalTokens: task.usage.totalTokens } : {}),
         ...(task.usage.thinkTokens !== undefined ? { thinkTokens: task.usage.thinkTokens } : {}),
       }
     }
     return usage
-  }, [backgroundAgentTasks])
+  }, [backgroundAgentTasks, agentTaskNotifications])
   const hasRunningBackgroundTasks = hasAnyRunningBackgroundTasks(backgroundAgentTasks)
   const pendingPermissions = listPendingPermissions(sessionState)
   const activeAskUserQuestionToolUseId =

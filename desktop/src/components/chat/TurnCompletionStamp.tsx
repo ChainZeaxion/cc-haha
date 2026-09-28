@@ -1,4 +1,5 @@
 import { useSettingsStore } from '../../stores/settingsStore'
+import { useCompactMetrics } from '../../hooks/useCompactMetrics'
 import { useTranslation } from '../../i18n'
 import { formatExactMessageTimestamp, formatMessageHoverTime } from '../../lib/formatMessageTimestamp'
 import { formatDurationMs } from '../../lib/backgroundTasks'
@@ -24,6 +25,7 @@ export function TurnCompletionStamp({ completion }: Props) {
   // 例外：本 footer 的 usage 面向所有会话保留、不随会话扩展信息开关隐藏，
   // 只有 fork 新增的 duration 受开关控制。
   const sessionExtendedInfo = useSettingsStore((state) => state.sessionExtendedInfo)
+  const compactMetrics = useCompactMetrics()
   const t = useTranslation()
 
   const clockLabel = formatMessageHoverTime(completion.completedAt, locale)
@@ -38,7 +40,7 @@ export function TurnCompletionStamp({ completion }: Props) {
   return (
     <span
       data-turn-completion
-      className="inline-flex min-w-0 items-center gap-2 whitespace-nowrap text-[11px] font-medium tabular-nums text-[var(--color-text-tertiary)]"
+      className={`inline-flex min-w-0 items-center whitespace-nowrap font-medium tabular-nums text-[var(--color-text-tertiary)] ${compactMetrics ? 'gap-1.5 tracking-tight' : 'gap-2'}`}
     >
       <span title={formatExactMessageTimestamp(completion.completedAt, locale) || clockLabel}>
         {clockLabel}

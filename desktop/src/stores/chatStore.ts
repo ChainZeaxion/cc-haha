@@ -1130,6 +1130,84 @@ function ingestSubagentTps(
   }
 }
 
+/**
+ * Live output of a running subagent, attributed to the run it came from.
+ *
+ * These deltas are the same relayed text the TPS meter above consumes, and they
+ * arrive while the subagent is still working. The panel's usage, by contrast,
+ * read `task_progress`, which the runtime only emits at tool boundaries and
+ * whose token count only covers *completed* turns — so a subagent writing one
+ * long answer showed nothing at all until the end. Measuring the same deltas
+ * per run is what makes the number move as the work happens.
+ *
+ * The figure is only ever raised (`Math.max` against what the task already
+ * reports): a settled run's notification carries the authoritative cumulative
+ * total and is larger, so it wins, and no intermediate estimate can pull the
+ * readout backwards.
+ */
+const subagentLiveChars = new Map<string, { text: number; thinking: number; wroteAt: number }>()
+const SUBAGENT_LIVE_WRITE_INTERVAL_MS = 3000
+
+function ingestSubagentLiveUsage(
+  sessionId: string,
+  agentId: string | undefined,
+  event: Extract<ServerMessage, { type: 'agent_run_event' }>['event'],
+): void {
+  if (!agentId) return
+  const key = `${sessionId}\u0000${agentId}`
+  let acc = subagentLiveChars.get(key)
+  if (!acc) {
+    acc = { text: 0, thinking: 0, wroteAt: 0 }
+    subagentLiveChars.set(key, acc)
+  }
+  if (event.type === 'content_delta') {
+    acc.text += (event.text?.length ?? 0) + (event.toolInput?.length ?? 0)
+  } else if (event.type === 'thinking' && event.complete !== true && event.text) {
+    acc.thinking += event.text.length
+  } else {
+    return
+  }
+  const now = Date.now()
+  if (now - acc.wroteAt < SUBAGENT_LIVE_WRITE_INTERVAL_MS) return
+  acc.wroteAt = now
+  // Output tokens are the whole generation, thinking included. Counting only
+  // the answer text left this at zero for a subagent that streamed its
+  // reasoning first — measured on the local engine, `thinking` is what arrives
+  // and `content_delta` is rare — and a zero total is rendered as "no usage",
+  // which is how a working subagent ended up showing nothing at all.
+  const thinkTokens = Math.round(acc.thinking / 4)
+  const totalTokens = Math.round((acc.text + acc.thinking) / 4)
+  useChatStore.setState(state => {
+    const session = state.sessions[sessionId]
+    if (!session) return state
+    const tasks = session.backgroundAgentTasks ?? {}
+    const taskKey = Object.keys(tasks).find(candidate =>
+      candidate === agentId || tasks[candidate]?.toolUseId === agentId)
+    if (!taskKey) return state
+    const task = tasks[taskKey]
+    if (!task || task.status !== 'running') return state
+    const previous = task.usage
+    const nextTotal = Math.max(previous?.totalTokens ?? 0, totalTokens)
+    const nextThink = Math.max(previous?.thinkTokens ?? 0, thinkTokens)
+    if (nextTotal === (previous?.totalTokens ?? 0) && nextThink === (previous?.thinkTokens ?? 0)) return state
+    return {
+      sessions: updateSessionIn(state.sessions, sessionId, () => ({
+        backgroundAgentTasks: {
+          ...tasks,
+          [taskKey]: {
+            ...task,
+            usage: {
+              ...(previous ?? {}),
+              totalTokens: nextTotal,
+              ...(nextThink > 0 ? { thinkTokens: nextThink } : {}),
+            },
+          },
+        },
+      })),
+    }
+  })
+}
+
 // Streaming throttle for content_delta. Buffers must be per-session because
 // multiple desktop tabs can stream at the same time.
 const pendingDeltaBySession = new Map<string, string>()
@@ -4656,6 +4734,9 @@ export const useChatStore = create<ChatStore>((setState, get) => {
       // so without this the main indicator would ignore subagent output. The
       // text is meter-only and never rendered into the main conversation.
       ingestSubagentTps(sessionId, msg.event)
+      // Attribute the same deltas to the run they belong to, so its usage
+      // climbs while it works instead of appearing only at the end.
+      ingestSubagentLiveUsage(sessionId, msg.runAgentId, msg.event)
       if (!dispatchAgentRunEvent(sessionId, msg)) {
         bufferAgentRunEvent(sessionId, msg)
       }

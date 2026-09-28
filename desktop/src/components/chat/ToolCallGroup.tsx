@@ -4,6 +4,7 @@ import { ToolCallBlock, type ToolCallChrome } from './ToolCallBlock'
 import { TurnDownloadCard } from './DownloadReferencesCard'
 import { ActivityGroup } from './ActivityGroup'
 import { LIVE_ELAPSED_REFRESH_MS, ThinkingBlock } from './ThinkingBlock'
+import { useCompactMetrics } from '../../hooks/useCompactMetrics'
 import {
   activityStepToolCalls,
   agentGroupSpanMs,
@@ -491,6 +492,7 @@ function AgentToolGroup({
   const t = useTranslation()
   // 会话扩展信息关闭时，隐藏本 fork 新增的用量/耗时读数；缺省视为开启。
   const sessionExtendedInfo = useSettingsStore((state) => state.sessionExtendedInfo)
+  const compactMetrics = useCompactMetrics()
   const statuses = toolCalls.map((toolCall) =>
     getAgentStatus({
       hasResult: resultMap.has(toolCall.toolUseId),
@@ -521,12 +523,19 @@ function AgentToolGroup({
   // three concurrent 2-minute agents are 2 minutes, not 6. Until a member
   // reports or settles it is closed at "now", so the number only ever grows
   // towards the truth and never has to wait for the whole dispatch to end.
-  const totalDuration = agentGroupSpanMs(toolCalls.map((toolCall, index) => agentRunInterval(
-    toolCall,
-    resultMap.get(toolCall.toolUseId),
-    agentTaskNotifications[toolCall.toolUseId]?.usage?.durationMs,
-    statuses[index] === 'running' || statuses[index] === 'starting' ? liveNowMs : undefined,
-  )))
+  const totalDuration = agentGroupSpanMs(toolCalls.map((toolCall, index) => {
+    const inFlight = statuses[index] === 'running' || statuses[index] === 'starting'
+    // An in-flight member's result is the launch acknowledgement, not its end:
+    // a background dispatch answers in milliseconds while the subagent works for
+    // minutes, so letting that result close the span froze the clock at ~60 ms.
+    // With it withheld the interval falls through to the live clock below.
+    return agentRunInterval(
+      toolCall,
+      inFlight ? undefined : resultMap.get(toolCall.toolUseId),
+      agentTaskNotifications[toolCall.toolUseId]?.usage?.durationMs,
+      inFlight ? liveNowMs : undefined,
+    )
+  }))
   const totalDurationLabel = totalDuration === undefined ? '' : formatDuration(totalDuration)
   // Tokens add up where the span does not: a dispatched group runs in parallel,
   // but the work its members did is not shared between them. A member still in
@@ -571,7 +580,7 @@ function AgentToolGroup({
             elements joined by a 3px gap rather than one string with a space, because
             a full space between a CJK label and a digit reads as a hole at this size. */}
         {sessionExtendedInfo !== false && tokenParts.length > 0 && (
-          <span className="inline-flex shrink-0 items-baseline gap-[3px] whitespace-nowrap text-right text-[12px] text-[var(--color-text-secondary)]">
+          <span className={`inline-flex shrink-0 items-baseline whitespace-nowrap text-right text-[var(--color-text-secondary)] ${compactMetrics ? 'gap-[2px] text-[11px] tracking-tight' : 'gap-[3px] text-[12px]'}`}>
             <span>{t('toolGroup.agentTotalUsage')}</span>
             <span data-agent-group-usage="true" className="inline-flex items-baseline gap-[3px] tabular-nums">
               {/* While members are still in flight the total only covers what has
@@ -589,7 +598,7 @@ function AgentToolGroup({
           </span>
         )}
         {sessionExtendedInfo !== false && totalDurationLabel && (
-          <span className="inline-flex shrink-0 items-baseline gap-[3px] whitespace-nowrap text-right text-[12px] text-[var(--color-text-secondary)]">
+          <span className={`inline-flex shrink-0 items-baseline whitespace-nowrap text-right text-[var(--color-text-secondary)] ${compactMetrics ? 'gap-[2px] text-[11px] tracking-tight' : 'gap-[3px] text-[12px]'}`}>
             <span>{t('toolGroup.agentTotalDuration')}</span>
             <span data-agent-group-duration="true" className="tabular-nums">
               {/* Same reason as the usage: the span is still open, so the clock

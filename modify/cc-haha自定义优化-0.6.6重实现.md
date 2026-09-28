@@ -2257,6 +2257,31 @@ export function pythonRuntimeFor(platform: NodeJS.Platform): PythonRuntimeCompon
 
 ---
 
+### 二十六·补（2026-09-28 收官）：运行中**用量与耗时真正爬升** + 移动端紧凑
+
+**交付**：`modify/patches/subagent-live-metrics.patch`（5 文件，+126/−12，**纯 `desktop/`**，未与旧补丁融合）
+
+**① 用量爬升（真根因，此前多轮误判）**
+收纳栏的用量原先读 `task_progress`，而它**只在工具轮次边界发**、且 token 只计**已完成**轮次 ⇒ 子代理写长文期间恒为 0。
+**而客户端其实一直持有实时增量**：`agent_run_event` 逐条实时到达（探针实测 CLI/服务端两侧时间戳**逐条对齐到毫秒**）。
+⇒ 修法（`stores/chatStore.ts` 新增 `ingestSubagentLiveUsage`，挂在 `agent_run_event` 分支）：按 `runAgentId` 累加，每 3s 写一次。
+**⚠️ 关键坑**：`totalTokens` **必须包含思考**（`(text+thinking)/4`）。真实帧里子代理**几乎只发 `thinking`**（实测某 run 事件种类只有 `status`/`thinking`，`content_delta` 极少）⇒ 只算正文会让 total 恒 0，而渲染侧 `agentGroupTokens` 要求 `>0` ⇒ **整块不显示**。这正是「界面完全没有用量」的直接原因，也是我此前几版单测通过、真实无效果的原因（单测喂的是 `content_delta`）。
+
+**② 耗时爬升**
+`activityGroupModel.agentRunInterval` 的取值优先级是 `reportedDuration ?? result.timestamp ?? liveEndMs`。后台派发的 Agent 调用**派发即返回**（~60ms 写进 `resultMap`）⇒ 命中 `result` ⇒ 耗时被冻在 **~62ms**，实时时钟永远轮不到。
+修法（`ToolCallGroup.tsx`）：**在飞成员不把「启动回执」当成结束**（`inFlight ? undefined : resultMap.get(...)`，并把 `liveEndMs` 交给实时时钟闭合）。
+
+**③ stop 后保留**（用户要求）
+`MessageList.tsx` 的 `agentTaskLiveUsage` 原先只取 `status==='running'`；用户 stop 后拿不到终值且通知无 usage ⇒ 数字消失。改为：**已结束但通知无 usage 时，沿用最后一次 live 值**（仅当通知无 usage，不破坏「有终值以终值为准」）。
+
+**④ 移动端紧凑**（用户要求）
+新增 `hooks/useCompactMetrics.ts`：判定 = `useMobileViewport() && !isDesktopRuntime()`（桌面窗口拖窄**不**变）。用于 `ToolCallGroup.tsx`（组栏）与 `TurnCompletionStamp.tsx`（轮次页脚）。
+**⚠️ 用户明确要求：保留中文标签，只缩短字符间隔**（`tracking-tight` + `gap` 收紧、字号 12→11px）。我第一版**隐藏了标签**被纠正 —— **不要再隐藏**。
+
+**验收**：`desktop` `tsc --noEmit` 通过；`desktop/src/components/chat` **925/925**（47 文件）；用户已确认**用量爬升生效**。耗时爬升与移动端紧凑**待视觉确认**（移动端壳层首屏是「新建会话」落地页，需经汉堡菜单进会话列表，探针易误判为「全空」）。
+
+**踩坑（本轮最大的教训）**：先在**服务端/CLI/传输**查了四轮（sink、outbound 队列、transport、服务端转发），全部实测实时 —— **真问题在客户端取数口径**。**「UI 不更新」应优先怀疑 UI 拿到什么、而不是数据通道。**
+
 ## 二十七、未纳入章节链的既有改动（✅ 2026-09-28 已补为链位 58–60）
 
 > **本章已补齐 patch**：链位 **58–60**。此前本章只「登记」不产补丁，导致「基线 + 全链」无法 100% 复现工作树；现已把全部可入库改动提取成三个补丁。
