@@ -1,0 +1,1315 @@
+diff --git a/desktop/src/api/sessions.ts b/desktop/src/api/sessions.ts
+index e741b016..2c987353 100644
+--- a/desktop/src/api/sessions.ts
++++ b/desktop/src/api/sessions.ts
+@@ -44,6 +44,27 @@ export type SessionChatStatusResponse = {
+ type MessagesResponse = {
+   messages: MessageEntry[]
+   taskNotifications?: AgentTaskNotification[]
++  /**
++   * The subagent runs that are still going, keyed by the Agent tool-call id the
++   * UI renders usage under.
++   *
++   * Both ids travel together because neither is derivable from the other, and a
++   * client that opened the session mid-run never saw the `task_started` that
++   * relates them: `taskId` is what the run's live frames are addressed with,
++   * `toolUseId` is what its number must be displayed under. Only in-flight runs
++   * appear, because the client marks whatever it finds here as running.
++   *
++   * `totalTokens` is absent until the run crosses a tool boundary — but the run is
++   * listed regardless, because that boundary-free stretch is exactly when a client
++   * joining now has nothing else to go on.
++   */
++  runningAgentUsage?: Record<string, {
++    taskId: string
++    toolUseId: string
++    totalTokens?: number
++    thinkTokens?: number
++    toolUses?: number
++  }>
+ }
+ export type SessionHistoryPage = MessagesResponse & {
+   page?: {
+@@ -510,10 +531,13 @@ export const sessionsApi = {
+     // which case every field below matches the previous unconditional-`null`
+     // behaviour — early exit is the only new path.
+     const exhausted = cursor === null
+-    return {
+-      messages: pages.flatMap(page => page.messages),
+-      taskNotifications: pages.flatMap(page => page.taskNotifications ?? []),
+-      page: {
++      return {
++        messages: pages.flatMap(page => page.messages),
++        taskNotifications: pages.flatMap(page => page.taskNotifications ?? []),
++        // Not stitched: it describes what is running *now*, so the newest page is
++        // the only one whose answer is still true.
++        runningAgentUsage: newest.runningAgentUsage,
++        page: {
+         ...newest.page,
+         nextCursor: cursor,
+         hasMore: !exhausted,
+diff --git a/desktop/src/components/chat/MessageActionBar.tsx b/desktop/src/components/chat/MessageActionBar.tsx
+index 9a2966eb..327bf0cf 100644
+--- a/desktop/src/components/chat/MessageActionBar.tsx
++++ b/desktop/src/components/chat/MessageActionBar.tsx
+@@ -113,7 +113,12 @@ export function MessageActionBar({
+           />
+         ) : null}
+         {metadata ? (
+-          <span className={hasCopy || branchAction ? 'ml-3 min-w-0' : 'min-w-0'}>
++          // 11px, matching the hover time beside it. The footer this slot was
++          // built for used to be its own row with `text-[11px]` on the container
++          // (see the completed-turn stamp's history); folding it in here dropped
++          // that class, so it inherited the message body's reading size and the
++          // timestamp/usage/duration read as large as the reply above them.
++          <span className={`text-[11px] ${hasCopy || branchAction ? 'ml-3 min-w-0' : 'min-w-0'}`}>
+             {metadata}
+           </span>
+         ) : null}
+diff --git a/desktop/src/stores/chatStore.test.ts b/desktop/src/stores/chatStore.test.ts
+index b280b89f..35be11d0 100644
+--- a/desktop/src/stores/chatStore.test.ts
++++ b/desktop/src/stores/chatStore.test.ts
+@@ -16654,3 +16654,213 @@ describe('per-run TPS registry reclamation', () => {
+   })
+ })
+ 
++
++describe('a late-joining client measures a subagent that is already running', () => {
++  // Per-test ids: the accumulator these paths use is module-global, so sharing a
++  // session/agent across cases makes one case inherit the other's write throttle
++  // (and silently swallow its frame).
++  let SESSION = ''
++  let seq = 0
++
++  function frame(runAgentId: string, text: string): void {
++    useChatStore.getState().handleServerMessage(SESSION, {
++      type: 'agent_run_event',
++      runAgentId,
++      streamId: `stream-${runAgentId}`,
++      targetAgentId: runAgentId,
++      event: { type: 'content_delta', text },
++    })
++  }
++
++  beforeEach(() => {
++    SESSION = `late-joiner-session-${++seq}`
++    let now = 1_000_000
++    vi.spyOn(performance, 'now').mockImplementation(() => now)
++    vi.spyOn(Date, 'now').mockImplementation(() => now)
++    ;(globalThis as unknown as { __advance?: (ms: number) => void }).__advance = (ms) => {
++      now += ms
++    }
++  })
++  afterEach(() => vi.restoreAllMocks())
++
++  const advance = (ms: number) =>
++    (globalThis as unknown as { __advance: (ms: number) => void }).__advance(ms)
++
++  it('shows a climbing number even though it holds no record of the run', () => {
++    useChatStore.setState({ sessions: { [SESSION]: makeSession({ chatState: 'streaming' }) } })
++
++    // This client connected after the run began, so its task list is empty —
++    // its history has no bookend for a run that has not finished.
++    expect(useChatStore.getState().sessions[SESSION]?.backgroundAgentTasks).toEqual({})
++
++    frame('agent-late', 'x'.repeat(400))
++    const first = useChatStore.getState().sessions[SESSION]?.backgroundAgentTasks?.['agent-late']
++    expect(first?.status).toBe('running')
++    const firstTokens = first?.usage?.totalTokens ?? 0
++    expect(firstTokens).toBeGreaterThan(0)
++
++    advance(4000)
++    frame('agent-late', 'x'.repeat(400))
++    const second = useChatStore.getState().sessions[SESSION]?.backgroundAgentTasks?.['agent-late']
++    expect(second?.usage?.totalTokens ?? 0).toBeGreaterThan(firstTokens)
++  })
++
++  it('revives a run its history reconstruction had marked settled', () => {
++    useChatStore.setState({
++      sessions: {
++        [SESSION]: makeSession({
++          chatState: 'streaming',
++          backgroundAgentTasks: {
++            'agent-late': {
++              taskId: 'agent-late',
++              toolUseId: 'tool-1',
++              status: 'completed',
++              startedAt: 0,
++              updatedAt: 0,
++            },
++          },
++        }),
++      },
++    })
++
++    // Frames are still arriving, which is proof the run is running — the
++    // settled row came from a reconstruction that could not see the bookend.
++    frame('agent-late', 'x'.repeat(400))
++
++    const tasks = useChatStore.getState().sessions[SESSION]?.backgroundAgentTasks ?? {}
++    expect(tasks['agent-late']?.status).toBe('running')
++    expect(tasks['agent-late']?.usage?.totalTokens ?? 0).toBeGreaterThan(0)
++    // Revived in place, not duplicated alongside the row it already had.
++    expect(Object.keys(tasks)).toEqual(['agent-late'])
++  })
++})
++
++describe('seeding in-flight subagent usage from history', () => {
++  type RunningUsage = Record<string, {
++    taskId: string
++    toolUseId: string
++    totalTokens?: number
++    thinkTokens?: number
++  }>
++  const seededHistory = (runningAgentUsage?: RunningUsage) => (
++    vi.mocked(sessionsApi.getFullHistory).mockResolvedValueOnce({ messages: [], runningAgentUsage })
++  )
++  // The run's own id and the Agent tool call that spawned it are different ids.
++  // A client that joined mid-run never saw `task_started`, which is the only frame
++  // that relates them, so the server has to hand over both.
++  //
++  // Each case takes its own pair: the live-usage accumulator is module-level and
++  // throttled per run id, so reusing one id across cases silently drops the later
++  // case's first frames.
++  const runIds = (name: string) => ({ run: `a74ce8-${name}`, tool: `call_00_${name}` })
++  const liveFrame = (run: string, text: string) => useChatStore.getState().handleServerMessage(TEST_SESSION_ID, {
++    type: 'agent_run_event',
++    runAgentId: run,
++    streamId: `stream-${run}`,
++    targetAgentId: run,
++    event: { type: 'content_delta', text },
++  })
++  const row = (run: string) => useChatStore.getState().sessions[TEST_SESSION_ID]
++    ?.backgroundAgentTasks?.[run]
++
++  it('files a joined-mid-run run under its own id, carrying the tool-call id the UI reads', async () => {
++    const { run, tool } = runIds('files-under-run-id')
++    seededHistory({ [tool]: { taskId: run, toolUseId: tool, totalTokens: 4200, thinkTokens: 1500 } })
++    useChatStore.setState({ sessions: { [TEST_SESSION_ID]: makeSession() } })
++
++    await useChatStore.getState().loadHistory(TEST_SESSION_ID)
++
++    expect(row(run)).toMatchObject({
++      taskId: run,
++      toolUseId: tool,
++      status: 'running',
++      usage: { totalTokens: 4200, thinkTokens: 1500 },
++    })
++  })
++
++  it('keeps the live number on that same row instead of forking an unreadable duplicate', async () => {
++    const { run, tool } = runIds('keeps-one-row')
++    seededHistory({ [tool]: { taskId: run, toolUseId: tool, totalTokens: 4200 } })
++    useChatStore.setState({ sessions: { [TEST_SESSION_ID]: makeSession() } })
++    await useChatStore.getState().loadHistory(TEST_SESSION_ID)
++
++    vi.useFakeTimers()
++    try {
++      // The first frame rebases onto the seeded total; what it carried is already
++      // inside that total, so the number holds at the authoritative value.
++      liveFrame(run, 'x'.repeat(400))
++      expect(row(run)?.usage?.totalTokens).toBe(4200)
++
++      // From there it climbs on that row, and the row keeps the tool-call id the
++      // UI looks usage up by — a row carrying the run id in `toolUseId` would be
++      // invisible no matter how healthy its numbers looked.
++      vi.advanceTimersByTime(300)
++      liveFrame(run, 'x'.repeat(400))
++      expect(row(run)?.usage?.totalTokens).toBeGreaterThan(4200)
++      expect(row(run)?.toolUseId).toBe(tool)
++
++      // One run, one row.
++      const keys = Object.keys(useChatStore.getState().sessions[TEST_SESSION_ID]?.backgroundAgentTasks ?? {})
++      expect(keys).toEqual([run])
++    } finally {
++      vi.useRealTimers()
++    }
++  })
++
++  it('gives a run with no total yet a row the UI can still read', async () => {
++    // Inside a long first generation the transcript rollup has nothing, but the
++    // run is live: without its identity the client would have nothing to attach a
++    // number to, which is exactly what left the other client blank for minutes.
++    const { run, tool } = runIds('no-total-yet')
++    seededHistory({ [tool]: { taskId: run, toolUseId: tool } })
++    useChatStore.setState({ sessions: { [TEST_SESSION_ID]: makeSession() } })
++
++    await useChatStore.getState().loadHistory(TEST_SESSION_ID)
++
++    expect(row(run)).toMatchObject({ taskId: run, toolUseId: tool, status: 'running' })
++    expect(row(run)?.usage).toBeUndefined()
++  })
++
++  it('never invents a tool-call id for a run the server did not describe', async () => {
++    const { run } = runIds('never-invents')
++    seededHistory(undefined)
++    useChatStore.setState({ sessions: { [TEST_SESSION_ID]: makeSession() } })
++    await useChatStore.getState().loadHistory(TEST_SESSION_ID)
++
++    liveFrame(run, 'x'.repeat(400))
++
++    // The frame proves the run exists but says nothing about which Agent call
++    // spawned it, so no tool-call id is claimed — an invented one is unlookupable
++    // and would read as "present but blank" rather than "not known yet".
++    expect(row(run)?.taskId).toBe(run)
++    expect(row(run)?.toolUseId).toBeUndefined()
++  })
++
++  it('leaves a run that finished earlier in the session alone', async () => {
++    const { run, tool } = runIds('leaves-finished-alone')
++    seededHistory({ [tool]: { taskId: run, toolUseId: tool, totalTokens: 4200 } })
++    useChatStore.setState({
++      sessions: {
++        [TEST_SESSION_ID]: makeSession({
++          backgroundAgentTasks: {
++            'done-1': {
++              taskId: 'done-1',
++              toolUseId: 'call_00_done',
++              status: 'completed',
++              taskType: 'local_agent',
++              startedAt: 1,
++              updatedAt: 2,
++              usage: { totalTokens: 999 },
++            },
++          },
++        }),
++      },
++    })
++
++    await useChatStore.getState().loadHistory(TEST_SESSION_ID)
++
++    const tasks = useChatStore.getState().sessions[TEST_SESSION_ID]?.backgroundAgentTasks
++    expect(tasks?.['done-1']).toMatchObject({ status: 'completed', usage: { totalTokens: 999 } })
++    expect(tasks?.[run]?.status).toBe('running')
++  })
++})
+diff --git a/desktop/src/stores/chatStore.ts b/desktop/src/stores/chatStore.ts
+index fd4dfc11..dd034877 100644
+--- a/desktop/src/stores/chatStore.ts
++++ b/desktop/src/stores/chatStore.ts
+@@ -1195,9 +1195,33 @@ function ingestSubagentTps(
+  */
+ const subagentLiveChars = new Map<
+   string,
+-  { text: number; thinking: number; baseTokens: number; wroteAt: number; createdAt: number }
++  {
++    text: number
++    thinking: number
++    baseTokens: number
++    /**
++     * The total this accumulator last wrote to the task. Written back into
++     * `task.usage.totalTokens`, which is the same field an authoritative report
++     * arrives in — so without remembering our own last value the next pass reads
++     * the estimate back as if the server had sent it, rebases onto it, and wipes
++     * the text accumulated since. The number then froze instead of climbing.
++     */
++    lastWritten: number
++    wroteAt: number
++    createdAt: number
++  }
+ >()
+-const SUBAGENT_LIVE_WRITE_INTERVAL_MS = 3000
++/**
++ * How often a running subagent's projected usage is written back to its row.
++ *
++ * 4Hz: the cadence the TPS indicator polls at, so the number reads as live rather
++ * than advancing in visible steps. It is a compromise, not a free win — every write
++ * re-derives the session activity model (`ActiveSession`'s selector) and the
++ * `MessageList` live-usage memo, and with it every group that reads them — so the
++ * interval is kept no lower than "reads as real time" requires. 3s, the value this
++ * used to be, is what made the number visibly stair-step.
++ */
++const SUBAGENT_LIVE_WRITE_INTERVAL_MS = 250
+ 
+ /**
+  * How long a finished run's per-run state — its TPS meter (`tpsMeterByRun`) and
+@@ -1263,7 +1287,7 @@ function ingestSubagentLiveUsage(
+   const key = `${sessionId}\u0000${agentId}`
+   let acc = subagentLiveChars.get(key)
+   if (!acc) {
+-    acc = { text: 0, thinking: 0, baseTokens: 0, wroteAt: 0, createdAt: Date.now() }
++    acc = { text: 0, thinking: 0, baseTokens: 0, lastWritten: 0, wroteAt: 0, createdAt: Date.now() }
+     subagentLiveChars.set(key, acc)
+   }
+   if (event.type === 'content_delta') {
+@@ -1282,32 +1306,60 @@ function ingestSubagentLiveUsage(
+   const session = state.sessions[sessionId]
+   if (!session) return
+   const tasks = session.backgroundAgentTasks ?? {}
+-  const taskKey = Object.keys(tasks).find(candidate =>
++  const knownKey = Object.keys(tasks).find(candidate =>
+     candidate === agentId || tasks[candidate]?.toolUseId === agentId)
+-  if (!taskKey) return
+-  const task = tasks[taskKey]
+-  if (!task) return
+-  if (task.status !== 'running') {
+-    // Precisely known to be over, and no further frame can arrive for it, so the
+-    // accumulator is dead weight from here (the number it produced lives on in
+-    // the task's usage).
+-    subagentLiveChars.delete(key)
+-    // And the run's meter can close: settle its tail and freeze the held reading
+-    // now that no further frame will arrive. (A long silence does the same thing
+-    // implicitly, so this only makes it exact.)
+-    tpsMeterByRun.get(tpsRunKey(sessionId, agentId))?.endStream()
+-    return
+-  }
++  const known = knownKey ? tasks[knownKey] : undefined
++
++  // A frame arriving is proof that this run is running *now*, and that outranks
++  // whatever the row currently says. A client that opened the session mid-run
++  // rebuilds these rows from history, where a run with no closing bookend looks
++  // settled; one that opened before the run started has no row at all. Gating on
++  // the row's status is exactly why such a client showed nothing until the run's
++  // first tool boundary happened to rewrite the row — the number was there to be
++  // measured the whole time.
++  const taskKey = knownKey ?? agentId
++  const task: BackgroundAgentTask = known
++    ? (known.status === 'running' ? known : { ...known, status: 'running', updatedAt: now })
++    : {
++        taskId: agentId,
++        // No `toolUseId`: a frame tells us which *run* this is, not which Agent
++        // tool call spawned it, and those are different ids. Guessing one by
++        // reusing the run id produces a row the UI can never look up — it reads
++        // usage under the tool-call id — so the number stays invisible while the
++        // row looks perfectly healthy. Leaving it unset keeps that honest: the row
++        // fills in the real id when a boundary frame supplies it. The server also
++        // hands the pair over at open time (see seedRunningAgentRows), which is
++        // what makes this branch rare rather than the norm.
++        status: 'running',
++        taskType: 'local_agent',
++        startedAt: now,
++        updatedAt: now,
++      }
++  // Writes even when the usage did not move, when the row itself had to change
++  // (revived, or created so there is something to show the number on).
++  const rowChanged = task !== known
+   acc.wroteAt = now
+ 
+   // The authoritative total covers the run up to its last message boundary;
+   // everything counted here up to that same moment is already inside it, so
+   // rebasing means starting the counters over rather than adding on top.
+-  const authoritative = task.usage?.totalTokens ?? 0
+-  if (authoritative > acc.baseTokens) {
+-    acc.baseTokens = authoritative
++  // Only an *advance past what this accumulator last wrote* counts as
++  // authoritative: the field it arrives in is the same one the estimate is
++  // written to, so comparing against our own last write is what keeps the
++  // estimate from rebasing onto itself.
++  const reported = task.usage?.totalTokens ?? 0
++  if (reported > acc.lastWritten) {
++    acc.baseTokens = reported
+     acc.text = 0
+     acc.thinking = 0
++    // Record the baseline as taken, here rather than only on the write below.
++    // When the reported total is exactly what the counters would recompute to —
++    // which is the normal case for a row seeded from the server, and any row
++    // whose estimate has not moved yet — that write is skipped as a no-op, so
++    // without this the baseline would look untaken on every following frame and
++    // re-base each time, wiping the deltas just counted. The climb would never
++    // start.
++    acc.lastWritten = reported
+   }
+ 
+   // Output tokens are the whole generation, thinking included. Counting only
+@@ -1318,7 +1370,8 @@ function ingestSubagentLiveUsage(
+   const thinkTokens = Math.round(acc.thinking / 4)
+   const totalTokens = acc.baseTokens + Math.round((acc.text + acc.thinking) / 4)
+   const previous = task.usage
+-  if (totalTokens === (previous?.totalTokens ?? 0) && thinkTokens === (previous?.thinkTokens ?? 0)) return
++  if (!rowChanged && totalTokens === (previous?.totalTokens ?? 0) && thinkTokens === (previous?.thinkTokens ?? 0)) return
++  acc.lastWritten = totalTokens
+   useChatStore.setState(current => ({
+     sessions: updateSessionIn(current.sessions, sessionId, () => ({
+       backgroundAgentTasks: {
+@@ -2652,15 +2705,18 @@ async function fetchAndMapSessionHistory(
+   // background tasks — with no duration to show — until something ran live.
+   // Goal and todo restoration stays gated below, because those describe the
+   // session as a whole and a tail genuinely cannot support them.
+-  const restoredBackgroundTasks = historyComplete
+-    ? restoredActivity.backgroundAgentTasks
+-    : reconstructRunActivityFromTranscript(
+-        response.messages.filter((message) => !message.parentToolUseId),
+-        ownedNotifications(
+-          response.taskNotifications,
+-          transcriptToolUseIds(response.messages),
+-        ),
+-      ).backgroundAgentTasks
++  const restoredBackgroundTasks = seedRunningAgentRows(
++    historyComplete
++      ? restoredActivity.backgroundAgentTasks
++      : reconstructRunActivityFromTranscript(
++          response.messages.filter((message) => !message.parentToolUseId),
++          ownedNotifications(
++            response.taskNotifications,
++            transcriptToolUseIds(response.messages),
++          ),
++        ).backgroundAgentTasks,
++    response.runningAgentUsage,
++  )
+   const restoredGoalState = deriveActiveGoalStateFromMessages(historyComplete ? uiMessages : [])
+   return {
+     page,
+@@ -6977,6 +7033,72 @@ function reconcileBackgroundAgentTasksWithActiveSnapshot(
+   return { tasks: changed ? tasks : current, changed }
+ }
+ 
++/**
++ * Fold the server's in-flight run usage into the rows rebuilt from history.
++ *
++ * Three things leave a mid-run client with nothing to show: a run with no closing
++ * bookend looks settled to a reconstruction made from the transcript; a client that
++ * opened while the run was already going has no counter of its own for it; and —
++ * the one that actually hid the number — it never saw the `task_started` that says
++ * which Agent tool call the run belongs to, so it had no way to file what it
++ * measured under the id the UI reads.
++ *
++ * So each run is filed **keyed by its own id, carrying its spawning tool-call id**.
++ * That layout matches what a client which did see `task_started` ends up with, so
++ * the live writer finds these rows by the run id it has (see
++ * ingestSubagentLiveUsage) and the UI finds the number by the tool-call id it has.
++ * A single row serves both, and no guessed id is ever needed.
++ *
++ * These are exactly the runs the server still counts as active, so they are marked
++ * running. The absolute total is applied when there is one, and the live path then
++ * rebases onto it and carries on — which is what keeps a late client in step with
++ * one that has been watching all along. A run listed without a total yet (it has
++ * not crossed a tool boundary) still gets its row, because that is precisely the
++ * window in which this client would otherwise show nothing at all.
++ */
++function seedRunningAgentRows(
++  tasks: Record<string, BackgroundAgentTask>,
++  runningAgentUsage: Record<string, { taskId: string; toolUseId: string; totalTokens?: number; thinkTokens?: number }> | undefined,
++): Record<string, BackgroundAgentTask> {
++  const runs = Object.values(runningAgentUsage ?? {}).filter(run => Boolean(run.taskId))
++  if (runs.length === 0) return tasks
++  const now = Date.now()
++  const seeded = { ...tasks }
++  for (const run of runs) {
++    const { taskId, toolUseId } = run
++    // Match the row this run already has: under its own id (the canonical key), or
++    // under some other key that already carries the same spawning tool call.
++    const existing = seeded[taskId]
++      ?? (toolUseId ? Object.values(seeded).find(candidate => candidate.toolUseId === toolUseId) : undefined)
++    const totalTokens = run.totalTokens === undefined ? undefined : Math.round(run.totalTokens)
++    const reported = totalTokens !== undefined && Number.isFinite(totalTokens) && totalTokens > 0
++      ? totalTokens
++      : undefined
++    seeded[taskId] = {
++      ...(existing ?? {}),
++      taskId,
++      // Omit rather than invent: a wrong tool-call id is not merely useless, it is
++      // unlookupable, so a row carrying one is invisible while looking present.
++      ...(toolUseId || existing?.toolUseId ? { toolUseId: toolUseId || existing?.toolUseId } : {}),
++      // The server only listed runs it still counts as active.
++      status: 'running',
++      taskType: existing?.taskType ?? 'local_agent',
++      startedAt: existing?.startedAt ?? now,
++      updatedAt: now,
++      ...(reported === undefined ? {} : {
++        usage: {
++          ...(existing?.usage ?? {}),
++          totalTokens: reported,
++          ...(run.thinkTokens !== undefined && run.thinkTokens > 0
++            ? { thinkTokens: run.thinkTokens }
++            : {}),
++        },
++      }),
++    }
++  }
++  return seeded
++}
++
+ function clearAgentTaskNotificationsForActiveSnapshot(
+   current: Record<string, AgentTaskNotification>,
+   activeTaskIds: string[],
+diff --git a/src/server/__tests__/session-messages-http.test.ts b/src/server/__tests__/session-messages-http.test.ts
+index ede4294b..c06c317e 100644
+--- a/src/server/__tests__/session-messages-http.test.ts
++++ b/src/server/__tests__/session-messages-http.test.ts
+@@ -17,6 +17,9 @@ import * as os from 'node:os'
+ import * as path from 'node:path'
+ import { handleApiRequest } from '../router.js'
+ import { sessionService } from '../services/sessionService.js'
++import { sessionUsageRollup } from '../services/sessionUsageRollup.js'
++import { activeAgentTasks, activeBackgroundTaskIds } from '../ws/agentTaskState.js'
++import { clearAgentRunUsage, observeAgentRunUsage } from '../services/agentRunUsageProjection.js'
+ 
+ const SUBAGENT_SENTINEL = 'SUBPAGENT_ONLY_SENTINEL_read_alpha'
+ 
+@@ -248,3 +251,122 @@ describe('session messages HTTP surface', () => {
+     expect(body.messages.some((message) => message.parentToolUseId === 'Agent:0')).toBe(false)
+   })
+ })
++
++describe('GET /api/sessions/:id/messages — runningAgentUsage', () => {
++  it('is empty when no subagent run is active, so no finished run is re-opened', async () => {
++    const sessionId = await seedSessionWithSubagent()
++    const response = await api('GET', `/api/sessions/${sessionId}/messages`)
++    expect(response.status).toBe(200)
++    const body = await response.json() as { runningAgentUsage?: Record<string, unknown> }
++    expect(body.runningAgentUsage).toEqual({})
++  })
++
++  it('carries both ids of the in-flight runs, and their total when there is one', async () => {
++    const sessionId = await seedSessionWithSubagent()
++    // One run is live, another finished earlier in the same session. The run id
++    // and the spawning tool-call id are distinct, as they are in practice.
++    activeBackgroundTaskIds.set(sessionId, new Set(['a74ce8']))
++    activeAgentTasks.set(sessionId, new Map([['a74ce8', {
++      taskId: 'a74ce8',
++      taskType: 'local_agent' as const,
++      toolUseId: 'call_00_live',
++      stopIntent: false,
++      stopRequested: false,
++      localStopConfirmed: false,
++      bookendPending: false,
++      finalizationRetryCount: 0,
++    }]]))
++    const rollup = spyOn(sessionUsageRollup, 'byToolUseId').mockImplementation(async () => new Map([
++      ['call_00_live', { totalTokens: 4200, outputTokens: 4200, toolUses: 2 }],
++      ['call_00_done', { totalTokens: 999, outputTokens: 999, toolUses: 1 }],
++    ]))
++    try {
++      const response = await api('GET', `/api/sessions/${sessionId}/messages`)
++      expect(response.status).toBe(200)
++      const body = await response.json() as { runningAgentUsage?: Record<string, unknown> }
++      // Keyed by tool-use id (what the UI reads under), carrying the run id
++      // alongside it: a client that joined mid-run never saw `task_started` and
++      // cannot relate the two on its own.
++      expect(body.runningAgentUsage).toEqual({
++        call_00_live: { taskId: 'a74ce8', toolUseId: 'call_00_live', totalTokens: 4200, toolUses: 2 },
++      })
++      // The finished run is left out even though its transcript has a total:
++      // the client marks everything here as running.
++      expect(body.runningAgentUsage?.['call_00_done']).toBeUndefined()
++    } finally {
++      rollup.mockRestore()
++      activeBackgroundTaskIds.clear()
++      activeAgentTasks.clear()
++    }
++  })
++
++  it('reports a live run with no total yet, so a late client can still place it', async () => {
++    const sessionId = await seedSessionWithSubagent()
++    activeBackgroundTaskIds.set(sessionId, new Set(['a74ce8']))
++    activeAgentTasks.set(sessionId, new Map([['a74ce8', {
++      taskId: 'a74ce8',
++      taskType: 'local_agent' as const,
++      toolUseId: 'call_00_live',
++      stopIntent: false,
++      stopRequested: false,
++      localStopConfirmed: false,
++      bookendPending: false,
++      finalizationRetryCount: 0,
++    }]]))
++    // No transcript total yet: the run is inside its first, long generation, which
++    // is exactly when a client joining now would otherwise have nothing at all.
++    const rollup = spyOn(sessionUsageRollup, 'byToolUseId').mockImplementation(async () => new Map())
++    try {
++      const response = await api('GET', `/api/sessions/${sessionId}/messages`)
++      expect(response.status).toBe(200)
++      const body = await response.json() as { runningAgentUsage?: Record<string, unknown> }
++      expect(body.runningAgentUsage).toEqual({
++        call_00_live: { taskId: 'a74ce8', toolUseId: 'call_00_live' },
++      })
++    } finally {
++      rollup.mockRestore()
++      activeBackgroundTaskIds.clear()
++      activeAgentTasks.clear()
++    }
++  })
++})
++
++describe('GET /api/sessions/:id/messages — runningAgentUsage counts a live generation', () => {
++  it('answers with the in-flight estimate when the run has not crossed a boundary yet', async () => {
++    const sessionId = await seedSessionWithSubagent()
++    activeBackgroundTaskIds.set(sessionId, new Set(['a74ce8']))
++    activeAgentTasks.set(sessionId, new Map([['a74ce8', {
++      taskId: 'a74ce8',
++      taskType: 'local_agent' as const,
++      toolUseId: 'call_00_live',
++      stopIntent: false,
++      stopRequested: false,
++      localStopConfirmed: false,
++      bookendPending: false,
++      finalizationRetryCount: 0,
++    }]]))
++    // No transcript total: still inside the first generation. This is exactly the
++    // window in which a joining client used to start from zero.
++    const rollup = spyOn(sessionUsageRollup, 'byToolUseId').mockImplementation(async () => new Map())
++    try {
++      observeAgentRunUsage(sessionId, { type: 'system', subtype: 'task_started', task_id: 'a74ce8', tool_use_id: 'call_00_live' })
++      observeAgentRunUsage(sessionId, {
++        type: 'system', subtype: 'agent_run_message', run_agent_id: 'a74ce8',
++        event_kind: 'message',
++        message: { type: 'stream_event', event: { type: 'content_block_delta', delta: { type: 'text_delta', text: 'x'.repeat(400) } } },
++      })
++
++      const response = await api('GET', `/api/sessions/${sessionId}/messages`)
++      expect(response.status).toBe(200)
++      const body = await response.json() as { runningAgentUsage?: Record<string, unknown> }
++      expect(body.runningAgentUsage).toEqual({
++        call_00_live: { taskId: 'a74ce8', toolUseId: 'call_00_live', totalTokens: 100 },
++      })
++    } finally {
++      rollup.mockRestore()
++      activeBackgroundTaskIds.clear()
++      activeAgentTasks.clear()
++      clearAgentRunUsage(sessionId)
++    }
++  })
++})
+diff --git a/src/server/api/sessions.ts b/src/server/api/sessions.ts
+index 22647b37..438eda6f 100644
+--- a/src/server/api/sessions.ts
++++ b/src/server/api/sessions.ts
+@@ -26,7 +26,9 @@
+ 
+ import * as path from 'node:path'
+ import { sessionService } from '../services/sessionService.js'
+-import { enrichTaskNotificationsWithUsage } from '../services/sessionUsageRollup.js'
++import { enrichTaskNotificationsWithUsage, sessionUsageRollup } from '../services/sessionUsageRollup.js'
++import { activeSubagentRuns } from '../ws/agentTaskState.js'
++import { projectAgentRunUsage } from '../services/agentRunUsageProjection.js'
+ import { conversationService } from '../services/conversationService.js'
+ import { ApiError, errorResponse } from '../middleware/errorHandler.js'
+ import {
+@@ -512,9 +514,71 @@ async function getSessionMessages(req: Request, sessionId: string, url: URL): Pr
+     // A run's tokens are recoverable from its own subagent transcript even when
+     // the parent's result text only kept the old context-based total.
+     taskNotifications: await enrichTaskNotificationsWithUsage(sessionId, history.taskNotifications),
++    runningAgentUsage: await runningAgentUsage(sessionId),
+   })
+ }
+ 
++/**
++ * The in-flight subagent runs of a session, keyed by the Agent tool-call id the
++ * UI reads usage under.
++ *
++ * A client that opens the session while a run is in flight has no way to learn
++ * how much that run has already produced, and — because it missed the
++ * `task_started` that ties the run's own id to its spawning tool call — no way to
++ * even attribute what it sees. So each entry carries both ids, not just the key:
++ * the run id is what the client's live frames are addressed with, the tool-call id
++ * is what it must display the number under.
++ *
++ * Two sources answer how much, and neither alone is enough. The transcript rollup
++ * holds a run's *real* total, but states it only at a tool boundary; inside a long
++ * single generation — exactly where a client that just arrived notices the gap — it
++ * has nothing. The server-side projection counts that generation as it streams, so
++ * it is always current, but by characters rather than tokens. Taking whichever is
++ * further along means the figure is the real one once a boundary has passed, and an
++ * estimate only while the run is mid-flight. Both are superseded by the run's own
++ * completion, so an estimate can never outlive the number it stood in for.
++ *
++ * The identity is sent even with no total. A run that has only just started has
++ * nothing to report yet, and it is precisely then that a client joining now would
++ * otherwise have nothing to attach. `totalTokens` is therefore optional;
++ * `taskId`/`toolUseId` are not.
++ *
++ * Only in-flight runs are included, because the client marks whatever it finds
++ * here as running: sending every run would re-open finished ones whenever their
++ * terminal notification fell outside the loaded window.
++ */
++type RunningAgentUsage = {
++  /** The run's own id; the key live frames address it by. */
++  taskId: string
++  /** The Agent tool call that spawned it; the key the UI renders usage under. */
++  toolUseId: string
++  totalTokens?: number
++  thinkTokens?: number
++  toolUses?: number
++}
++
++async function runningAgentUsage(sessionId: string): Promise<Record<string, RunningAgentUsage>> {
++  const runs = activeSubagentRuns(sessionId)
++  if (runs.length === 0) return {}
++  const byToolUseId = await sessionUsageRollup.byToolUseId(sessionId)
++  const projected = new Map(projectAgentRunUsage(sessionId).map(run => [run.taskId, run]))
++  const usage: Record<string, RunningAgentUsage> = {}
++  for (const run of runs) {
++    const entry = byToolUseId.get(run.toolUseId)
++    const live = projected.get(run.taskId)
++    const totalTokens = Math.max(entry?.totalTokens ?? 0, live?.totalTokens ?? 0)
++    const thinkTokens = Math.max(entry?.thinkTokens ?? 0, live?.thinkTokens ?? 0)
++    usage[run.toolUseId] = {
++      taskId: run.taskId,
++      toolUseId: run.toolUseId,
++      ...(totalTokens > 0 ? { totalTokens } : {}),
++      ...(thinkTokens > 0 ? { thinkTokens } : {}),
++      ...(entry ? { toolUses: entry.toolUses } : {}),
++    }
++  }
++  return usage
++}
++
+ async function getSessionTrace(req: Request, sessionId: string, url: URL): Promise<Response> {
+   const [trace, sessionMeta, messageSignature] = await Promise.all([
+     traceCaptureService.getSessionTraceOverview(sessionId, {
+diff --git a/src/server/services/agentRunUsageProjection.test.ts b/src/server/services/agentRunUsageProjection.test.ts
+new file mode 100644
+index 00000000..f0c1541b
+--- /dev/null
++++ b/src/server/services/agentRunUsageProjection.test.ts
+@@ -0,0 +1,153 @@
++import { afterEach, describe, expect, test } from 'bun:test'
++import {
++  clearAgentRunUsage,
++  observeAgentRunUsage,
++  projectAgentRunUsage,
++  resetAgentRunUsageForTests,
++} from './agentRunUsageProjection.js'
++
++const SESSION = 'projection-session'
++const RUN = 'a74ce8'
++const TOOL_CALL = 'call_00_s8R2abcdef'
++
++function taskStarted(taskId = RUN, toolUseId = TOOL_CALL): any {
++  return { type: 'system', subtype: 'task_started', task_id: taskId, tool_use_id: toolUseId }
++}
++
++function delta(runAgentId: string, delta: Record<string, unknown>): any {
++  return {
++    type: 'system',
++    subtype: 'agent_run_message',
++    run_agent_id: runAgentId,
++    stream_id: 'stream-1',
++    target_agent_id: runAgentId,
++    event_kind: 'message',
++    message: { type: 'stream_event', event: { type: 'content_block_delta', delta } },
++  }
++}
++
++function messageStart(runAgentId: string, id: string): any {
++  return {
++    type: 'system',
++    subtype: 'agent_run_message',
++    run_agent_id: runAgentId,
++    stream_id: 'stream-1',
++    target_agent_id: runAgentId,
++    event_kind: 'message',
++    message: { type: 'stream_event', event: { type: 'message_start', message: { id } } },
++  }
++}
++
++function assistantMessage(runAgentId: string, id: string, blocks: unknown[]): any {
++  return {
++    type: 'system',
++    subtype: 'agent_run_message',
++    run_agent_id: runAgentId,
++    stream_id: 'stream-1',
++    target_agent_id: runAgentId,
++    event_kind: 'message',
++    message: { type: 'assistant', id, content: blocks },
++  }
++}
++
++function run(taskId = RUN) {
++  return projectAgentRunUsage(SESSION).find(entry => entry.taskId === taskId)
++}
++
++afterEach(() => {
++  resetAgentRunUsageForTests()
++})
++
++describe('agent run usage projection', () => {
++  test('counts streamed text and thinking for the run they belong to', () => {
++    observeAgentRunUsage(SESSION, taskStarted())
++    observeAgentRunUsage(SESSION, delta(RUN, { type: 'text_delta', text: 'x'.repeat(400) }))
++    observeAgentRunUsage(SESSION, delta(RUN, { type: 'thinking_delta', thinking: 'y'.repeat(80) }))
++
++    // 480 characters over the client's divisor.
++    expect(run()).toMatchObject({ taskId: RUN, toolUseId: TOOL_CALL, totalTokens: 120, thinkTokens: 20 })
++  })
++
++  test('counts tool-argument JSON as generation, alongside the text', () => {
++    observeAgentRunUsage(SESSION, delta(RUN, { type: 'input_json_delta', partial_json: '{"a":1}' }))
++
++    expect(run()?.totalTokens).toBe(2)
++  })
++
++  test('carries both ids, which is the point of the exercise', () => {
++    observeAgentRunUsage(SESSION, taskStarted())
++
++    // The task id is the run's own; the tool-use id is the Agent call that spawned
++    // it. A client that joined mid-run never saw this frame, so the pair has to
++    // travel with the number.
++    expect(run()).toMatchObject({ taskId: RUN, toolUseId: TOOL_CALL, totalTokens: 0 })
++  })
++
++  test('reports a run it has counted nothing for yet', () => {
++    // Just started: the point is that it is *known*, so a joining client has
++    // something to attach its own climb to instead of starting from nothing.
++    observeAgentRunUsage(SESSION, taskStarted())
++
++    expect(projectAgentRunUsage(SESSION)).toEqual([
++      { taskId: RUN, toolUseId: TOOL_CALL, totalTokens: 0, thinkTokens: 0 },
++    ])
++  })
++
++  test('does not count an assistant message whose content already streamed', () => {
++    // The stream announces its message id, then streams the text.
++    observeAgentRunUsage(SESSION, messageStart(RUN, 'msg-1'))
++    observeAgentRunUsage(SESSION, delta(RUN, { type: 'text_delta', text: 'x'.repeat(40) }))
++    // Same message arriving whole afterward: its text was counted delta by delta.
++    observeAgentRunUsage(SESSION, assistantMessage(RUN, 'msg-1', [{ type: 'text', text: 'x'.repeat(40) }]))
++
++    expect(run()?.totalTokens).toBe(10)
++  })
++
++  test('counts an assistant message that never streamed', () => {
++    // The non-streaming fallback: there were no deltas, so the whole message is the
++    // only record of the content.
++    observeAgentRunUsage(SESSION, assistantMessage(RUN, 'msg-2', [{ type: 'text', text: 'x'.repeat(40) }]))
++
++    expect(run()?.totalTokens).toBe(10)
++  })
++
++  test('ignores a whole-message thinking block, which the deltas already covered', () => {
++    // The watching client counts only streamed thinking (`complete !== true`);
++    // counting this again would put the seed above what an attached client shows.
++    observeAgentRunUsage(SESSION, assistantMessage(RUN, 'msg-3', [{ type: 'thinking', thinking: 'y'.repeat(80) }]))
++
++    expect(run()?.totalTokens).toBe(0)
++    expect(run()?.thinkTokens).toBe(0)
++  })
++
++  test('keeps runs apart', () => {
++    observeAgentRunUsage(SESSION, delta('run-a', { type: 'text_delta', text: 'x'.repeat(40) }))
++    observeAgentRunUsage(SESSION, delta('run-b', { type: 'text_delta', text: 'x'.repeat(120) }))
++
++    expect(projectAgentRunUsage(SESSION).map(entry => [entry.taskId, entry.totalTokens]))
++      .toEqual([['run-b', 30], ['run-a', 10]])
++  })
++
++  test('keeps sessions apart, and forgets one on clear', () => {
++    observeAgentRunUsage(SESSION, delta(RUN, { type: 'text_delta', text: 'x'.repeat(40) }))
++    observeAgentRunUsage('other-session', delta(RUN, { type: 'text_delta', text: 'x'.repeat(80) }))
++
++    expect(projectAgentRunUsage(SESSION)[0]?.totalTokens).toBe(10)
++    expect(projectAgentRunUsage('other-session')[0]?.totalTokens).toBe(20)
++
++    clearAgentRunUsage(SESSION)
++    expect(projectAgentRunUsage(SESSION)).toEqual([])
++    expect(projectAgentRunUsage('other-session')[0]?.totalTokens).toBe(20)
++  })
++
++  test('ignores everything that is not part of a subagent run', () => {
++    observeAgentRunUsage(SESSION, { type: 'assistant', message: { content: [] } })
++    observeAgentRunUsage(SESSION, { type: 'system', subtype: 'task_started' })
++    observeAgentRunUsage(SESSION, delta('', { type: 'text_delta', text: 'x' }))
++    observeAgentRunUsage(SESSION, {
++      type: 'system', subtype: 'agent_run_message', run_agent_id: RUN, event_kind: 'complete',
++    })
++
++    expect(projectAgentRunUsage(SESSION)).toEqual([])
++  })
++})
+diff --git a/src/server/services/agentRunUsageProjection.ts b/src/server/services/agentRunUsageProjection.ts
+new file mode 100644
+index 00000000..a1159ab4
+--- /dev/null
++++ b/src/server/services/agentRunUsageProjection.ts
+@@ -0,0 +1,209 @@
++/**
++ * How much output each in-flight subagent run has produced, estimated on the
++ * server as the run streams.
++ *
++ * Why the server has to do this at all: a client that opens a session while a
++ * subagent is working has nothing to start from. Its own counters begin at zero,
++ * so it climbs from zero, while a client that was there from the start already
++ * shows the real figure — the two disagree for as long as the run lasts. The only
++ * other source, the transcript-derived rollup, states a run's total *only at a
++ * tool boundary*; inside a long single generation it is silent, which is precisely
++ * the stretch where the disagreement is most visible.
++ *
++ * The server is in the one position to close that gap: every streamed frame of the
++ * run passes through it. So it counts, per run, exactly what a watching client
++ * counts — same deltas, same divisor — and hands the result over as the starting
++ * figure. Nothing here is authoritative; a boundary or the run's completion
++ * supersedes it. Its job is only to make a late arrival land at the right place
++ * instead of at zero.
++ *
++ * The counting rule deliberately mirrors the client's live estimator
++ * (`ingestSubagentLiveUsage`), including which events it does *not* count: a
++ * `thinking` block that arrives whole as part of an assistant message is already
++ * covered by the deltas that streamed it, and counting it again would inflate the
++ * number past what the watching client shows.
++ */
++
++/** One run's streamed output so far. Characters, not tokens — see `estimate`. */
++type RunProjection = {
++  runAgentId: string
++  /** The Agent tool call that spawned the run, once a lifecycle frame says so. */
++  toolUseId?: string
++  text: number
++  thinking: number
++  /**
++   * Assistant message ids whose blocks already arrived as stream deltas, so the
++   * whole-message form of the same content is skipped rather than added twice.
++   */
++  streamedMessageIds: Set<string>
++  updatedAt: number
++}
++
++/**
++ * Runs kept per session before the least recently touched are dropped. A session
++ * holds a handful of concurrent subagents; the cap only exists so a long-lived
++ * session cannot accumulate an entry per run it ever started.
++ */
++const MAX_RUNS_PER_SESSION = 64
++
++/** Characters per token. Matches the client estimator, so the two agree. */
++const CHARS_PER_TOKEN = 4
++
++const projections = new Map<string, Map<string, RunProjection>>()
++
++function sessionRuns(sessionId: string): Map<string, RunProjection> {
++  let runs = projections.get(sessionId)
++  if (!runs) {
++    runs = new Map()
++    projections.set(sessionId, runs)
++  }
++  return runs
++}
++
++function runFor(sessionId: string, runAgentId: string): RunProjection {
++  const runs = sessionRuns(sessionId)
++  let run = runs.get(runAgentId)
++  if (!run) {
++    run = {
++      runAgentId,
++      text: 0,
++      thinking: 0,
++      streamedMessageIds: new Set(),
++      updatedAt: Date.now(),
++    }
++    runs.set(runAgentId, run)
++    if (runs.size > MAX_RUNS_PER_SESSION) {
++      // Map preserves insertion order, so the first key is the oldest run. Runs
++      // that are still going are re-touched on every frame, so what ages out is
++      // one that has gone quiet.
++      const oldest = runs.keys().next()
++      if (!oldest.done && oldest.value !== runAgentId) runs.delete(oldest.value)
++    }
++  }
++  return run
++}
++
++function trim(value: unknown): string | undefined {
++  return typeof value === 'string' && value.trim() ? value.trim() : undefined
++}
++
++function noteStreamedMessage(run: RunProjection, messageId: string): void {
++  run.streamedMessageIds.add(messageId)
++  if (run.streamedMessageIds.size > MAX_RUNS_PER_SESSION) {
++    const oldest = run.streamedMessageIds.values().next()
++    if (!oldest.done) run.streamedMessageIds.delete(oldest.value)
++  }
++}
++
++/**
++ * Count one CLI message toward the run it belongs to.
++ *
++ * Called for every message of a session, so it returns early for anything that is
++ * not part of a subagent run.
++ */
++export function observeAgentRunUsage(sessionId: string, cliMsg: any): void {
++  if (!cliMsg || typeof cliMsg !== 'object' || cliMsg.type !== 'system') return
++
++  // The lifecycle frames are where the two ids a run goes by are related: the task
++  // id is the run's own, the tool-use id is the Agent call that spawned it. Without
++  // this the counts could not be attributed to anything the UI renders.
++  if (cliMsg.subtype === 'task_started' || cliMsg.subtype === 'task_progress') {
++    const taskId = trim(cliMsg.task_id)
++    if (!taskId) return
++    const run = runFor(sessionId, taskId)
++    const toolUseId = trim(cliMsg.tool_use_id)
++    if (toolUseId) run.toolUseId = toolUseId
++    return
++  }
++
++  if (cliMsg.subtype !== 'agent_run_message' || cliMsg.event_kind !== 'message') return
++  const runAgentId = trim(cliMsg.run_agent_id)
++  if (!runAgentId) return
++  const message = cliMsg.message
++  if (!message || typeof message !== 'object') return
++  const run = runFor(sessionId, runAgentId)
++
++  if (message.type === 'stream_event') {
++    const event = message.event
++    // A message announcing itself as streamed is what lets the whole-message form
++    // of the same content be recognised and skipped below.
++    if (event?.type === 'message_start') {
++      const messageId = trim(event.message?.id)
++      if (messageId) noteStreamedMessage(run, messageId)
++      return
++    }
++    if (event?.type !== 'content_block_delta') return
++    const delta = event.delta
++    if (!delta) return
++    if (delta.type === 'text_delta' && typeof delta.text === 'string') {
++      run.text += delta.text.length
++    } else if (delta.type === 'input_json_delta' && typeof delta.partial_json === 'string') {
++      // Tool arguments are generation too, and the watching client counts them
++      // alongside the visible text.
++      run.text += delta.partial_json.length
++    } else if (delta.type === 'thinking_delta' && typeof delta.thinking === 'string') {
++      run.thinking += delta.thinking.length
++    } else {
++      return
++    }
++    run.updatedAt = Date.now()
++    return
++  }
++
++  if (message.type === 'assistant') {
++    const messageId = trim(message.id)
++    if (messageId) {
++      // A message that streamed its blocks already counted them delta by delta.
++      if (run.streamedMessageIds.has(messageId)) return
++      noteStreamedMessage(run, messageId)
++    }
++    for (const block of Array.isArray(message.content) ? message.content : []) {
++      // Only text: a thinking block arriving whole was streamed, and the client
++      // does not count the whole-message form of it either.
++      if (block?.type === 'text' && typeof block.text === 'string') run.text += block.text.length
++    }
++    run.updatedAt = Date.now()
++  }
++}
++
++/** What one in-flight run is estimated to have produced so far. */
++export type ProjectedRunUsage = {
++  taskId: string
++  toolUseId?: string
++  totalTokens: number
++  thinkTokens: number
++}
++
++/**
++ * The estimate for every run this session has counted, most recently active first.
++ *
++ * Runs with nothing to report are included: a run that has only just started is
++ * still a run a late client needs to know about, and `totalTokens: 0` says exactly
++ * that rather than hiding it.
++ */
++export function projectAgentRunUsage(sessionId: string): ProjectedRunUsage[] {
++  const runs = projections.get(sessionId)
++  if (!runs) return []
++  const projected: ProjectedRunUsage[] = []
++  for (const run of runs.values()) {
++    const thinkTokens = Math.round(run.thinking / CHARS_PER_TOKEN)
++    projected.push({
++      taskId: run.runAgentId,
++      ...(run.toolUseId ? { toolUseId: run.toolUseId } : {}),
++      totalTokens: Math.round((run.text + run.thinking) / CHARS_PER_TOKEN),
++      thinkTokens,
++    })
++  }
++  projected.sort((a, b) => b.totalTokens - a.totalTokens)
++  return projected
++}
++
++/** Drop everything counted for a session. Its CLI process is gone. */
++export function clearAgentRunUsage(sessionId: string): void {
++  projections.delete(sessionId)
++}
++
++/** Test seam: the module holds per-session state, so cases must not share it. */
++export function resetAgentRunUsageForTests(): void {
++  projections.clear()
++}
+diff --git a/src/server/services/conversationService.ts b/src/server/services/conversationService.ts
+index ebc063ec..e1037589 100644
+--- a/src/server/services/conversationService.ts
++++ b/src/server/services/conversationService.ts
+@@ -10,6 +10,10 @@ import * as fs from 'node:fs'
+ import * as os from 'node:os'
+ import * as path from 'node:path'
+ import { ProviderService } from './providerService.js'
++import {
++  clearAgentRunUsage,
++  observeAgentRunUsage,
++} from './agentRunUsageProjection.js'
+ import { SettingsService } from './settingsService.js'
+ import {
+   OPENAI_CODEX_OAUTH_FILE_ENV_KEY,
+@@ -751,6 +755,7 @@ export class ConversationService {
+       const startupError = this.buildStartupError(sessionId, startupExitCode)
+       this.clearSessionAutoAnswerWaits(session)
+       this.sessions.delete(sessionId)
++      clearAgentRunUsage(sessionId)
+ 
+       if (this.clearStaleLock(sessionId)) {
+         console.log(
+@@ -1412,6 +1417,12 @@ export class ConversationService {
+           this.clearAutoAnswerWait(session.pendingPermissionRequests.get(msg.response.request_id))
+           session.pendingPermissionRequests.delete(msg.response.request_id)
+         }
++        // Count this toward any subagent run it belongs to, before the fan-out.
++        // This is the one place a session's messages pass through exactly once:
++        // the per-client forwarding below translates the same frame again for each
++        // connected client, so counting there would multiply a run's output by the
++        // number of clients watching it.
++        observeAgentRunUsage(sessionId, msg)
+         this.notifyOutputCallbacks(sessionId, session.outputCallbacks, msg)
+       } catch {
+         console.warn(
+@@ -1547,6 +1558,9 @@ export class ConversationService {
+     this.cancelPendingControlRequests(session)
+     this.clearSessionAutoAnswerWaits(session)
+     this.sessions.delete(sessionId)
++    // The CLI is going away, so nothing will add to this session's run counts
++    // again; keeping them would only offer a future client stale figures.
++    clearAgentRunUsage(sessionId)
+     this.killProcess(sessionId, session)
+   }
+ 
+@@ -1560,6 +1574,7 @@ export class ConversationService {
+     this.cancelPendingControlRequests(session)
+     this.clearSessionAutoAnswerWaits(session)
+     this.sessions.delete(sessionId)
++    clearAgentRunUsage(sessionId)
+     await this.stopProcessAndWait(sessionId, session, timeoutMs)
+   }
+ 
+@@ -1757,6 +1772,7 @@ export class ConversationService {
+       const callbacks = [...activeSession.outputCallbacks]
+       this.clearSessionAutoAnswerWaits(activeSession)
+       this.sessions.delete(sessionId)
++      clearAgentRunUsage(sessionId)
+       this.notifyOutputCallbacks(sessionId, callbacks, {
+         type: 'result',
+         subtype: 'error',
+diff --git a/src/server/ws/agentTaskState.test.ts b/src/server/ws/agentTaskState.test.ts
+index 399f16de..79b4b67d 100644
+--- a/src/server/ws/agentTaskState.test.ts
++++ b/src/server/ws/agentTaskState.test.ts
+@@ -1,5 +1,11 @@
+-import { describe, expect, test } from 'bun:test'
+-import { getCliBackgroundTaskLifecycle } from './agentTaskState.js'
++import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
++import {
++  activeAgentTasks,
++  activeBackgroundTaskIds,
++  activeNonAgentTasks,
++  activeSubagentRuns,
++  getCliBackgroundTaskLifecycle,
++} from './agentTaskState.js'
+ 
+ describe('getCliBackgroundTaskLifecycle ownership', () => {
+   test('keeps root task ownership implicit', () => {
+@@ -46,3 +52,66 @@ describe('getCliBackgroundTaskLifecycle ownership', () => {
+     })
+   })
+ })
++
++describe('activeSubagentRuns', () => {
++  const SESSION = 'active-subagent-runs'
++
++  beforeEach(() => {
++    activeBackgroundTaskIds.clear()
++    activeAgentTasks.clear()
++    activeNonAgentTasks.clear()
++  })
++  afterEach(() => {
++    activeBackgroundTaskIds.clear()
++    activeAgentTasks.clear()
++    activeNonAgentTasks.clear()
++  })
++
++  function agentTask(taskId: string, toolUseId: string): void {
++    let ids = activeBackgroundTaskIds.get(SESSION)
++    if (!ids) {
++      ids = new Set()
++      activeBackgroundTaskIds.set(SESSION, ids)
++    }
++    ids.add(taskId)
++    let tasks = activeAgentTasks.get(SESSION)
++    if (!tasks) {
++      tasks = new Map()
++      activeAgentTasks.set(SESSION, tasks)
++    }
++    tasks.set(taskId, {
++      taskId,
++      taskType: 'local_agent',
++      toolUseId,
++      stopIntent: false,
++      stopRequested: false,
++      localStopConfirmed: false,
++      bookendPending: false,
++      finalizationRetryCount: 0,
++    })
++  }
++
++  test('reports the run id and the spawning tool-call id as a pair', () => {
++    // The two differ in practice: the run id is the agent's own id, the tool-use
++    // id is the Agent tool call's. A client that missed `task_started` needs both.
++    agentTask('a74ce8', 'call_00_s8R2abcdef')
++    expect(activeSubagentRuns(SESSION)).toEqual([
++      { taskId: 'a74ce8', toolUseId: 'call_00_s8R2abcdef' },
++    ])
++  })
++
++  test('excludes a shell job sharing the same active set', () => {
++    agentTask('a74ce8', 'call_00_s8R2abcdef')
++    // A Bash background task is active too, and has no subagent transcript — it
++    // must not be looked up as if its usage were derivable.
++    activeBackgroundTaskIds.get(SESSION)!.add('bash-1')
++    expect(activeSubagentRuns(SESSION)).toEqual([
++      { taskId: 'a74ce8', toolUseId: 'call_00_s8R2abcdef' },
++    ])
++  })
++
++  test('is empty when nothing is running', () => {
++    expect(activeSubagentRuns(SESSION)).toEqual([])
++    expect(activeSubagentRuns('some-other-session')).toEqual([])
++  })
++})
+diff --git a/src/server/ws/agentTaskState.ts b/src/server/ws/agentTaskState.ts
+index 88698d1e..6fe73d3b 100644
+--- a/src/server/ws/agentTaskState.ts
++++ b/src/server/ws/agentTaskState.ts
+@@ -175,6 +175,40 @@ export function hasActiveBackgroundTasks(sessionId: string): boolean {
+   })
+ }
+ 
++/** An in-flight subagent run, as the identity pair the rest of the system looks it up by. */
++export type ActiveSubagentRun = {
++  /** The run's own id. Live agent-run frames are addressed with this. */
++  taskId: string
++  /** The Agent tool call that spawned it. The UI and the usage rollup are keyed by this. */
++  toolUseId: string
++}
++
++/**
++ * The in-flight *subagent* runs of a session.
++ *
++ * Both ids are reported because they are not interchangeable and not derivable
++ * from each other: `taskId` is what live frames carry, `toolUseId` is what the UI
++ * renders the number under. A client that joined the session mid-run never saw the
++ * `task_started` frame that ties the two together, so without both it cannot
++ * present the run's usage at all — it would have to guess, and a guessed
++ * `toolUseId` is simply never looked up.
++ *
++ * Agent tasks only on purpose. `activeBackgroundTaskIds` also holds shell jobs,
++ * which have no subagent transcript and must not be looked up as if they had one.
++ */
++export function activeSubagentRuns(sessionId: string): ActiveSubagentRun[] {
++  const taskIds = activeBackgroundTaskIds.get(sessionId)
++  if (!taskIds || taskIds.size === 0) return []
++  const sessionAgentTasks = activeAgentTasks.get(sessionId)
++  const runs: ActiveSubagentRun[] = []
++  for (const taskId of taskIds) {
++    const agentTask = sessionAgentTasks?.get(taskId)
++    if (!agentTask) continue
++    runs.push({ taskId: agentTask.taskId, toolUseId: agentTask.toolUseId })
++  }
++  return runs
++}
++
+ export function clearAgentStopFinalizationRetry(task: ActiveAgentTaskState): void {
+   if (task.finalizationRetryTimer === undefined) return
+   clearTimeout(task.finalizationRetryTimer)

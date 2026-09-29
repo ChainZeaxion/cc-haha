@@ -131,11 +131,15 @@
 | 56 | `patches/session-find-bounded-read.patch` | 五 补记二：**大会话一直转圈＝`findSessionFile` 全量解析转录**——判定「有没有真实对话」时把整个文件读完+逐行 JSON.parse，而同一 id 在多个发现根下各有一份（139.7MB+184.5MB）⇒ 每次解析约 320MB，**单次 4–6 秒**，且几乎每个会话端点都走它。改为只读文件头、命中即停（8MB 上限）。findSessionFile **4345→2ms**，大会话热态打开 **6.9s→0.010s**（2 文件） | ✅ 已实施 |
 | 57 | `patches/transcript-metadata-durable.patch` | 五 补记三：**元数据投影落盘**——冷进程首开大会话仍要 9.6s（该投影本就需要一次全量遍历算 messageCount/最后时间戳，且两份拷贝各建一次）；投影是几 KB 纯标量 ⇒ 落盘 + 只认同 signature，**10.24s → 0.016s**（链位 57/58 治重复开销，本条治冷启动）（3 文件） | ✅ 已实施 |
 | 61 | `patches/subagent-live-metrics.patch` | 二十一 子优化⑤：**子代理运行中用量/耗时真正爬升 + 移动端紧凑 + TPS 汇聚子代理读数修复**——（a）`subagentLiveChars` 累积器 + 3s 节流把在飞子代理的用量写进 `backgroundAgentTasks`，收纳栏数字**运行中就爬升**而非末尾跳变；（b）`useCompactMetrics()`（新增）驱动紧凑形态，本次进一步收紧 `gap-px tracking-tighter`，并修掉内层 `data-agent-group-usage` **硬编码 `gap-[3px]` 不随 compact 收敛**的问题；（c）**TPS 主修复**：`tpsMeter` 的 `Sample` 加 `stream` 标记、`ingestSubagentTps` 传 `runAgentId`，使可行性过滤按**同一流**的间隔判定——多流交织下原「全局间隔」判定误杀约 70% 样本，4 子代理并发时 UI 只有引擎真值的 **1/3**（实测 80 vs 250；修后逐秒对齐 346/331、387/387、381/382）。**⚠️ 本条保留链尾（链位 61），未与链位 21 融合**（详见二十一章子优化⑤）（5 文件） | ✅ 已实施 |
+| 63 | `patches/subagent-usage-cross-client.patch` | 二十八 28.2：**子代理跨客户端用量一致性**——① **身份对齐**（真根因）：`runAgentId` 与「派发它的 Agent 工具调用 id」被混用（UI 按 `toolUseId` 读、实时写入方却填成 runAgentId）⇒ 后加入的客户端把数字写进一张**永远读不到**的行，直到跨过工具轮次边界才「突然出现」；服务端 `activeSubagentRuns` 改为返回 `{taskId, toolUseId}[]` 且**身份无总量也下发**（长生成期才是身份最要紧的时候）。② **服务端在飞外推**（新增 `agentRunUsageProjection.ts`）：在 `notifyOutputCallbacks` 之前按 run 计数（镜像客户端的 delta 规则**及「哪些不计」**），种子取 `max(rollup, projection)` ⇒ 后加入者不再从 0 起，且**估计绝不盖过终局真值**。③ 基准被采用后**必须记账**（`lastWritten = reported`），否则「无变化的写入被跳过」会让数字永远爬不动。④ 轮次页脚补 `text-[11px]`（5 文件→11 文件） | ✅ 已实施 |
+| 62 | `patches/tps-bucket-engine-rewrite.patch` | 二十八 28.1：**TPS 速率引擎重写为 125ms 分桶**——按用户 5 条规格推倒旧连续滑窗（`sliceRate`/`SETTLE_MS`/`BURST_FLOOR_MS`/`MAX_INSTANT_TPS`/`preWindowAt` 等**整块删除**）：每 125ms 一桶、显示＝最近 8 桶均值（每秒 8 次，**只读已完成桶**，不足 8 桶除以已过桶数）、首桶不单独显示、末桶与倒数第二桶 50/50、结束后保持 5 分钟（**引擎真值优先**，否则 ≤1500ms 桶平均）、**生成钟优先到达钟兜底**。⚠️ 两钟**绝不可混算**（`serverTs` epoch vs `performance.now`），且时钟选择对每个米表**粘性**（收到无戳帧即永久降级）。实测：稳定 104 若把进行中的桶计入会被读成 **91**；环宽（64×125ms）才能让积压摊平生效（1200 单桶 9600→~1210）（19 文件） | ✅ 已实施 |
 | 60 | `patches/chapter-27-residual-hunks.patch` | 二十七 27.3：**章内残余 hunk**——`api/claude.ts` bound-thinking 模型（Fable 5.1）需回放思考块（`modelUsesBoundThinking`，剥离会破坏 system 变更后的重放）；`providerModels` 排序固定 `'en'`（宿主 zh 会把 CJK 排到拉丁之前，「其他」组顶到真实 provider 名之上）；`TerminalSettings` 的 `createTerminalRequestId()` 在非安全上下文（H5 经 LAN IP）无 `crypto.randomUUID` 故回退时间戳+随机串；`package.json` 去掉与 `build`/`tsc -b` 口径重复的两个脚本；`PermissionUpdate` require 环改 **Proxy getter**（顶层 require 在环中拿到的是空命名空间且会一直返回它）。与 58/59 合计补齐 21 个「无补丁触及」的文件（5 文件） | ✅ 已实施 |
 | 59 | `patches/chapter-27-vcc-calibration-scripts.patch` | 二十七 27.2：**vcc 片段模式校准/判分脚本**——`scripts/vcc-slice-calibration.ts`(1076 行) + `scripts/vcc-slice-judge.ts`(439 行)，随「局部压缩接入 vcc 片段模式 + 语料校准」引入；`.gitignore` 排除**机器生成的报告**（含会话原文与真实语料，入库的是手写版）。属**测量工具**而非产品代码，故原未纳入章节（3 文件） | ✅ 已实施 |
 | 58 | `patches/chapter-27-test-env-isolation.patch` | 二十七 27.1：**测试环境隔离与遗留失败清零**——新增 `src/testUtils/modelEnv.ts`（`isolateModelDefaultsEnv()` 存/剥离/还原模型相关 env），并接入 12 个用例（模型 4 个 + `effort.agent` + `thinking` + `print.sessionMessage` + `client` + `computerUse` + `builtInAgentOverrides` + `system` + `coreSchemas.modelInfo`）。根因＝**桌面 dev 会把 `CLAUDE_CODE_*` 导出进进程**，致同一批用例**单跑失败、官方 runner 全绿**——是环境泄漏不是真缺陷（13 文件） | ✅ 已实施 |
 
 > **已知非章 delta（有意不入 patch，链终态与工作树的结构性差值）**：`#83` 测试修复族（`src/testUtils/modelEnv.ts` 及 11 个 `*.test.ts`：`print.sessionMessage`/`constants/system`/`coreSchemas.modelInfo`/`api/client`/`skills/bundled/computerUse`/`builtInAgentOverrides`/`effort.agent`/`model/{agent,fable,opus55,opus5}`/`__tests__/thinking`/`permissions/PermissionUpdate`）、`MessageList.test.tsx`（flaky 超时放宽，见附录）、`TerminalSettings.tsx`、`lib/providerModels.ts`、`services/api/claude.ts`（bound-thinking WIP）、`desktop/package.json`（本轮新增 `build:renderer`/`typecheck` 两条 **dev 脚本**，electron-builder 打包时会剥离 `scripts`，故不影响产物）、`bun.lock`。
+>
+> ⚠️ **上面这份清单已过时**（写于「本章只登记不产补丁」时期）：其中的 `modelEnv.ts` 族、`TerminalSettings.tsx`、`providerModels.ts`、`claude.ts`、`package.json` 后来都已补成**链位 58–60**。**当前权威结论见 §28.4**：链终态与工作树只差 `bun.lock` 与 `desktop/src-tauri/resources/preview-agent.js`。
 
 ### 移植通用注意事项- stale `.js` 孪生：改 `src/*.ts` 走 sidecar 打包路径时，须核对被改文件同名 `.js` 是否存在且同步（旧树 `.js` 优先加载坑）。
 - 0.6.6 已有对应能力需**融合**而非整块覆盖（如 H5 安全配对、缓存 token 显示、rewind 等），各章落地前先核对现状。
@@ -2426,6 +2430,140 @@ if (gapMs > 0 && tokens / (gapMs / 1000) <= MAX_INSTANT_TPS) { /* 计入 */ }   
 | sidecar 由近期树构建 | 链位 55 新增字面量 `history-context-v1` 命中；`query_message_normalization_end`（与 bound-thinking 同文件的 checkpoint）命中 |
 
 ⚠️ **sidecar 侧无法用 grep 逐行证明**：函数名被**压缩改名**（既有标识符 `shouldSendThinkingToAPI` 也 0 命中），而 `api/claude.ts` 的 bound-thinking、`PermissionUpdate` 的 Proxy 化**都不新增字符串字面量**⇒无锚可查。其新鲜度由**流程证据**保证：构建脚本先 `rm -rf` 旧 sidecar 再 `bun run build:sidecars`，且构建时工作树干净、处于含本章的 `43a36c50`。
+
+## 二十八、TPS 速率引擎重写（125ms 分桶）+ 子代理跨客户端用量一致性（✅ 2026-09-29）
+
+> **本章两个 patch**：链位 **62**（TPS 速率引擎重写，`e4b737dc`，19 文件）、链位 **63**（子代理跨客户端用量一致性，`18061170` + 工作区，11 文件）。
+> **链复现度**：干净 worktree@`068b3ebd` 按链序 apply **63/63 失败 0**，终态与工作树差异**仅剩 2 个有意排除项**（`bun.lock`、`desktop/src-tauri/resources/preview-agent.js`，理由见 27.4）。
+
+### 28.1 TPS 速率引擎重写为 125ms 分桶（链位 62）
+
+**需求（用户 verbatim，5 条规格）**
+
+> 1、每125ms，收到多少token，除以时间，每秒可显示8次，再将每个第8个也就是到整个1s的数据时求这8个平均。
+> 2、初始起步可能速度会异常高，所以一开始的125ms的数据不能直接迸发，而是等到第二个125ms才开始均衡显示。
+> 3、每次流式传输结束的时候，尾巴上可能速度也会异常，所以尾巴上的125ms数据与倒数第二个125ms进行均衡显示。
+> 4、流式传输结束后，要让速度信息残留显示5分钟，所以流式结束后要根据跨度最大到最近1500ms的数据求平均。
+> 5、如果引擎发来的数据带ids，则优先采用精准ids进行取数处理后显示；若拿不到ids则走推断估算。
+
+**做法：推倒旧连续滑窗，整块重做。** 旧实现（`sliceRate` + `WINDOW_MS` / `SETTLE_MS` / `BURST_FLOOR_MS` / `MAX_INSTANT_TPS` / `preWindowAt` / `computeFallbackTps` / `sampleTokens`）**全部删除**，换成固定网格分桶：
+
+| 规格 | 实现 |
+|---|---|
+| 每 125ms 一桶、显示=最近 8 桶平均（1s，每秒 8 次） | `BUCKET_MS=125` / `READ_BUCKETS=8`；**只读「已完成」的桶**；不足 8 桶时除以**已过桶数**而非 8 |
+| 起步：首桶不单独显示 | `MIN_BUCKETS_FOR_READ=2`，不足时返回**保持值** |
+| 尾部：末桶与倒数第二桶 **50/50 均衡** | `settle()` 把两者都置为均值（⚠️ 均值守恒：只改分布不改读数，用户明确要求按字面实现） |
+| 结束后保持 5 分钟 | `heldValue` 冻结；**引擎真值优先**（`endCall` 的 `realTokens/decodeSpan`），无真值则用 ≤1500ms 的桶平均（`HOLD_BUCKETS=12`）；5 分钟隐藏仍由指示器 `HIDE_AFTER_IDLE_MS` 管 |
+| 优先生成钟、到达钟兜底 | `TpsClock='generation'\|'arrival'`，模块级 `setTpsClock/getTpsClock`，默认 **generation** |
+
+其他决策：空桶**计 0**（暂停如实显示为凹陷）；静默 **>1.5s 清空窗口**并重新计时（否则恢复后那 1 秒会被残留的 0 拉低）。
+
+#### 踩坑记录（28.1）
+
+1. **⚠️⚠️ 两个时钟绝不可混算（本设计的硬约束）**：`serverTs` 是 **epoch ms**，`performance.now()` 是**自页面加载的单调钟**，相减得 ~1.7e12。规则：桶间距只用**所选时钟**；「静默多久 / 是否还活着 / 5 分钟隐藏」只用**到达钟**（`lastDataTime()` 语义不变，回收器与隐藏逻辑依赖它）。且**时钟选择对每个米表是粘性的**：生成钟米表一旦收到无戳帧就**永久降级**到到达钟并重建网格（`degradeToArrival`）。
+2. **只读「已完成」的桶**：把「进行中的桶」计入，会把部分桶当成空桶、并悄悄把最旧的桶挤出窗口——实测**稳定 104 t/s 被读成 91**。到达钟下 `readIndex = floor(T/125) - 1`。
+3. **环必须远宽于读数窗**（`RING_SIZE=64`＝8s）：积压摊平（`depileBucket`，上限 `MAX_BUCKET_TPS=5000`）靠把 token **推出窗口之外**才有效——在窗口内摊平是均值守恒、等于没做。实测 1200 的单桶从 9600 t/s 降到 ~1210。
+4. **`endCall` 不能标记「已结束」**：一轮里有多次 API 调用（工具循环），冻结会截断轮中读数。终态靠 `endStream()`（run 的 `task.status !== 'running'` 分支）+ **静默隐含结束**（run 的终态是 task 事件而非帧，「帧 + 节流」那道守卫可能永不触发）。
+5. **`settle()` 必须用 `lastIndex` 而非 `readIndex(now)`**：静默之后 `now` 已越过末尾，否则会给两个**空桶**做均衡、把保持值归 0。
+6. **`touch()`（ids 模式下的文本帧）不得参与降级判定**，否则生成钟会被无故降级。
+7. **指示器的 30/70 指数平滑已移除**：桶平均本身即平滑，再叠一层只是增加延迟；保留「接近 0 时保持上一值」的防闪 0。
+
+**时钟纪律 A/B（永久用例 `TpsMeter clock discipline`）**：同一组真实时序（40 帧、生成 125ms/帧、到达 25ms/帧＝5× 排空压缩）下，**生成钟读 104 t/s（真值），到达钟读 >300**。与此前实测的移动端 1000+ 同因 ⇒ **默认 generation**。
+
+**验证**：`tpsMeter.test.ts` 重写为 **27 例**（规则 1–8 + 校准 + 聚合）；`tpsMeter` / `tpsCalibration` / `TpsIndicator` **46/46**；相关 8 文件 495 测试全绿；`tsc` / lint 绿；构建后 7788 入口 hash ＝ 仓库 dist。
+⚠️ **真机观感验证当时未做**（无 playwright；headless dump-dom 在 H5 的 SPA + 长连接上会挂住），后由用户实测确认（见 28.2 收官）。
+
+### 28.2 子代理跨客户端用量一致性（链位 63）
+
+**需求（用户 verbatim，两轮）**
+
+> 轮一：A 客户端发起的会话能看到实时准确的用量在跑，而 B 客户端打开同一会话，**有很长一段时间看不到用量爬升**。
+> 轮二：B 能接近及时看到用量在跑了，但 B 看到的用量是**从 0 开始爬升**的，**没有跟 A 看到的数据保持一致**。
+
+**两个根因，都修完才对得上。**
+
+#### 根因一：`runAgentId` 与「派发它的 Agent 工具调用 id」被当成同一个 id
+
+两个 id **不是一回事**，且**都各自被当作键用**：
+
+| id | 含义 | 形态 | 出现处 |
+|---|---|---|---|
+| `runAgentId` | run 自己的 id（＝`task_id`＝`agentId`） | 6 位十六进制（`a74ce8`） | `agent_run_event.runAgentId`、实时帧的寻址键 |
+| `tool_use_id` | **派发它的 Agent 工具调用** id | `call_00_…` | `task_started` / `task_progress` 的 `tool_use_id` |
+
+- **UI 按 tool-call id 读**：`MessageList.tsx` 把 `backgroundAgentTasks` 折成 `usage[task.toolUseId]`（注释：只键 running，避免陈旧快照盖住终值）；`ToolCallGroup.tsx` 用 `agentTaskLiveUsage?.[toolCall.toolUseId]` 取数。
+- **实时写入方却在编造 `toolUseId`**：`ingestSubagentLiveUsage` 在无既有行时建 `{taskId: agentId, toolUseId: agentId}` ⇒ **`toolUseId` ＝ runAgentId** ⇒ **UI 永远查不到**。
+- **A 为何没事**：A 收到了派发时的 `task_started`，`normalizeBackgroundAgentTaskEvent` 把它规范成 `taskId=task_id`、`toolUseId=tool_use_id` ⇒ A 的行**键是 runAgentId、但 `toolUseId` 是对的**，写入按 `candidate === agentId` 命中该行，UI 按键取得到。
+- **B 为何看不到**：B 在 `task_started` 之后才连上，而**没有任何路径重放该帧**（历史重建只从**终态**通知建行：`backgroundTaskRecordFromNotifications` 只认终态，`reconstructBackgroundShellTasks` 只管 Bash/PowerShell）⇒ B 建的行带假 `toolUseId` ⇒ 不显示。等某个子代理跨过**工具轮次边界**，`task_progress` 带来真 `tool_use_id`，`upsertBackgroundAgentTask` 改写该行 ⇒ **数字突然出现**。这正是「几分钟不显示、然后突然出现」。
+
+**修法**：
+- 服务端 `activeSubagentIds` → **`activeSubagentRuns`**，返回 `{taskId, toolUseId}[]`（`activeAgentTasks` 里两个 id 本来都有）；`runningAgentUsage` 每项带**两个 id**。
+- **身份「没有总量也要发」**：总量只在跨过边界后才有（rollup 读子转录、按 API 响应写入），而**最需要身份的时刻恰恰是开头那段没有边界的长生成**——只发「有总量」的 run，B 就仍然没东西可挂。故 `totalTokens` 可选，`taskId`/`toolUseId` 必需。
+- 客户端种子行**按 run 的 id 作键、携带 tool-call id**（与 A 经 `task_started` 得到的形状一致）⇒ **一行同时满足写入方（按 runAgentId 找）与 UI（按 toolUseId 读）**，不需要任何映射表、不编造 id。
+- `ingestSubagentLiveUsage` 建行时**不填 `toolUseId`**。
+
+#### 根因二：基线只有「分界粒度」，后加入者从 0 起
+
+身份修好之后 B 能爬了，但**从 0 起**：B 的种子来自**转录 rollup**，而 rollup **只在越过分界后有值**；B 若在开头那段长生成里接入 ⇒ 种子为空 ⇒ 从 0 累加，直到某个边界才被权威值校正。A 从 run 开始就在计数，所以有基数。
+
+**修法：服务端在飞外推器**（新增 `src/server/services/agentRunUsageProjection.ts`）
+- **计数点＝`conversationService` 的 `notifyOutputCallbacks` 之前**（该文件里 CLI stdout 泵，**每会话每条消息恰好一次**）。
+- **规则刻意镜像客户端**（`ingestSubagentLiveUsage`）：`text_delta` / `input_json_delta` → text，`thinking_delta` → thinking，`/4` 估 token；`tool_use_id` 由 `task_started` / `task_progress` 关联。
+- **必须同时镜像「哪些不计」**（否则种子会**高于**在看的客户端，反而更不一致）：
+  - `assistant` 整条消息里的 text 块，**只在同 message id 未被流式发送时才计**——服务端靠 `stream_event` 的 `message_start` 学 id（与 `streamState.streamedAssistantMessageIds` 同源）；
+  - **整条消息里的 thinking 块从不计**（客户端只计 `complete !== true` 的 thinking 片段）。
+- **种子取值 `max(rollup, projection)`**：rollup 是**真值但只在分界时更新**，projection **实时但按字符估**。取大者 ⇒ 过了分界就是真值、飞行途中是估计。**完成时该 run 的终态通知仍是权威**（渲染侧 `settledFinal` 阴影守卫优先它）⇒ **估计绝不会盖过终局真值**。
+- **生命周期**：4 处 `this.sessions.delete(sessionId)` 收尾都调 `clearAgentRunUsage`（正常 stop ×2 + 启动失败 + CLI 异常退出）；每会话上限 64 个 run，超出按插入序淘汰。
+
+#### 顺带修掉的真缺陷：基准被采用后不计账 ⇒ 永远爬不起来
+
+种入绝对用量后，数字**永远不动**。机制：rebase 之后 `totalTokens` 恰好等于行里已有的值 ⇒ 那次写入被「无变化就 return」**跳过** ⇒ `lastWritten` 停在 0 ⇒ **下一帧把基准重算一遍、把刚累加的字符清零**（无限循环）。
+修法：**rebase 时就 `acc.lastWritten = reported`**（采用基准即记账），不要只在写入成功时才记。
+
+#### 踩坑记录（28.2）
+
+1. ⭐ **「A 好 B 坏」不等于数据没到，往往只是身份没对齐。** 我先假设「B 收不到实时帧」，**被推翻**：H5/移动端与桌面端**是同一份 `desktop/dist`**（`staticH5.ts`），`sendToSession` 遍历 Set、`conversationService.onOutput` 是 `outputCallbacks[]` **多监听者**，唯一按客户端裁剪的是 pet token。**必须先用代码证明「通道通不通」，再谈是不是通道问题。**（沿用上一轮的教训：UI 不更新优先怀疑**取数口径**，而非数据通道。）
+2. ⭐ **一个实体有「两个都被当键用的 id」时，症状是「数据明明在、UI 就是空」，且只在缺少那个把两者绑起来的帧时发作**（这里＝后加入的客户端）。本地客户端因为收到了绑定帧而完全正常。
+3. **假的 id 不是「无用」而是「不可查」**：把 `toolUseId` 填成 runAgentId 后，行**看起来完全健康**（有 status、有 usage），却**永远读不到**。宁可不填，等边界帧补齐。
+4. **服务端外推的计数点绝不能放在 `translateAgentRunMessage`**：那是**每个客户端各调一次**，N 个客户端会把同一个 run 的产出算成 **N 倍**（这坑先前在别处踩过，此处刻意避开）。
+5. **镜像速率要连「不计的部分」一起镜像**：我的测试当场抓出漏了 `message_start` ⇒ 整条消息与增量**双计**（10→20）。
+6. ⚠️ **测试必须每个用例独立 run id**：累加器是**模块级全局**且**按 run id 限流**，复用同一 id 会让后一个用例静默丢帧（继承前例的写节流）——本轮又踩一次，现象是「上一例跑完，下一例首帧不生效」。
+7. **`git diff <commit>` 看不见未跟踪文件**：链位 63 第一版漏掉了两个**新增**文件（`agentRunUsageProjection.ts` 及其测试），而复现度比对当场把它暴露出来（`A src/server/services/agentRunUsageProjection.ts`）。生成补丁前先 `git add`，或用 `git diff --cached <commit>`。
+
+#### 验证（28.2）
+
+| 项 | 结果 |
+|---|---|
+| 身份对齐核心回归 | 种一行 `{taskId:'a74ce8', toolUseId:'call_00_x'}` + 喂 `runAgentId:'a74ce8'` 的帧 ⇒ 写入落**同一行**、爬过种子值、`toolUseId` 不变、**只有一行** |
+| 服务端 | `activeSubagentRuns` 5 例；路由 11 例；投影 10 例（含「已流式则不重复计」「整条 thinking 不计」两条镜像回归） |
+| 客户端 | `chatStore` **380/380**；`chatStore`+`MessageList`+`ToolCallGroup` **597/597** / **584/584** |
+| `check:server` | **496 文件 / 5975 条 / 0 失败**（基线 495 / 5963） |
+| 链复现度 | 63/63 apply 0 失败；终态 vs 工作树仅差 2 个排除项 |
+| **真机** | 用户确认：「能接近及时看到用量在跑」，且 B 与 A 数值一致 —— **本轮达标** |
+
+### 28.3 补充参考：服务端推送 + 客户端轮询（**未实施**，留作后续可选）
+
+28.2 已让 B **直接落在 A 附近的数**上，无需额外通道。以下两点是**已设计但按用户决定暂缓**的加码项，登记备查（用途：把「≈一致」升级为「逐位一致」，并覆盖不跑该段客户端代码的适配器，如 IM/pet）：
+
+1. **WS 主动推送**：在 `ServerMessage` 联合（服务端 `ws/events.ts` + 客户端 `types/chat.ts`）加一种「在飞用量快照」帧，服务端按 ~250ms 用 `sendToSession` 广播给该会话全部客户端；客户端在 `handleServerMessage` 的 `switch` 加分支，按**绝对快照**写入（复用既有 `reported > acc.lastWritten` 的 rebase 语义）。相当于把 `ingestSubagentLiveUsage` 的计数搬到服务端后回灌。
+2. **REST 轮询兜底**：新增**轻端点** `GET /api/sessions/:id/agent-usage`（挂在 `handleSessionsApi` 的子资源分发旁），返回与 `runningAgentUsage` 同一份 payload。⚠️ **轮询绝不能打 `/messages`**——那是整个转录。客户端仅在「有在飞的子代理行」且「推送已陈旧」时启动 ~1s 轮询；照抄 `ContextUsageIndicator` 的写法（`inFlight` 防叠、`isDocumentVisible()` 跳过隐藏页、`clearInterval` 清理）。
+
+**已知局限（现状即如此，非缺陷）**：外推器只计**它自己看到过的帧** ⇒ 服务端若在 run 中途重启，早先那段会丢、种子偏低；`max(rollup, …)` 只能在跨过分界后补上。
+
+### 28.4 链复现度：63/63（2026-09-29 实测）
+
+| 链位 | patch | 内容 | 文件数 |
+|---|---|---|---|
+| 62 | `tps-bucket-engine-rewrite.patch` | 28.1：TPS 速率引擎重写为 125ms 分桶（`e4b737dc`） | 19 |
+| 63 | `subagent-usage-cross-client.patch` | 28.2：子代理跨客户端用量一致性（身份对齐 + 服务端在飞外推 + 基准记账修复 + 轮次页脚字号） | 11 |
+
+> ⚠️ **本表故意不写 `patches/` 前缀**（与 §27.4 同）：链位表用的是 `` `patches/xxx.patch` `` 形式，若此处也带前缀，任何「按 `| 链位 | `patches/…`` 抽取链序」的脚本都会把这两行**当成第二个同号条目**（重复命中）。表格写法保持与链位表可区分。
+
+**验证口径**：干净 worktree@`068b3ebd` 按链序（链位 1→63）`git apply --allow-empty` ⇒ **63/63 失败 0**；随后 `git add -A && git write-tree` 与工作树 `write-tree` 比对，差异**仅** `bun.lock`、`desktop/src-tauri/resources/preview-agent.js`（2 个有意排除项）与 `modify/`（链自身的元数据）。
+
+⚠️ **两个易踩的操作坑**（本轮都踩了）：
+1. **顺序表末尾缺换行**：`printf ... >> order.txt` 会把新行**粘到上一行**，导致链位 61 被跳过、后续补丁因缺基底而失败（现象像是「补丁坏了」，其实是表坏了）。
+2. **比对要用 tree 对 tree**（`git write-tree` + `git diff-tree`），不要用 `git diff <commit>`：后者看不见未跟踪文件，会把新增文件**误报成缺失**（见 28.2 踩坑 7）。
 
 ## 附录：交接备注（2026-09-27 更新）
 
