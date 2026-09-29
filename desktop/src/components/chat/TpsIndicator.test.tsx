@@ -1,4 +1,4 @@
-import { cleanup, render } from '@testing-library/react'
+import { act, cleanup, render } from '@testing-library/react'
 import '@testing-library/jest-dom'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { TpsMeter } from '@/lib/tpsMeter'
@@ -9,13 +9,25 @@ import { TpsIndicator, formatTps } from './TpsIndicator'
 // Drive the real meters with a fake clock so the sliding windows behave
 // deterministically, and stub only the store lookups.
 let now = 1_000_000
-const ownMeter = new TpsMeter(1500, 500)
-const subMeter = new TpsMeter(1500, 500)
+const ownMeter = new TpsMeter('arrival')
+const subMeter = new TpsMeter('arrival')
 
 function pump(meter: TpsMeter, n = 10): void {
   for (let i = 0; i < n; i++) {
     now += 100
     meter.push('x'.repeat(6))
+  }
+}
+
+/**
+ * Concurrent decoders: every meter gets a sample at the same instant, so they
+ * all sit inside one sliding window. `pump`-ing them one after another advances
+ * the clock 1s per meter, which drains the earlier ones.
+ */
+function pumpConcurrent(meters: TpsMeter[], n = 10): void {
+  for (let i = 0; i < n; i++) {
+    now += 100
+    for (const meter of meters) meter.push('x'.repeat(6))
   }
 }
 
@@ -26,7 +38,8 @@ beforeEach(() => {
   useSettingsStore.setState({ sessionExtendedInfo: true })
   vi.spyOn(performance, 'now').mockImplementation(() => now)
   vi.spyOn(chatStore, 'getSessionTpsMeter').mockReturnValue(ownMeter)
-  vi.spyOn(chatStore, 'getSubordinateTpsMeters').mockReturnValue([subMeter])
+  vi.spyOn(chatStore, 'getAgentRunTpsMeters').mockReturnValue([subMeter])
+  vi.spyOn(chatStore, 'getAgentRunTpsMeter').mockReturnValue(subMeter)
 })
 
 afterEach(() => {
@@ -35,7 +48,13 @@ afterEach(() => {
   vi.restoreAllMocks()
 })
 
-it('shows the aggregated total with a Σn badge while a subagent is emitting', async () => {
+/** The number the indicator renders, as a number. */
+function shownTps(container: HTMLElement): number {
+  const text = container.querySelector('[data-testid="tps-indicator"]')?.textContent ?? ''
+  return Number(text.replace(/[^0-9.]/g, ''))
+}
+
+it('shows the session and its subagents added together, with no badge', async () => {
   pump(ownMeter)
   pump(subMeter)
 
@@ -43,17 +62,33 @@ it('shows the aggregated total with a Σn badge while a subagent is emitting', a
   // The mount effect runs tick() synchronously, so the indicator has a reading.
   const indicator = container.querySelector('[data-testid="tps-indicator"]')
   expect(indicator).not.toBeNull()
-
-
-  // Σ badge appears because the subagent meter is live in the window.
-  expect(container.querySelector('[data-testid="tps-subagent-badge"]')).toHaveTextContent('Σ1')
-  // Number rendered, and it is the combined total (> a single stream).
-  const numberText = indicator!.textContent?.replace(/TPS|t\/s|Σ1/g, '').trim() ?? ''
-  const shown = Number(numberText)
+  // The Σ badge is gone: the reading is already the team total, and the count
+  // it used to show was permanently zero for background runs.
+  expect(container.querySelector('[data-testid="tps-subagent-badge"]')).toBeNull()
+  // Two live streams of equal rate, so the total is twice one of them.
+  const shown = shownTps(container)
   expect(shown).toBeGreaterThan(0)
+  expect(shown).toBeCloseTo(ownMeter.value() + subMeter.value(), 0)
+  expect(shown).toBeGreaterThan(ownMeter.value())
 })
 
-it('drops the Σ badge once the subagent stops (its held speed must not inflate the total)', async () => {
+it('adds each live subagent, and the count shows in the tooltip only', async () => {
+  const extras = [new TpsMeter('arrival'), new TpsMeter('arrival'), new TpsMeter('arrival')]
+  const runs = [subMeter, ...extras]
+  pumpConcurrent([ownMeter, ...runs])
+  vi.spyOn(chatStore, 'getAgentRunTpsMeters').mockReturnValue(runs)
+
+  const { container } = render(<TpsIndicator sessionId="main" />)
+  const indicator = container.querySelector('[data-testid="tps-indicator"]')!
+  expect(container.querySelector('[data-testid="tps-subagent-badge"]')).toBeNull()
+  expect(indicator.getAttribute('title')).toContain('4')
+  expect(shownTps(container)).toBeCloseTo(
+    ownMeter.value() + runs.reduce((sum, meter) => sum + meter.value(), 0),
+    0,
+  )
+})
+
+it('drops a finished subagent out of the total once its window drains', async () => {
   pump(subMeter)
   // Subagent finishes; drain its 1500ms window.
   now += 10_000
@@ -61,8 +96,38 @@ it('drops the Σ badge once the subagent stops (its held speed must not inflate 
 
   const { container } = render(<TpsIndicator sessionId="main" />)
   expect(container.querySelector('[data-testid="tps-indicator"]')).not.toBeNull()
-  expect(container.querySelector('[data-testid="tps-subagent-badge"]')).toBeNull()
+  // The held speed of the finished run must not inflate the total.
+  expect(shownTps(container)).toBeCloseTo(ownMeter.value(), 0)
+})
 
+it('run mode shows one run own speed, ignoring its siblings', () => {
+  pump(ownMeter)
+  pump(subMeter)
+  const { container } = render(<TpsIndicator sessionId="main" runAgentId="run-1" />)
+  // Run mode resolves the run's own meter and aggregates nothing.
+  expect(shownTps(container)).toBeCloseTo(subMeter.value(), 0)
+})
+
+it('picks up subagents dispatched after the indicator mounted', async () => {
+  vi.useFakeTimers()
+  try {
+    pump(ownMeter)
+    // The common case: the indicator mounts with the session and the agents are
+    // dispatched afterwards. A subordinate list resolved once at mount would be
+    // permanently empty here, so the total would never include the runs.
+    vi.spyOn(chatStore, 'getAgentRunTpsMeters').mockReturnValue([])
+    const { container } = render(<TpsIndicator sessionId="main" />)
+    expect(shownTps(container)).toBeCloseTo(ownMeter.value(), 0)
+
+    // A run starts decoding; the next poll has to see it.
+    pumpConcurrent([ownMeter, subMeter])
+    vi.spyOn(chatStore, 'getAgentRunTpsMeters').mockReturnValue([subMeter])
+    await act(async () => { await vi.advanceTimersByTimeAsync(400) })
+
+    expect(shownTps(container)).toBeCloseTo(ownMeter.value() + subMeter.value(), 0)
+  } finally {
+    vi.useRealTimers()
+  }
 })
 
 it('caps the displayed value at 4 digits (9999)', () => {
@@ -106,6 +171,23 @@ it('renders nothing when session extended info is off, even with a live reading'
   useSettingsStore.setState({ sessionExtendedInfo: false })
   const { container } = render(<TpsIndicator sessionId="main" />)
   expect(container.querySelector('[data-testid="tps-indicator"]')).toBeNull()
+})
+
+it('survives the extended-info switch being flipped while mounted', () => {
+  pump(ownMeter)
+  const { container } = render(<TpsIndicator sessionId="main" />)
+  expect(container.querySelector('[data-testid="tps-indicator"]')).not.toBeNull()
+
+  // The switch is resolved before the effect but acted on after it, because an
+  // early return above the hook would make this component call a different
+  // number of hooks per render — which React rejects outright. So flipping it
+  // live has to hide the indicator without throwing.
+  act(() => { useSettingsStore.setState({ sessionExtendedInfo: false }) })
+  expect(container.querySelector('[data-testid="tps-indicator"]')).toBeNull()
+
+  // Flipping it back brings the reading back without a remount.
+  act(() => { useSettingsStore.setState({ sessionExtendedInfo: true }) })
+  expect(container.querySelector('[data-testid="tps-indicator"]')).not.toBeNull()
 })
 
 

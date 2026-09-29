@@ -86,10 +86,11 @@ vi.mock('../../stores/chatStore', () => ({
   },
   getSessionTpsMeter: () => ({
     hasStreamed: () => false,
+    hasLiveSamples: () => false,
     lastDataTime: () => 0,
     value: () => 0,
   }),
-  getSubordinateTpsMeters: () => [],
+  getAgentRunTpsMeters: () => [],
 }))
 
 vi.mock('../../hooks/useKeyboardShortcuts', () => ({

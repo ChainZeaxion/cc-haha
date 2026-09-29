@@ -20,7 +20,20 @@
 import type { TpsCalibration } from './tpsMeter'
 
 export const TPS_CALIBRATION_STORAGE_KEY = 'cc-haha.tpsCalibration'
-export const TPS_CALIBRATION_VERSION = 2
+// v5: v4 entries may have been learned while the text estimator counted
+// whitespace and used a lower CJK coefficient — both of which were wrong for
+// this engine (measured: 1.003 tokens per Chinese character, whitespace free).
+// Those coefficients would keep every reading about a third low, so they are
+// discarded and re-learned.
+// v4: v3 entries may have been seeded into subagent run meters, which then
+// read the team speed about a third low. Nothing reads them that way any more,
+// but purging keeps a stale value from surprising a future consumer.
+// v3: v2 entries could have been written by a mid-run learning hook that paired
+// a per-boundary token delta against every character since the meter was
+// created, which understated the density and halved the displayed speed. The
+// version check drops those entries so the coefficients are re-learned from
+// matched spans only.
+export const TPS_CALIBRATION_VERSION = 5
 
 /** Keep the store small; the least recently used models are dropped first. */
 const MAX_MODELS = 32

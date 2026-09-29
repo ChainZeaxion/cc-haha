@@ -505,6 +505,7 @@ export const kr: Record<TranslationKey, string> = {
   'chat.openReview': '검토',
   'chat.tpsSpeedTitle': '실시간 디코드 속도(토큰/초)',
   'chat.tpsAggregateTitle': '실시간 디코드 속도(토큰/초, 서브에이전트 {count}개 포함)',
+  'chat.tpsRunTitle': '이 서브에이전트의 실시간 디코드 속도(토큰/초)',
   'chat.downloadableFiles': '다운로드 가능한 파일',
   'chat.downloadableMore': '더 {count}개 보기',
   'chat.downloadableAll': '모두 보기',

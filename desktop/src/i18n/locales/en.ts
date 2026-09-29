@@ -501,6 +501,7 @@ export const en = {
   'chat.openReview': 'Review',
   'chat.tpsSpeedTitle': 'Real-time decode speed (tokens/second)',
   'chat.tpsAggregateTitle': 'Real-time decode speed (tokens/second, including {count} subagent(s))',
+  'chat.tpsRunTitle': "This subagent's real-time decode speed (tokens/second)",
   'chat.downloadableFiles': 'Downloadable files',  'chat.downloadableMore': 'Show {count} more',
   'chat.downloadableAll': 'Show all',
   'workspace.download': 'Download',

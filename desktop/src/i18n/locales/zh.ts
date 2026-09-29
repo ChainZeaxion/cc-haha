@@ -502,6 +502,7 @@ export const zh: Record<TranslationKey, string> = {
   'chat.openReview': '审查',
   'chat.tpsSpeedTitle': '实时解码速度（token/秒）',
   'chat.tpsAggregateTitle': '实时解码速度（token/秒，含 {count} 个子代理）',
+  'chat.tpsRunTitle': '该子代理的实时解码速度（token/秒）',
   'chat.downloadableFiles': '可下载文件',
   'chat.downloadableMore': '查看更多 ({count})',
   'chat.downloadableAll': '显示全部',

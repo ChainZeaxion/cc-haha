@@ -11,6 +11,7 @@ import {
 } from '../components/activity/sessionActivityModel'
 import { useSessionRuntimeStore } from './sessionRuntimeStore'
 import { clearTpsCalibration, loadTpsCalibration } from '../lib/tpsCalibration'
+import { DEFAULT_K_CJK } from '../lib/tpsMeter'
 
 const {
   sendMock,
@@ -188,6 +189,8 @@ import {
   appendReplayedUserMessage,
   registerAgentRunSession,
   getSessionTpsMeter,
+  getAgentRunTpsMeter,
+  getAgentRunTpsMeters,
   mergeBackgroundAgentTaskRecords,
   reconstructAgentNotifications,
   reconstructRunActivityFromTranscript,
@@ -10546,7 +10549,7 @@ describe('chatStore history mapping', () => {
     }
   })
 
-  it("folds an unopened subagent run's decode text into the parent TPS meter", () => {
+  it("meters an unopened subagent run's decode text on that run's own meter", () => {
     const parentSessionId = '__tps-parent-probe'
     const send = (event: Extract<ServerMessage, { type: 'agent_run_event' }>['event']) => {
       useChatStore.getState().handleServerMessage(parentSessionId, {
@@ -10560,8 +10563,13 @@ describe('chatStore history mapping', () => {
 
     send({ type: 'content_delta', text: 'x'.repeat(60) })
 
-    const meter = getSessionTpsMeter(parentSessionId)
+    // Metered under the run's own id, so a run page opened later still finds a
+    // warm meter, and the parent's meter is left alone — subagent prose must
+    // never inflate the session's own reading (it is added separately, by the
+    // indicator, from the run meters).
+    const meter = getAgentRunTpsMeter(parentSessionId, 'metered-agent')
     expect(meter.hasStreamed()).toBe(true)
+    expect(getSessionTpsMeter(parentSessionId).hasStreamed()).toBe(false)
     // Metered, never rendered: the frame is buffered for a run page that may
     // never open, and no session state is fabricated for the parent.
     expect(useChatStore.getState().sessions[parentSessionId]).toBeUndefined()
@@ -10588,7 +10596,7 @@ describe('chatStore history mapping', () => {
       useChatStore.getState().handleServerMessage(sessionId, { type: 'content_delta', text: 'x'.repeat(6) })
     }
     const meter = getSessionTpsMeter(sessionId)
-    expect(meter.calibration()).toEqual({ kCjk: 1, kAscii: 1 })
+    expect(meter.calibration()).toEqual({ kCjk: DEFAULT_K_CJK, kAscii: 1 })
 
     useChatStore.getState().handleServerMessage(sessionId, {
       type: 'message_complete',
@@ -10597,7 +10605,7 @@ describe('chatStore history mapping', () => {
     })
 
     const learned = meter.calibration()
-    expect(learned).not.toEqual({ kCjk: 1, kAscii: 1 })
+    expect(learned).not.toEqual({ kCjk: DEFAULT_K_CJK, kAscii: 1 })
     // The coefficients are remembered for this model, so the next session does
     // not start from 1.0 and under-read until its own first call completes.
     expect(loadTpsCalibration('qwen3-coder')).toEqual(learned)
@@ -10620,19 +10628,26 @@ describe('chatStore history mapping', () => {
         event: { type: 'content_delta', text: 'x'.repeat(6) },
       })
     }
-    expect(getSessionTpsMeter(sessionId).hasStreamed()).toBe(true)
+    // The relayed text went to the run's own meter; the session's meter never
+    // saw it, so no part of it can reach the call reconciliation below.
+    expect(getAgentRunTpsMeter(sessionId, 'a1').hasStreamed()).toBe(true)
+    expect(getSessionTpsMeter(sessionId).hasStreamed()).toBe(false)
 
     useChatStore.getState().handleServerMessage(sessionId, {
       type: 'message_complete',
       usage: { input_tokens: 10, output_tokens: 60 },
     })
-    expect(getSessionTpsMeter(sessionId).calibration()).toEqual({ kCjk: 1, kAscii: 1 })
+    expect(getSessionTpsMeter(sessionId).calibration()).toEqual({ kCjk: DEFAULT_K_CJK, kAscii: 1 })
     expect(loadTpsCalibration('ext-model')).toBeNull()
   })
 
   it('counts relayed token ids exactly and stops sampling the duplicated text', () => {
     const sessionId = '__tps-ids'
     useChatStore.setState({ sessions: { [sessionId]: makeSession() } })
+    // The reading covers completed 125 ms buckets, so the frame has to land in
+    // one that has finished before the window can see it.
+    let now = 1_000_000
+    const nowSpy = vi.spyOn(performance, 'now').mockImplementation(() => now)
 
     // Relay a real count, then the text of those same tokens.
     useChatStore.getState().handleServerMessage(sessionId, { type: 'tps_tokens', tokens: 40, kind: 'content' })
@@ -10641,7 +10656,9 @@ describe('chatStore history mapping', () => {
     const meter = getSessionTpsMeter(sessionId)
     expect(meter.source()).toBe('ids')
     // Only the relayed 40 tokens — the text frame would have added ~57 more.
+    now += 125 // let the bucket it landed in complete
     expect(meter.windowTokens()).toBeCloseTo(40, 5)
+    nowSpy.mockRestore()
   })
 
   it('attributes relayed reasoning tokens to the open thought block', () => {
@@ -10678,13 +10695,17 @@ describe('chatStore history mapping', () => {
     const sessionId = '__tps-reconnect'
     useChatStore.setState({ sessions: { [sessionId]: makeSession() } })
 
+    let now = 1_000_000
+    const nowSpy = vi.spyOn(performance, 'now').mockImplementation(() => now)
     useChatStore.getState().handleServerMessage(sessionId, { type: 'content_delta', text: 'hello' })
+    now += 125 // let the bucket it landed in complete
     expect(getSessionTpsMeter(sessionId).windowTokens()).toBeGreaterThan(0)
 
     // A reconnect can replay deltas; the replayed prefix must not be counted.
     useChatStore.getState().handleServerMessage(sessionId, { type: 'connected', sessionId })
     expect(getSessionTpsMeter(sessionId).windowTokens()).toBe(0)
     expect(getSessionTpsMeter(sessionId).hasStreamed()).toBe(false)
+    nowSpy.mockRestore()
   })
 
   it('banks the old model coefficients and starts fresh when the model changes', () => {
@@ -10702,7 +10723,7 @@ describe('chatStore history mapping', () => {
       timing: { duration_ms: 1, duration_api_ms: 1, ttft_ms: 1, decode_ms: 1500 },
     })
     const modelA = getSessionTpsMeter(sessionId).calibration()
-    expect(modelA).not.toEqual({ kCjk: 1, kAscii: 1 })
+    expect(modelA).not.toEqual({ kCjk: DEFAULT_K_CJK, kAscii: 1 })
 
     // The runtime switches to a model nothing is known about yet.
     useSessionRuntimeStore.getState().setSelection(sessionId, { providerId: 'p1', modelId: 'model-b' })
@@ -10715,7 +10736,7 @@ describe('chatStore history mapping', () => {
 
     // model-a's numbers were banked; model-b re-learns from neutral.
     expect(loadTpsCalibration('model-a')).toEqual(modelA)
-    expect(getSessionTpsMeter(sessionId).calibration()).toEqual({ kCjk: 1, kAscii: 1 })
+    expect(getSessionTpsMeter(sessionId).calibration()).toEqual({ kCjk: DEFAULT_K_CJK, kAscii: 1 })
   })
 
   it('does not replay buffered output after an unregistered run has completed', () => {
@@ -16563,3 +16584,73 @@ describe('chatStore inactive complete-page retention', () => {
     }
   })
 })
+
+describe('per-run TPS registry reclamation', () => {
+  // The registry is module-global and outlives a test, so each test gets a
+  // session id of its own rather than inheriting the previous test's meters.
+  const IDLE_MS = 5 * 60 * 1000
+  let session = ''
+  let now = 0
+  let seq = 0
+
+  beforeEach(() => {
+    session = `tps-reap-session-${++seq}`
+    now = 1_000_000
+    vi.spyOn(performance, 'now').mockImplementation(() => now)
+    vi.spyOn(Date, 'now').mockImplementation(() => now)
+  })
+
+  afterEach(() => {
+    vi.restoreAllMocks()
+  })
+
+  it('keeps a run through the hold window so a just-finished reading stays readable', () => {
+    const meter = getAgentRunTpsMeter(session, 'run-a')
+    meter.push('正在写一段中文说明', { external: true })
+    expect(getAgentRunTpsMeters(session)).toHaveLength(1)
+
+    // Idle well past the meter's own window drain, but still inside the hold.
+    now += IDLE_MS - 1
+    expect(getAgentRunTpsMeters(session)).toHaveLength(1)
+  })
+
+  it('drops a run once it has been silent past the hold window', () => {
+    const meter = getAgentRunTpsMeter(session, 'run-a')
+    meter.push('正在写一段中文说明', { external: true })
+
+    now += IDLE_MS + 1
+    expect(getAgentRunTpsMeters(session)).toHaveLength(0)
+  })
+
+  it('ages off one silent run without touching a sibling still streaming', () => {
+    const quiet = getAgentRunTpsMeter(session, 'run-quiet')
+    quiet.push('一段已经停止的输出', { external: true })
+    const busy = getAgentRunTpsMeter(session, 'run-busy')
+
+    // Only the busy one keeps receiving frames; the sweep runs on every read.
+    for (let i = 0; i < 6; i++) {
+      now += IDLE_MS / 5
+      busy.push('持续输出中的文本', { external: true })
+      getAgentRunTpsMeters(session)
+    }
+
+    const remaining = getAgentRunTpsMeters(session)
+    expect(remaining).toEqual([busy])
+  })
+
+  it('never reclaims another session\u2019s runs', () => {
+    const mine = getAgentRunTpsMeter(session, 'run-a')
+    mine.push('本会话的输出', { external: true })
+    const otherSession = `${session}-other`
+
+    now += IDLE_MS + 1
+    // Only this session's run went stale. The other session's run is live, so
+    // sweeping mine must leave it alone.
+    const other = getAgentRunTpsMeter(otherSession, 'run-b')
+    other.push('别的会话的输出', { external: true })
+
+    expect(getAgentRunTpsMeters(session)).toHaveLength(0)
+    expect(getAgentRunTpsMeters(otherSession)).toHaveLength(1)
+  })
+})
+

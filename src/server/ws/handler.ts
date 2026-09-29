@@ -3993,10 +3993,61 @@ export function translateCliMessage(cliMsg: any, sessionId: string): ServerMessa
 
 
 
+/**
+ * Monotonic wall clock with sub-millisecond resolution.
+ *
+ * `Date.now()` is integer milliseconds, and the client measures a stream's
+ * cadence from differences of this stamp. With concurrent subagents several
+ * frames of the same stream can be produced inside one millisecond, and a zero
+ * difference reads as "no interval" — those samples are then dropped, which
+ * under-reads exactly the way a coarse clock always does. `hrtime` keeps the
+ * sub-millisecond ordering while `HR_EPOCH` keeps the number an epoch-like
+ * millisecond value.
+ */
+const HR_EPOCH = Date.now()
+function nowMsPrecise(): number {
+  return HR_EPOCH + Number(process.hrtime.bigint() / 1000n) / 1000
+}
+
+/**
+ * Stamp the moment the server received a streamed chunk onto the frame.
+ *
+ * The client rates decode off this clock rather than off its own receive clock.
+ * A busy client (a phone with an occupied main thread) consumes queued frames in
+ * a burst, so its arrival spacing describes its scheduler, not the decoder:
+ * measured on a drained queue, 8-character frames land ~2 ms apart and read as
+ * ~4000 t/s while the engine is truly at ~450. The server sees the frames as
+ * they are produced (the same stream measured ~18 ms apart), so its clock keeps
+ * the real cadence. Mirrors the existing `serverStart` anchor on thinking
+ * blocks, which already fixes elapsed time the same way.
+ *
+ * Stamped here, at the single point every server→client frame leaves through,
+ * so both the top-level deltas and the ones nested in `agent_run_event` are
+ * covered without threading a timestamp through every producer.
+ */
+function stampServerTs(message: ServerMessage): ServerMessage {
+  const serverTs = nowMsPrecise()
+  if (
+    message.type === 'content_delta' ||
+    message.type === 'thinking' ||
+    message.type === 'tps_tokens'
+  ) {
+    return { ...message, serverTs }
+  }
+  if (message.type === 'agent_run_event') {
+    const event = message.event
+    if (event.type === 'content_delta' || event.type === 'thinking') {
+      return { ...message, event: { ...event, serverTs } }
+    }
+  }
+  return message
+}
+
 function sendMessage(ws: SessionConnection, message: ServerMessage) {
+  const stamped = stampServerTs(message)
   const outgoing = ws.data.clientKind === 'pet'
-    ? toPetServerMessage(message)
-    : message
+    ? toPetServerMessage(stamped)
+    : stamped
   if (outgoing) ws.send(JSON.stringify(outgoing))
 }
 
