@@ -1211,7 +1211,17 @@ const subagentLiveChars = new Map<
     createdAt: number
   }
 >()
-const SUBAGENT_LIVE_WRITE_INTERVAL_MS = 3000
+/**
+ * How often a running subagent's projected usage is written back to its row.
+ *
+ * 4Hz: the cadence the TPS indicator polls at, so the number reads as live rather
+ * than advancing in visible steps. It is a compromise, not a free win — every write
+ * re-derives the session activity model (`ActiveSession`'s selector) and the
+ * `MessageList` live-usage memo, and with it every group that reads them — so the
+ * interval is kept no lower than "reads as real time" requires. 3s, the value this
+ * used to be, is what made the number visibly stair-step.
+ */
+const SUBAGENT_LIVE_WRITE_INTERVAL_MS = 250
 
 /**
  * How long a finished run's per-run state — its TPS meter (`tpsMeterByRun`) and
@@ -1312,7 +1322,14 @@ function ingestSubagentLiveUsage(
     ? (known.status === 'running' ? known : { ...known, status: 'running', updatedAt: now })
     : {
         taskId: agentId,
-        toolUseId: agentId,
+        // No `toolUseId`: a frame tells us which *run* this is, not which Agent
+        // tool call spawned it, and those are different ids. Guessing one by
+        // reusing the run id produces a row the UI can never look up — it reads
+        // usage under the tool-call id — so the number stays invisible while the
+        // row looks perfectly healthy. Leaving it unset keeps that honest: the row
+        // fills in the real id when a boundary frame supplies it. The server also
+        // hands the pair over at open time (see seedRunningAgentRows), which is
+        // what makes this branch rare rather than the norm.
         status: 'running',
         taskType: 'local_agent',
         startedAt: now,
@@ -1335,6 +1352,14 @@ function ingestSubagentLiveUsage(
     acc.baseTokens = reported
     acc.text = 0
     acc.thinking = 0
+    // Record the baseline as taken, here rather than only on the write below.
+    // When the reported total is exactly what the counters would recompute to —
+    // which is the normal case for a row seeded from the server, and any row
+    // whose estimate has not moved yet — that write is skipped as a no-op, so
+    // without this the baseline would look untaken on every following frame and
+    // re-base each time, wiping the deltas just counted. The climb would never
+    // start.
+    acc.lastWritten = reported
   }
 
   // Output tokens are the whole generation, thinking included. Counting only
@@ -2680,15 +2705,18 @@ async function fetchAndMapSessionHistory(
   // background tasks — with no duration to show — until something ran live.
   // Goal and todo restoration stays gated below, because those describe the
   // session as a whole and a tail genuinely cannot support them.
-  const restoredBackgroundTasks = historyComplete
-    ? restoredActivity.backgroundAgentTasks
-    : reconstructRunActivityFromTranscript(
-        response.messages.filter((message) => !message.parentToolUseId),
-        ownedNotifications(
-          response.taskNotifications,
-          transcriptToolUseIds(response.messages),
-        ),
-      ).backgroundAgentTasks
+  const restoredBackgroundTasks = seedRunningAgentRows(
+    historyComplete
+      ? restoredActivity.backgroundAgentTasks
+      : reconstructRunActivityFromTranscript(
+          response.messages.filter((message) => !message.parentToolUseId),
+          ownedNotifications(
+            response.taskNotifications,
+            transcriptToolUseIds(response.messages),
+          ),
+        ).backgroundAgentTasks,
+    response.runningAgentUsage,
+  )
   const restoredGoalState = deriveActiveGoalStateFromMessages(historyComplete ? uiMessages : [])
   return {
     page,
@@ -7003,6 +7031,72 @@ function reconcileBackgroundAgentTasksWithActiveSnapshot(
     }),
   )
   return { tasks: changed ? tasks : current, changed }
+}
+
+/**
+ * Fold the server's in-flight run usage into the rows rebuilt from history.
+ *
+ * Three things leave a mid-run client with nothing to show: a run with no closing
+ * bookend looks settled to a reconstruction made from the transcript; a client that
+ * opened while the run was already going has no counter of its own for it; and —
+ * the one that actually hid the number — it never saw the `task_started` that says
+ * which Agent tool call the run belongs to, so it had no way to file what it
+ * measured under the id the UI reads.
+ *
+ * So each run is filed **keyed by its own id, carrying its spawning tool-call id**.
+ * That layout matches what a client which did see `task_started` ends up with, so
+ * the live writer finds these rows by the run id it has (see
+ * ingestSubagentLiveUsage) and the UI finds the number by the tool-call id it has.
+ * A single row serves both, and no guessed id is ever needed.
+ *
+ * These are exactly the runs the server still counts as active, so they are marked
+ * running. The absolute total is applied when there is one, and the live path then
+ * rebases onto it and carries on — which is what keeps a late client in step with
+ * one that has been watching all along. A run listed without a total yet (it has
+ * not crossed a tool boundary) still gets its row, because that is precisely the
+ * window in which this client would otherwise show nothing at all.
+ */
+function seedRunningAgentRows(
+  tasks: Record<string, BackgroundAgentTask>,
+  runningAgentUsage: Record<string, { taskId: string; toolUseId: string; totalTokens?: number; thinkTokens?: number }> | undefined,
+): Record<string, BackgroundAgentTask> {
+  const runs = Object.values(runningAgentUsage ?? {}).filter(run => Boolean(run.taskId))
+  if (runs.length === 0) return tasks
+  const now = Date.now()
+  const seeded = { ...tasks }
+  for (const run of runs) {
+    const { taskId, toolUseId } = run
+    // Match the row this run already has: under its own id (the canonical key), or
+    // under some other key that already carries the same spawning tool call.
+    const existing = seeded[taskId]
+      ?? (toolUseId ? Object.values(seeded).find(candidate => candidate.toolUseId === toolUseId) : undefined)
+    const totalTokens = run.totalTokens === undefined ? undefined : Math.round(run.totalTokens)
+    const reported = totalTokens !== undefined && Number.isFinite(totalTokens) && totalTokens > 0
+      ? totalTokens
+      : undefined
+    seeded[taskId] = {
+      ...(existing ?? {}),
+      taskId,
+      // Omit rather than invent: a wrong tool-call id is not merely useless, it is
+      // unlookupable, so a row carrying one is invisible while looking present.
+      ...(toolUseId || existing?.toolUseId ? { toolUseId: toolUseId || existing?.toolUseId } : {}),
+      // The server only listed runs it still counts as active.
+      status: 'running',
+      taskType: existing?.taskType ?? 'local_agent',
+      startedAt: existing?.startedAt ?? now,
+      updatedAt: now,
+      ...(reported === undefined ? {} : {
+        usage: {
+          ...(existing?.usage ?? {}),
+          totalTokens: reported,
+          ...(run.thinkTokens !== undefined && run.thinkTokens > 0
+            ? { thinkTokens: run.thinkTokens }
+            : {}),
+        },
+      }),
+    }
+  }
+  return seeded
 }
 
 function clearAgentTaskNotificationsForActiveSnapshot(

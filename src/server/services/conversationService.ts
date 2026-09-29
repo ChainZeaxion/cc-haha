@@ -10,6 +10,10 @@ import * as fs from 'node:fs'
 import * as os from 'node:os'
 import * as path from 'node:path'
 import { ProviderService } from './providerService.js'
+import {
+  clearAgentRunUsage,
+  observeAgentRunUsage,
+} from './agentRunUsageProjection.js'
 import { SettingsService } from './settingsService.js'
 import {
   OPENAI_CODEX_OAUTH_FILE_ENV_KEY,
@@ -751,6 +755,7 @@ export class ConversationService {
       const startupError = this.buildStartupError(sessionId, startupExitCode)
       this.clearSessionAutoAnswerWaits(session)
       this.sessions.delete(sessionId)
+      clearAgentRunUsage(sessionId)
 
       if (this.clearStaleLock(sessionId)) {
         console.log(
@@ -1412,6 +1417,12 @@ export class ConversationService {
           this.clearAutoAnswerWait(session.pendingPermissionRequests.get(msg.response.request_id))
           session.pendingPermissionRequests.delete(msg.response.request_id)
         }
+        // Count this toward any subagent run it belongs to, before the fan-out.
+        // This is the one place a session's messages pass through exactly once:
+        // the per-client forwarding below translates the same frame again for each
+        // connected client, so counting there would multiply a run's output by the
+        // number of clients watching it.
+        observeAgentRunUsage(sessionId, msg)
         this.notifyOutputCallbacks(sessionId, session.outputCallbacks, msg)
       } catch {
         console.warn(
@@ -1547,6 +1558,9 @@ export class ConversationService {
     this.cancelPendingControlRequests(session)
     this.clearSessionAutoAnswerWaits(session)
     this.sessions.delete(sessionId)
+    // The CLI is going away, so nothing will add to this session's run counts
+    // again; keeping them would only offer a future client stale figures.
+    clearAgentRunUsage(sessionId)
     this.killProcess(sessionId, session)
   }
 
@@ -1560,6 +1574,7 @@ export class ConversationService {
     this.cancelPendingControlRequests(session)
     this.clearSessionAutoAnswerWaits(session)
     this.sessions.delete(sessionId)
+    clearAgentRunUsage(sessionId)
     await this.stopProcessAndWait(sessionId, session, timeoutMs)
   }
 
@@ -1757,6 +1772,7 @@ export class ConversationService {
       const callbacks = [...activeSession.outputCallbacks]
       this.clearSessionAutoAnswerWaits(activeSession)
       this.sessions.delete(sessionId)
+      clearAgentRunUsage(sessionId)
       this.notifyOutputCallbacks(sessionId, callbacks, {
         type: 'result',
         subtype: 'error',

@@ -44,6 +44,27 @@ export type SessionChatStatusResponse = {
 type MessagesResponse = {
   messages: MessageEntry[]
   taskNotifications?: AgentTaskNotification[]
+  /**
+   * The subagent runs that are still going, keyed by the Agent tool-call id the
+   * UI renders usage under.
+   *
+   * Both ids travel together because neither is derivable from the other, and a
+   * client that opened the session mid-run never saw the `task_started` that
+   * relates them: `taskId` is what the run's live frames are addressed with,
+   * `toolUseId` is what its number must be displayed under. Only in-flight runs
+   * appear, because the client marks whatever it finds here as running.
+   *
+   * `totalTokens` is absent until the run crosses a tool boundary — but the run is
+   * listed regardless, because that boundary-free stretch is exactly when a client
+   * joining now has nothing else to go on.
+   */
+  runningAgentUsage?: Record<string, {
+    taskId: string
+    toolUseId: string
+    totalTokens?: number
+    thinkTokens?: number
+    toolUses?: number
+  }>
 }
 export type SessionHistoryPage = MessagesResponse & {
   page?: {
@@ -510,10 +531,13 @@ export const sessionsApi = {
     // which case every field below matches the previous unconditional-`null`
     // behaviour — early exit is the only new path.
     const exhausted = cursor === null
-    return {
-      messages: pages.flatMap(page => page.messages),
-      taskNotifications: pages.flatMap(page => page.taskNotifications ?? []),
-      page: {
+      return {
+        messages: pages.flatMap(page => page.messages),
+        taskNotifications: pages.flatMap(page => page.taskNotifications ?? []),
+        // Not stitched: it describes what is running *now*, so the newest page is
+        // the only one whose answer is still true.
+        runningAgentUsage: newest.runningAgentUsage,
+        page: {
         ...newest.page,
         nextCursor: cursor,
         hasMore: !exhausted,

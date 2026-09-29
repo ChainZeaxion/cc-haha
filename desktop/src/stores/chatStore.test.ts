@@ -16734,3 +16734,133 @@ describe('a late-joining client measures a subagent that is already running', ()
     expect(Object.keys(tasks)).toEqual(['agent-late'])
   })
 })
+
+describe('seeding in-flight subagent usage from history', () => {
+  type RunningUsage = Record<string, {
+    taskId: string
+    toolUseId: string
+    totalTokens?: number
+    thinkTokens?: number
+  }>
+  const seededHistory = (runningAgentUsage?: RunningUsage) => (
+    vi.mocked(sessionsApi.getFullHistory).mockResolvedValueOnce({ messages: [], runningAgentUsage })
+  )
+  // The run's own id and the Agent tool call that spawned it are different ids.
+  // A client that joined mid-run never saw `task_started`, which is the only frame
+  // that relates them, so the server has to hand over both.
+  //
+  // Each case takes its own pair: the live-usage accumulator is module-level and
+  // throttled per run id, so reusing one id across cases silently drops the later
+  // case's first frames.
+  const runIds = (name: string) => ({ run: `a74ce8-${name}`, tool: `call_00_${name}` })
+  const liveFrame = (run: string, text: string) => useChatStore.getState().handleServerMessage(TEST_SESSION_ID, {
+    type: 'agent_run_event',
+    runAgentId: run,
+    streamId: `stream-${run}`,
+    targetAgentId: run,
+    event: { type: 'content_delta', text },
+  })
+  const row = (run: string) => useChatStore.getState().sessions[TEST_SESSION_ID]
+    ?.backgroundAgentTasks?.[run]
+
+  it('files a joined-mid-run run under its own id, carrying the tool-call id the UI reads', async () => {
+    const { run, tool } = runIds('files-under-run-id')
+    seededHistory({ [tool]: { taskId: run, toolUseId: tool, totalTokens: 4200, thinkTokens: 1500 } })
+    useChatStore.setState({ sessions: { [TEST_SESSION_ID]: makeSession() } })
+
+    await useChatStore.getState().loadHistory(TEST_SESSION_ID)
+
+    expect(row(run)).toMatchObject({
+      taskId: run,
+      toolUseId: tool,
+      status: 'running',
+      usage: { totalTokens: 4200, thinkTokens: 1500 },
+    })
+  })
+
+  it('keeps the live number on that same row instead of forking an unreadable duplicate', async () => {
+    const { run, tool } = runIds('keeps-one-row')
+    seededHistory({ [tool]: { taskId: run, toolUseId: tool, totalTokens: 4200 } })
+    useChatStore.setState({ sessions: { [TEST_SESSION_ID]: makeSession() } })
+    await useChatStore.getState().loadHistory(TEST_SESSION_ID)
+
+    vi.useFakeTimers()
+    try {
+      // The first frame rebases onto the seeded total; what it carried is already
+      // inside that total, so the number holds at the authoritative value.
+      liveFrame(run, 'x'.repeat(400))
+      expect(row(run)?.usage?.totalTokens).toBe(4200)
+
+      // From there it climbs on that row, and the row keeps the tool-call id the
+      // UI looks usage up by — a row carrying the run id in `toolUseId` would be
+      // invisible no matter how healthy its numbers looked.
+      vi.advanceTimersByTime(300)
+      liveFrame(run, 'x'.repeat(400))
+      expect(row(run)?.usage?.totalTokens).toBeGreaterThan(4200)
+      expect(row(run)?.toolUseId).toBe(tool)
+
+      // One run, one row.
+      const keys = Object.keys(useChatStore.getState().sessions[TEST_SESSION_ID]?.backgroundAgentTasks ?? {})
+      expect(keys).toEqual([run])
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('gives a run with no total yet a row the UI can still read', async () => {
+    // Inside a long first generation the transcript rollup has nothing, but the
+    // run is live: without its identity the client would have nothing to attach a
+    // number to, which is exactly what left the other client blank for minutes.
+    const { run, tool } = runIds('no-total-yet')
+    seededHistory({ [tool]: { taskId: run, toolUseId: tool } })
+    useChatStore.setState({ sessions: { [TEST_SESSION_ID]: makeSession() } })
+
+    await useChatStore.getState().loadHistory(TEST_SESSION_ID)
+
+    expect(row(run)).toMatchObject({ taskId: run, toolUseId: tool, status: 'running' })
+    expect(row(run)?.usage).toBeUndefined()
+  })
+
+  it('never invents a tool-call id for a run the server did not describe', async () => {
+    const { run } = runIds('never-invents')
+    seededHistory(undefined)
+    useChatStore.setState({ sessions: { [TEST_SESSION_ID]: makeSession() } })
+    await useChatStore.getState().loadHistory(TEST_SESSION_ID)
+
+    liveFrame(run, 'x'.repeat(400))
+
+    // The frame proves the run exists but says nothing about which Agent call
+    // spawned it, so no tool-call id is claimed — an invented one is unlookupable
+    // and would read as "present but blank" rather than "not known yet".
+    expect(row(run)?.taskId).toBe(run)
+    expect(row(run)?.toolUseId).toBeUndefined()
+  })
+
+  it('leaves a run that finished earlier in the session alone', async () => {
+    const { run, tool } = runIds('leaves-finished-alone')
+    seededHistory({ [tool]: { taskId: run, toolUseId: tool, totalTokens: 4200 } })
+    useChatStore.setState({
+      sessions: {
+        [TEST_SESSION_ID]: makeSession({
+          backgroundAgentTasks: {
+            'done-1': {
+              taskId: 'done-1',
+              toolUseId: 'call_00_done',
+              status: 'completed',
+              taskType: 'local_agent',
+              startedAt: 1,
+              updatedAt: 2,
+              usage: { totalTokens: 999 },
+            },
+          },
+        }),
+      },
+    })
+
+    await useChatStore.getState().loadHistory(TEST_SESSION_ID)
+
+    const tasks = useChatStore.getState().sessions[TEST_SESSION_ID]?.backgroundAgentTasks
+    expect(tasks?.['done-1']).toMatchObject({ status: 'completed', usage: { totalTokens: 999 } })
+    expect(tasks?.[run]?.status).toBe('running')
+  })
+})
