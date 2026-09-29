@@ -192,3 +192,35 @@ it('survives the extended-info switch being flipped while mounted', () => {
 
 
 
+
+it('holds the previous number across a momentary dip, but not past the hold window', async () => {
+  vi.useFakeTimers()
+  try {
+    // Fake timers take over `performance.now` too, so drive the clock the meter
+    // reads explicitly — the indicator's hold window is measured on it as well.
+    vi.spyOn(performance, 'now').mockImplementation(() => now)
+    pump(ownMeter)
+    const live = ownMeter.value()
+    expect(live).toBeGreaterThan(0.5)
+
+    const { container } = render(<TpsIndicator sessionId="main" />)
+    expect(shownTps(container)).toBeCloseTo(live, 0)
+
+    // A boundary (text↔thinking↔tool): the window reads ~nothing for a moment
+    // while decoding has not stopped, so the last number stands instead of
+    // flashing 0. Liveness is untouched, which is what keeps the reading shown.
+    vi.spyOn(ownMeter, 'value').mockReturnValue(0)
+    now += 300
+    await act(async () => { await vi.advanceTimersByTimeAsync(300) })
+    expect(shownTps(container)).toBeCloseTo(live, 0)
+
+    // Held *forever* would leave the digits frozen on a speed the stream no longer
+    // has — the "reading stuck, never moves" failure. Past the window, a sustained
+    // near-zero is a real (very slow) rate and is taken at face value.
+    now += 2000
+    await act(async () => { await vi.advanceTimersByTimeAsync(2000) })
+    expect(shownTps(container)).toBe(0)
+  } finally {
+    vi.useRealTimers()
+  }
+})

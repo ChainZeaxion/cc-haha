@@ -197,6 +197,12 @@ type Bucket = {
   ids: number
   cjk: number
   ascii: number
+  /**
+   * This bucket's content was judged unmeasurable and thrown away (see
+   * depileBucket). Sticky, so the tokens that keep arriving in the same bucket do
+   * not rebuild it a few units at a time and leak back into the reading.
+   */
+  dropped?: boolean
 }
 
 /**
@@ -328,9 +334,15 @@ export class TpsMeter {
     const index = this.placeFrame(now, options.generatedAt)
     if (index >= 0) {
       const bucket = this.bucketAt(index)
-      bucket.cjk += cjk
-      bucket.ascii += ascii
-      this.depileBucket(index)
+      // A bucket already judged unmeasurable stays empty: these tokens are part of
+      // the same unmeasurable hand-over, and letting them rebuild it a few units at
+      // a time would leak the backlog back into the reading. Liveness is still
+      // recorded below, so the stream does not look stopped.
+      if (!bucket.dropped) {
+        bucket.cjk += cjk
+        bucket.ascii += ascii
+        this.depileBucket(index)
+      }
     }
     if (!external) this.noteCallFrame(now, cjk, ascii)
   }
@@ -350,8 +362,11 @@ export class TpsMeter {
     const now = performance.now()
     const index = this.placeFrame(now, options.generatedAt)
     if (index >= 0) {
-      this.bucketAt(index).ids += count
-      this.depileBucket(index)
+      const bucket = this.bucketAt(index)
+      if (!bucket.dropped) {
+        bucket.ids += count
+        this.depileBucket(index)
+      }
     }
     this.sawIds = true
     this.noteCallFrame(now, 0, 0, count)
@@ -449,7 +464,17 @@ export class TpsMeter {
 
     // A long silence ended the measurement: start a fresh grid on this frame so
     // the reading that follows reflects this burst, not the pause before it.
-    if (this.lastPushAt > 0 && now - this.lastPushAt > LIVE_GAP_MS) this.clearGrid()
+    if (this.lastPushAt > 0 && now - this.lastPushAt > LIVE_GAP_MS) {
+      // Keep the reading we had before dropping the grid. Everything this grid
+      // could say is about to be thrown away, and the honest thing to show while
+      // the meter re-measures is the last speed it actually measured — not the
+      // zero an empty grid reports, which a reader holds on to and the indicator
+      // freezes on (its own anti-flash rule keeps the previous number while the
+      // meter reads ~0).
+      const outgoing = this.readGrid()
+      if (outgoing > 0) this.heldValue = outgoing
+      this.clearGrid()
+    }
     if (this.originClock === 0) {
       this.originClock = sampleClock
       this.originArrival = now
@@ -523,16 +548,33 @@ export class TpsMeter {
     const limit = MAX_BUCKET_TPS * (BUCKET_MS / 1000)
     const bucket = this.ring[index % RING_SIZE]
     if (!bucket || bucket.index !== index) return
+    if (bucket.dropped) return
     const tokens = this.bucketTokens(index)
     if (tokens <= limit) return
     // The most recent bucket before this one that had content: the far side of
-    // the stall this backlog was generated across. -1 means the run began here.
+    // the stall this backlog was generated across.
     let previous = -1
     for (let i = index - 1; i >= 0 && index - i < RING_SIZE; i--) {
       if (this.bucketTokens(i) > 0) {
         previous = i
         break
       }
+    }
+    if (previous < 0) {
+      // Nothing measured precedes this bucket, so there is no interval these
+      // tokens could belong to. That happens when a tab was throttled in the
+      // background: the engine kept decoding and the whole backlog is handed over
+      // in the instant the client finally runs again — one arrival bucket holding
+      // minutes of output. This clock cannot say when those tokens were made, and
+      // charging them to a single 125 ms reads as tens of thousands per second
+      // (measured: a true 104 t/s read as 25 012, capped at 9999 on screen for the
+      // second it took the bucket to leave the window) — so they are not measured
+      // at all. The reading picks up from the frames that follow. The same lands
+      // when the content is real but further back than the ring can address, where
+      // spreading would divide minutes of tokens by eight seconds and over-read.
+      bucket.dropped = true
+      this.rescaleBucket(index, 0)
+      return
     }
     const spread = index - previous
     // Adjacent to the previous content: no stall, so this really is one dense
@@ -574,16 +616,26 @@ export class TpsMeter {
    * Always divided by the full bucket width, and by the number of buckets
    * actually averaged — never by a fixed 8 while fewer have elapsed, which would
    * read the first second of every turn a fraction of its true speed.
+   *
+   * A bucket thrown away as unmeasurable is left out of the divisor rather than
+   * counted as an empty 125 ms: it is a hole in the measurement, not a pause. A
+   * never-written bucket is different — the stream really did emit nothing for
+   * that 125 ms — and stays in the divisor, which is what makes a pause read as a
+   * dip instead of being glossed over.
    */
   private averageOver(endIndex: number, count: number): number {
     let tokens = 0
+    let measured = 0
     for (let i = 0; i < count; i++) {
       const index = endIndex - i
       this.depileBucket(index)
+      const bucket = this.ring[index % RING_SIZE]
+      if (bucket && bucket.index === index && bucket.dropped) continue
+      measured++
       tokens += this.bucketTokens(index)
     }
-    if (count <= 0) return 0
-    return tokens / (count * (BUCKET_MS / 1000))
+    if (measured <= 0) return 0
+    return tokens / (measured * (BUCKET_MS / 1000))
   }
 
   /** Buckets completed so far in this run, counting from the grid origin. */
@@ -591,6 +643,23 @@ export class TpsMeter {
     const end = this.readIndex(now)
     if (end < 0) return 0
     return end + 1
+  }
+
+  /**
+   * What this grid last measured, judged from its newest *written* bucket rather
+   * than from `now`.
+   *
+   * `now` is useless for this: it is called when the grid is about to be dropped
+   * for a long silence, so "now" has already run far past the end and would
+   * address buckets nobody wrote (reading 0). 0 also means "nothing measured",
+   * which is why the caller only keeps a positive result.
+   */
+  private readGrid(): number {
+    const end = this.lastIndex
+    if (end < 0) return 0
+    const count = Math.min(READ_BUCKETS, end + 1)
+    if (count < MIN_BUCKETS_FOR_READ) return 0
+    return this.averageOver(end, count)
   }
 
   /**
@@ -626,7 +695,13 @@ export class TpsMeter {
     const balanced = (this.bucketTokens(end) + this.bucketTokens(end - 1)) / 2
     this.rescaleBucket(end, balanced)
     this.rescaleBucket(end - 1, balanced)
-    this.heldValue = this.averageOver(end, Math.min(HOLD_BUCKETS, end + 1))
+    // A window with nothing in it measures nothing, and 0 is not a speed — it is
+    // "no reading". Keeping whatever was last measured beats overwriting it with a
+    // zero that a reader (and the indicator's anti-flash rule) would then hold on
+    // to. Reached when the grid was just re-anchored, e.g. the answer finished
+    // while the tab was in the background.
+    const avg = this.averageOver(end, Math.min(HOLD_BUCKETS, end + 1))
+    if (avg > 0) this.heldValue = avg
   }
 
   /** Set a bucket's token count, keeping the class split proportional. */

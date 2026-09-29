@@ -587,3 +587,105 @@ describe('aggregateMeterReadings', () => {
     expect(aggregateMeterReadings(own, [], h.clock.now, 5 * 60 * 1000).visible).toBe(false)
   })
 })
+
+describe('a backgrounded tab: freeze, then the backlog is handed over at once', () => {
+  /** Real decoding at ~104 t/s: 13 tokens per bucket. */
+  const RATE = 104
+
+  /**
+   * Freeze for `ms`, then deliver everything that queued up in one instant. On
+   * the arrival clock this is what a throttled tab looks like: no JS runs, so no
+   * frame is placed, and the whole backlog arrives when the client finally runs
+   * again — all of it inside the same 125 ms.
+   */
+  function freezeAndDrain(
+    meter: TpsMeter,
+    clock: ReturnType<typeof arrivalClock>,
+    gen: { at: number },
+    ms: number,
+    stamped: boolean,
+  ) {
+    clock.advance(ms)
+    for (let t = 0; t < ms; t += BUCKET) {
+      if (stamped) {
+        meter.pushTokens(13, { generatedAt: gen.at })
+        gen.at += BUCKET
+      } else {
+        meter.pushTokens(13)
+      }
+    }
+  }
+
+  it('does not read the backlog as a burst (arrival clock)', () => {
+    const clock = arrivalClock()
+    const meter = new TpsMeter('arrival')
+    const gen = { at: 0 }
+    steady(meter, clock, 16, 13, gen)
+    expect(meter.value()).toBeCloseTo(RATE, 0)
+
+    freezeAndDrain(meter, clock, gen, 60_000, false)
+
+    // In one bucket the 60 s backlog reads as 60×8×13/0.125 ≈ 50 000 t/s; it used
+    // to be charged to a single bucket and showed as 25 012 (capped at 9999 on
+    // screen) for the second it took that bucket to leave the window.
+    expect(meter.value()).toBeLessThanOrEqual(RATE)
+
+    // And it is back to the truth as soon as the window holds live frames again.
+    for (let i = 0; i < 8; i++) {
+      clock.advance(BUCKET)
+      meter.pushTokens(13)
+    }
+    expect(meter.value()).toBeCloseTo(RATE, 0)
+  })
+
+  it('is already correct with generation stamps, which is why they are the default', () => {
+    const clock = arrivalClock()
+    const meter = new TpsMeter('generation')
+    const gen = { at: GEN_EPOCH }
+    steady(meter, clock, 16, 13, gen)
+
+    freezeAndDrain(meter, clock, gen, 60_000, true)
+
+    // Each frame carries the instant the server received it, so the backlog lands
+    // across the buckets it was really generated in and never pools.
+    expect(meter.value()).toBeCloseTo(RATE, 0)
+    for (let i = 0; i < 8; i++) {
+      clock.advance(BUCKET)
+      meter.pushTokens(13, { generatedAt: gen.at })
+      gen.at += BUCKET
+    }
+    expect(meter.value()).toBeCloseTo(RATE, 0)
+  })
+
+  it('keeps the last real speed through the silence instead of reporting zero', () => {
+    const clock = arrivalClock()
+    const meter = new TpsMeter('arrival')
+    const gen = { at: 0 }
+    steady(meter, clock, 16, 13, gen)
+
+    // Away for two minutes; the answer finishes while we are gone, so nothing
+    // follows the drain. A grid re-anchored on the drain has no window to
+    // average, and reporting 0 there is not "no speed" — it is "no reading",
+    // which a reader (and the indicator's anti-flash hold) then sits on.
+    clock.advance(120_000)
+    meter.pushTokens(13)
+    meter.endStream()
+
+    expect(meter.value()).toBeCloseTo(RATE, 0)
+  })
+
+  it('still spreads a backlog whose stall is inside the ring', () => {
+    // The boundary of the rule above: content either side of the backlog means the
+    // tokens do belong to a measured interval, so they are spread as before.
+    const clock = arrivalClock()
+    const meter = new TpsMeter('generation')
+    const gen = { at: GEN_EPOCH }
+    steady(meter, clock, 3, 10, gen)
+    clock.advance(6 * BUCKET)
+    gen.at += 6 * BUCKET
+    steady(meter, clock, 1, 1200, gen)
+
+    expect(meter.value()).toBeGreaterThan(900)
+    expect(meter.value()).toBeLessThan(1250)
+  })
+})

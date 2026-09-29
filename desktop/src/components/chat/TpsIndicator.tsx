@@ -43,6 +43,17 @@ const LOW_TIER = 27
 const MED_TIER = 53
 const HIGH_TIER = 80
 const HIDE_AFTER_IDLE_MS = 5 * 60 * 1000
+/**
+ * How long a near-zero read may hold the previous number.
+ *
+ * The hold exists for the moment a stream crosses a boundary (text↔thinking↔tool)
+ * where the instantaneous rate dips to nothing although decoding has not stopped.
+ * Bounded, because a dip that *persists* is not a boundary — it is a real, very
+ * slow rate. Holding it indefinitely freezes the display on the last speed while
+ * the stream runs on, which is the "reading stuck, never moves" failure. A little
+ * over one reading window is enough to cover a boundary.
+ */
+const HOLD_UNCHANGED_MAX_MS = 1500
 // 显示口径：数值最多 4 位，封顶避免撑破固定栏宽。生成钟（serverTs）落地后读数
 // 理论上不会再超引擎真实能力，此处仅留作极端兜底。
 const MAX_DISPLAY_TPS = 9999
@@ -103,6 +114,9 @@ export function TpsIndicator({
       : getSessionTpsMeter(sessionId)
     let stopped = false
     let timer: ReturnType<typeof setTimeout> | undefined
+    /** Last number put on screen, and since when a near-zero has been holding it. */
+    let lastShown = 0
+    let heldSince = 0
 
     const tick = () => {
       // Resolved per tick, not once per effect: runs start and finish while the
@@ -129,8 +143,18 @@ export function TpsIndicator({
         // No exponential smoothing on top: the meter's value is already a mean
         // over a second of 125 ms buckets, and smoothing a mean again only adds
         // lag. (opt23 §11.27 used to stack a 30/70 EWMA here.)
+        let next = value
+        if (value < 0.5 && lastShown > 0.5) {
+          const at = performance.now()
+          if (heldSince === 0) heldSince = at
+          // Bounded: past the window this is a real slow rate, not a boundary.
+          if (at - heldSince < HOLD_UNCHANGED_MAX_MS) next = lastShown
+          else heldSince = 0
+        } else {
+          heldSince = 0
+        }
+        lastShown = next
         setTps((prev) => {
-          const next = value < 0.5 && prev > 0.5 ? prev : value
           // Returning `prev` lets React bail out of the render, so a move of a
           // fraction of a token does not redraw the digits.
           return Math.round(next) === Math.round(prev) ? prev : next
