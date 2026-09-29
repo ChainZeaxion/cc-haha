@@ -113,7 +113,12 @@ export function MessageActionBar({
           />
         ) : null}
         {metadata ? (
-          <span className={hasCopy || branchAction ? 'ml-3 min-w-0' : 'min-w-0'}>
+          // 11px, matching the hover time beside it. The footer this slot was
+          // built for used to be its own row with `text-[11px]` on the container
+          // (see the completed-turn stamp's history); folding it in here dropped
+          // that class, so it inherited the message body's reading size and the
+          // timestamp/usage/duration read as large as the reply above them.
+          <span className={`text-[11px] ${hasCopy || branchAction ? 'ml-3 min-w-0' : 'min-w-0'}`}>
             {metadata}
           </span>
         ) : null}

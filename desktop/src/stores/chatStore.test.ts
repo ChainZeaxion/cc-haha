@@ -16654,3 +16654,83 @@ describe('per-run TPS registry reclamation', () => {
   })
 })
 
+
+describe('a late-joining client measures a subagent that is already running', () => {
+  // Per-test ids: the accumulator these paths use is module-global, so sharing a
+  // session/agent across cases makes one case inherit the other's write throttle
+  // (and silently swallow its frame).
+  let SESSION = ''
+  let seq = 0
+
+  function frame(runAgentId: string, text: string): void {
+    useChatStore.getState().handleServerMessage(SESSION, {
+      type: 'agent_run_event',
+      runAgentId,
+      streamId: `stream-${runAgentId}`,
+      targetAgentId: runAgentId,
+      event: { type: 'content_delta', text },
+    })
+  }
+
+  beforeEach(() => {
+    SESSION = `late-joiner-session-${++seq}`
+    let now = 1_000_000
+    vi.spyOn(performance, 'now').mockImplementation(() => now)
+    vi.spyOn(Date, 'now').mockImplementation(() => now)
+    ;(globalThis as unknown as { __advance?: (ms: number) => void }).__advance = (ms) => {
+      now += ms
+    }
+  })
+  afterEach(() => vi.restoreAllMocks())
+
+  const advance = (ms: number) =>
+    (globalThis as unknown as { __advance: (ms: number) => void }).__advance(ms)
+
+  it('shows a climbing number even though it holds no record of the run', () => {
+    useChatStore.setState({ sessions: { [SESSION]: makeSession({ chatState: 'streaming' }) } })
+
+    // This client connected after the run began, so its task list is empty —
+    // its history has no bookend for a run that has not finished.
+    expect(useChatStore.getState().sessions[SESSION]?.backgroundAgentTasks).toEqual({})
+
+    frame('agent-late', 'x'.repeat(400))
+    const first = useChatStore.getState().sessions[SESSION]?.backgroundAgentTasks?.['agent-late']
+    expect(first?.status).toBe('running')
+    const firstTokens = first?.usage?.totalTokens ?? 0
+    expect(firstTokens).toBeGreaterThan(0)
+
+    advance(4000)
+    frame('agent-late', 'x'.repeat(400))
+    const second = useChatStore.getState().sessions[SESSION]?.backgroundAgentTasks?.['agent-late']
+    expect(second?.usage?.totalTokens ?? 0).toBeGreaterThan(firstTokens)
+  })
+
+  it('revives a run its history reconstruction had marked settled', () => {
+    useChatStore.setState({
+      sessions: {
+        [SESSION]: makeSession({
+          chatState: 'streaming',
+          backgroundAgentTasks: {
+            'agent-late': {
+              taskId: 'agent-late',
+              toolUseId: 'tool-1',
+              status: 'completed',
+              startedAt: 0,
+              updatedAt: 0,
+            },
+          },
+        }),
+      },
+    })
+
+    // Frames are still arriving, which is proof the run is running — the
+    // settled row came from a reconstruction that could not see the bookend.
+    frame('agent-late', 'x'.repeat(400))
+
+    const tasks = useChatStore.getState().sessions[SESSION]?.backgroundAgentTasks ?? {}
+    expect(tasks['agent-late']?.status).toBe('running')
+    expect(tasks['agent-late']?.usage?.totalTokens ?? 0).toBeGreaterThan(0)
+    // Revived in place, not duplicated alongside the row it already had.
+    expect(Object.keys(tasks)).toEqual(['agent-late'])
+  })
+})

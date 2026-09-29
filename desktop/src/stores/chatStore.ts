@@ -1195,7 +1195,21 @@ function ingestSubagentTps(
  */
 const subagentLiveChars = new Map<
   string,
-  { text: number; thinking: number; baseTokens: number; wroteAt: number; createdAt: number }
+  {
+    text: number
+    thinking: number
+    baseTokens: number
+    /**
+     * The total this accumulator last wrote to the task. Written back into
+     * `task.usage.totalTokens`, which is the same field an authoritative report
+     * arrives in — so without remembering our own last value the next pass reads
+     * the estimate back as if the server had sent it, rebases onto it, and wipes
+     * the text accumulated since. The number then froze instead of climbing.
+     */
+    lastWritten: number
+    wroteAt: number
+    createdAt: number
+  }
 >()
 const SUBAGENT_LIVE_WRITE_INTERVAL_MS = 3000
 
@@ -1263,7 +1277,7 @@ function ingestSubagentLiveUsage(
   const key = `${sessionId}\u0000${agentId}`
   let acc = subagentLiveChars.get(key)
   if (!acc) {
-    acc = { text: 0, thinking: 0, baseTokens: 0, wroteAt: 0, createdAt: Date.now() }
+    acc = { text: 0, thinking: 0, baseTokens: 0, lastWritten: 0, wroteAt: 0, createdAt: Date.now() }
     subagentLiveChars.set(key, acc)
   }
   if (event.type === 'content_delta') {
@@ -1282,30 +1296,43 @@ function ingestSubagentLiveUsage(
   const session = state.sessions[sessionId]
   if (!session) return
   const tasks = session.backgroundAgentTasks ?? {}
-  const taskKey = Object.keys(tasks).find(candidate =>
+  const knownKey = Object.keys(tasks).find(candidate =>
     candidate === agentId || tasks[candidate]?.toolUseId === agentId)
-  if (!taskKey) return
-  const task = tasks[taskKey]
-  if (!task) return
-  if (task.status !== 'running') {
-    // Precisely known to be over, and no further frame can arrive for it, so the
-    // accumulator is dead weight from here (the number it produced lives on in
-    // the task's usage).
-    subagentLiveChars.delete(key)
-    // And the run's meter can close: settle its tail and freeze the held reading
-    // now that no further frame will arrive. (A long silence does the same thing
-    // implicitly, so this only makes it exact.)
-    tpsMeterByRun.get(tpsRunKey(sessionId, agentId))?.endStream()
-    return
-  }
+  const known = knownKey ? tasks[knownKey] : undefined
+
+  // A frame arriving is proof that this run is running *now*, and that outranks
+  // whatever the row currently says. A client that opened the session mid-run
+  // rebuilds these rows from history, where a run with no closing bookend looks
+  // settled; one that opened before the run started has no row at all. Gating on
+  // the row's status is exactly why such a client showed nothing until the run's
+  // first tool boundary happened to rewrite the row — the number was there to be
+  // measured the whole time.
+  const taskKey = knownKey ?? agentId
+  const task: BackgroundAgentTask = known
+    ? (known.status === 'running' ? known : { ...known, status: 'running', updatedAt: now })
+    : {
+        taskId: agentId,
+        toolUseId: agentId,
+        status: 'running',
+        taskType: 'local_agent',
+        startedAt: now,
+        updatedAt: now,
+      }
+  // Writes even when the usage did not move, when the row itself had to change
+  // (revived, or created so there is something to show the number on).
+  const rowChanged = task !== known
   acc.wroteAt = now
 
   // The authoritative total covers the run up to its last message boundary;
   // everything counted here up to that same moment is already inside it, so
   // rebasing means starting the counters over rather than adding on top.
-  const authoritative = task.usage?.totalTokens ?? 0
-  if (authoritative > acc.baseTokens) {
-    acc.baseTokens = authoritative
+  // Only an *advance past what this accumulator last wrote* counts as
+  // authoritative: the field it arrives in is the same one the estimate is
+  // written to, so comparing against our own last write is what keeps the
+  // estimate from rebasing onto itself.
+  const reported = task.usage?.totalTokens ?? 0
+  if (reported > acc.lastWritten) {
+    acc.baseTokens = reported
     acc.text = 0
     acc.thinking = 0
   }
@@ -1318,7 +1345,8 @@ function ingestSubagentLiveUsage(
   const thinkTokens = Math.round(acc.thinking / 4)
   const totalTokens = acc.baseTokens + Math.round((acc.text + acc.thinking) / 4)
   const previous = task.usage
-  if (totalTokens === (previous?.totalTokens ?? 0) && thinkTokens === (previous?.thinkTokens ?? 0)) return
+  if (!rowChanged && totalTokens === (previous?.totalTokens ?? 0) && thinkTokens === (previous?.thinkTokens ?? 0)) return
+  acc.lastWritten = totalTokens
   useChatStore.setState(current => ({
     sessions: updateSessionIn(current.sessions, sessionId, () => ({
       backgroundAgentTasks: {
