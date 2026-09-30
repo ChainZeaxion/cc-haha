@@ -1,6 +1,8 @@
-# 拆分核验报告（64 patch → 10 功能组，2026-09-30）
+# 拆分核验报告（64 patch → 11 功能组，2026-09-30）
 
-> 目标：核实 10 组 PR 拆分的整体自洽性——每组「纯基座 068b3ebd + 本组文件终态」是否 typecheck 不缺符号、本组逻辑无写错。
+> 目标：核实 11 组 PR 拆分的整体自洽性——每组「纯基座 068b3ebd + 本组文件终态」是否 typecheck 不缺符号、本组逻辑无写错。
+
+> **2026-09-30 补充**：原 pr-4（「文件下载桥接 + 大会话打开提速」7 项）按功能域拆为两组——**pr-4 改纯「文件下载桥接」**（08/45/51/53，4 项 / 29 文件）与**新增 pr-11「大会话打开提速」**（55/56/57，3 项 / 20 文件）。两组直接改动文件**零重叠**，共享 14 个依赖补齐文件（内容=链终态，先后合入自动无冲突）。原 pr-4 的核验结论（组内测试全绿、跨组依赖预期缺失）对拆分后的两组各自成立；`transcriptMetadataCache.ts` 的 owner 由 pr-4 改为 **pr-11**（它属「大会话打开提速」）。
 
 ## 方法（三层，从严到宽）
 
@@ -16,7 +18,7 @@
 ### 2. 总失败 = 跨组依赖缺失（预期）+ 基座预存 flaky
 每组 worktree 只含「本组文件 + import 闭包」，不含其他组改动文件，所以：
 - **real-server 集成测试崩**（`Cannot find module` / `condition timed out`）：本组对基座文件（sessionService.ts / handler.ts / claude.ts）新增 import，引用了其他组新增的符号/文件，本组树缺之 → 拉真实 server 子进程时加载即崩。
-  - `src/server/services/transcriptMetadataCache.ts`（owner=**pr-4**）
+  - `src/server/services/transcriptMetadataCache.ts`（owner=**pr-11**，原 pr-4）
   - `src/server/proxy/tpsTokenSink.ts`（owner=**pr-3**）
   - `src/server/remoteBrowserPolicy.ts` 源（owner=**pr-1**；pr-2 只改了它的 .test.ts）
   - `src/utils/thinking.ts` 的 `shouldSendThinkingToAPI` 导出（owner=**pr-2**）

@@ -1,6 +1,6 @@
 # 57-transcript-metadata-durable — 元数据投影落盘（链位 57，57-transcript-metadata-durable.patch）
 
-> 功能组：pr-4 — 文件下载桥接 + 大会话打开提速（pr-prepare/pr-4/）
+> 功能组：pr-4 — 文件下载桥接 + 大会话打开提速（pr-prepare/pr-11/）
 > 链位 57，patch `57-transcript-metadata-durable.patch`（本目录）
 
 - 需求背景：链位 55/56 解决「重复开销」后，冷进程**首次**打开超大会话仍要 9.6s——`getMetadataProjection` 要算 messageCount/最后时间戳/launchCount 等，**本就需要一次全量遍历**（不能靠「少读」解决），而此前只在内存缓存（上限 32），进程重启即失；且同 session 两份拷贝各建一次。

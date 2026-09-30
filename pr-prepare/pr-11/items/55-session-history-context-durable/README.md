@@ -1,6 +1,6 @@
 # 55-session-history-context-durable — 归属投影落盘（链位 55，55-session-history-context-durable.patch）
 
-> 功能组：pr-4 — 文件下载桥接 + 大会话打开提速（pr-prepare/pr-4/）
+> 功能组：pr-4 — 文件下载桥接 + 大会话打开提速（pr-prepare/pr-11/）
 > 链位 55，patch `55-session-history-context-durable.patch`（本目录）
 
 - 需求背景：用户报「老会话打不开」，实为打开 40,119 条消息的会话「一直转圈」。逐项证伪（打开门槛/vcc 扫盘/git/索引 DB 查询）后锁定：`GET /api/sessions/<id>` 取一页要 `projectHistoryPageEntries` 为算 `parent_tool_use_id` **把整个转录从头扫一遍**——默认 2,949ms / 193MB 扫描，`projectContext:false` 仅 6ms，慢约 500 倍。且索引存 `mkdtemp` + 内存 Map 仅 4 项 + `exit` 即删 ⇒ 每次重启/淘汰重扫，`/tmp` 还累积了 634 目录 / 92MB 泄漏。
