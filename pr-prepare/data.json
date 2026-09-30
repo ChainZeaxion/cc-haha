@@ -354,6 +354,18 @@
       [
         53,
         "file-download-anchor"
+      ],
+      [
+        55,
+        "session-history-context-durable"
+      ],
+      [
+        56,
+        "session-find-bounded-read"
+      ],
+      [
+        57,
+        "transcript-metadata-durable"
       ]
     ],
     "files": [
@@ -500,6 +512,8 @@
         "desktop/src/types/session.ts",
         "desktop/src/types/settings.ts",
         "src/server/__tests__/providers.test.ts",
+        "src/server/__tests__/session-metadata-projection-durable.test.ts",
+        "src/server/__tests__/session-transcript-presence.test.ts",
         "src/server/api/localFile.ts",
         "src/server/api/previewFs.ts",
         "src/server/index.ts",
@@ -509,7 +523,10 @@
         "src/server/responseCompression.ts",
         "src/server/services/boundedSessionHistory.test.ts",
         "src/server/services/boundedSessionHistory.ts",
+        "src/server/services/sessionHistoryContext.test.ts",
+        "src/server/services/sessionHistoryContext.ts",
         "src/server/services/sessionService.ts",
+        "src/server/services/transcriptMetadataCache.ts",
         "src/services/api/claude.ts",
         "src/services/openaiAuth/fetch.ts",
         "src/tools/ConfigTool/supportedSettings.ts",
@@ -526,7 +543,7 @@
       ]
     },
     "title": "会话及相关优化",
-    "description": "会话相关优化合集（合并自原 pr-2 会话功能 / pr-4 文件下载 / pr-9 大会话性能）：会话导出·刷新·禁更新·思考开关 + 文件下载桥接 + 大会话历史加载与传输性能"
+    "description": "会话相关优化合集（合并自原 pr-2 会话功能 / pr-4 文件下载 / pr-9 大会话性能 / pr-11 大会话打开提速）：会话导出·刷新·禁更新·思考开关 + 文件下载桥接 + 大会话历史加载与传输性能 + 大会话打开提速（元数据投影/只读文件头）"
   },
   "pr-3": {
     "slug": "tps-indicator",
@@ -1609,53 +1626,6 @@
         "src/utils/tokens.ts"
       ],
       "deletions": []
-    }
-  },
-  "pr-11": {
-    "num": "pr-11",
-    "slug": "session-open-speedup",
-    "title": "大会话打开提速",
-    "description": "大会话打开提速：git-info 持久化投影 + findSessionFile 只读文件头 + 元数据投影冷启动落盘",
-    "patches": [
-      [
-        55,
-        "session-history-context-durable"
-      ],
-      [
-        56,
-        "session-find-bounded-read"
-      ],
-      [
-        57,
-        "transcript-metadata-durable"
-      ]
-    ],
-    "build_spec": {
-      "num": "pr-11",
-      "slug": "session-open-speedup",
-      "title": "group pr-11: large-session-open-speedup",
-      "end_files": [
-        "desktop/src/api/h5Access.ts",
-        "desktop/src/api/sessions.ts",
-        "desktop/src/components/chat/ActivityGroup.tsx",
-        "desktop/src/components/chat/ThinkingBlock.tsx",
-        "desktop/src/components/chat/activityGroupModel.ts",
-        "desktop/src/hooks/useCompactMetrics.ts",
-        "desktop/src/lib/desktopHost/browserHost.ts",
-        "desktop/src/lib/desktopHost/terminalWs.ts",
-        "desktop/src/lib/desktopRuntime.ts",
-        "desktop/src/lib/tpsMeter.ts",
-        "desktop/src/stores/settingsStore.ts",
-        "desktop/src/types/chat.ts",
-        "desktop/src/types/session.ts",
-        "desktop/src/types/settings.ts",
-        "src/server/__tests__/session-metadata-projection-durable.test.ts",
-        "src/server/__tests__/session-transcript-presence.test.ts",
-        "src/server/services/sessionHistoryContext.test.ts",
-        "src/server/services/sessionHistoryContext.ts",
-        "src/server/services/sessionService.ts",
-        "src/server/services/transcriptMetadataCache.ts"
-      ]
     }
   }
 }

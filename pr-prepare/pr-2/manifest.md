@@ -1,30 +1,32 @@
 # pr-2 — 会话及相关优化（合并组）manifest
 
-> 合并自原 pr-2（会话基础）/ pr-4（文件下载）/ pr-9（大会话性能）。
-> 基座 068b3ebd → 本组终态：73 文件（含依赖补齐，见下方标注）。
-> `00-group.patch` 已在基座验证 apply 干净、树逐字节一致。
+> 合并自原 pr-2（会话基础）/ pr-4（文件下载）/ pr-9（大会话性能）/ pr-11（打开提速）。
+> 基座 068b3ebd → 本组终态：78 文件。`00-group.patch` 已验证 apply 干净、树逐字节一致。
 
-## patch 清单（15 项，按链位排序）
+## patch 清单（18 项，按链位排序）
 
 | 链位 | 模块 | patch | 行数 | 文件数 | 文档章节 |
 |------|------|-------|------|--------|----------|
-| 03 | 会话基础 | `03-session-export.patch` | 629 | 5 | L?  |
-| 06 | 会话基础 | `06-session-refresh.patch` | 270 | 2 | L?  |
-| 08 | 文件下载 | `08-file-download.patch` | 830 | 14 | L?  |
-| 09 | 会话基础 | `09-disable-updates.patch` | 223 | 4 | L?  |
-| 11 | 会话基础 | `11-thinking-switch.patch` | 585 | 11 | L?  |
-| 20 | 大会话性能 | `20-h5-gzip-transport.patch` | 277 | 3 | L?  |
-| 23 | 大会话性能 | `23-history-transport-bounds.patch` | 166 | 3 | L?  |
-| 24 | 大会话性能 | `24-file-history-dedup.patch` | 121 | 2 | L?  |
-| 25 | 大会话性能 | `25-gzip-transport.patch` | 254 | 3 | L?  |
-| 26 | 大会话性能 | `26-history-first-paint-bound.patch` | 114 | 2 | L?  |
-| 27 | 大会话性能 | `27-baseline-typecheck-fixes.patch` | 41 | 2 | L?  |
-| 31 | 大会话性能 | `31-storage-original-file-bound.patch` | 140 | 2 | L?  |
-| 45 | 文件下载 | `45-file-download-attr.patch` | 111 | 2 | L?  |
-| 51 | 文件下载 | `51-file-download-blob.patch` | 260 | 4 | L?  |
-| 53 | 文件下载 | `53-file-download-anchor.patch` | 224 | 2 | L646 ### 子优化（2026-09-28）：下载改走 blob 取字节——`file://` 下 DOM 自己的请求 Ori |
+| 03 | 会话基础 | `03-session-export.patch` | 629 | 5 | L0 |
+| 06 | 会话基础 | `06-session-refresh.patch` | 270 | 2 | L0 |
+| 08 | 文件下载 | `08-file-download.patch` | 830 | 14 | L0 |
+| 09 | 会话基础 | `09-disable-updates.patch` | 223 | 4 | L0 |
+| 11 | 会话基础 | `11-thinking-switch.patch` | 585 | 11 | L0 |
+| 20 | 大会话性能 | `20-h5-gzip-transport.patch` | 277 | 3 | L0 |
+| 23 | 大会话性能 | `23-history-transport-bounds.patch` | 166 | 3 | L0 |
+| 24 | 大会话性能 | `24-file-history-dedup.patch` | 121 | 2 | L0 |
+| 25 | 大会话性能 | `25-gzip-transport.patch` | 254 | 3 | L0 |
+| 26 | 大会话性能 | `26-history-first-paint-bound.patch` | 114 | 2 | L0 |
+| 27 | 大会话性能 | `27-baseline-typecheck-fixes.patch` | 41 | 2 | L0 |
+| 31 | 大会话性能 | `31-storage-original-file-bound.patch` | 140 | 2 | L0 |
+| 45 | 文件下载 | `45-file-download-attr.patch` | 111 | 2 | L0 |
+| 51 | 文件下载 | `51-file-download-blob.patch` | 260 | 4 | L0 |
+| 53 | 文件下载 | `53-file-download-anchor.patch` | 224 | 2 | L646 |
+| 55 | 打开提速 | `55-session-history-context-durable.patch` | 265 | 2 | L671 |
+| 56 | 打开提速 | `56-session-find-bounded-read.patch` | 175 | 2 | L579 |
+| 57 | 打开提速 | `57-transcript-metadata-durable.patch` | 252 | 3 | L697 |
 
-## 文件清单（73，本组直接改动 vs 依赖补齐）
+## 文件清单（78，本组直接改动 vs 依赖补齐）
 
 - `desktop/src/api/h5Access.ts` — 依赖补齐（他组改动的共享文件，取链内终态）
 - `desktop/src/api/sessions.test.ts` — 本组直接改动
@@ -76,6 +78,8 @@
 - `desktop/src/types/session.ts` — 本组直接改动
 - `desktop/src/types/settings.ts` — 依赖补齐（他组改动的共享文件，取链内终态）
 - `src/server/__tests__/providers.test.ts` — 本组直接改动
+- `src/server/__tests__/session-metadata-projection-durable.test.ts` — 本组直接改动
+- `src/server/__tests__/session-transcript-presence.test.ts` — 本组直接改动
 - `src/server/api/localFile.ts` — 本组直接改动
 - `src/server/api/previewFs.ts` — 本组直接改动
 - `src/server/index.ts` — 本组直接改动
@@ -85,7 +89,10 @@
 - `src/server/responseCompression.ts` — 本组直接改动
 - `src/server/services/boundedSessionHistory.test.ts` — 本组直接改动
 - `src/server/services/boundedSessionHistory.ts` — 本组直接改动
+- `src/server/services/sessionHistoryContext.test.ts` — 本组直接改动
+- `src/server/services/sessionHistoryContext.ts` — 本组直接改动
 - `src/server/services/sessionService.ts` — 本组直接改动
+- `src/server/services/transcriptMetadataCache.ts` — 本组直接改动
 - `src/services/api/claude.ts` — 本组直接改动
 - `src/services/openaiAuth/fetch.ts` — 本组直接改动
 - `src/tools/ConfigTool/supportedSettings.ts` — 本组直接改动

@@ -1,11 +1,9 @@
-# 拆分核验报告（64 patch → 9 功能组，2026-09-30）
+# 拆分核验报告（64 patch → 8 功能组，2026-09-30）
 
-> 目标：核实 9 组 PR 拆分的整体自洽性——每组「纯基座 068b3ebd + 本组文件终态」是否 typecheck 不缺符号、本组逻辑无写错。
+> 目标：核实 8 组 PR 拆分的整体自洽性——每组「纯基座 068b3ebd + 本组文件终态」是否 typecheck 不缺符号、本组逻辑无写错。
 
-> **2026-09-30 分组演变（先拆后合，终态 9 组）**：
-> 1. 原 pr-4（「文件下载桥接 + 大会话打开提速」7 项）先拆为 **pr-4 纯文件下载桥接**（08/45/51/53）与 **pr-11 大会话打开提速**（55/56/57）。
-> 2. 再按需求把会话相关的 **pr-2 / pr-4 / pr-9 三组合并为 pr-2「会话及相关优化」单组**（15 项 / 73 文件，三模块：会话基础 03/06/09/11 + 文件下载 08/45/51/53 + 大会话历史加载与传输性能 20/23/24/25/26/27/31）。三组直接改动文件几乎不重叠（仅 `sessionService.ts` 1 个共享），合并后依赖文件去重（73 < 三组各自和 97）。`transcriptMetadataCache.ts` 的 owner 为 **pr-11**。
-> 终态 9 组：pr-1 h5 / pr-2 会话及相关优化 / pr-3 tps / pr-5 usage / pr-6 test / pr-7 vcc / pr-8 computer-use / pr-10 thinking-subagent / pr-11 session-open-speedup。各组核验结论（组内测试全绿、跨组依赖预期缺失）对合并后的 pr-2 整体成立。
+> **2026-09-30 分组演变（终态 8 组）**：会话相关的四个功能域全部并入 **pr-2「会话及相关优化」单组**（18 项 / 78 文件，四模块：会话基础 03/06/09/11 + 文件下载 08/45/51/53 + 大会话历史加载与传输性能 20/23/24/25/26/27/31 + 大会话打开提速 55/56/57）。各模块直接改动文件几乎不重叠，合并后依赖文件去重（78 文件）。`transcriptMetadataCache.ts` 的 owner 现亦在 **pr-2** 内。
+> 终态 8 组：pr-1 h5 / pr-2 会话及相关优化 / pr-3 tps / pr-5 usage / pr-6 test / pr-7 vcc / pr-8 computer-use / pr-10 thinking-subagent。各组核验结论（组内测试全绿、跨组依赖预期缺失）对合并后的 pr-2 整体成立。
 
 ## 方法（三层，从严到宽）
 
@@ -21,7 +19,7 @@
 ### 2. 总失败 = 跨组依赖缺失（预期）+ 基座预存 flaky
 每组 worktree 只含「本组文件 + import 闭包」，不含其他组改动文件，所以：
 - **real-server 集成测试崩**（`Cannot find module` / `condition timed out`）：本组对基座文件（sessionService.ts / handler.ts / claude.ts）新增 import，引用了其他组新增的符号/文件，本组树缺之 → 拉真实 server 子进程时加载即崩。
-  - `src/server/services/transcriptMetadataCache.ts`（owner=**pr-11**，原 pr-4）
+  - `src/server/services/transcriptMetadataCache.ts`（owner=**pr-2**，原 pr-11/pr-4）
   - `src/server/proxy/tpsTokenSink.ts`（owner=**pr-3**）
   - `src/server/remoteBrowserPolicy.ts` 源（owner=**pr-1**；pr-2 只改了它的 .test.ts）
   - `src/utils/thinking.ts` 的 `shouldSendThinkingToAPI` 导出（owner=**pr-2**）
@@ -50,8 +48,7 @@
 
 - 拆分本身干净，可直接按建议顺序（pr-6→7→9→2→4→5→3→1→8→10）向上游提 PR。
 - **无需**因类型错返工：错误要么跨组消失，要么是沿用上游风格/动态 require 推断噪声（上游 base 同样大量存在，不会比上游更红）。
-- 可选改进（非阻塞）：① pr-5/pr-2 若单独合入会带「缺 transcriptMetadataCache」风险，建议与 pr-4 同期，或 manifest 标注该跨组依赖；② 若想恢复 tsc 真检查，可把 `baseUrl` 换成 `paths` 相对写法（但会一次性暴露 8000+ 历史错，宜单独 PR 处理，勿混入功能 PR）。
-
+- 可选改进（非阻塞）：① pr-5 若单独合入会带「缺 transcriptMetadataCache」风险（它现属 pr-2），建议 pr-2 先合或同期，manifest 已标注该跨组依赖；② 若想恢复 tsc 真检查，可把 `baseUrl` 换成 `paths` 相对写法（但会一次性暴露 8000+ 历史错，宜单独 PR 处理，勿混入功能 PR）。
 ## 证据文件
 - 各组 tsc（真检查）：`/tmp/prwork/tscnb-{base,pr-N,fullchain}.txt`
 - 各组 vitest/server：`/tmp/prwork/out-{base,pr-N}/{vitest,server,server-serial}.log`
