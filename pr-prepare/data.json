@@ -304,12 +304,56 @@
         "session-refresh"
       ],
       [
+        8,
+        "file-download"
+      ],
+      [
         9,
         "disable-updates"
       ],
       [
         11,
         "thinking-switch"
+      ],
+      [
+        20,
+        "h5-gzip-transport"
+      ],
+      [
+        23,
+        "history-transport-bounds"
+      ],
+      [
+        24,
+        "file-history-dedup"
+      ],
+      [
+        25,
+        "gzip-transport"
+      ],
+      [
+        26,
+        "history-first-paint-bound"
+      ],
+      [
+        27,
+        "baseline-typecheck-fixes"
+      ],
+      [
+        31,
+        "storage-original-file-bound"
+      ],
+      [
+        45,
+        "file-download-attr"
+      ],
+      [
+        51,
+        "file-download-blob"
+      ],
+      [
+        53,
+        "file-download-anchor"
       ]
     ],
     "files": [
@@ -402,8 +446,12 @@
       "src/utils/messages.ts"
     ],
     "build_spec": {
+      "num": "pr-2",
+      "slug": "session-related-optimizations",
+      "title": "group pr-2: session-related-optimizations",
       "end_files": [
         "desktop/src/api/h5Access.ts",
+        "desktop/src/api/sessions.test.ts",
         "desktop/src/api/sessions.ts",
         "desktop/src/api/subagents.ts",
         "desktop/src/components/ExportConversationDialog.tsx",
@@ -418,8 +466,13 @@
         "desktop/src/components/chat/ToolCallGroup.tsx",
         "desktop/src/components/chat/TpsIndicator.tsx",
         "desktop/src/components/chat/activityGroupModel.ts",
+        "desktop/src/components/composite/OpenWithMenu.tsx",
         "desktop/src/components/layout/AppShell.tsx",
         "desktop/src/components/layout/Sidebar.tsx",
+        "desktop/src/components/workbench/WorkspaceFileTreePane.test.tsx",
+        "desktop/src/components/workbench/WorkspaceFileTreePane.tsx",
+        "desktop/src/components/workspace/WorkspaceFileOpenWith.test.tsx",
+        "desktop/src/components/workspace/WorkspaceFileOpenWith.tsx",
         "desktop/src/hooks/useCompactMetrics.ts",
         "desktop/src/i18n/locales/en.ts",
         "desktop/src/lib/desktopHost/browserHost.ts",
@@ -427,7 +480,10 @@
         "desktop/src/lib/desktopRuntime.ts",
         "desktop/src/lib/downloadFileMeta.ts",
         "desktop/src/lib/fileSizeCache.ts",
+        "desktop/src/lib/handlePreviewLink.test.ts",
         "desktop/src/lib/handlePreviewLink.ts",
+        "desktop/src/lib/openWithItems.ts",
+        "desktop/src/lib/openWithMenuItems.ts",
         "desktop/src/lib/sessionExport.ts",
         "desktop/src/lib/sessionUsageMetrics.ts",
         "desktop/src/lib/tpsCalibration.ts",
@@ -444,20 +500,33 @@
         "desktop/src/types/session.ts",
         "desktop/src/types/settings.ts",
         "src/server/__tests__/providers.test.ts",
+        "src/server/api/localFile.ts",
+        "src/server/api/previewFs.ts",
+        "src/server/index.ts",
         "src/server/proxy/handler.ts",
         "src/server/remoteBrowserPolicy.test.ts",
+        "src/server/responseCompression.test.ts",
+        "src/server/responseCompression.ts",
+        "src/server/services/boundedSessionHistory.test.ts",
+        "src/server/services/boundedSessionHistory.ts",
         "src/server/services/sessionService.ts",
         "src/services/api/claude.ts",
         "src/services/openaiAuth/fetch.ts",
         "src/tools/ConfigTool/supportedSettings.ts",
         "src/utils/__tests__/thinking.test.ts",
+        "src/utils/fileHistory.security.test.ts",
+        "src/utils/fileHistory.ts",
         "src/utils/messages.test.ts",
         "src/utils/messages.ts",
+        "src/utils/sessionStorage.originalFileBound.test.ts",
+        "src/utils/sessionStorage.ts",
         "src/utils/settings/types.ts",
-        "src/utils/thinking.ts"
-      ],
-      "deletions": []
-    }
+        "src/utils/thinking.ts",
+        "src/vendor/computer-use-mcp/toolCalls.test.ts"
+      ]
+    },
+    "title": "会话及相关优化",
+    "description": "会话相关优化合集（合并自原 pr-2 会话功能 / pr-4 文件下载 / pr-9 大会话性能）：会话导出·刷新·禁更新·思考开关 + 文件下载桥接 + 大会话历史加载与传输性能"
   },
   "pr-3": {
     "slug": "tps-indicator",
@@ -676,66 +745,6 @@
         "src/server/ws/handler.ts"
       ],
       "deletions": []
-    }
-  },
-  "pr-4": {
-    "num": "pr-4",
-    "slug": "file-download",
-    "title": "文件下载桥接",
-    "description": "本地会话文件下载桥接：H5 浏览器下载 anchor 导航方案 + <a download> 属性 + blob/URL 生命周期修复",
-    "patches": [
-      [
-        8,
-        "file-download"
-      ],
-      [
-        45,
-        "file-download-attr"
-      ],
-      [
-        51,
-        "file-download-blob"
-      ],
-      [
-        53,
-        "file-download-anchor"
-      ]
-    ],
-    "build_spec": {
-      "num": "pr-4",
-      "slug": "file-download",
-      "title": "group pr-4: file-download-bridge",
-      "end_files": [
-        "desktop/src/api/h5Access.ts",
-        "desktop/src/api/sessions.ts",
-        "desktop/src/components/chat/ActivityGroup.tsx",
-        "desktop/src/components/chat/DownloadReferencesCard.tsx",
-        "desktop/src/components/chat/ThinkingBlock.tsx",
-        "desktop/src/components/chat/ToolCallGroup.tsx",
-        "desktop/src/components/chat/activityGroupModel.ts",
-        "desktop/src/components/composite/OpenWithMenu.tsx",
-        "desktop/src/components/workbench/WorkspaceFileTreePane.test.tsx",
-        "desktop/src/components/workbench/WorkspaceFileTreePane.tsx",
-        "desktop/src/components/workspace/WorkspaceFileOpenWith.test.tsx",
-        "desktop/src/components/workspace/WorkspaceFileOpenWith.tsx",
-        "desktop/src/hooks/useCompactMetrics.ts",
-        "desktop/src/lib/desktopHost/browserHost.ts",
-        "desktop/src/lib/desktopHost/terminalWs.ts",
-        "desktop/src/lib/desktopRuntime.ts",
-        "desktop/src/lib/downloadFileMeta.ts",
-        "desktop/src/lib/fileSizeCache.ts",
-        "desktop/src/lib/handlePreviewLink.test.ts",
-        "desktop/src/lib/handlePreviewLink.ts",
-        "desktop/src/lib/openWithItems.ts",
-        "desktop/src/lib/openWithMenuItems.ts",
-        "desktop/src/lib/tpsMeter.ts",
-        "desktop/src/stores/settingsStore.ts",
-        "desktop/src/types/chat.ts",
-        "desktop/src/types/session.ts",
-        "desktop/src/types/settings.ts",
-        "src/server/api/localFile.ts",
-        "src/server/api/previewFs.ts"
-      ]
     }
   },
   "pr-5": {
@@ -1331,97 +1340,6 @@
         "src/vendor/computer-use-mcp/tools.ts",
         "src/vendor/computer-use-mcp/windowsLegacyToolCalls.ts",
         "src/vendor/computer-use-mcp/windowsLegacyTools.ts"
-      ],
-      "deletions": []
-    }
-  },
-  "pr-9": {
-    "slug": "large-session-perf",
-    "name": "大体积会话加载与传输性能（历史膨胀治理 + gzip 传输）",
-    "chapters": "二十二/二十",
-    "patches": [
-      [
-        20,
-        "h5-gzip-transport"
-      ],
-      [
-        23,
-        "history-transport-bounds"
-      ],
-      [
-        24,
-        "file-history-dedup"
-      ],
-      [
-        25,
-        "gzip-transport"
-      ],
-      [
-        26,
-        "history-first-paint-bound"
-      ],
-      [
-        27,
-        "baseline-typecheck-fixes"
-      ],
-      [
-        31,
-        "storage-original-file-bound"
-      ]
-    ],
-    "files": [
-      "desktop/src/api/sessions.test.ts",
-      "desktop/src/api/sessions.ts",
-      "desktop/src/types/chat.ts",
-      "desktop/src/types/session.ts",
-      "desktop/src/types/settings.ts",
-      "src/server/index.ts",
-      "src/server/responseCompression.test.ts",
-      "src/server/responseCompression.ts",
-      "src/server/services/boundedSessionHistory.test.ts",
-      "src/server/services/boundedSessionHistory.ts",
-      "src/server/services/sessionService.ts",
-      "src/utils/fileHistory.security.test.ts",
-      "src/utils/fileHistory.ts",
-      "src/utils/sessionStorage.originalFileBound.test.ts",
-      "src/utils/sessionStorage.ts",
-      "src/vendor/computer-use-mcp/toolCalls.test.ts"
-    ],
-    "netnew": [
-      "desktop/src/api/sessions.test.ts",
-      "src/server/responseCompression.test.ts",
-      "src/server/responseCompression.ts",
-      "src/server/services/boundedSessionHistory.test.ts",
-      "src/server/services/boundedSessionHistory.ts",
-      "src/utils/fileHistory.security.test.ts",
-      "src/utils/fileHistory.ts",
-      "src/utils/sessionStorage.originalFileBound.test.ts",
-      "src/utils/sessionStorage.ts",
-      "src/vendor/computer-use-mcp/toolCalls.test.ts"
-    ],
-    "conflict_with_upstream": [
-      "desktop/src/types/chat.ts",
-      "src/server/index.ts",
-      "src/server/services/sessionService.ts"
-    ],
-    "build_spec": {
-      "end_files": [
-        "desktop/src/api/sessions.test.ts",
-        "desktop/src/api/sessions.ts",
-        "desktop/src/types/chat.ts",
-        "desktop/src/types/session.ts",
-        "desktop/src/types/settings.ts",
-        "src/server/index.ts",
-        "src/server/responseCompression.test.ts",
-        "src/server/responseCompression.ts",
-        "src/server/services/boundedSessionHistory.test.ts",
-        "src/server/services/boundedSessionHistory.ts",
-        "src/server/services/sessionService.ts",
-        "src/utils/fileHistory.security.test.ts",
-        "src/utils/fileHistory.ts",
-        "src/utils/sessionStorage.originalFileBound.test.ts",
-        "src/utils/sessionStorage.ts",
-        "src/vendor/computer-use-mcp/toolCalls.test.ts"
       ],
       "deletions": []
     }

@@ -10,6 +10,44 @@ index 024d1da2..69cb0515 100644
    }) {
      return api.put<H5AccessStatus>('/api/h5-access', input)
    },
+diff --git a/desktop/src/api/sessions.test.ts b/desktop/src/api/sessions.test.ts
+index 7e674d28..90af5bc4 100644
+--- a/desktop/src/api/sessions.test.ts
++++ b/desktop/src/api/sessions.test.ts
+@@ -349,6 +349,33 @@ describe('full session history assembly', () => {
+     expect(fetchMock).toHaveBeenCalledTimes(2)
+   })
+ 
++  it('bounds the walk and hands the rest back through nextCursor', async () => {
++    // An endless transcript: every continuation offers another cursor. The walk
++    // must still terminate and leave the remainder reachable through the
++    // existing "load more" path, rather than stitching until the request times
++    // out — which is how a large session previously failed to open at all.
++    let oldest = 0
++    const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async url => {
++      if (String(url).includes('mode=full')) return response(page('newest', 'cursor-0'))
++      oldest += 1
++      return response(page(`older-${oldest}`, `cursor-${oldest}`))
++    })
++
++    const result = await sessionsApi.getFullHistory('fixture')
++    const resultPage = result.page
++    if (!resultPage) throw new Error('expected page metadata')
++
++    expect(resultPage.hasMore).toBe(true)
++    expect(resultPage.nextCursor).toBeTruthy()
++    expect(resultPage.historyComplete).toBe(false)
++    // Bounded: it stopped instead of walking the whole (endless) transcript.
++    expect(result.messages.length).toBeGreaterThan(1)
++    expect(result.messages.length).toBeLessThan(100)
++    // The cursor still points at the oldest page actually retrieved.
++    expect(resultPage.nextCursor).toBe(`cursor-${oldest}`)
++    expect(fetchMock).toHaveBeenCalledTimes(oldest + 1)
++  })
++
+   it('rejects a failed continuation without exposing its successfully loaded tail', async () => {
+     vi.spyOn(globalThis, 'fetch')
+       .mockResolvedValueOnce(response(page('new', 'older')))
 diff --git a/desktop/src/api/sessions.ts b/desktop/src/api/sessions.ts
 index 8d7ee9a7..2c987353 100644
 --- a/desktop/src/api/sessions.ts
@@ -2113,6 +2151,26 @@ index a57ad5a5..c17198fc 100644
  }
  
  export function activityStepToolCalls(steps: ActivityStep[]): ToolCall[] {
+diff --git a/desktop/src/components/composite/OpenWithMenu.tsx b/desktop/src/components/composite/OpenWithMenu.tsx
+index 3c41234d..2f47d369 100644
+--- a/desktop/src/components/composite/OpenWithMenu.tsx
++++ b/desktop/src/components/composite/OpenWithMenu.tsx
+@@ -1,6 +1,6 @@
+ import { createPortal } from 'react-dom'
+ import { Fragment, useCallback, useRef } from 'react'
+-import { Globe, ExternalLink, FileText, Copy } from 'lucide-react'
++import { Globe, ExternalLink, FileText, Copy, Download } from 'lucide-react'
+ import { useAnchoredPosition } from '@/hooks/useAnchoredPosition'
+ import { useDismissable } from '@/hooks/useDismissable'
+ import { TargetIcon } from './TargetIcon'
+@@ -21,6 +21,7 @@ function ItemIcon({ item }: { item: OpenWithItem }) {
+   if (item.icon === 'in-app-browser') return <Globe size={18} strokeWidth={1.9} />
+   if (item.icon === 'preview') return <FileText size={18} strokeWidth={1.9} />
+   if (item.icon === 'copy') return <Copy size={18} strokeWidth={1.9} />
++  if (item.icon === 'download') return <Download size={18} strokeWidth={1.9} />
+   return <ExternalLink size={18} strokeWidth={1.9} />
+ }
+ 
 diff --git a/desktop/src/components/layout/AppShell.tsx b/desktop/src/components/layout/AppShell.tsx
 index 9237ae62..eaf9a104 100644
 --- a/desktop/src/components/layout/AppShell.tsx
@@ -2334,6 +2392,117 @@ index 91b16d89..346e5525 100644
        {projectContextMenu && (() => {
          const project = orderedProjectGroups.find((group) => group.key === projectContextMenu.key)
          if (!project) return null
+diff --git a/desktop/src/components/workbench/WorkspaceFileTreePane.test.tsx b/desktop/src/components/workbench/WorkspaceFileTreePane.test.tsx
+index 045d5b09..70dd2fee 100644
+--- a/desktop/src/components/workbench/WorkspaceFileTreePane.test.tsx
++++ b/desktop/src/components/workbench/WorkspaceFileTreePane.test.tsx
+@@ -482,8 +482,9 @@ describe('file chat references', () => {
+     const file = screen.getByTestId('workspace-tree-row-README.md')
+     fireEvent.keyDown(file, { key: 'F10', shiftKey: true })
+     expect(screen.getByRole('menuitem', { name: 'Add to chat' })).toHaveFocus()
+-    fireEvent.keyDown(screen.getByRole('menuitem'), { key: 'Escape' })
++    fireEvent.keyDown(screen.getByRole('menuitem', { name: 'Add to chat' }), { key: 'Escape' })
+     expect(screen.queryByRole('menu')).toBeNull()
++
+     expect(useWorkspaceChatContextStore.getState().referencesBySession[SESSION]).toBeUndefined()
+   })
+ 
+diff --git a/desktop/src/components/workbench/WorkspaceFileTreePane.tsx b/desktop/src/components/workbench/WorkspaceFileTreePane.tsx
+index 74e1485b..c0e6bb9e 100644
+--- a/desktop/src/components/workbench/WorkspaceFileTreePane.tsx
++++ b/desktop/src/components/workbench/WorkspaceFileTreePane.tsx
+@@ -13,6 +13,8 @@ import { useWorkspaceChatContextStore } from '@/stores/workspaceChatContextStore
+ import { useDismissable } from '@/hooks/useDismissable'
+ import { useAnchoredPosition } from '@/hooks/useAnchoredPosition'
+ import { useMenuKeyboard } from '@/components/workbench/menuKeyboard'
++import { downloadLocalFile } from '@/lib/handlePreviewLink'
++import { resolveAbsoluteOpenPath } from '@/lib/systemFileOpen'
+ 
+ export type WorkspaceFileTreePaneProps = {
+   sessionId: string
+@@ -46,6 +48,10 @@ export function WorkspaceFileTreePane({
+   autoFocus = false,
+ }: WorkspaceFileTreePaneProps) {
+   const t = useTranslation()
++  // Tree paths are workspace-relative; downloading resolves them to an absolute
++  // path against the session's working directory, the same way the open-with
++  // menu does. Read from the store here rather than threaded as a prop.
++  const workDir = useWorkspaceContentStore((state) => state.statusBySession[sessionId]?.workDir) ?? null
+   const [contextMenu, setContextMenu] = useState<{ sessionId: string; row: TreeRow; x: number; y: number } | null>(null)
+   const menu = contextMenu?.sessionId === sessionId ? contextMenu : null
+   const menuRef = useRef<HTMLDivElement>(null)
+@@ -390,8 +396,23 @@ export function WorkspaceFileTreePane({
+           }}>
+             {t('workspace.addSelectionToChat')}
+           </Button>
+-        </div>
+-      ) : null}
++          {!menu.row.isDirectory ? (
++            <Button
++              role="menuitem"
++              variant="ghost"
++              size="sm"
++              data-testid="workspace-tree-download"
++              onClick={() => {
++                // Failure is reported by the helper (it logs the reason); the menu
++                // still closes, so a failed save never leaves the row stuck open.
++                void downloadLocalFile(resolveAbsoluteOpenPath(menu.row.path, workDir ?? undefined))
++                closeMenu()
++              }}
++            >
++              {t('workspace.download')}
++            </Button>
++          ) : null}
++        </div>      ) : null}
+     </div>
+   )
+ }
+diff --git a/desktop/src/components/workspace/WorkspaceFileOpenWith.test.tsx b/desktop/src/components/workspace/WorkspaceFileOpenWith.test.tsx
+index 234f7c33..ffd31c7d 100644
+--- a/desktop/src/components/workspace/WorkspaceFileOpenWith.test.tsx
++++ b/desktop/src/components/workspace/WorkspaceFileOpenWith.test.tsx
+@@ -64,6 +64,9 @@ describe('WorkspaceFileOpenWith', () => {
+       capabilities: {
+         ...browserHost.capabilities,
+         shell: true,
++        // Desktop hosts carry the multi-page in-app browser; the open-with
++        // wiring falls back to the system browser only when it is absent.
++        workspaceBrowser: true,
+       },
+       shell: {
+         ...browserHost.shell,
+@@ -78,14 +81,15 @@ describe('WorkspaceFileOpenWith', () => {
+     )
+ 
+     const labels = getAllByRole('menuitem').map((el) => el.textContent)
+-    expect(labels).toHaveLength(4)
++    expect(labels).toHaveLength(5)
+     expect(labels.some((l) => l?.includes('VS Code'))).toBe(true)
+     expect(labels.some((l) => l?.includes('workspace.files.openContainingFolder'))).toBe(true)
+     // This is now a standalone menu: there is no parent copy-path pair.
+     expect(labels).toContain('openWith.copyFileContent')
+     expect(labels).toContain('openWith.copyPath')
+-    expect(labels).not.toContain('openWith.systemDefault')
+-  })
++    // The download entry rides with the clipboard group as a plain file action.
++    expect(labels).toContain('workspace.download')
++    expect(labels).not.toContain('openWith.systemDefault')  })
+ 
+   it('clicking the IDE item calls openTarget and onAfterSelect', () => {
+     const onAfter = vi.fn()
+diff --git a/desktop/src/components/workspace/WorkspaceFileOpenWith.tsx b/desktop/src/components/workspace/WorkspaceFileOpenWith.tsx
+index 8cba9ddf..058eef65 100644
+--- a/desktop/src/components/workspace/WorkspaceFileOpenWith.tsx
++++ b/desktop/src/components/workspace/WorkspaceFileOpenWith.tsx
+@@ -27,7 +27,7 @@ export function WorkspaceFileOpenWith({ absolutePath, sessionId, workspacePath,
+     : { kind: 'file' as const, absolutePath, previewable: false }
+   const actions = buildOpenWithMenuItems(context, targets, {
+     sessionId: sessionId ?? '', t: (key, vars) => t(key as TranslationKey, vars),
+-  }).filter((item) => item.icon === 'copy' || item.id === 'in-app' || item.id === 'preview')
++  }).filter((item) => item.icon === 'copy' || item.id === 'in-app' || item.id === 'preview' || item.id === 'download')
+   // Previewing again inside an already-open file has no effect. HTML browser
+   // and clipboard actions remain available because they have distinct results.
+   const usefulActions = actions.filter((item) => item.id !== 'preview' || suppliedTargets === undefined)
 diff --git a/desktop/src/hooks/useCompactMetrics.ts b/desktop/src/hooks/useCompactMetrics.ts
 new file mode 100644
 index 00000000..dc1920be
@@ -3074,6 +3243,102 @@ index 00000000..a057fed0
 +    // ignore
 +  }
 +}
+diff --git a/desktop/src/lib/handlePreviewLink.test.ts b/desktop/src/lib/handlePreviewLink.test.ts
+index cacf962f..0ddb4609 100644
+--- a/desktop/src/lib/handlePreviewLink.test.ts
++++ b/desktop/src/lib/handlePreviewLink.test.ts
+@@ -1,5 +1,16 @@
+-import { describe, expect, it, vi } from 'vitest'
++import { afterEach, describe, expect, it, vi } from 'vitest'
++
++// A fixed base so the built URL is deterministic; the real one comes from the
++// desktop runtime, which has no meaning in jsdom.
++const getServerBaseUrl = vi.fn(() => 'http://127.0.0.1:8787')
++vi.mock('./desktopRuntime', async (importOriginal) => ({
++  // Keep the module's other exports: previewLinkRouter needs isLoopbackHostname.
++  ...(await importOriginal<typeof import('./desktopRuntime')>()),
++  getServerBaseUrl: () => getServerBaseUrl(),
++}))
+ import {
++  downloadLocalFile,
++  fileNameFromPath,
+   handlePreviewLink,
+   isAbsoluteLocalPath,
+   isRootedLocalPath,
+@@ -224,3 +235,73 @@ describe('previewFsUrl (unchanged, regression guard)', () => {
+     )
+   })
+ })
++
++describe('downloadLocalFile', () => {
++  // A click on an anchor is a navigation, not a fetch: the browser attaches no
++  // Origin header, so the request reaches the server on the no-Origin path every
++  // other navigation uses and the file is served. This is the same shape the
++  // chat's download card has always used, and the only one that works from the
++  // packaged renderer, whose page is `file://` — an opaque origin can neither pass
++  // a CORS check (a fetch attaches `Origin: null`, which the server refuses) nor
++  // download a `blob:` URL it minted itself.
++  function clickDownload() {
++    const clicked: HTMLAnchorElement[] = []
++    const create = document.createElement.bind(document)
++    const spy = vi.spyOn(document, 'createElement').mockImplementation((tag: string) => {
++      const el = create(tag)
++      if (tag === 'a') {
++        const anchor = el as HTMLAnchorElement
++        anchor.click = () => clicked.push(anchor)
++      }
++      return el
++    })
++    return { clicked, restore: () => spy.mockRestore() }
++  }
++
++  afterEach(() => getServerBaseUrl.mockClear())
++
++  it('points an anchor straight at the server route', () => {
++    const { clicked, restore } = clickDownload()
++    let initiated: boolean | undefined
++    try {
++      initiated = downloadLocalFile('/home/me/notes.txt')
++    } finally {
++      restore()
++    }
++    expect(clicked[0]?.href).toBe('http://127.0.0.1:8787/local-file/home/me/notes.txt?download=1')
++    expect(clicked[0]?.download).toBe('notes.txt')
++    expect(initiated).toBe(true)
++  })
++
++  it('keeps the route encoded and the saved name for a path with spaces', () => {
++    const { clicked, restore } = clickDownload()
++    try {
++      downloadLocalFile('/home/me/report final.pdf')
++    } finally {
++      restore()
++    }
++    expect(clicked[0]?.href).toBe(
++      'http://127.0.0.1:8787/local-file/home/me/report%20final.pdf?download=1',
++    )
++    expect(clicked[0]?.download).toBe('report final.pdf')
++  })
++
++  it('leaves nothing behind in the document', () => {
++    const { restore } = clickDownload()
++    try {
++      downloadLocalFile('/home/me/notes.txt')
++    } finally {
++      restore()
++    }
++    expect(document.querySelector('a[download]')).toBeNull()
++  })
++})
++
++describe('fileNameFromPath', () => {
++  it('takes the last segment of posix and windows paths', () => {
++    expect(fileNameFromPath('/home/me/notes.txt')).toBe('notes.txt')
++    expect(fileNameFromPath('C:\\proj\\notes.txt')).toBe('notes.txt')
++    expect(fileNameFromPath('/home/me/')).toBe('me')
++    expect(fileNameFromPath('')).toBe('')
++  })
++})
 diff --git a/desktop/src/lib/handlePreviewLink.ts b/desktop/src/lib/handlePreviewLink.ts
 index 861ec5f1..572a306f 100644
 --- a/desktop/src/lib/handlePreviewLink.ts
@@ -3129,6 +3394,94 @@ index 861ec5f1..572a306f 100644
    const cls = classifyPreviewLink(href)
    const reveal: PreviewLinkReveal | undefined = cls.line
      ? { line: cls.line, ...(cls.column ? { column: cls.column } : {}) }
+diff --git a/desktop/src/lib/openWithItems.ts b/desktop/src/lib/openWithItems.ts
+index bb50afa0..57d2e77d 100644
+--- a/desktop/src/lib/openWithItems.ts
++++ b/desktop/src/lib/openWithItems.ts
+@@ -45,7 +45,7 @@ export function isPreviewableChangedFile(path: string): boolean {
+ 
+ // ─── Open-with items ──────────────────────────────────────────────────────────
+ 
+-export type OpenWithIcon = 'in-app-browser' | 'system' | 'application' | 'ide' | 'file-manager' | 'preview' | 'copy'
++export type OpenWithIcon = 'in-app-browser' | 'system' | 'application' | 'ide' | 'file-manager' | 'preview' | 'copy' | 'download'
+ 
+ export type OpenWithItem = {
+   id: string
+@@ -65,6 +65,9 @@ export type OpenWithDeps = {
+   /** Omit to leave the copy entries out (a URL context has nothing to copy). */
+   copyPath?: (absolutePath: string) => void
+   copyFileContent?: (path: string) => void
++  /** Omit to leave the download entry out (a URL context has no file to save). */
++  downloadFile?: (absolutePath: string) => void
++
+   /**
+    * Which editor gets the single top-level slot. Falls back to the first one
+    * detected — the point is that the slot is predictable, so it must not be
+@@ -192,6 +195,13 @@ export function buildOpenWithItems(ctx: OpenWithContext, targets: OpenTarget[],
+     const readPath = ctx.relPath ?? ctx.absolutePath
+     clipboard.push({ id: 'copy-content', label: deps.t('openWith.copyFileContent'), icon: 'copy', onSelect: () => copyFileContent(readPath) })
+   }
++  // Download saves the file to the user's machine through the local server's
++  // attachment route; it is a plain file action (no target), so it rides with the
++  // clipboard group rather than the "open in…" application list.
++  if (deps.downloadFile) {
++    const downloadFile = deps.downloadFile
++    clipboard.push({ id: 'download', label: deps.t('workspace.download'), icon: 'download', onSelect: () => downloadFile(ctx.absolutePath) })
++  }
+   pushGroup(items, clipboard)
+ 
+   pushGroup(items, targets
+diff --git a/desktop/src/lib/openWithMenuItems.ts b/desktop/src/lib/openWithMenuItems.ts
+index 34d7272e..4d63ddb2 100644
+--- a/desktop/src/lib/openWithMenuItems.ts
++++ b/desktop/src/lib/openWithMenuItems.ts
+@@ -11,8 +11,11 @@ import { copyTextToClipboard } from './clipboard'
+ import { sessionsApi } from '../api/sessions'
+ import type { OpenTarget } from '../stores/openTargetStore'
+ import { workspaceOpen } from './workspace/openTarget'
++import { isWorkspaceBrowserAvailable } from './workspace/browserHost'
+ import { useOpenTargetStore } from '../stores/openTargetStore'
++import { useUIStore } from '../stores/uiStore'
+ import { reportOpenFailure } from './systemFileOpen'
++import { downloadLocalFile } from './handlePreviewLink'
+ 
+ type Translate = (key: string, vars?: Record<string, string>) => string
+ 
+@@ -44,7 +47,20 @@ export function openWithMenuDeps(
+   { sessionId, t, omitCopyPath }: OpenWithMenuOptions,
+ ): OpenWithDeps {
+   return {
+-    openInAppBrowser: (url) => { workspaceOpen.browser(sessionId, url) },
++    openInAppBrowser: (url) => {
++      if (!isWorkspaceBrowserAvailable()) {
++        // The built-in browser only exists in the desktop app. On the H5/remote
++        // surface there is no in-app browser tab, so open in the system browser
++        // and tell the user the built-in one needs the desktop version.
++        useUIStore.getState().addToast({
++          type: 'info',
++          message: t('workspace.browser.unavailableTitle'),
++        })
++        window.open(url, '_blank', 'noopener,noreferrer')
++        return
++      }
++      workspaceOpen.browser(sessionId, url)
++    },
+     openSystem: (target) => {
+       void getDesktopHost().shell.openPath(target).catch(() => window.open(target, '_blank'))
+     },
+@@ -78,6 +94,12 @@ export function openWithMenuDeps(
+               await copyTextToClipboard(result.content)
+             })().catch(() => {})
+           },
++          // A file is the only context with something to save. The helper fetches
++          // the bytes through the API client and saves a blob; see it for why a
++          // plain anchor at the route cannot work from this renderer.
++          downloadFile: (absolutePath: string) => {
++            void downloadLocalFile(absolutePath)
++          },
+         }
+       : {}),
+     t,
 diff --git a/desktop/src/lib/sessionExport.ts b/desktop/src/lib/sessionExport.ts
 new file mode 100644
 index 00000000..cfe1ff6b
@@ -6765,6 +7118,396 @@ index 55c5360b..2f021ad7 100644
  })
  
  /**
+diff --git a/src/server/api/localFile.ts b/src/server/api/localFile.ts
+index c24e66fa..df0fa3c2 100644
+--- a/src/server/api/localFile.ts
++++ b/src/server/api/localFile.ts
+@@ -1,7 +1,7 @@
+ import * as path from 'node:path'
+ import { expandTilde } from '../../utils/permissions/pathValidation.js'
+ import { isAllowedFilesystemPath } from './filesystem.js'
+-import { serveFileWithRange } from './previewFs.js'
++import { serveFileWithRange, downloadHeadersFor, contentTypeForPath } from './previewFs.js'
+ import { canonicalizeExistingFilesystemPath } from '../services/filesystemPathSecurity.js'
+ import { normalizeDriveRootPathForPlatform } from '../services/windowsDrivePath.js'
+ 
+@@ -102,5 +102,56 @@ export async function handleLocalFile(
+     return new Response('forbidden', { status: 403 })
+   }
+ 
++  // `?info=1` returns lightweight file metadata (no content read) so the
++  // download card can show the file name + size without streaming the body.
++  if (url.searchParams.get('info') === '1') {
++    try {
++      const stat = await Bun.file(canonicalPath).stat()
++      return Response.json({
++        name: path.basename(canonicalPath),
++        size: stat.size,
++        mime: contentTypeForPath(canonicalPath),
++      })
++    } catch {
++      return new Response('not found', { status: 404 })
++    }
++  }
++
++  // `?download=1` turns the in-app preview into a real download: add
++  // Content-Disposition: attachment with an RFC5987-encoded filename so
++  // unicode/space names survive browsers.
++  if (url.searchParams.get('download') === '1') {
++    return serveFileWithRange(canonicalPath, reqHeaders, downloadHeadersFor(canonicalPath))
++  }
++
+   return serveFileWithRange(canonicalPath, reqHeaders)
+ }
++
++/**
++ * Batch size metadata for many absolute paths at once (download cards fetch
++ * all missing sizes in one request instead of one request per file). Each
++ * path is gated by the same $HOME sandbox as the single-file route; paths
++ * that fail canonicalization or the allow-list are silently skipped.
++ */
++export async function handleBatchLocalFileInfo(body: unknown): Promise<Response> {
++  const rawPaths = (body as { paths?: unknown } | null)?.paths
++  const paths = Array.isArray(rawPaths) ? rawPaths.filter((p): p is string => typeof p === 'string') : []
++  const files: Record<string, { name: string; size: number; mime: string }> = {}
++  for (const filePath of paths) {
++    const resolved = path.resolve(normalizeDriveRootPathForPlatform(filePath))
++    const canonicalPath = await canonicalizeExistingFilesystemPath(resolved)
++    if (!canonicalPath) continue
++    if (!isAllowedFilesystemPath(canonicalPath)) continue
++    try {
++      const stat = await Bun.file(canonicalPath).stat()
++      files[filePath] = {
++        name: path.basename(canonicalPath),
++        size: stat.size,
++        mime: contentTypeForPath(canonicalPath),
++      }
++    } catch {
++      // unreadable file — skip, the card shows '--'
++    }
++  }
++  return Response.json({ files })
++}
+diff --git a/src/server/api/previewFs.ts b/src/server/api/previewFs.ts
+index 3c1576dc..c362618b 100644
+--- a/src/server/api/previewFs.ts
++++ b/src/server/api/previewFs.ts
+@@ -179,10 +179,12 @@ export async function handlePreviewFs(
+     return new Response('forbidden', { status: 403 })
+   }
+ 
+-  return servePreviewFsFile(canonicalTarget, url.pathname, reqHeaders)
++  const download = url.searchParams.get('download') === '1'
++  return servePreviewFsFile(canonicalTarget, url.pathname, reqHeaders, download)
+ }
+ 
+ function previewHtmlBasePath(pathname: string): string {
++
+   const slash = pathname.lastIndexOf('/')
+   if (slash < 0) return '/'
+   return pathname.slice(0, slash + 1)
+@@ -218,11 +220,15 @@ async function servePreviewFsFile(
+   target: string,
+   requestPathname: string,
+   reqHeaders?: Headers,
++  download = false,
+ ): Promise<Response> {
+   const ext = path.extname(target).toLowerCase()
+   const isHtml = ext === '.html' || ext === '.htm'
+-  if (!isHtml) {
+-    return serveFileWithRange(target, reqHeaders)
++  const downloadHeaders = download ? downloadHeadersFor(target) : undefined
++  if (!isHtml || download) {
++    // For downloads we skip the HTML base-rewrite transform entirely — the
++    // browser wants the raw file bytes, not the preview-transformed version.
++    return serveFileWithRange(target, reqHeaders, downloadHeaders)
+   }
+   if (reqHeaders?.has('range')) {
+     return serveFileWithRange(target, reqHeaders, {
+@@ -337,3 +343,18 @@ export async function serveFileWithRange(
+     },
+   })
+ }
++
++/**
++ * Build the `Content-Disposition: attachment` headers for a download response.
++ * The RFC5987 `filename*` form carries unicode/space names (browsers use it
++ * over the ASCII `filename` fallback); the fallback strips non-ASCII so the
++ * plain header never breaks on raw unicode.
++ */
++export function downloadHeadersFor(target: string): Record<string, string> {
++  const fileName = path.basename(target)
++  const fallback = fileName.replace(/[^\x20-\x7E]/g, '_')
++  const encoded = encodeURIComponent(fileName).replace(/'/g, '%27')
++  return {
++    'Content-Disposition': `attachment; filename="${fallback}"; filename*=UTF-8''${encoded}`,
++  }
++}
+diff --git a/src/server/index.ts b/src/server/index.ts
+index 7dedd892..6a86bd24 100644
+--- a/src/server/index.ts
++++ b/src/server/index.ts
+@@ -8,18 +8,22 @@ import { handleSessionCollaborationApi } from './api/sessionCollaboration.js'
+  * 读写与 CLI 完全相同的文件系统，确保 CLI/UI 数据互通。
+  */
+ 
++import { existsSync, unlinkSync } from 'node:fs'
++import { stat } from 'node:fs/promises'
+ import { handleApiRequest } from './router.js'
+-import { handleWebSocket, type WebSocketData } from './ws/handler.js'
++import { handleWebSocket, sendToSession, type WebSocketData } from './ws/handler.js'
+ import { resolveCors, type CorsResolution } from './middleware/cors.js'
+ import { requireAuth, requireH5Token } from './middleware/auth.js'
+ import { teamWatcher } from './services/teamWatcher.js'
+ import { cronScheduler } from './services/cronScheduler.js'
+ import { handleProxyRequest } from './proxy/handler.js'
++import { setTpsTokenSink } from './proxy/tpsTokenSink.js'
++import { withGzipIfEligible } from './responseCompression.js'
+ import { ProviderService } from './services/providerService.js'
+ import { handleHahaOAuthCallback } from './api/haha-oauth.js'
+ import { handleHahaOpenAIOAuthCallback } from './api/haha-openai-oauth.js'
+ import { handlePreviewFs } from './api/previewFs.js'
+-import { handleLocalFile } from './api/localFile.js'
++import { handleLocalFile, handleBatchLocalFileInfo } from './api/localFile.js'
+ import { sessionService } from './services/sessionService.js'
+ import { localIndexCoordinator } from './services/localIndex/coordinator.js'
+ import { searchContentCoordinator } from './services/localIndex/searchContentCoordinator.js'
+@@ -145,6 +149,41 @@ function beginBackgroundIndexStartup(): void {
+   })
+ }
+ 
++/**
++ * Transcript size per session, cached briefly.
++ *
++ * Only consulted once a response is otherwise eligible for compression. The H5
++ * history walk issues one request per page and every page asks the same
++ * question, so the cache keeps a deep walk from re-resolving the same file on
++ * each of its (hundreds of) requests. A null result means "unknown" and falls
++ * back to compressing, so a transient stat failure cannot strand large
++ * sessions uncompressed.
++ */
++const SESSION_SIZE_CACHE_TTL_MS = 10_000
++const SESSION_SIZE_CACHE_LIMIT = 64
++const sessionSizeCache = new Map<string, { size: number | null; at: number }>()
++
++async function resolveSessionSizeBytes(sessionId: string): Promise<number | null> {
++  const now = Date.now()
++  const cached = sessionSizeCache.get(sessionId)
++  if (cached && now - cached.at < SESSION_SIZE_CACHE_TTL_MS) return cached.size
++
++  let size: number | null = null
++  try {
++    const found = await sessionService.findSessionFile(sessionId)
++    if (found) size = (await stat(found.filePath)).size
++  } catch {
++    size = null
++  }
++
++  sessionSizeCache.set(sessionId, { size, at: now })
++  if (sessionSizeCache.size > SESSION_SIZE_CACHE_LIMIT) {
++    const oldest = sessionSizeCache.keys().next().value
++    if (oldest !== undefined) sessionSizeCache.delete(oldest)
++  }
++  return size
++}
++
+ function withCors(response: Response, cors: CorsResolution): Response {
+   const headers = new Headers(response.headers)
+   for (const [key, value] of Object.entries(cors.headers)) {
+@@ -256,6 +295,13 @@ export function startServer(port = PORT, host = HOST) {
+     process.env.SERVER_AUTH_REQUIRED === '1'
+   const h5AccessService = new H5AccessService()
+ 
++  // The proxy reads real per-chunk token counts off local engines and needs to
++  // push them to the session's client. It cannot import the WS layer (that
++  // would close a cycle through titleService), so the wiring lives here.
++  setTpsTokenSink((sessionId, tokens, kind) => {
++    sendToSession(sessionId, { type: 'tps_tokens', tokens, kind })
++  })
++
+   const publicAccess = new PublicAccessServer({
+     handleApiRequest,
+     handleStatic: handleStaticH5Request,
+@@ -263,7 +309,12 @@ export function startServer(port = PORT, host = HOST) {
+     serverPort: () => serverPort,
+   })
+   publicAccessServers.add(publicAccess)
+-  let server: ReturnType<typeof Bun.serve<WebSocketData>>
++  // Named so `serverFetch` can annotate its handle parameter without writing
++  // `typeof server` inside a parameter that itself shadows `server` — that
++  // self-reference made the annotation unresolvable (TS2502) and silently cost
++  // every `server.upgrade` / `server.requestIP` call in the handler its types.
++  type ServerHandle = ReturnType<typeof Bun.serve<WebSocketData>>
++  let server: ServerHandle
+ 
+   // Open SQLite before the first REST request. Discovery still runs in the
+   // background; without this, getPublicStatus() reports `off` and the sidebar
+@@ -271,12 +322,12 @@ export function startServer(port = PORT, host = HOST) {
+   void localIndexCoordinator.start().catch(() => undefined)
+ 
+   try {
+-    server = Bun.serve<WebSocketData>({
+-      port,
+-      hostname: host,
+-      idleTimeout: HTTP_CONNECTION_IDLE_TIMEOUT_SECONDS,
+-
+-      async fetch(req, server) {
++    // Shared request pipeline. Extracted (rather than inlined in Bun.serve) so a
++    // test-only unix-socket mirror below can reuse the exact same auth/proxy/static
++    // routing. A request over that socket carries no peer address, which H5 auth
++    // treats as a public (non-LAN) source — used by integration tests to exercise
++    // the "remote browser needs the H5 token" path without a real public IP.
++    const serverFetch = async (req: Request, server: ServerHandle): Promise<Response> => {
+         const url = new URL(req.url)
+         if (isPublicAccessControlPath(url.pathname)) return publicAccess.control(req)
+ 
+@@ -366,6 +417,7 @@ export function startServer(port = PORT, host = HOST) {
+           request: req,
+           url,
+           h5Enabled: h5Settings.enabled,
++          requireToken: h5Settings.requireToken,
+           context: h5RequestContext,
+         })
+         const h5AccessDisabledBlocked = shouldBlockDisabledH5Access({
+@@ -397,6 +449,41 @@ export function startServer(port = PORT, host = HOST) {
+           return new Response(null, { status: 204, headers: cors.headers })
+         }
+ 
++        // Dedicated terminal WebSocket channel for the H5 browser terminal.
++        // The literal path /ws/terminal would otherwise be swallowed by the
++        // generic /ws/{sessionId} branch below, so it must be routed first.
++        if (url.pathname === '/ws/terminal') {
++          if (cors.rejected) {
++            return corsRejectedResponse(cors)
++          }
++
++          if (!petAccessAuthorized && authRequired) {
++            const authError = await requireH5Token(req, url.searchParams.get('token'))
++            if (authError) {
++              return withCors(authError, cors)
++            }
++          } else if (!petAccessAuthorized && forceAuth) {
++            const authError = await requireAuth(req, url.searchParams.get('token'))
++            if (authError) {
++              return withCors(authError, cors)
++            }
++          }
++
++          const upgraded = server.upgrade(req, {
++            data: {
++              sessionId: 'terminal',
++              connectedAt: Date.now(),
++              channel: 'terminal',
++              clientKind: 'full',
++              sdkToken: null,
++              serverPort,
++              serverHost: localConnectHost,
++            },
++          })
++          if (upgraded) return undefined
++          return new Response('WebSocket upgrade failed', { status: 400 })
++        }
++
+         // WebSocket upgrade
+         if (url.pathname.startsWith('/ws/')) {
+           if (cors.rejected) {
+@@ -512,6 +599,33 @@ export function startServer(port = PORT, host = HOST) {
+           return withCors(response, cors)
+         }
+ 
++        // Batch file-metadata endpoint for download cards (one request for all
++        // sizes). Must sit BEFORE the `/local-file/` prefix branch since the
++        // path also starts with that prefix.
++        if (url.pathname === '/local-file/info' && req.method === 'POST') {
++          if (cors.rejected) {
++            return corsRejectedResponse(cors)
++          }
++          if (authRequired) {
++            const authError = await requireH5Token(req)
++            if (authError) {
++              return withCors(authError, cors)
++            }
++          } else if (forceAuth) {
++            const authError = await requireAuth(req)
++            if (authError) {
++              return withCors(authError, cors)
++            }
++          }
++          try {
++            const body = await req.json()
++            const response = await handleBatchLocalFileInfo(body)
++            return withCors(response, cors)
++          } catch {
++            return withCors(new Response('bad request', { status: 400 }), cors)
++          }
++        }
++
+         // Local filesystem — serve an ABSOLUTE local file ($HOME/tmp/registered
+         // roots sandbox) so `file://` links / AI-emitted absolute paths open in
+         // the in-app browser. Gated identically to /preview-fs above.
+@@ -560,7 +674,13 @@ export function startServer(port = PORT, host = HOST) {
+               req,
+               handleApiRequest(req, url, { remoteBrowser: classifyH5Request(req, url, h5RequestContext) === 'h5-browser' }),
+             )
+-            return withCors(response, cors)
++            // Remote API responses are gzip-compressed (transparent to browser
++            // fetch); loopback desktop traffic stays uncompressed, and sessions
++            // below the transport floor skip compression entirely.
++            return withCors(
++              await withGzipIfEligible(req, response, clientAddress, resolveSessionSizeBytes),
++              cors,
++            )
+           } catch (error) {
+             void diagnosticsService.recordEvent({
+               type: 'api_request_failed',
+@@ -619,15 +739,46 @@ export function startServer(port = PORT, host = HOST) {
+         }
+ 
+         return new Response('Not Found', { status: 404 })
+-      },
++    }
++
++    server = Bun.serve<WebSocketData>({
++      port,
++      hostname: host,
++      idleTimeout: HTTP_CONNECTION_IDLE_TIMEOUT_SECONDS,
++
++      fetch: serverFetch,
+ 
+       websocket: handleWebSocket,
+     })
++
++    // Test-only unix-socket mirror sharing the same fetch/websocket handlers.
++    // A request over this socket has no peer address, so H5 auth treats it as a
++    // public (non-LAN) source — integration tests use it to assert that a remote
++    // browser must present the H5 token, without needing a real public source IP.
++    const testUnixSocket = process.env.CC_HAHA_TEST_UNIX_SOCKET
++    let testUnixServer: ReturnType<typeof Bun.serve<WebSocketData>> | null = null
++    if (testUnixSocket) {
++      try {
++        if (existsSync(testUnixSocket)) unlinkSync(testUnixSocket)
++        testUnixServer = Bun.serve<WebSocketData>({
++          unix: testUnixSocket,
++          fetch: serverFetch,
++          websocket: handleWebSocket,
++        })
++      } catch (error) {
++        console.warn(
++          `[Server] test unix socket ${testUnixSocket} not started: ` +
++            (error instanceof Error ? error.message : String(error)),
++        )
++      }
++    }
+     const disposeCollaboration = configureSessionCollaborationHost(localConnectHost, server.port)
++
+     const stop = server.stop.bind(server)
+     server.stop = (closeActiveConnections?: boolean) => {
+       apiPerformanceMonitor.stop()
+       disposeCollaboration()
++      if (testUnixServer) testUnixServer.stop(closeActiveConnections)
+       publicAccess.disable()
+       publicAccessServers.delete(publicAccess)
+       return stop(closeActiveConnections)
 diff --git a/src/server/proxy/handler.ts b/src/server/proxy/handler.ts
 index eb126371..6564f64f 100644
 --- a/src/server/proxy/handler.ts
@@ -7021,6 +7764,528 @@ index 2518d15d..01569e45 100644
    expect(validateRemoteSettingsPatch({ autoQuestion: { enabled: true, timeoutMinutes: 5 } })).toBe(true)
    expect(validateRemoteSettingsPatch({ autoQuestion: { enabled: true, timeoutMinutes: 3 } })).toBe(false)
    expect(validateRemoteSettingsPatch({ autoQuestion: { enabled: true, timeoutMinutes: 5, future: true } })).toBe(false)
+diff --git a/src/server/responseCompression.test.ts b/src/server/responseCompression.test.ts
+new file mode 100644
+index 00000000..a97f7128
+--- /dev/null
++++ b/src/server/responseCompression.test.ts
+@@ -0,0 +1,205 @@
++import { describe, expect, test, beforeEach, afterEach } from 'bun:test'
++import { gunzipSync } from 'node:zlib'
++import { shouldGzipResponse, withGzipIfEligible, sessionIdFromPath, MIN_COMPRESSIBLE_SESSION_BYTES } from './responseCompression.js'
++
++const big = 'x'.repeat(300 * 1024)
++const small = 'x'.repeat(1024)
++
++function jsonReq(acceptEncoding?: string | null) {
++  return new Request('http://127.0.0.1:7788/api/sessions/x/messages', {
++    method: 'GET',
++    headers: acceptEncoding === undefined ? {} : { 'accept-encoding': acceptEncoding },
++  })
++}
++
++function jsonRes(body: string) {
++  return Response.json(JSON.parse(body))
++}
++
++describe('shouldGzipResponse', () => {
++  test('compresses remote large json with gzip advertised', () => {
++    expect(
++      shouldGzipResponse(jsonReq('gzip, deflate'), jsonRes(`{"m":"${big}"}`), '192.168.1.50'),
++    ).toBe(true)
++  })
++
++  test('skips loopback by default', () => {
++    expect(
++      shouldGzipResponse(jsonReq('gzip'), jsonRes(`{"m":"${big}"}`), '127.0.0.1'),
++    ).toBe(false)
++    expect(
++      shouldGzipResponse(jsonReq('gzip'), jsonRes(`{"m":"${big}"}`), '::1'),
++    ).toBe(false)
++  })
++
++  test('skips when client does not advertise gzip', () => {
++    expect(
++      shouldGzipResponse(jsonReq('br'), jsonRes(`{"m":"${big}"}`), '192.168.1.50'),
++    ).toBe(false)
++    expect(
++      shouldGzipResponse(jsonReq(null), jsonRes(`{"m":"${big}"}`), '192.168.1.50'),
++    ).toBe(false)
++  })
++
++  test('skips small payloads with a declared length', () => {
++    const res = new Response(`{"m":"${small}"}`, {
++      status: 200,
++      headers: {
++        'content-type': 'application/json',
++        'content-length': String(Buffer.byteLength(`{"m":"${small}"}`)),
++      },
++    })
++    expect(shouldGzipResponse(jsonReq('gzip'), res, '192.168.1.50')).toBe(false)
++  })
++
++  test('skips non-200 and non-GET', () => {
++    const res = new Response(JSON.stringify({ error: 'x'.repeat(300 * 1024) }), {
++      status: 413,
++      headers: { 'content-type': 'application/json' },
++    })
++    expect(shouldGzipResponse(jsonReq('gzip'), res, '192.168.1.50')).toBe(false)
++
++    const post = new Request('http://127.0.0.1:7788/api/x', {
++      method: 'POST',
++      headers: { 'accept-encoding': 'gzip' },
++    })
++    expect(shouldGzipResponse(post, jsonRes(`{"m":"${big}"}`), '192.168.1.50')).toBe(false)
++  })
++
++  test('skips non-json content type', () => {
++    const res = new Response(big, { headers: { 'content-type': 'text/html' } })
++    expect(shouldGzipResponse(jsonReq('gzip'), res, '192.168.1.50')).toBe(false)
++  })
++
++  test('env CC_HAHA_TRANSPORT_GZIP=0 disables, =1 forces loopback', () => {
++    const orig0 = process.env.CC_HAHA_TRANSPORT_GZIP
++    process.env.CC_HAHA_TRANSPORT_GZIP = '0'
++    expect(
++      shouldGzipResponse(jsonReq('gzip'), jsonRes(`{"m":"${big}"}`), '192.168.1.50'),
++    ).toBe(false)
++    process.env.CC_HAHA_TRANSPORT_GZIP = '1'
++    expect(
++      shouldGzipResponse(jsonReq('gzip'), jsonRes(`{"m":"${big}"}`), '127.0.0.1'),
++    ).toBe(true)
++    if (orig0 === undefined) delete process.env.CC_HAHA_TRANSPORT_GZIP
++    else process.env.CC_HAHA_TRANSPORT_GZIP = orig0
++  })
++})
++
++describe('withGzipIfEligible', () => {
++  let envBackup: string | undefined
++
++  beforeEach(() => {
++    envBackup = process.env.CC_HAHA_TRANSPORT_GZIP
++    delete process.env.CC_HAHA_TRANSPORT_GZIP
++  })
++
++  afterEach(() => {
++    if (envBackup === undefined) delete process.env.CC_HAHA_TRANSPORT_GZIP
++    else process.env.CC_HAHA_TRANSPORT_GZIP = envBackup
++  })
++
++  test('compresses the body and sets content-encoding, client text is identical', async () => {
++    const body = { messages: Array.from({ length: 300 }, (_, i) => ({ id: i, text: big.slice(0, 1000) })) }
++
++    const out = await withGzipIfEligible(jsonReq('gzip'), jsonRes(JSON.stringify(body)), '192.168.1.50')
++
++    expect(out.headers.get('content-encoding')).toBe('gzip')
++    expect(Number(out.headers.get('content-length'))).toBeLessThan(
++      Buffer.byteLength(JSON.stringify(body)),
++    )
++    // 浏览器 fetch 按规范透明解压 gzip（res.text()/res.json() 拿到明文
++    // JSON）；Bun 的 Response 不替我们解压，这里手动 gunzip 模拟客户端视角。
++    const raw = new Uint8Array(await out.arrayBuffer())
++    expect(JSON.parse(gunzipSync(raw).toString())).toEqual(body)
++  })
++
++  test('leaves loopback responses untouched', async () => {
++    const body = { messages: [{ id: 1, text: big }] }
++    const out = await withGzipIfEligible(jsonReq('gzip'), jsonRes(JSON.stringify(body)), '127.0.0.1')
++    expect(out.headers.get('content-encoding')).toBeNull()
++    expect(JSON.parse(await out.text())).toEqual(body)
++  })
++
++  test('leaves small responses untouched', async () => {
++    const body = { ok: true, text: small }
++    const out = await withGzipIfEligible(jsonReq('gzip'), jsonRes(JSON.stringify(body)), '192.168.1.50')
++    expect(out.headers.get('content-encoding')).toBeNull()
++  })
++
++  describe('session size floor', () => {
++    const bigBody = JSON.stringify({
++      messages: Array.from({ length: 300 }, (_, i) => ({ id: i, text: big.slice(0, 1000) })),
++    })
++    const seen: Array<string> = []
++    const resolver = (size: number | null) => async (sessionId: string) => {
++      seen.push(sessionId)
++      return size
++    }
++
++    test('compresses a session at or above the floor', async () => {
++      seen.length = 0
++      const out = await withGzipIfEligible(
++        jsonReq('gzip'), jsonRes(bigBody), '192.168.1.50',
++        resolver(MIN_COMPRESSIBLE_SESSION_BYTES),
++      )
++      expect(out.headers.get('content-encoding')).toBe('gzip')
++      expect(seen).toEqual(['x'])
++    })
++
++    test('skips a session below the floor even when the response is large', async () => {
++      const out = await withGzipIfEligible(
++        jsonReq('gzip'), jsonRes(bigBody), '192.168.1.50',
++        resolver(MIN_COMPRESSIBLE_SESSION_BYTES - 1),
++      )
++      expect(out.headers.get('content-encoding')).toBeNull()
++      expect(JSON.parse(await out.text())).toEqual(JSON.parse(bigBody))
++    })
++
++    test('unknown size falls back to compressing', async () => {
++      const out = await withGzipIfEligible(
++        jsonReq('gzip'), jsonRes(bigBody), '192.168.1.50', resolver(null),
++      )
++      expect(out.headers.get('content-encoding')).toBe('gzip')
++    })
++
++    test('never resolves the size for loopback or non-session traffic', async () => {
++      seen.length = 0
++      // Loopback is rejected before the floor check.
++      await withGzipIfEligible(jsonReq('gzip'), jsonRes(bigBody), '127.0.0.1', resolver(1))
++      // Not session-scoped: no id to look up, and the response still compresses.
++      const other = new Request('http://127.0.0.1:7788/api/settings', {
++        method: 'GET', headers: { 'accept-encoding': 'gzip' },
++      })
++      const out = await withGzipIfEligible(other, jsonRes(bigBody), '192.168.1.50', resolver(1))
++      expect(out.headers.get('content-encoding')).toBe('gzip')
++      expect(seen).toEqual([])
++    })
++
++    test('a small response still compresses nothing, though the size is consulted', async () => {
++      // `Response.json` sets no content-length, so `shouldGzipResponse` cannot
++      // apply the per-response floor up front — it returns true and the real
++      // size check happens after the body is buffered. The session lookup
++      // therefore does run here; this pins that (slightly wasteful) ordering so
++      // a future change to it is a deliberate one.
++      seen.length = 0
++      const out = await withGzipIfEligible(
++        jsonReq('gzip'), jsonRes(`{"m":"${small}"}`), '192.168.1.50', resolver(1),
++      )
++      expect(out.headers.get('content-encoding')).toBeNull()
++      expect(seen).toEqual(['x'])
++    })
++  })
++})
++
++describe('sessionIdFromPath', () => {
++  test('extracts the session id and ignores other routes', () => {
++    expect(sessionIdFromPath('/api/sessions/abc-123/messages')).toBe('abc-123')
++    expect(sessionIdFromPath('/api/sessions/abc-123')).toBe('abc-123')
++    expect(sessionIdFromPath('/api/sessions')).toBeNull()
++    expect(sessionIdFromPath('/api/settings')).toBeNull()
++    // Must not be fooled by a route that merely shares the prefix.
++    expect(sessionIdFromPath('/api/sessionsfoo/bar')).toBeNull()
++  })
++})
++
+diff --git a/src/server/responseCompression.ts b/src/server/responseCompression.ts
+new file mode 100644
+index 00000000..891da02b
+--- /dev/null
++++ b/src/server/responseCompression.ts
+@@ -0,0 +1,167 @@
++import { gzip } from 'node:zlib'
++import { isLoopbackHost } from './h5AccessPolicy.js'
++
++/**
++ * Compress off the main thread. `gzipSync` blocks the event loop for the whole
++ * deflate, and the remote history path is exactly where that hurts: a large
++ * session is fetched as many sequential pages, so every page stalled every
++ * other request (and the paging loop itself) for the duration.
++ * The async form runs on the libuv threadpool, so concurrent work keeps
++ * progressing while a page compresses.
++ */
++function gzipBuffer(input: Uint8Array): Promise<Buffer> {
++  return new Promise((resolve, reject) => {
++    gzip(input, { level: 6 }, (error, result) =>
++      error ? reject(error) : resolve(result),
++    )
++  })
++}
++
++/**
++ * Transport compression for non-local API responses.
++ *
++ * Opening a large H5 session transfers the whole transcript paged from the
++ * sidecar (measured: ~140 MB / 701 pages for one 37k-message session).
++ * Loopback desktop traffic stays uncompressed to preserve the local
++ * zero-overhead path; remote (H5) responses are gzip-compressed when the
++ * client advertises `Accept-Encoding: gzip` and the body is large enough
++ * for the CPU cost to pay off.
++ *
++ * Browsers decompress gzip transparently inside `fetch()` — `res.text()` /
++ * `res.json()` see the plain JSON either way — so no client change is
++ * required. Compression is best-effort: any failure returns the original
++ * response untouched.
++ */
++
++// Below this size the win is marginal (a ~200 KB page compresses to ~70 KB).
++const MIN_COMPRESS_BYTES = 128 * 1024
++
++/**
++ * Only compress when the *session* is big enough to be worth it.
++ *
++ * Compression is decided per response, but the cost is per response too, and a
++ * small session produces small responses on every page. Once transcripts are
++ * no longer dominated by echoed file bodies, most sessions are small enough
++ * that paying deflate on each page buys little; below this floor the plain JSON
++ * is sent as-is.
++ */
++export const MIN_COMPRESSIBLE_SESSION_BYTES = 10 * 1024 * 1024
++
++const SESSION_PATH_PATTERN = /^\/api\/sessions\/([^/]+)(?:\/|$)/
++
++/** The session a request addresses, or null when it is not session-scoped. */
++export function sessionIdFromPath(pathname: string): string | null {
++  const match = SESSION_PATH_PATTERN.exec(pathname)
++  if (!match?.[1]) return null
++  try {
++    return decodeURIComponent(match[1])
++  } catch {
++    return match[1]
++  }
++}
++
++const DEBUG_LOG_LIMIT = 5
++
++let debugLogsEmitted = 0
++
++export function shouldGzipResponse(
++  request: Request,
++  response: Response,
++  clientAddress: string | null,
++): boolean {
++  if (process.env.CC_HAHA_TRANSPORT_GZIP === '0') return false
++  if (request.method !== 'GET' || response.status !== 200) return false
++  if (!response.body) return false
++
++  const acceptEncoding = request.headers.get('accept-encoding')?.toLowerCase() ?? ''
++  if (!acceptEncoding.includes('gzip')) return false
++
++  // Remote by default; loopback only skips compression unless forced on.
++  const isLocal = clientAddress !== null && isLoopbackHost(clientAddress)
++  if (isLocal && process.env.CC_HAHA_TRANSPORT_GZIP !== '1') return false
++
++  const contentType = response.headers.get('content-type') ?? ''
++  if (!contentType.includes('json')) return false
++
++  // Response.json does not always set content-length, so this is a fast skip
++  // only; the authoritative size check happens after the body is read in
++  // withGzipIfEligible.
++  const declared = Number.parseInt(response.headers.get('content-length') ?? '', 10)
++  if (Number.isFinite(declared) && declared > 0 && declared < MIN_COMPRESS_BYTES) {
++    return false
++  }
++  return true
++}
++export async function withGzipIfEligible(
++  request: Request,
++  response: Response,
++  clientAddress: string | null,
++  resolveSessionSize?: (sessionId: string) => Promise<number | null>,
++): Promise<Response> {
++  if (!shouldGzipResponse(request, response, clientAddress)) return response
++
++  // Session floor is checked last, and only once the cheap checks above have
++  // already decided this response would be compressed — resolving the size
++  // costs a filesystem lookup, so loopback/small/non-JSON traffic must not pay
++  // for it. A failed lookup (`null`) falls back to the previous behaviour
++  // rather than silently dropping compression.
++  if (resolveSessionSize) {
++    const sessionId = sessionIdFromPath(new URL(request.url).pathname)
++    if (sessionId) {
++      const size = await resolveSessionSize(sessionId).catch(() => null)
++      if (size !== null && size < MIN_COMPRESSIBLE_SESSION_BYTES) return response
++    }
++  }
++
++  let raw: Uint8Array
++  try {
++    raw = new Uint8Array(await response.arrayBuffer())
++  } catch (error) {
++    // Body already consumed (abort mid-read). The caller's abort path owns
++    // that case; surface the original response shape.
++    console.warn(
++      '[Server] gzip transport read failed, sending original response:',
++      error instanceof Error ? error.message : String(error),
++    )
++    return response
++  }
++  // The body was consumed by arrayBuffer(); any non-compressed fallback must
++  // rebuild a Response from `raw` or the client receives an empty body.
++  const passthrough = () =>
++    new Response(raw, {
++      status: response.status,
++      headers: Object.fromEntries(response.headers.entries()),
++    })
++
++  if (raw.length < MIN_COMPRESS_BYTES) return passthrough()
++
++  let compressed: Uint8Array
++  try {
++    compressed = new Uint8Array(await gzipBuffer(raw))
++  } catch (error) {
++    console.warn(
++      '[Server] gzip compression failed, sending uncompressed:',
++      error instanceof Error ? error.message : String(error),
++    )
++    return passthrough()
++  }
++  if (compressed.length >= raw.length) return passthrough()
++
++  if (debugLogsEmitted < DEBUG_LOG_LIMIT) {
++    debugLogsEmitted += 1
++    console.log(
++      `[Server] gzip transport: ${(raw.length / 1024 / 1024).toFixed(2)}MB -> ` +
++        `${(compressed.length / 1024 / 1024).toFixed(2)}MB ` +
++        `(${(raw.length / compressed.length).toFixed(1)}x) ${request.method} ${request.url}`,
++    )
++  }
++  return new Response(compressed, {
++    status: response.status,
++    headers: {
++      ...Object.fromEntries(response.headers.entries()),
++      'content-encoding': 'gzip',
++      'content-length': String(compressed.length),
++      'cache-control': 'no-store',
++    },
++  })
++}
+diff --git a/src/server/services/boundedSessionHistory.test.ts b/src/server/services/boundedSessionHistory.test.ts
+index b1ec4b63..cacdcdf9 100644
+--- a/src/server/services/boundedSessionHistory.test.ts
++++ b/src/server/services/boundedSessionHistory.test.ts
+@@ -3,7 +3,7 @@ import { mkdtemp, rm, writeFile, appendFile, open, rename } from 'node:fs/promis
+ import { tmpdir } from 'node:os'
+ import { join } from 'node:path'
+ import sharp from 'sharp'
+-import { readBoundedHistoryPage, streamBoundedHistory, withHistoryReadBudget, HISTORY_SCAN_BYTES, HISTORY_FULL_SCAN_BYTES, HISTORY_RECORD_BYTES, HISTORY_SEMANTIC_RECORD_BYTES, HISTORY_PAGE_BYTES, HISTORY_PAGE_ROWS } from './boundedSessionHistory.js'
++import { readBoundedHistoryPage, streamBoundedHistory, withHistoryReadBudget, boundToolUseResultPreview, TOOL_USE_RESULT_STRING_LIMIT, HISTORY_SCAN_BYTES, HISTORY_FULL_SCAN_BYTES, HISTORY_RECORD_BYTES, HISTORY_SEMANTIC_RECORD_BYTES, HISTORY_PAGE_BYTES, HISTORY_PAGE_ROWS } from './boundedSessionHistory.js'
+ 
+ let directory: string
+ let file: string
+@@ -282,3 +282,40 @@ describe('bounded history pages', () => {
+     expect(await replacement).toBe('replacement')
+   })
+ })
++
++describe('toolUseResult transport projection', () => {
++  test('clips oversized strings and keeps every key and container type', () => {
++    const originalFile = 'x'.repeat(500_000)
++    const result = boundToolUseResultPreview({
++      filePath: '/tmp/big.js',
++      originalFile,
++      structuredPatch: [{ lines: ['+one'] }],
++      replaceAll: false,
++    }) as Record<string, unknown>
++
++    // FileEdit's schema requires a string, and the CLI renderer calls
++    // `.split('\n')` on it unguarded — a null/undefined here would blank the
++    // result entirely.
++    expect(typeof result.originalFile).toBe('string')
++    expect((result.originalFile as string).length).toBeLessThan(originalFile.length)
++    expect((result.originalFile as string)).toStartWith('x'.repeat(TOOL_USE_RESULT_STRING_LIMIT))
++    // Diff rendering and turn stats read these; they must survive intact.
++    expect(result.filePath).toBe('/tmp/big.js')
++    expect(result.structuredPatch).toEqual([{ lines: ['+one'] }])
++    expect(result.replaceAll).toBe(false)
++  })
++
++  test('leaves ordinary results byte-identical', () => {
++    const small = { filePath: '/tmp/a.txt', originalFile: 'tiny\n', replaceAll: false }
++    expect(boundToolUseResultPreview(small)).toEqual(small)
++  })
++
++  test('does not flag truncation, so historyComplete cannot flip', () => {
++    const result = boundToolUseResultPreview({
++      originalFile: 'y'.repeat(200_000),
++    }) as Record<string, unknown>
++    // A truncated *body* marks the transcript incomplete; this is a transport
++    // clip of a display-only field, so it must stay silent.
++    expect(result.bodyTruncated).toBeUndefined()
++  })
++})
+diff --git a/src/server/services/boundedSessionHistory.ts b/src/server/services/boundedSessionHistory.ts
+index 5da62344..bceb4c42 100644
+--- a/src/server/services/boundedSessionHistory.ts
++++ b/src/server/services/boundedSessionHistory.ts
+@@ -6,8 +6,12 @@ export const HISTORY_SCAN_BYTES = 16 * 1024 * 1024
+ /** Scan ceiling for the full-history read. It may walk much further than a
+  * single page because its output budget is `HISTORY_FULL_BYTES`, but the I/O
+  * per request still needs a hard cap: one bounded read is a synchronous walk
+- * with no other yield point. */
+-export const HISTORY_FULL_SCAN_BYTES = 64 * 1024 * 1024
++ * with no other yield point.
++ * Kept at 3x `HISTORY_FULL_BYTES` to absorb records skipped by
++ * `HISTORY_SEMANTIC_RECORD_BYTES`. The scan budget — not the output budget — is
++ * what actually bounds a request's latency and (on the remote path) the
++ * synchronous gzip, so lowering the output budget alone would change nothing. */
++export const HISTORY_FULL_SCAN_BYTES = 24 * 1024 * 1024
+ export const HISTORY_SEMANTIC_RECORD_BYTES = 8 * 1024 * 1024
+ export const HISTORY_RECORD_BYTES = 1024 * 1024
+ export const HISTORY_PAGE_BYTES = 256 * 1024
+@@ -16,8 +20,11 @@ export const HISTORY_PAGE_ROWS = 500
+ /** Single-request ceiling for the "load the whole transcript at once" path.
+  * The desktop timeline reads this in one shot so it never has to stitch pages
+  * together; past the budget the reader still returns the newest slice and
+- * reports `historyComplete: false` instead of failing with 413. */
+-export const HISTORY_FULL_BYTES = 32 * 1024 * 1024
++ * reports `historyComplete: false` instead of failing with 413.
++ * Deliberately small: one response must not spike renderer memory or block the
++ * event loop in `gzipSync` for a transcript whose individual records are
++ * already bounded by the tool-result preview. */
++export const HISTORY_FULL_BYTES = 8 * 1024 * 1024
+ /** Row ceiling for the full-history path. The byte budget is the real bound;
+  * this only stops pathological all-tiny-record transcripts from building a
+  * six-figure-entry array. */
+@@ -93,6 +100,50 @@ function decodeCursor(value: string): Cursor {
+ 
+ /** Produce a display preview without dropping a message's identity. Durable
+  * replay and semantic state reducers always receive the original record. */
++/** Per-string clip for the `toolUseResult` projection that ships with history.
++ * `toolUseResult` echoes tool *inputs* back to the client — notably FileEdit's
++ * `originalFile`, the entire pre-edit file. It is display-only (the model sees
++ * `mapToolResultToToolResultBlockParam` output, and turn diffs read
++ * `structuredPatch`), so clipping long strings cannot change what the model was
++ * told or what a diff shows. */
++export const TOOL_USE_RESULT_STRING_LIMIT = 16 * 1024
++const TOOL_USE_RESULT_ITEM_LIMIT = 2048
++const TOOL_USE_RESULT_DEPTH_LIMIT = 12
++
++/**
++ * Bound `toolUseResult` for transport. Keys and container types are preserved
++ * so consumers keep working; only oversized strings (and pathologically long
++ * arrays/objects) are trimmed.
++ *
++ * Deliberately reports nothing: setting `bodyTruncated` here would propagate to
++ * `contentTruncated` and then `historyComplete`, making the client treat a
++ * complete transcript as incomplete and re-enter recovery for a field that was
++ * only ever a transport concern.
++ */
++export function boundToolUseResultPreview(value: unknown): unknown {
++  const visit = (input: unknown, depth: number): unknown => {
++    if (typeof input === 'string') {
++      return input.length <= TOOL_USE_RESULT_STRING_LIMIT
++        ? input
++        : `${input.slice(0, TOOL_USE_RESULT_STRING_LIMIT)}\n… [truncated preview]`
++    }
++    if (!input || typeof input !== 'object') return input
++    if (depth >= TOOL_USE_RESULT_DEPTH_LIMIT) return input
++    if (Array.isArray(input)) {
++      const kept = input.length > TOOL_USE_RESULT_ITEM_LIMIT
++        ? input.slice(0, TOOL_USE_RESULT_ITEM_LIMIT)
++        : input
++      return kept.map(item => visit(item, depth + 1))
++    }
++    const entries = Object.entries(input)
++    const kept = entries.length > TOOL_USE_RESULT_ITEM_LIMIT
++      ? entries.slice(0, TOOL_USE_RESULT_ITEM_LIMIT)
++      : entries
++    return Object.fromEntries(kept.map(([key, child]) => [key, visit(child, depth + 1)]))
++  }
++  return visit(value, 0)
++}
++
+ export function displayPreview(entry: Record<string, unknown>): Record<string, unknown> {
+   let truncated = false
+   let remaining = 48 * 1024
 diff --git a/src/server/services/sessionService.ts b/src/server/services/sessionService.ts
 index 182d1c1a..73b3aef8 100644
 --- a/src/server/services/sessionService.ts
@@ -8021,6 +9286,127 @@ index fb463e37..81203e59 100644
 +    expect(shouldSendThinkingToAPI()).toBe(true)
 +  })
 +})
+diff --git a/src/utils/fileHistory.security.test.ts b/src/utils/fileHistory.security.test.ts
+index f8ad608a..3f426f55 100644
+--- a/src/utils/fileHistory.security.test.ts
++++ b/src/utils/fileHistory.security.test.ts
+@@ -553,6 +553,57 @@ describe('completed turn checkpoint persistence', () => {
+     await fileHistoryCompleteSnapshot(updateState, randomUUID() as UUID)
+     expect(getState().snapshots[0]?.completedFileBackups).toBeUndefined()
+   })
++
++  test('reuses the previous end-of-turn copy when the file is untouched', async () => {
++    const firstTurn = randomUUID() as UUID
++    const secondTurn = randomUUID() as UUID
++    const trackedPath = join(getOriginalCwd(), 'stable.txt')
++    await writeFile(trackedPath, 'turn one\n')
++    const { getState, updateState } = createHistoryState(firstTurn)
++    await fileHistoryTrackEdit(updateState, trackedPath, firstTurn)
++
++    await fileHistoryCompleteSnapshot(updateState, firstTurn)
++    const firstBackup =
++      getState().snapshots.find(s => s.messageId === firstTurn)!
++        .completedFileBackups!['stable.txt']!
++
++    // Next turn starts, the tracked file set is inherited, and the file is not
++    // touched. Copying again here is what made the backup directory grow with
++    // turns rather than with edits.
++    await fileHistoryMakeSnapshot(updateState, secondTurn)
++    await fileHistoryCompleteSnapshot(updateState, secondTurn)
++    const secondBackup =
++      getState().snapshots.find(s => s.messageId === secondTurn)!
++        .completedFileBackups!['stable.txt']!
++
++    expect(secondBackup.backupFileName).toBe(firstBackup.backupFileName)
++    expect((await readBackupFileSafely(secondBackup.backupFileName!)).content.toString()).toBe('turn one\n')
++  })
++
++  test('still copies when the file changed, and the copy holds the new bytes', async () => {
++    const firstTurn = randomUUID() as UUID
++    const secondTurn = randomUUID() as UUID
++    const trackedPath = join(getOriginalCwd(), 'changing.txt')
++    await writeFile(trackedPath, 'turn one\n')
++    const { getState, updateState } = createHistoryState(firstTurn)
++    await fileHistoryTrackEdit(updateState, trackedPath, firstTurn)
++    await fileHistoryCompleteSnapshot(updateState, firstTurn)
++    const firstBackup =
++      getState().snapshots.find(s => s.messageId === firstTurn)!
++        .completedFileBackups!['changing.txt']!
++
++    await fileHistoryMakeSnapshot(updateState, secondTurn)
++    await writeFile(trackedPath, 'turn two\n')
++    await fileHistoryCompleteSnapshot(updateState, secondTurn)
++    const secondBackup =
++      getState().snapshots.find(s => s.messageId === secondTurn)!
++        .completedFileBackups!['changing.txt']!
++
++    expect(secondBackup.backupFileName).not.toBe(firstBackup.backupFileName)
++    expect((await readBackupFileSafely(secondBackup.backupFileName!)).content.toString()).toBe('turn two\n')
++    // The earlier turn's bytes must survive for rewind.
++    expect((await readBackupFileSafely(firstBackup.backupFileName!)).content.toString()).toBe('turn one\n')
++  })
+ })
+ 
+ 
+diff --git a/src/utils/fileHistory.ts b/src/utils/fileHistory.ts
+index c3701c62..297bdaa1 100644
+--- a/src/utils/fileHistory.ts
++++ b/src/utils/fileHistory.ts
+@@ -382,8 +382,20 @@ export async function fileHistoryCompleteSnapshot(
+ ): Promise<void> {
+   if (!fileHistoryEnabled()) return
+   let captured: FileHistorySnapshot | undefined
++  const priorCompletedByPath = new Map<string, FileHistoryBackup>()
+   updateFileHistoryState(state => {
+-    captured = state.snapshots.find(snapshot => snapshot.messageId === messageId)
++    const index = state.snapshots.findIndex(snapshot => snapshot.messageId === messageId)
++    captured = index >= 0 ? state.snapshots[index] : undefined
++    // Only snapshots *before* this one can hold an earlier end-of-turn copy, so
++    // a path the user has not touched since can reuse that copy instead of
++    // accumulating an identical one per turn.
++    for (let i = 0; i < index; i++) {
++      const prior = state.snapshots[i]?.completedFileBackups
++      if (!prior) continue
++      for (const [trackingPath, backup] of Object.entries(prior)) {
++        if (backup.backupFileName) priorCompletedByPath.set(trackingPath, backup)
++      }
++    }
+     return state
+   })
+   if (!captured || captured.completedFileBackups) return
+@@ -392,13 +404,28 @@ export async function fileHistoryCompleteSnapshot(
+   // cannot collide with the next turn's incrementing before-backup version.
+   for (const [trackingPath, before] of Object.entries(captured.trackedFileBackups)) {
+     try {
+-      completedFileBackups[trackingPath] = await createBackup(maybeExpandFilePath(trackingPath), before.version, `completed-${messageId}-${randomUUID()}`)
++      const expandedPath = maybeExpandFilePath(trackingPath)
++      // This loop runs for every tracked file every turn, and a tracked set only
++      // grows — copying unconditionally made the backup directory O(files x
++      // turns), with the overwhelming majority of copies byte-identical. Reuse
++      // the previous end-of-turn copy when the file is unchanged (same check
++      // `fileHistoryMakeSnapshot` uses), keeping the `-completed-` filename so
++      // rewind's after-boundary semantics are untouched.
++      const prior = priorCompletedByPath.get(trackingPath)
++      if (prior?.backupFileName) {
++        const changed = await checkOriginFileChanged(expandedPath, prior.backupFileName)
++        if (!changed) {
++          completedFileBackups[trackingPath] = prior
++          continue
++        }
++      }
++      completedFileBackups[trackingPath] = await createBackup(expandedPath, before.version, `completed-${messageId}-${randomUUID()}`)
+     } catch (error) { logError(error) }
+   }
+   let completed: FileHistorySnapshot | undefined
+-  updateFileHistoryState(state => ({ ...state, snapshots: state.snapshots.map(snapshot => {
+-    if (snapshot.messageId !== messageId || snapshot.completedFileBackups) return snapshot
+-    completed = { ...migrateFileHistorySnapshot(snapshot), completedFileBackups }
++  updateFileHistoryState(state => ({ ...state, snapshots: state.snapshots.map(s => {
++    if (s.messageId !== messageId || s.completedFileBackups) return s
++    completed = { ...migrateFileHistorySnapshot(s), completedFileBackups }
+     return completed
+   }) }))
+   if (completed) await recordFileHistorySnapshot(messageId, completed, true)
 diff --git a/src/utils/messages.test.ts b/src/utils/messages.test.ts
 index 4cd3cde0..f56e18fb 100644
 --- a/src/utils/messages.test.ts
@@ -8195,6 +9581,146 @@ index 506177b3..67261c62 100644
    messages: Message[],
    currentModel: string,
  ): Message[] {
+diff --git a/src/utils/sessionStorage.originalFileBound.test.ts b/src/utils/sessionStorage.originalFileBound.test.ts
+new file mode 100644
+index 00000000..9e598e92
+--- /dev/null
++++ b/src/utils/sessionStorage.originalFileBound.test.ts
+@@ -0,0 +1,68 @@
++import { describe, expect, test } from 'bun:test'
++import type { Message } from '../types/message.js'
++
++/**
++ * 章二十二「优化膨胀源」: storage must not keep the whole pre-edit file in
++ * `toolUseResult.originalFile`. It is display-only (the model never sees it, and
++ * the turn diff reads `structuredPatch`), and the client is only ever sent a
++ * 16KB preview — so bounding at the source is invisible to readers while
++ * removing the 67% of transcript bytes it accounted for.
++ */
++const MODULE = '../utils/sessionStorage.js'
++
++async function loadHelper() {
++  const mod = await import(MODULE)
++  return mod as {
++    boundOriginalFileForStorage: (message: Message) => Message
++    ORIGINAL_FILE_STRING_LIMIT: number
++  }
++}
++
++function toolResultMessage(toolUseResult: unknown): Message {
++  return {
++    type: 'user',
++    uuid: '00000000-0000-4000-8000-000000000001',
++    message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: 't1', content: 'ok' }] },
++    toolUseResult,
++  } as unknown as Message
++}
++
++describe('boundOriginalFileForStorage', () => {
++  test('clips an oversized originalFile to the transport bound and records its size', async () => {
++    const { boundOriginalFileForStorage, ORIGINAL_FILE_STRING_LIMIT } = await loadHelper()
++    const originalFile = 'x'.repeat(ORIGINAL_FILE_STRING_LIMIT + 5_000)
++    const saved = boundOriginalFileForStorage(
++      toolResultMessage({ filePath: '/a.ts', originalFile, structuredPatch: [{ oldStart: 1 }] }),
++    )
++    const result = saved.toolUseResult as Record<string, unknown>
++    expect((result.originalFile as string).length).toBe(ORIGINAL_FILE_STRING_LIMIT)
++    expect(result.originalFileTruncated).toBe(true)
++    expect(result.originalFileBytes).toBe(originalFile.length)
++    // The diff and the rest of the payload survive untouched.
++    expect(result.filePath).toBe('/a.ts')
++    expect(result.structuredPatch).toEqual([{ oldStart: 1 }])
++  })
++
++  test('leaves a small originalFile byte-identical', async () => {
++    const { boundOriginalFileForStorage } = await loadHelper()
++    const message = toolResultMessage({ filePath: '/a.ts', originalFile: 'small' })
++    expect(boundOriginalFileForStorage(message)).toBe(message)
++  })
++
++  test('is a no-op when there is no toolUseResult or no originalFile', async () => {
++    const { boundOriginalFileForStorage } = await loadHelper()
++    const bare = toolResultMessage(undefined)
++    expect(boundOriginalFileForStorage(bare)).toBe(bare)
++    const noFile = toolResultMessage({ filePath: '/a.ts', originalFile: null })
++    expect(boundOriginalFileForStorage(noFile)).toBe(noFile)
++  })
++
++  test('does not touch an oversized string in a sibling field', async () => {
++    const { boundOriginalFileForStorage, ORIGINAL_FILE_STRING_LIMIT } = await loadHelper()
++    // Only originalFile is display-only; other fields may be read back by
++    // recovery, so they must keep the original record.
++    const big = 'y'.repeat(ORIGINAL_FILE_STRING_LIMIT + 1)
++    const message = toolResultMessage({ originalFile: 'small', newString: big })
++    expect(boundOriginalFileForStorage(message)).toBe(message)
++  })
++})
+diff --git a/src/utils/sessionStorage.ts b/src/utils/sessionStorage.ts
+index bc6f9454..4911514f 100644
+--- a/src/utils/sessionStorage.ts
++++ b/src/utils/sessionStorage.ts
+@@ -4713,11 +4713,60 @@ function transformMessagesForExternalTranscript(
+   }) as Transcript
+ }
+ 
++/** A transcript message may carry the raw tool output alongside it. */
++type MessageWithToolUseResult = Message & { toolUseResult?: unknown }
++
++/**
++ * Storage-side bound on `toolUseResult.originalFile` (章二十二「优化膨胀源」).
++ *
++ * `originalFile` is the pre-edit file, kept only so the edit card can render a
++ * diff: the model never sees it (`mapToolResultToToolResultBlockParam` is what
++ * goes to the API) and the turn diff itself is read from `structuredPatch`.
++ * Storage nevertheless kept the whole file on every edit, which made transcripts
++ * ~3x larger than the conversation they describe (2.1GB of 3.1GB measured).
++ *
++ * This mirrors the transport clip (`TOOL_USE_RESULT_STRING_LIMIT`, 16KB, in
++ * `src/server/services/boundedSessionHistory.ts`) — the same bound the client
++ * has always been sent — so bounding at the source changes nothing anyone can
++ * see. Only `originalFile` is touched: other `toolUseResult` fields can be
++ * read back by recovery/semantic paths, which must keep the original record.
++ */
++export const ORIGINAL_FILE_STRING_LIMIT = 16 * 1024
++
++/** Trim an oversized `originalFile` to the preview bound, recording the original
++ * length so the record explains its own truncation. */
++export function boundOriginalFileForStorage(
++  message: MessageWithToolUseResult,
++): MessageWithToolUseResult {
++  const result = message.toolUseResult
++  if (!result || typeof result !== 'object' || Array.isArray(result)) {
++    return message
++  }
++  const originalFile = (result as Record<string, unknown>).originalFile
++  if (
++    typeof originalFile !== 'string' ||
++    originalFile.length <= ORIGINAL_FILE_STRING_LIMIT
++  ) {
++    return message
++  }
++  return {
++    ...message,
++    toolUseResult: {
++      ...(result as Record<string, unknown>),
++      originalFile: originalFile.slice(0, ORIGINAL_FILE_STRING_LIMIT),
++      originalFileTruncated: true,
++      originalFileBytes: originalFile.length,
++    },
++  }
++}
++
+ export function cleanMessagesForLogging(
+   messages: Message[],
+   allMessages: readonly Message[] = messages,
+ ): Transcript {
+-  const filtered = messages.filter(isLoggableMessage) as Transcript
++  const filtered = messages
++    .filter(isLoggableMessage)
++    .map(message => boundOriginalFileForStorage(message)) as Transcript
+   return getUserType() !== 'ant'
+     ? transformMessagesForExternalTranscript(
+         filtered,
 diff --git a/src/utils/settings/types.ts b/src/utils/settings/types.ts
 index 69f2a48e..3e097b6b 100644
 --- a/src/utils/settings/types.ts
@@ -8253,3 +9779,17 @@ index fca8f4ae..b6ba7a5e 100644
 +  if (isEnvTruthy(process.env.CC_HAHA_SEND_THINKING_HISTORY)) return true
 +  return getSettingsWithErrors().settings.sendThinkingHistory === true
 +}
+diff --git a/src/vendor/computer-use-mcp/toolCalls.test.ts b/src/vendor/computer-use-mcp/toolCalls.test.ts
+index 8b6d584f..1c45133b 100644
+--- a/src/vendor/computer-use-mcp/toolCalls.test.ts
++++ b/src/vendor/computer-use-mcp/toolCalls.test.ts
+@@ -18,9 +18,7 @@ import {
+   resetMouseButtonHeld,
+ } from './toolCalls.js'
+ import { bindSessionContext } from './mcpServer.js'
+-import type { ComputerUseSessionContext } from './types.js'
+ import { buildComputerUseTools } from './tools.js'
+-import { bindSessionContext } from './mcpServer.js'
+ import { COMPUTER_USE_INSTRUCTIONS } from './instructions.js'
+ import { isSystemKeyCombo } from './keyBlocklist.js'
+ import type {
