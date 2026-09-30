@@ -1,0 +1,1155 @@
+diff --git a/desktop/src/components/chat/ActivityGroup.test.tsx b/desktop/src/components/chat/ActivityGroup.test.tsx
+index f101e172..b509ab7e 100644
+--- a/desktop/src/components/chat/ActivityGroup.test.tsx
++++ b/desktop/src/components/chat/ActivityGroup.test.tsx
+@@ -402,6 +402,26 @@ describe('subagent run duration', () => {
+     expect(agentRunInterval({ timestamp: 5_000 }, { timestamp: 1_000 }, undefined)).toBeUndefined()
+   })
+ 
++  it('closes a run still in flight at the supplied wall clock', () => {
++    // The dispatch's clock has to move while agents run; without this the span
++    // stops at the last member that finished and the bar looks hung.
++    expect(agentRunInterval({ timestamp: 1_000 }, undefined, undefined, 46_000))
++      .toEqual({ startMs: 1_000, endMs: 46_000 })
++  })
++
++  it('ignores the live clock once a run has settled', () => {
++    // A settled run's own numbers are the truth; the ticking clock must not
++    // stretch it into "still running".
++    expect(agentRunInterval({ timestamp: 1_000 }, { timestamp: 121_000 }, undefined, 999_000))
++      .toEqual({ startMs: 1_000, endMs: 121_000 })
++    expect(agentRunInterval({ timestamp: 1_000 }, { timestamp: 1_050 }, 180_000, 999_000))
++      .toEqual({ startMs: 1_000, endMs: 181_000 })
++  })
++
++  it('refuses a live clock that predates the run', () => {
++    expect(agentRunInterval({ timestamp: 10_000 }, undefined, undefined, 4_000)).toBeUndefined()
++  })
++
+   it('spans the group instead of summing it, because a dispatch runs in parallel', () => {
+     // Three agents dispatched together, each taking two minutes. Serial logic
+     // would say 6m; wall clock is 2m.
+diff --git a/desktop/src/components/chat/MessageList.tsx b/desktop/src/components/chat/MessageList.tsx
+index e6910924..89dfe358 100644
+--- a/desktop/src/components/chat/MessageList.tsx
++++ b/desktop/src/components/chat/MessageList.tsx
+@@ -2331,6 +2331,23 @@ export function MessageList({
+     }
+     return statuses
+   }, [backgroundAgentTasks])
++  // What the runs still in flight have produced so far. A running dispatch
++  // reports progress on every turn, and a reader waiting on a group of agents
++  // wants the number to move rather than appear only once the last one lands.
++  // Only running tasks are keyed: a settled run's notification already carries
++  // its final numbers, and this must not shadow them with a stale snapshot.
++  const agentTaskLiveUsage = useMemo<Record<string, { totalTokens?: number; thinkTokens?: number }>>(() => {
++    const usage: Record<string, { totalTokens?: number; thinkTokens?: number }> = {}
++    for (const task of Object.values(backgroundAgentTasks ?? {})) {
++      if (!task.toolUseId || task.status !== 'running') continue
++      if (!task.usage) continue
++      usage[task.toolUseId] = {
++        ...(task.usage.totalTokens !== undefined ? { totalTokens: task.usage.totalTokens } : {}),
++        ...(task.usage.thinkTokens !== undefined ? { thinkTokens: task.usage.thinkTokens } : {}),
++      }
++    }
++    return usage
++  }, [backgroundAgentTasks])
+   const hasRunningBackgroundTasks = hasAnyRunningBackgroundTasks(backgroundAgentTasks)
+   const pendingPermissions = listPendingPermissions(sessionState)
+   const activeAskUserQuestionToolUseId =
+@@ -3562,6 +3579,7 @@ export function MessageList({
+             childToolCallsByParent={childToolCallsByParent}
+             agentTaskNotifications={agentTaskNotifications}
+             agentTaskStatuses={agentTaskStatuses}
++            agentTaskLiveUsage={agentTaskLiveUsage}
+             activeThinkingId={activeThinkingId}
+             isStreaming={
+               chatState === 'tool_executing' &&
+diff --git a/desktop/src/components/chat/ToolCallGroup.test.tsx b/desktop/src/components/chat/ToolCallGroup.test.tsx
+index fc32ee91..bc20fea8 100644
+--- a/desktop/src/components/chat/ToolCallGroup.test.tsx
++++ b/desktop/src/components/chat/ToolCallGroup.test.tsx
+@@ -36,7 +36,12 @@ function result(id: string, timestamp: number): ToolResult {
+   }
+ }
+ 
+-function renderGroup(toolCalls: ToolCall[], results: ToolResult[], notifications: Record<string, AgentTaskNotification> = {}) {
++function renderGroup(
++  toolCalls: ToolCall[],
++  results: ToolResult[],
++  notifications: Record<string, AgentTaskNotification> = {},
++  liveUsage: Record<string, { totalTokens?: number; thinkTokens?: number }> = {},
++) {
+   return render(
+     <ToolCallGroup
+       sessionId="session-1"
+@@ -44,6 +49,7 @@ function renderGroup(toolCalls: ToolCall[], results: ToolResult[], notifications
+       resultMap={new Map(results.map((item) => [item.toolUseId, item]))}
+       childToolCallsByParent={new Map()}
+       agentTaskNotifications={notifications}
++      agentTaskLiveUsage={liveUsage}
+     />,
+   )
+ }
+@@ -94,16 +100,28 @@ describe('subagent run duration', () => {
+     expect(rowDurations()).toEqual(['3m0s'])
+   })
+ 
+-  it('omits the duration while a synchronous run is still in flight', () => {
+-    // No result and no incoming report: there is no trustworthy anchor, so
+-    // neither the row nor the header may guess a number.
+-    renderGroup([agentCall('a', 1_000)], [])
++  it('shows an estimate for the elapsed time while a synchronous run is in flight', () => {
++    // Waiting on a dispatch means watching elapsed time, so the header reports
++    // it from the moment the call starts rather than staying blank until the
++    // whole group ends. It is marked ≈ because the span is still open.
++    renderGroup([agentCall('a', Date.now() - 30_000)], [])
++
++    const headerDuration = document.querySelector('[data-agent-group-duration="true"]')
++    expect(headerDuration?.textContent).toContain('≈')
++    expect(headerDuration?.textContent).toMatch(/30s|31s/)
+ 
+     const header = screen.getByRole('button', { name: /agent/i })
+-    expect(document.querySelector('[data-agent-group-duration="true"]')).toBeNull()
+     fireEvent.click(header)
++    // Rows keep reporting settled numbers only; the summary is what ticks.
+     expect(rowDurations()).toEqual([])
+   })
++
++  it('omits the elapsed estimate when the call has no usable start', () => {
++    // An absent timestamp defaults to 0, and closing that at "now" would print a
++    // span measured from 1970.
++    renderGroup([agentCall('a', 0)], [])
++    expect(document.querySelector('[data-agent-group-duration="true"]')).toBeNull()
++  })
+ })
+ 
+ describe('a parallel dispatch is spanned, never summed', () => {
+@@ -171,6 +189,45 @@ describe('subagent group usage', () => {
+     expect(usage?.textContent?.replace(/\s+/g, '')).toBe('22.00k+8.00k')
+   })
+ 
++  it('counts what a still-running run has produced so far', () => {
++    // Waiting on a dispatch means watching the total climb. Before this, the
++    // header had nothing to show until the last agent finished, so six agents
++    // running for minutes reported nothing at all.
++    renderGroup([agentCall('a', Date.now() - 1_000)], [], {}, { a: { totalTokens: 12_000 } })
++
++    const usage = document.querySelector('[data-agent-group-usage="true"]')
++    expect(usage?.textContent?.replace(/\s+/g, '')).toBe('≈12.00k')
++  })
++
++  it('shows the live split while a run is in flight', () => {
++    // Same contract as a settled run: thinking is withheld from the API, so the
++    // running numbers split too rather than showing one total.
++    renderGroup(
++      [agentCall('a', Date.now() - 1_000)],
++      [],
++      {},
++      { a: { totalTokens: 30_000, thinkTokens: 22_000 } },
++    )
++
++    const usage = document.querySelector('[data-agent-group-usage="true"]')
++    expect(usage?.textContent?.replace(/\s+/g, '')).toBe('≈22.00k+8.00k')
++  })
++
++  it('drops the live figures once the completion notification lands', () => {
++    // The notification is authoritative and final. If the live entry lingered,
++    // the bar would keep printing a snapshot taken mid-run instead of the run's
++    // real total — the correction step in this design.
++    renderGroup(
++      [agentCall('a', 1_000)],
++      [withUsage('a', 61_000, 40_000)],
++      { a: { taskId: 'task-a', toolUseId: 'a', status: 'completed', usage: { totalTokens: 40_000, thinkTokens: 30_000 } } },
++      {},
++    )
++
++    const usage = document.querySelector('[data-agent-group-usage="true"]')
++    expect(usage?.textContent?.replace(/\s+/g, '')).toBe('30.00k+10.00k')
++  })
++
+   it('hides the header usage and duration when session extended info is off', () => {
+     useSettingsStore.setState({ sessionExtendedInfo: false })
+     const toolCalls = [agentCall('a', 1_000), agentCall('b', 1_000)]
+diff --git a/desktop/src/components/chat/ToolCallGroup.tsx b/desktop/src/components/chat/ToolCallGroup.tsx
+index 5ce891b8..b86bc19b 100644
+--- a/desktop/src/components/chat/ToolCallGroup.tsx
++++ b/desktop/src/components/chat/ToolCallGroup.tsx
+@@ -1,9 +1,9 @@
+-import { memo, useCallback, useMemo, useState, Fragment} from 'react'
++import { memo, useCallback, useEffect, useMemo, useState, Fragment} from 'react'
+ import { BookMarked, ChevronDown, ChevronRight, CircleCheck, Settings } from 'lucide-react'
+ import { ToolCallBlock, type ToolCallChrome } from './ToolCallBlock'
+ import { TurnDownloadCard } from './DownloadReferencesCard'
+ import { ActivityGroup } from './ActivityGroup'
+-import { ThinkingBlock } from './ThinkingBlock'
++import { LIVE_ELAPSED_REFRESH_MS, ThinkingBlock } from './ThinkingBlock'
+ import {
+   activityStepToolCalls,
+   agentGroupSpanMs,
+@@ -111,6 +111,15 @@ type Props = {
+   childToolCallsByParent: Map<string, ToolCall[]>
+   agentTaskNotifications: Record<string, AgentTaskNotification>
+   agentTaskStatuses?: Record<string, BackgroundAgentTask['status']>
++  /**
++   * Tokens the runs still in flight have produced so far, keyed by tool call.
++   *
++   * A dispatched group reports progress on every turn, and someone waiting on
++   * six agents wants the total to climb while they wait rather than appear all
++   * at once at the end. Absent entries (and settled runs) fall back to the
++   * completion notification, which carries the final, authoritative numbers.
++   */
++  agentTaskLiveUsage?: Record<string, { totalTokens?: number; thinkTokens?: number }>
+   activeThinkingId?: string | null
+   showOpenRun?: boolean
+   /** When true, the last tool is still executing. */
+@@ -137,6 +146,7 @@ export const ToolCallGroup = memo(function ToolCallGroup({
+   childToolCallsByParent,
+   agentTaskNotifications,
+   agentTaskStatuses,
++  agentTaskLiveUsage,
+   activeThinkingId,
+   showOpenRun = true,
+   isStreaming,
+@@ -172,6 +182,7 @@ export const ToolCallGroup = memo(function ToolCallGroup({
+               childToolCallsByParent={childToolCallsByParent}
+               agentTaskNotifications={agentTaskNotifications}
+               agentTaskStatuses={agentTaskStatuses}
++              agentTaskLiveUsage={agentTaskLiveUsage}
+               activeThinkingId={activeThinkingId}
+               showOpenRun={showOpenRun}
+               isStreaming={isStreaming}
+@@ -197,6 +208,7 @@ export const ToolCallGroup = memo(function ToolCallGroup({
+         childToolCallsByParent={childToolCallsByParent}
+         agentTaskNotifications={agentTaskNotifications}
+         agentTaskStatuses={agentTaskStatuses}
++        agentTaskLiveUsage={agentTaskLiveUsage}
+         activeThinkingId={activeThinkingId}
+         showOpenRun={showOpenRun}
+         isStreaming={isStreaming}
+@@ -219,6 +231,7 @@ function ToolCallGroupContent({
+   childToolCallsByParent,
+   agentTaskNotifications,
+   agentTaskStatuses,
++  agentTaskLiveUsage,
+   activeThinkingId,
+   showOpenRun = true,
+   isStreaming,
+@@ -278,6 +291,7 @@ function ToolCallGroupContent({
+             childToolCallsByParent={childToolCallsByParent}
+             agentTaskNotifications={agentTaskNotifications}
+             agentTaskStatuses={agentTaskStatuses}
++            agentTaskLiveUsage={agentTaskLiveUsage}
+             activeThinkingId={activeThinkingId}
+             showOpenRun={showOpenRun}
+             isStreaming={isStreaming}
+@@ -314,6 +328,7 @@ function ToolCallGroupContent({
+         childToolCallsByParent={childToolCallsByParent}
+         agentTaskNotifications={agentTaskNotifications}
+         agentTaskStatuses={agentTaskStatuses}
++        agentTaskLiveUsage={agentTaskLiveUsage}
+         showOpenRun={showOpenRun}
+       />
+     )
+@@ -469,6 +484,7 @@ function AgentToolGroup({
+   childToolCallsByParent,
+   agentTaskNotifications,
+   agentTaskStatuses,
++  agentTaskLiveUsage,
+   showOpenRun = true,
+ }: Props) {
+   const { expanded, toggleExpanded } = useExpandableCardState()
+@@ -488,28 +504,48 @@ function AgentToolGroup({
+   const errorPresent = statuses.some((status) => status === 'failed')
+   const allComplete = statuses.every((status) => status === 'done')
+   const anyStopped = statuses.some((status) => status === 'stopped')
++  // A running dispatch keeps its clock moving. Elapsed wall time is the thing a
++  // reader watches while waiting, and a frozen number reads as a hung run, so
++  // the in-flight members are closed at "now" and the clock is re-read on a
++  // cadence. It shares the thinking badge's cadence so every live counter on a
++  // run moves in the same steps rather than each on its own rhythm.
++  const [liveNowMs, setLiveNowMs] = useState(() => Date.now())
++  useEffect(() => {
++    if (!isAnyRunning) return
++    setLiveNowMs(Date.now())
++    const timer = setInterval(() => setLiveNowMs(Date.now()), LIVE_ELAPSED_REFRESH_MS)
++    return () => clearInterval(timer)
++  }, [isAnyRunning])
+   // Wall-clock span of the whole dispatch — earliest start to latest end, NOT
+   // the sum of the members: the runtime runs a dispatched group in parallel, so
+-  // three concurrent 2-minute agents are 2 minutes, not 6. Members still in
+-  // flight contribute nothing until they report or settle, so the number only
+-  // ever grows towards the truth.
+-  const totalDuration = agentGroupSpanMs(toolCalls.map((toolCall) => agentRunInterval(
++  // three concurrent 2-minute agents are 2 minutes, not 6. Until a member
++  // reports or settles it is closed at "now", so the number only ever grows
++  // towards the truth and never has to wait for the whole dispatch to end.
++  const totalDuration = agentGroupSpanMs(toolCalls.map((toolCall, index) => agentRunInterval(
+     toolCall,
+     resultMap.get(toolCall.toolUseId),
+     agentTaskNotifications[toolCall.toolUseId]?.usage?.durationMs,
++    statuses[index] === 'running' || statuses[index] === 'starting' ? liveNowMs : undefined,
+   )))
+   const totalDurationLabel = totalDuration === undefined ? '' : formatDuration(totalDuration)
+   // Tokens add up where the span does not: a dispatched group runs in parallel,
+-  // but the work its members did is not shared between them.
++  // but the work its members did is not shared between them. A member still in
++  // flight contributes what it has reported so far — the completion
++  // notification is the authoritative figure and replaces it the moment the run
++  // settles, so the number climbs towards the truth instead of appearing at the
++  // end. Both sources come from the runtime, so this is not an estimate of
++  // tokens, only of "how many there will be".
+   const totalTokens = agentGroupTokens(toolCalls.map((toolCall) => agentRunTokens(
+-    agentTaskNotifications[toolCall.toolUseId]?.usage?.totalTokens,
++    agentTaskLiveUsage?.[toolCall.toolUseId]?.totalTokens
++      ?? agentTaskNotifications[toolCall.toolUseId]?.usage?.totalTokens,
+     resultMap.get(toolCall.toolUseId),
+   )))
+   // The thinking share, when the runtime reported one. It emits the split only
+   // while the thinking itself is withheld, so a present count is exactly the
+   // case where the bar should show `think + rest` instead of one total.
+   const thinkTokens = agentGroupThinkTokens(toolCalls.map((toolCall) => agentRunThinkTokens(
+-    agentTaskNotifications[toolCall.toolUseId]?.usage?.thinkTokens,
++    agentTaskLiveUsage?.[toolCall.toolUseId]?.thinkTokens
++      ?? agentTaskNotifications[toolCall.toolUseId]?.usage?.thinkTokens,
+     resultMap.get(toolCall.toolUseId),
+   )))
+   const tokenParts = agentTokenParts(totalTokens, thinkTokens)
+@@ -538,6 +574,9 @@ function AgentToolGroup({
+           <span className="inline-flex shrink-0 items-baseline gap-[3px] whitespace-nowrap text-right text-[12px] text-[var(--color-text-secondary)]">
+             <span>{t('toolGroup.agentTotalUsage')}</span>
+             <span data-agent-group-usage="true" className="inline-flex items-baseline gap-[3px] tabular-nums">
++              {/* While members are still in flight the total only covers what has
++                  been reported so far, so it is marked as the estimate it is. */}
++              {isAnyRunning ? <span className="opacity-70">≈</span> : null}
+               {/* `think + rest` while thinking is withheld; a single total once
+                   it is returned. The separator mirrors the activity digest's. */}
+               {tokenParts.map((part, index) => (
+@@ -553,6 +592,9 @@ function AgentToolGroup({
+           <span className="inline-flex shrink-0 items-baseline gap-[3px] whitespace-nowrap text-right text-[12px] text-[var(--color-text-secondary)]">
+             <span>{t('toolGroup.agentTotalDuration')}</span>
+             <span data-agent-group-duration="true" className="tabular-nums">
++              {/* Same reason as the usage: the span is still open, so the clock
++                  reads as elapsed-so-far rather than a settled total. */}
++              {isAnyRunning ? <span className="opacity-70">≈</span> : null}
+               {totalDurationLabel}
+             </span>
+           </span>
+diff --git a/desktop/src/components/chat/activityGroupModel.ts b/desktop/src/components/chat/activityGroupModel.ts
+index 2e8d213b..c17198fc 100644
+--- a/desktop/src/components/chat/activityGroupModel.ts
++++ b/desktop/src/components/chat/activityGroupModel.ts
+@@ -83,15 +83,33 @@ export function agentRunInterval(
+   toolCall: Pick<ToolCall, 'timestamp'>,
+   result: Pick<ToolResult, 'timestamp'> | undefined,
+   reportedDurationMs?: number,
++  /**
++   * Wall clock to close an in-flight run's interval with, when it has neither a
++   * result nor a reported duration.
++   *
++   * Without it a running member contributes no span at all, so a dispatch's
++   * clock stops at its last finished member and only moves once the whole group
++   * ends — which reads as a hung run rather than a busy one. Only consulted when
++   * there is no result, so a finished run's interval is untouched.
++   */
++  liveEndMs?: number,
+ ): AgentRunInterval | undefined {
+   const startMs = toolCall.timestamp
+-  if (!Number.isFinite(startMs)) return undefined
++  // `> 0` as well as finite: an absent timestamp defaults to 0, and closing that
++  // at the live clock would print a span measured from 1970.
++  if (!Number.isFinite(startMs) || startMs <= 0) return undefined
+   if (typeof reportedDurationMs === 'number' && Number.isFinite(reportedDurationMs) && reportedDurationMs > 0) {
+     return { startMs, endMs: startMs + reportedDurationMs }
+   }
+-  const endMs = result?.timestamp
+-  if (typeof endMs !== 'number' || !Number.isFinite(endMs) || endMs < startMs) return undefined
+-  return { startMs, endMs }
++  if (result) {
++    const endMs = result.timestamp
++    if (typeof endMs !== 'number' || !Number.isFinite(endMs) || endMs < startMs) return undefined
++    return { startMs, endMs }
++  }
++  if (typeof liveEndMs === 'number' && Number.isFinite(liveEndMs) && liveEndMs >= startMs) {
++    return { startMs, endMs: liveEndMs }
++  }
++  return undefined
+ }
+ 
+ /**
+diff --git a/desktop/src/stores/chatStore.ts b/desktop/src/stores/chatStore.ts
+index da9b6f5f..c4f1f7c6 100644
+--- a/desktop/src/stores/chatStore.ts
++++ b/desktop/src/stores/chatStore.ts
+@@ -7020,7 +7020,12 @@ function backgroundTaskRecordFromNotifications(
+         summary: notification.summary,
+         result: notification.result,
+         outputFile: notification.outputFile,
+-        usage: notification.usage,
++        // Normalize here as well as on the live path: a restored session carries
++        // usage derived server-side from the subagent's own transcript, and its
++        // keys arrive in the wire's snake-case form. Passing it through raw is
++        // why a read-back session could show a single total whose number came
++        // from the old context-based line in the result text.
++        usage: normalizeBackgroundTaskUsage(notification.usage),
+       }, now)
+     }, {})
+ }
+diff --git a/desktop/src/stores/sessionUsageRestore.test.ts b/desktop/src/stores/sessionUsageRestore.test.ts
+new file mode 100644
+index 00000000..f89183fe
+--- /dev/null
++++ b/desktop/src/stores/sessionUsageRestore.test.ts
+@@ -0,0 +1,94 @@
++import { describe, expect, it } from 'vitest'
++import {
++  agentGroupThinkTokens,
++  agentGroupTokens,
++  agentRunThinkTokens,
++  agentRunTokens,
++  agentTokenParts,
++} from '../components/chat/activityGroupModel'
++import type { AgentTaskNotification } from '../types/chat'
++import type { MessageEntry } from '../types/session'
++import { reconstructRunActivityFromTranscript } from './chatStore'
++
++const TOOL_USE_ID = 'call_subagent_1'
++
++/**
++ * A finished Agent call as an older transcript wrote it: the result text carries
++ * only `total_tokens`, written with the agent's last context window (150k) —
++ * not the tokens it generated. That single number is all a restored session used
++ * to have, which is why the group bar could only ever show one total.
++ */
++function olderTranscript(): MessageEntry[] {
++  return [
++    {
++      id: 'agent-use',
++      type: 'assistant',
++      timestamp: '2026-09-27T02:40:00.000Z',
++      content: [{ type: 'tool_use', id: TOOL_USE_ID, name: 'Agent', input: { description: 'write' } }],
++    },
++    {
++      id: 'agent-result',
++      type: 'tool_result',
++      timestamp: '2026-09-27T02:44:00.000Z',
++      content: [{
++        type: 'tool_result',
++        tool_use_id: TOOL_USE_ID,
++        content: 'done\n<usage>total_tokens: 150000\ntool_uses: 3\nduration_ms: 1000</usage>',
++      }],
++    },
++  ] as unknown as MessageEntry[]
++}
++
++function notification(usage?: AgentTaskNotification['usage']): AgentTaskNotification {
++  return {
++    taskId: 'task-1',
++    toolUseId: TOOL_USE_ID,
++    status: 'completed',
++    ...(usage ? { usage } : {}),
++  }
++}
++
++/** How the group bar reads one Agent call. */
++function barParts(notifications: Record<string, AgentTaskNotification>): string[] {
++  const total = agentGroupTokens([agentRunTokens(notifications[TOOL_USE_ID]?.usage?.totalTokens, undefined)])
++  const think = agentGroupThinkTokens([agentRunThinkTokens(notifications[TOOL_USE_ID]?.usage?.thinkTokens, undefined)])
++  return agentTokenParts(total, think)
++}
++
++describe('restored session token split', () => {
++  it('shows only the stale context total when nothing was derived', () => {
++    // Baseline: the old behaviour this pilot exists to fix. The result text's
++    // 150k is a context window, and there is no thinking share to show.
++    const restored = reconstructRunActivityFromTranscript(olderTranscript())
++    const entry = restored.agentTaskNotifications[TOOL_USE_ID]
++    const withFallback = agentGroupTokens([
++      agentRunTokens(entry?.usage?.totalTokens, {
++        content: '<usage>total_tokens: 150000\ntool_uses: 3</usage>',
++      } as never),
++    ])
++    expect(withFallback).toBe(150000)
++    expect(agentTokenParts(withFallback, undefined)).toEqual(['150.00k'])
++  })
++
++  it('shows think + non-think once the server supplies the derived usage', () => {
++    const restored = reconstructRunActivityFromTranscript(
++      olderTranscript(),
++      [notification({ totalTokens: 6554, outputTokens: 6554, thinkTokens: 4844, toolUses: 0 })],
++    )
++
++    // The bar reads agentTaskNotifications, so the derived usage has to survive
++    // the merge with the notifications parsed out of the transcript itself.
++    expect(restored.agentTaskNotifications[TOOL_USE_ID]?.usage?.thinkTokens).toBe(4844)
++    expect(barParts(restored.agentTaskNotifications)).toEqual(['4.84k', '1.71k'])
++  })
++
++  it('keeps one total when the server withheld the thinking share', () => {
++    // The split is withheld when thinking is sent back to the API; the reader
++    // then shows the run's own total, matching the live path.
++    const restored = reconstructRunActivityFromTranscript(
++      olderTranscript(),
++      [notification({ totalTokens: 6554, outputTokens: 6554, toolUses: 0 })],
++    )
++    expect(barParts(restored.agentTaskNotifications)).toEqual(['6.55k'])
++  })
++})
+diff --git a/src/server/api/sessions.ts b/src/server/api/sessions.ts
+index d4da5255..22647b37 100644
+--- a/src/server/api/sessions.ts
++++ b/src/server/api/sessions.ts
+@@ -26,6 +26,7 @@
+ 
+ import * as path from 'node:path'
+ import { sessionService } from '../services/sessionService.js'
++import { enrichTaskNotificationsWithUsage } from '../services/sessionUsageRollup.js'
+ import { conversationService } from '../services/conversationService.js'
+ import { ApiError, errorResponse } from '../middleware/errorHandler.js'
+ import {
+@@ -499,13 +500,19 @@ async function getSessionMessages(req: Request, sessionId: string, url: URL): Pr
+   // A full read always starts from the tail; mixing it with a cursor would
+   // silently turn it back into a paged read with a larger budget.
+   if (mode === 'full' && cursor) throw ApiError.badRequest('mode=full does not take a cursor')
+-  return Response.json(await sessionService.getSessionHistoryPage(sessionId, {
++  const history = await sessionService.getSessionHistoryPage(sessionId, {
+     cursor,
+     // `mode=full` returns the whole transcript up to the reader's byte budget in
+     // one response so the desktop timeline never stitches pages together.
+     full: mode === 'full',
+     signal: req.signal,
+-  }))
++  })
++  return Response.json({
++    ...history,
++    // A run's tokens are recoverable from its own subagent transcript even when
++    // the parent's result text only kept the old context-based total.
++    taskNotifications: await enrichTaskNotificationsWithUsage(sessionId, history.taskNotifications),
++  })
+ }
+ 
+ async function getSessionTrace(req: Request, sessionId: string, url: URL): Promise<Response> {
+diff --git a/src/server/services/sessionService.ts b/src/server/services/sessionService.ts
+index 32c926f4..54ae6d2d 100644
+--- a/src/server/services/sessionService.ts
++++ b/src/server/services/sessionService.ts
+@@ -287,6 +287,19 @@ export type SessionTaskNotification = {
+   result?: string
+   outputFile?: string
+   timestamp?: string
++  /**
++   * Tokens the run generated, derived from its own transcript when the session
++   * is read back. Output-side only, matching the live notification: `thinkTokens`
++   * is present only while thinking is not sent to the API (the same gate the
++   * live path applies), so the reader can show a split without knowing which
++   * case it is in.
++   */
++  usage?: {
++    totalTokens?: number
++    outputTokens?: number
++    thinkTokens?: number
++    toolUses?: number
++  }
+ }
+ 
+ /** Canonical terminal identity within a session. Child agents may reuse the
+@@ -366,7 +379,7 @@ export type TranscriptContextEstimate = {
+ }
+ 
+ /** Raw entry parsed from a single JSONL line */
+-type RawEntry = {
++export type RawEntry = {
+   type?: string
+   subtype?: string
+   content?: unknown
+@@ -4378,45 +4391,87 @@ export class SessionService {
+     } finally { await handle.close() }
+   }
+ 
+-  async findSubagentAgentIdByToolUseId(
+-    sessionId: string,
+-    toolUseId: string,
+-    expectedOwnerAgentId: string | null,
+-  ): Promise<string | null> {
++  /**
++   * Where a session keeps its subagent sidecars, derived from the session's own
++   * transcript path rather than from the config dir. A session served out of an
++   * extra index root keeps its subagents next to its transcript, not under this
++   * instance's projects dir — deriving from the config dir would look in the
++   * wrong place for exactly those sessions.
++   */
++  private subagentsDirForTranscript(filePath: string, sessionId: string): string {
++    return path.join(path.dirname(filePath), sessionId, 'subagents')
++  }
++
++  /**
++   * Every subagent sidecar of one session: which Agent call each transcript
++   * belongs to, and which agent owns it.
++   *
++   * Returned as a list because a session can carry hundreds of agents, and
++   * resolving them one toolUseId at a time would re-list and re-parse the whole
++   * sidecar directory per lookup. `complete` reports whether every sidecar was
++   * readable, which is what makes the legacy fallback below safe to trust.
++   */
++  async listSubagentSidecars(sessionId: string): Promise<{
++    sidecars: Array<{ agentId: string; toolUseId: string; ownerAgentId?: string }>
++    complete: boolean
++  }> {
+     const found = await this.findSessionFile(sessionId)
+     if (!found) {
+       throw ApiError.notFound(`Session not found: ${sessionId}`)
+     }
+ 
+-    const subagentsDir = path.join(
+-      this.getProjectsDir(),
+-      found.projectDir,
+-      sessionId,
+-      'subagents',
+-    )
++    const subagentsDir = this.subagentsDirForTranscript(found.filePath, sessionId)
+     const files = await fs.readdir(subagentsDir).catch(() => [])
+     if (files.length > 4096) throw new ApiError(413, 'Agent directory exceeds its viewing budget', 'SUBAGENT_METADATA_LIMIT')
+-    const candidates: Array<{ agentId: string; ownerAgentId?: string }> = []
+-    let metadataComplete = true
++    const sidecars: Array<{ agentId: string; toolUseId: string; ownerAgentId?: string }> = []
++    let complete = true
+ 
+     for (const metadataFile of files.filter((file) => file.endsWith('.meta.json'))) {
+       try {
+         const metadata = await this.readSubagentMetadata(path.join(subagentsDir, metadataFile))
+-        if (metadata.toolUseId !== toolUseId) continue
++        if (typeof metadata.toolUseId !== 'string' || !metadata.toolUseId) continue
+         const ownerAgentId = typeof metadata.ownerAgentId === 'string' && metadata.ownerAgentId
+           ? metadata.ownerAgentId
+           : undefined
+-        candidates.push({
++        sidecars.push({
+           agentId: metadataFile.replace(/^agent-/, '').replace(/\.meta\.json$/, ''),
++          toolUseId: metadata.toolUseId,
+           ...(ownerAgentId ? { ownerAgentId } : {}),
+         })
+       } catch (error) {
+         if (error instanceof ApiError) throw error
+         // A half-written sidecar must not hide the other candidates.
+-        metadataComplete = false
++        complete = false
+       }
+     }
+ 
++    return { sidecars, complete }
++  }
++
++  /**
++   * The raw entries of one subagent transcript — what a run actually generated,
++   * which is the only place its token usage can be recovered from once the
++   * parent session's result text has aged out of the useful fields. Empty when
++   * the sidecar is gone.
++   */
++  async readSubagentTranscriptEntries(sessionId: string, agentId: string): Promise<RawEntry[]> {
++    const found = await this.findSessionFile(sessionId)
++    if (!found) return []
++    const normalizedAgentId = agentId.startsWith('agent-') ? agentId : `agent-${agentId}`
++    return this.readJsonlFile(path.join(
++      this.subagentsDirForTranscript(found.filePath, sessionId),
++      `${normalizedAgentId}.jsonl`,
++    ))
++  }
++
++  async findSubagentAgentIdByToolUseId(
++    sessionId: string,
++    toolUseId: string,
++    expectedOwnerAgentId: string | null,
++  ): Promise<string | null> {
++    const { sidecars, complete } = await this.listSubagentSidecars(sessionId)
++    const candidates = sidecars.filter(sidecar => sidecar.toolUseId === toolUseId)
++
+     const exact = candidates.filter(candidate => expectedOwnerAgentId === null
+       ? candidate.ownerAgentId === undefined
+       : candidate.ownerAgentId === expectedOwnerAgentId)
+@@ -4429,7 +4484,7 @@ export class SessionService {
+     // cross-parent collision this owner join is meant to prevent.
+     if (
+       expectedOwnerAgentId !== null &&
+-      metadataComplete &&
++      complete &&
+       candidates.length === 1 &&
+       candidates[0]!.ownerAgentId === undefined
+     ) {
+diff --git a/src/server/services/sessionUsageRollup.test.ts b/src/server/services/sessionUsageRollup.test.ts
+new file mode 100644
+index 00000000..2bec7438
+--- /dev/null
++++ b/src/server/services/sessionUsageRollup.test.ts
+@@ -0,0 +1,198 @@
++import { describe, expect, it } from 'bun:test'
++import {
++  SessionUsageRollup,
++  attachUsageToNotifications,
++  computeSubagentUsage,
++  type SubagentUsage,
++  type UsageRollupSource,
++} from './sessionUsageRollup.js'
++import type { RawEntry, SessionTaskNotification } from './sessionService.js'
++
++/** RawEntry is untyped JSON; build entries through one cast so tests stay readable. */
++function entry(value: Record<string, unknown>): RawEntry {
++  return value as unknown as RawEntry
++}
++
++function assistant(output: number, content: unknown = [], reasoning?: number): RawEntry {
++  return entry({
++    type: 'assistant',
++    message: {
++      role: 'assistant',
++      content,
++      usage: {
++        input_tokens: 10,
++        output_tokens: output,
++        ...(reasoning !== undefined ? { reasoning_tokens: reasoning } : {}),
++      },
++    },
++  })
++}
++
++const thinking = (text: string) => [{ type: 'thinking', thinking: text }]
++const toolUse = [{ type: 'tool_use', id: 't1', name: 'Read', input: {} }]
++
++describe('computeSubagentUsage', () => {
++  it('sums output across turns and estimates thinking from the thinking blocks', () => {
++    // 40 CJK chars of thinking ≈ 10 tokens at the estimator's 4-chars-per-token.
++    const usage = computeSubagentUsage([
++      assistant(100, thinking('思'.repeat(40))),
++      assistant(50, [{ type: 'text', text: 'done' }]),
++      entry({ type: 'user', message: { role: 'user', content: 'x' } }),
++    ])
++    expect(usage?.outputTokens).toBe(150)
++    expect(usage?.totalTokens).toBe(150)
++    expect(usage?.thinkTokens).toBeGreaterThan(0)
++  })
++
++  it('prefers an engine-reported reasoning count over the estimate', () => {
++    const usage = computeSubagentUsage([assistant(100, thinking('思'.repeat(400)), 33)])
++    // The engine's 33 wins; estimating the same content would read ~100.
++    expect(usage?.thinkTokens).toBe(33)
++  })
++
++  it('treats a reported reasoning_tokens of 0 as "not measured" and estimates anyway', () => {
++    // Engines that fill the field without computing it report 0. Trusting that
++    // zero suppressed the estimate and hid the split entirely.
++    const usage = computeSubagentUsage([assistant(100, thinking('思'.repeat(40)), 0)])
++    expect(usage?.thinkTokens).toBeGreaterThan(0)
++  })
++
++  it('omits thinkTokens when no turn produced thinking', () => {
++    const usage = computeSubagentUsage([assistant(100, [{ type: 'text', text: 'hi' }])])
++    expect(usage?.thinkTokens).toBeUndefined()
++    expect(usage?.outputTokens).toBe(100)
++  })
++
++  it('counts tool uses from the assistant turns', () => {
++    expect(computeSubagentUsage([assistant(10, toolUse), assistant(10, toolUse)])?.toolUses).toBe(2)
++  })
++
++  it('returns undefined when no turn reported output', () => {
++    expect(computeSubagentUsage([])).toBeUndefined()
++    expect(computeSubagentUsage([assistant(0)])).toBeUndefined()
++    expect(computeSubagentUsage([entry({ type: 'user', message: { role: 'user' } })])).toBeUndefined()
++  })
++})
++
++describe('attachUsageToNotifications', () => {
++  const derived = new Map<string, SubagentUsage>([
++    ['tool-1', { totalTokens: 900, outputTokens: 900, thinkTokens: 400, toolUses: 3 }],
++  ])
++  const notification = (toolUseId: string, usage?: SessionTaskNotification['usage']): SessionTaskNotification => ({
++    taskId: `task-${toolUseId}`,
++    toolUseId,
++    status: 'completed',
++    ...(usage ? { usage } : {}),
++  })
++
++  it('attaches the derived split when thinking is withheld', () => {
++    const [result] = attachUsageToNotifications([notification('tool-1')], derived, true)
++    expect(result?.usage).toEqual({ totalTokens: 900, outputTokens: 900, thinkTokens: 400, toolUses: 3 })
++  })
++
++  it('leaves thinkTokens off when thinking is sent back to the API', () => {
++    // The live path withholds the split in that case; a reader must not get one
++    // just because the number happened to be derived from disk.
++    const [result] = attachUsageToNotifications([notification('tool-1')], derived, false)
++    expect(result?.usage).toEqual({ totalTokens: 900, outputTokens: 900, toolUses: 3 })
++    expect(result?.usage?.thinkTokens).toBeUndefined()
++  })
++
++  it('never overwrites a usage the live run already reported', () => {
++    const live = { totalTokens: 5, outputTokens: 5, thinkTokens: 1 }
++    const [result] = attachUsageToNotifications([notification('tool-1', live)], derived, true)
++    expect(result?.usage).toEqual(live)
++  })
++
++  it('leaves notifications with no resolvable transcript untouched', () => {
++    const [result] = attachUsageToNotifications([notification('tool-unknown')], derived, true)
++    expect(result?.usage).toBeUndefined()
++  })
++})
++
++describe('SessionUsageRollup', () => {
++  function source(overrides: Partial<UsageRollupSource> & { sidecars?: unknown } = {}): {
++    source: UsageRollupSource
++    calls: { signature: number; sidecars: number; reads: number }
++  } {
++    const calls = { signature: 0, sidecars: 0, reads: 0 }
++    const defaults: UsageRollupSource = {
++      async getSessionMessagesSignature() {
++        calls.signature += 1
++        return 'sig-1'
++      },
++      async listSubagentSidecars() {
++        calls.sidecars += 1
++        return {
++          sidecars: [
++            { agentId: 'a1', toolUseId: 'tool-1' },
++            { agentId: 'a2', toolUseId: 'tool-2', ownerAgentId: 'parent' },
++          ],
++          complete: true,
++        }
++      },
++      async readSubagentTranscriptEntries(_sessionId, agentId) {
++        calls.reads += 1
++        return agentId === 'a1' ? [assistant(120, thinking('思'.repeat(20)))] : [assistant(7)]
++      },
++    }
++    return { source: { ...defaults, ...(overrides as UsageRollupSource) }, calls }
++  }
++
++  it('keys root agents by toolUseId and skips owned sidecars', async () => {
++    const { source: src } = source()
++    const rollup = new SessionUsageRollup(src)
++    const result = await rollup.byToolUseId('session-1')
++    expect([...result.keys()]).toEqual(['tool-1'])
++    expect(result.get('tool-1')?.outputTokens).toBe(120)
++  })
++
++  it('re-reads transcripts only when the signature moves', async () => {
++    let signature = 'sig-1'
++    const { source: src, calls } = source({
++      async getSessionMessagesSignature() {
++        calls.signature += 1
++        return signature
++      },
++    })
++    const rollup = new SessionUsageRollup(src)
++    await rollup.byToolUseId('session-1')
++    await rollup.byToolUseId('session-1')
++    expect(calls.reads).toBe(1)
++
++    // A running agent rewrites its transcript, which moves the signature.
++    signature = 'sig-2'
++    await rollup.byToolUseId('session-1')
++    expect(calls.reads).toBe(2)
++  })
++
++  it('yields nothing rather than throwing when the session or sidecars are unreadable', async () => {
++    const rollup = new SessionUsageRollup({
++      async getSessionMessagesSignature() { return null },
++      async listSubagentSidecars() { throw new Error('gone') },
++      async readSubagentTranscriptEntries() { throw new Error('gone') },
++    })
++    expect((await rollup.byToolUseId('missing')).size).toBe(0)
++  })
++
++  it('keeps the other agents when one transcript cannot be read', async () => {
++    const rollup = new SessionUsageRollup({
++      async getSessionMessagesSignature() { return 'sig' },
++      async listSubagentSidecars() {
++        return {
++          sidecars: [
++            { agentId: 'bad', toolUseId: 'tool-bad' },
++            { agentId: 'good', toolUseId: 'tool-good' },
++          ],
++          complete: false,
++        }
++      },
++      async readSubagentTranscriptEntries(_sessionId, agentId) {
++        if (agentId === 'bad') throw new Error('unreadable')
++        return [assistant(42)]
++      },
++    })
++    const result = await rollup.byToolUseId('session-1')
++    expect([...result.keys()]).toEqual(['tool-good'])
++  })
++})
+diff --git a/src/server/services/sessionUsageRollup.ts b/src/server/services/sessionUsageRollup.ts
+new file mode 100644
+index 00000000..8eb008e7
+--- /dev/null
++++ b/src/server/services/sessionUsageRollup.ts
+@@ -0,0 +1,210 @@
++import { getOutputTokenCountFromUsage, getReasoningTokenCountFromUsage } from '../../utils/tokens.js'
++import { roughTokenCountEstimationForThinking } from '../../services/tokenEstimation.js'
++import { shouldSendThinkingToAPI } from '../../utils/thinking.js'
++import { sessionService } from './sessionService.js'
++import type { RawEntry, SessionTaskNotification } from './sessionService.js'
++
++type ReportedUsage = Parameters<typeof getOutputTokenCountFromUsage>[0]
++
++/**
++ * Token usage a single subagent run generated, derived from its own transcript.
++ *
++ * The parent session's result text is not a usable source for this. It carries
++ * one `total_tokens` line that older runs wrote with the *context window* of the
++ * agent's last call — which describes what the run had read rather than what it
++ * produced — and it carries no thinking split at all. The agent's own transcript
++ * has both, per turn, so this is what the UI reads once a session is opened
++ * again instead of streamed live.
++ */
++export type SubagentUsage = {
++  /** Generated tokens — the run's "usage", matching the live notification. */
++  totalTokens: number
++  outputTokens: number
++  /** Thinking share; absent when thinking is sent to the API (see the gate). */
++  thinkTokens?: number
++  toolUses: number
++}
++
++function countToolUsesInEntries(entries: readonly RawEntry[]): number {
++  let count = 0
++  for (const entry of entries) {
++    if (entry.type !== 'assistant') continue
++    const content = entry.message?.content
++    if (!Array.isArray(content)) continue
++    for (const block of content) {
++      if (block && typeof block === 'object' && (block as { type?: unknown }).type === 'tool_use') {
++        count += 1
++      }
++    }
++  }
++  return count
++}
++
++/**
++ * Sum one agent's generated tokens, and the thinking share of them.
++ *
++ * Mirrors the live path (`finalizeAgentTool`): per turn, the engine's own
++ * reasoning count wins, and a turn it did not measure is estimated from the
++ * thinking that turn produced. Per turn rather than per run, because a reported
++ * turn already covers its own thinking.
++ *
++ * A reported `0` means the engine measured no thinking, which is not a
++ * measurement of thinking the transcript plainly contains — so anything not
++ * strictly positive falls through to the estimate. Treating `0` as "measured" is
++ * what silently suppressed the split on engines that report the field as 0.
++ *
++ * Returns `undefined` when nothing was generated, so a caller can tell "no
++ * usage" from "zero usage" — the bar renders nothing rather than "0k".
++ */
++export function computeSubagentUsage(entries: readonly RawEntry[]): SubagentUsage | undefined {
++  let outputTokens = 0
++  let thinkTokens = 0
++  let sawOutput = false
++
++  for (const entry of entries) {
++    if (entry.type !== 'assistant') continue
++    const usage = entry.message?.usage
++    if (!usage) continue
++    const reportedUsage = usage as unknown as ReportedUsage
++
++    const output = getOutputTokenCountFromUsage(reportedUsage)
++    if (output > 0) {
++      outputTokens += output
++      sawOutput = true
++    }
++
++    const reported = getReasoningTokenCountFromUsage(reportedUsage)
++    const part = reported !== undefined && reported > 0
++      ? reported
++      : roughTokenCountEstimationForThinking(
++          entry.message?.content as Parameters<typeof roughTokenCountEstimationForThinking>[0],
++        )
++    if (part > 0) thinkTokens += part
++  }
++
++  if (!sawOutput) return undefined
++  return {
++    totalTokens: outputTokens,
++    outputTokens,
++    ...(thinkTokens > 0 ? { thinkTokens } : {}),
++    toolUses: countToolUsesInEntries(entries),
++  }
++}
++
++const CACHE_CAPACITY = 32
++
++/** The slice of the session service this needs; injectable so it can be tested. */
++export type UsageRollupSource = Pick<
++  typeof sessionService,
++  'getSessionMessagesSignature' | 'listSubagentSidecars' | 'readSubagentTranscriptEntries'
++>
++
++/**
++ * Derives each subagent's token usage from the subagents' own transcripts, so a
++ * session read back from disk shows the split the live run would have shown
++ * instead of the single context-based total its result text happens to hold.
++ *
++ * Cached per session against the message signature, which already folds in every
++ * child transcript's size and mtime — a running agent therefore invalidates its
++ * own entry without this having to watch files.
++ */
++export class SessionUsageRollup {
++  private readonly cache = new Map<string, { signature: string; byToolUseId: Map<string, SubagentUsage> }>()
++
++  constructor(private readonly source: UsageRollupSource = sessionService) {}
++
++  /** One usage entry per Agent call whose subagent transcript could be resolved. */
++  async byToolUseId(sessionId: string): Promise<Map<string, SubagentUsage>> {
++    let signature: string | null
++    try {
++      signature = await this.source.getSessionMessagesSignature(sessionId)
++    } catch {
++      return new Map()
++    }
++    if (signature === null) return new Map()
++
++    const cached = this.cache.get(sessionId)
++    if (cached && cached.signature === signature) return cached.byToolUseId
++
++    const derived = await this.derive(sessionId)
++    this.cache.delete(sessionId)
++    this.cache.set(sessionId, { signature, byToolUseId: derived })
++    if (this.cache.size > CACHE_CAPACITY) {
++      const oldest = this.cache.keys().next()
++      if (!oldest.done) this.cache.delete(oldest.value)
++    }
++    return derived
++  }
++
++  private async derive(sessionId: string): Promise<Map<string, SubagentUsage>> {
++    const result = new Map<string, SubagentUsage>()
++    let sidecars: Awaited<ReturnType<UsageRollupSource['listSubagentSidecars']>>
++    try {
++      sidecars = await this.source.listSubagentSidecars(sessionId)
++    } catch {
++      return result
++    }
++
++    // Root agents only. An owned sidecar answers to its parent's tool call and
++    // the group bar reads root calls; counting it here would also attribute one
++    // toolUseId to several transcripts when a fan-out shares it.
++    const seenToolUseId = new Set<string>()
++    for (const sidecar of sidecars.sidecars) {
++      if (sidecar.ownerAgentId !== undefined) continue
++      if (seenToolUseId.has(sidecar.toolUseId)) continue
++      seenToolUseId.add(sidecar.toolUseId)
++      try {
++        const entries = await this.source.readSubagentTranscriptEntries(sessionId, sidecar.agentId)
++        const usage = computeSubagentUsage(entries)
++        if (usage) result.set(sidecar.toolUseId, usage)
++      } catch {
++        // One unreadable agent must not cost the session its whole rollup.
++      }
++    }
++    return result
++  }
++}
++
++export const sessionUsageRollup = new SessionUsageRollup()
++
++/**
++ * Attach already-derived usage to a session's task notifications.
++ *
++ * An existing `usage` wins: a live notification already carries the engine's own
++ * numbers, and the derived ones exist only to fill the gap left when a session
++ * is read back. The thinking share is attached only while thinking is withheld
++ * from the API, mirroring the live gate — otherwise a reader would show a split
++ * the live path deliberately does not, decided by nothing but which of the two
++ * paths happened to produce the number.
++ */
++export function attachUsageToNotifications(
++  notifications: readonly SessionTaskNotification[],
++  byToolUseId: ReadonlyMap<string, SubagentUsage>,
++  includeThink: boolean,
++): SessionTaskNotification[] {
++  if (byToolUseId.size === 0) return [...notifications]
++  return notifications.map(notification => {
++    if (notification.usage) return notification
++    const usage = byToolUseId.get(notification.toolUseId)
++    if (!usage) return notification
++    return {
++      ...notification,
++      usage: {
++        totalTokens: usage.totalTokens,
++        outputTokens: usage.outputTokens,
++        ...(includeThink && usage.thinkTokens !== undefined ? { thinkTokens: usage.thinkTokens } : {}),
++        toolUses: usage.toolUses,
++      },
++    }
++  })
++}
++
++/** {@link attachUsageToNotifications} against the shared rollup cache. */
++export async function enrichTaskNotificationsWithUsage(
++  sessionId: string,
++  notifications: readonly SessionTaskNotification[],
++): Promise<SessionTaskNotification[]> {
++  if (notifications.length === 0) return [...notifications]
++  const byToolUseId = await sessionUsageRollup.byToolUseId(sessionId)
++  return attachUsageToNotifications(notifications, byToolUseId, !shouldSendThinkingToAPI())
++}
+diff --git a/src/tasks/LocalAgentTask/LocalAgentTask.tsx b/src/tasks/LocalAgentTask/LocalAgentTask.tsx
+index 632716c3..ff57ba4f 100644
+--- a/src/tasks/LocalAgentTask/LocalAgentTask.tsx
++++ b/src/tasks/LocalAgentTask/LocalAgentTask.tsx
+@@ -20,6 +20,7 @@ import { evictTaskOutput, getTaskOutputPath, initTaskOutputAsSymlink } from '../
+ import { PANEL_GRACE_MS, registerTask, updateTaskState } from '../../utils/task/framework.js';
+ import { emitTaskProgress } from '../../utils/task/sdkProgress.js';
+ import { roughTokenCountEstimationForThinking } from '../../services/tokenEstimation.js';
++import { getReasoningTokenCountFromUsage } from '../../utils/tokens.js';
+ import { shouldSendThinkingToAPI } from '../../utils/thinking.js';
+ import { emitTaskTerminatedSdk } from '../../utils/sdkEventQueue.js';
+ import type { TaskState } from '../types.js';
+@@ -109,15 +110,16 @@ export function updateProgressFromMessage(tracker: ProgressTracker, message: Mes
+   tracker.cumulativeOutputTokens += usage.output_tokens;
+   // Prefer the engine's own reasoning count; fall back to estimating this
+   // turn's thinking when it reports none, so the split survives on endpoints
+-  // that do not measure it. The field is not in the SDK usage type, hence the
+-  // cast (the same treatment updateUsage() gives it on the way in).
+-  // Per turn, never both: a turn's real count already covers its thinking.
+-  const reasoningTokens = (
+-    usage as unknown as { reasoning_tokens?: number }
+-  ).reasoning_tokens;
++  // that do not measure it. Per turn, never both: a turn's real count already
++  // covers its thinking.
++  //
++  // A reported 0 counts as "not measured": an engine that fills the field
++  // without computing it reports 0, and treating that as a real measurement
++  // would suppress the estimate and hide the split entirely.
++  const reported = getReasoningTokenCountFromUsage(usage);
+   tracker.cumulativeReasoningTokens +=
+-    typeof reasoningTokens === 'number' && Number.isFinite(reasoningTokens)
+-      ? reasoningTokens
++    reported !== undefined && reported > 0
++      ? reported
+       : roughTokenCountEstimationForThinking(message.message.content);
+   for (const content of message.message.content) {
+     if (content.type === 'tool_use') {
+diff --git a/src/tools/AgentTool/agentToolUtils.ts b/src/tools/AgentTool/agentToolUtils.ts
+index 1009124d..d327c6fa 100644
+--- a/src/tools/AgentTool/agentToolUtils.ts
++++ b/src/tools/AgentTool/agentToolUtils.ts
+@@ -346,9 +346,13 @@ export function finalizeAgentTool(
+     // The engine's count wins; a turn it did not measure is estimated from the
+     // thinking that turn produced, so the split exists on any endpoint. Per
+     // turn rather than per run: a reported turn already covers its own thinking.
+-    const part =
+-      getReasoningTokenCountFromUsage(m.message.usage) ??
+-      roughTokenCountEstimationForThinking(m.message.content)
++    // A reported 0 counts as "not measured", not as a measurement: it is what an
++    // engine that fills the field without computing it reports, and treating it
++    // as real would suppress the estimate and hide the split entirely.
++    const reported = getReasoningTokenCountFromUsage(m.message.usage)
++    const part = reported !== undefined && reported > 0
++      ? reported
++      : roughTokenCountEstimationForThinking(m.message.content)
+     if (part > 0) reasoningTokens = (reasoningTokens ?? 0) + part
+   }
+   const totalToolUseCount = countToolUses(agentMessages)

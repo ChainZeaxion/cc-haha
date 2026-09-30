@@ -1,0 +1,2151 @@
+diff --git a/desktop/src/api/sessions.test.ts b/desktop/src/api/sessions.test.ts
+index 7e674d28..90af5bc4 100644
+--- a/desktop/src/api/sessions.test.ts
++++ b/desktop/src/api/sessions.test.ts
+@@ -349,6 +349,33 @@ describe('full session history assembly', () => {
+     expect(fetchMock).toHaveBeenCalledTimes(2)
+   })
+ 
++  it('bounds the walk and hands the rest back through nextCursor', async () => {
++    // An endless transcript: every continuation offers another cursor. The walk
++    // must still terminate and leave the remainder reachable through the
++    // existing "load more" path, rather than stitching until the request times
++    // out — which is how a large session previously failed to open at all.
++    let oldest = 0
++    const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async url => {
++      if (String(url).includes('mode=full')) return response(page('newest', 'cursor-0'))
++      oldest += 1
++      return response(page(`older-${oldest}`, `cursor-${oldest}`))
++    })
++
++    const result = await sessionsApi.getFullHistory('fixture')
++    const resultPage = result.page
++    if (!resultPage) throw new Error('expected page metadata')
++
++    expect(resultPage.hasMore).toBe(true)
++    expect(resultPage.nextCursor).toBeTruthy()
++    expect(resultPage.historyComplete).toBe(false)
++    // Bounded: it stopped instead of walking the whole (endless) transcript.
++    expect(result.messages.length).toBeGreaterThan(1)
++    expect(result.messages.length).toBeLessThan(100)
++    // The cursor still points at the oldest page actually retrieved.
++    expect(resultPage.nextCursor).toBe(`cursor-${oldest}`)
++    expect(fetchMock).toHaveBeenCalledTimes(oldest + 1)
++  })
++
+   it('rejects a failed continuation without exposing its successfully loaded tail', async () => {
+     vi.spyOn(globalThis, 'fetch')
+       .mockResolvedValueOnce(response(page('new', 'older')))
+diff --git a/desktop/src/api/sessions.ts b/desktop/src/api/sessions.ts
+index 8d7ee9a7..2c987353 100644
+--- a/desktop/src/api/sessions.ts
++++ b/desktop/src/api/sessions.ts
+@@ -1,5 +1,16 @@
+ import { api, type ApiRequestOptions } from './client'
+ import type { SlashCommandOption } from '../types/slashCommand'
++
++/**
++ * Bounds on the first history paint. The timeline renders nothing until the
++ * whole stitch resolves, so a deep transcript must not hold it hostage: past
++ * either bound the walk stops and returns what it has, leaving `nextCursor`
++ * for the user-driven "load more" path. 40 pages is well clear of any ordinary
++ * session (which fits in the single `mode=full` response and never enters the
++ * loop at all).
++ */
++const HISTORY_STITCH_MAX_PAGES = 40
++const HISTORY_STITCH_DEADLINE_MS = 12_000
+ import type { AgentTaskNotification } from '../types/chat'
+ import type { LocalIndexStatus, SessionListItem, MessageEntry } from '../types/session'
+ import type { PermissionMode } from '../types/settings'
+@@ -33,6 +44,27 @@ export type SessionChatStatusResponse = {
+ type MessagesResponse = {
+   messages: MessageEntry[]
+   taskNotifications?: AgentTaskNotification[]
++  /**
++   * The subagent runs that are still going, keyed by the Agent tool-call id the
++   * UI renders usage under.
++   *
++   * Both ids travel together because neither is derivable from the other, and a
++   * client that opened the session mid-run never saw the `task_started` that
++   * relates them: `taskId` is what the run's live frames are addressed with,
++   * `toolUseId` is what its number must be displayed under. Only in-flight runs
++   * appear, because the client marks whatever it finds here as running.
++   *
++   * `totalTokens` is absent until the run crosses a tool boundary — but the run is
++   * listed regardless, because that boundary-free stretch is exactly when a client
++   * joining now has nothing else to go on.
++   */
++  runningAgentUsage?: Record<string, {
++    taskId: string
++    toolUseId: string
++    totalTokens?: number
++    thinkTokens?: number
++    toolUses?: number
++  }>
+ }
+ export type SessionHistoryPage = MessagesResponse & {
+   page?: {
+@@ -192,12 +224,19 @@ export type SessionUsageSnapshot = {
+   totalAPIDuration: number
+   /**
+    * Milliseconds the model spent emitting tokens, excluding prefill and tool execution.
+-   * The panel's tok/s uses `totalAPIDuration` instead: decode-only rates ignore TTFT and
+-   * read as a peak the user never felt. Kept so resume snapshots still round-trip.
++   * This is the panel's tok/s denominator, paired with `totalTimedOutputTokens`: only the
++   * calls that report a span may have their tokens divided by it. Kept so resume snapshots
++   * still round-trip.
+    */
+   totalDecodeDuration?: number
+   /** Milliseconds spent waiting for the first token, summed over the session's requests. */
+   totalTtftDuration?: number
++  /**
++   * Output tokens of the calls `totalDecodeDuration` covers. Absent for transcript-sourced
++   * usage (a transcript has no span to pair with) and in snapshots written before the
++   * pairing existed; the panel then falls back to the API span.
++   */
++  totalTimedOutputTokens?: number
+   totalDuration: number
+   totalLinesAdded: number
+   totalLinesRemoved: number
+@@ -443,6 +482,12 @@ export const sessionsApi = {
+ 
+   // The timeline receives one assembled transcript. Ordinary sessions fit in
+   // `mode=full`; larger sessions continue within the server's request budgets.
++  //
++  // A deep transcript is walked one page per request and nothing renders until
++  // this resolves, so the walk is bounded and the remaining `nextCursor` is
++  // handed back for the existing "load more" affordance to continue. Stitching
++  // without a bound is what made a large session appear never to open: the
++  // client was still on page N long after the reader had given up on it.
+   async getFullHistory(sessionId: string, options?: ApiRequestOptions): Promise<SessionHistoryPage> {
+     const newest = await api.get<SessionHistoryPage>(`/api/sessions/${sessionId}/messages?mode=full`, options)
+     if (!newest.page?.nextCursor) return newest
+@@ -455,9 +500,19 @@ export const sessionsApi = {
+     let omitted = newest.page.omittedOversizedEntries
+     let truncated = Boolean(newest.page.contentTruncated)
+     let scannedBytes = newest.page.scannedBytes
++    const startedAt = Date.now()
+     while (cursor) {
+       if (options?.signal?.aborted) throw options.signal.reason ?? new DOMException('Aborted', 'AbortError')
+       if (seen.has(cursor)) throw new Error('Session history cursor did not advance')
++      // Stop well before the request timeout. `hasMore` below stays true and
++      // `nextCursor` is preserved, which is exactly the state the timeline
++      // already interprets as "history is windowed — offer to load more".
++      if (
++        pages.length >= HISTORY_STITCH_MAX_PAGES ||
++        Date.now() - startedAt >= HISTORY_STITCH_DEADLINE_MS
++      ) {
++        break
++      }
+       seen.add(cursor)
+       const query: URLSearchParams = new URLSearchParams({ cursor })
+       const older: SessionHistoryPage = await api.get<SessionHistoryPage>(`/api/sessions/${sessionId}/messages?${query}`, options)
+@@ -472,14 +527,21 @@ export const sessionsApi = {
+       cursor = older.page.nextCursor
+     }
+     pages.reverse()
+-    return {
+-      messages: pages.flatMap(page => page.messages),
+-      taskNotifications: pages.flatMap(page => page.taskNotifications ?? []),
+-      page: {
++    // `cursor === null` means the walk reached the head of the transcript, in
++    // which case every field below matches the previous unconditional-`null`
++    // behaviour — early exit is the only new path.
++    const exhausted = cursor === null
++      return {
++        messages: pages.flatMap(page => page.messages),
++        taskNotifications: pages.flatMap(page => page.taskNotifications ?? []),
++        // Not stitched: it describes what is running *now*, so the newest page is
++        // the only one whose answer is still true.
++        runningAgentUsage: newest.runningAgentUsage,
++        page: {
+         ...newest.page,
+-        nextCursor: null,
+-        hasMore: false,
+-        historyComplete: omitted === 0 && !truncated && !newest.page.previousCursor,
++        nextCursor: cursor,
++        hasMore: !exhausted,
++        historyComplete: exhausted && omitted === 0 && !truncated && !newest.page.previousCursor,
+         contentTruncated: truncated,
+         omittedOversizedEntries: omitted,
+         scannedBytes,
+diff --git a/desktop/src/types/chat.ts b/desktop/src/types/chat.ts
+index 645e6fb6..e876ce62 100644
+--- a/desktop/src/types/chat.ts
++++ b/desktop/src/types/chat.ts
+@@ -1,5 +1,6 @@
+ import type { PermissionMode } from './settings'
+ import type { RuntimeSelection } from './runtime'
++import type { MessageUsage } from './session'
+ 
+ // Source: src/server/ws/events.ts
+ 
+@@ -100,7 +101,14 @@ export type ServerMessage =
+       event: AgentRunStreamMessage
+     }
+   | { type: 'content_start'; blockType: 'text' | 'tool_use'; toolName?: string; toolUseId?: string; originalToolUseId?: string; parentToolUseId?: string }
+-  | { type: 'content_delta'; text?: string; toolInput?: string }
++  | { type: 'content_delta'; text?: string; toolInput?: string; /** Epoch ms the server received this chunk. The client rates decode off this clock instead of its own receive clock, which a busy main thread compresses when it drains a queue (see TpsClock: the meter buckets frames on whichever clock it settled on). */ serverTs?: number }
++  /**
++   * Real tokens decoded since the previous frame, relayed from the engine's
++   * per-chunk token ids (vLLM `return_token_ids`). Carries no content — it
++   * feeds the TPS meter exactly, and the text frames it duplicates are then
++   * ignored. Only sent for endpoints that reported token ids.
++   */
++  | { type: 'tps_tokens'; tokens: number; kind: 'thinking' | 'content' | 'tool'; serverTs?: number }
+   | { type: 'tool_use_complete'; toolName: string; toolUseId: string; originalToolUseId?: string; input: unknown; parentToolUseId?: string }
+   | { type: 'tool_result'; toolUseId: string; originalToolUseId?: string; content: unknown; isError: boolean; parentToolUseId?: string }
+   | {
+@@ -132,10 +140,11 @@ export type ServerMessage =
+   | { type: 'user_message_replay'; content: string; sessionReferences?: Array<{ sessionId: string }>; collaboration?: { sourceSessionId: string; messageId?: string } }
+   | { type: 'message_complete'; usage: TokenUsage; timing?: TurnTiming }
+   /** `complete` marks a whole thinking block; without it `text` is a stream fragment. */
+-  | { type: 'thinking'; text: string; complete?: boolean }
++  | { type: 'thinking'; text: string; complete?: boolean; /** Epoch ms the server first saw this thinking block; anchors the live elapsed-time tick to "generation began". */ serverStart?: number; serverTs?: number }
+   | { type: 'status'; state: ChatState; verb?: string; attemptStart?: boolean }
+   | {
+       type: 'runtime_config_applied'
++
+       providerId: string | null
+       modelId: string
+       effortLevel?: string
+@@ -167,10 +176,10 @@ export type ServerMessage =
+ 
+ export type AgentRunStreamMessage =
+   | { type: 'content_start'; blockType: 'text' | 'tool_use'; toolName?: string; toolUseId?: string; originalToolUseId?: string; parentToolUseId?: string }
+-  | { type: 'content_delta'; text?: string; toolInput?: string }
++  | { type: 'content_delta'; text?: string; toolInput?: string; /** Epoch ms the server received this chunk. The client rates decode off this clock instead of its own receive clock, which a busy main thread compresses when it drains a queue (see TpsClock: the meter buckets frames on whichever clock it settled on). */ serverTs?: number }
+   | { type: 'tool_use_complete'; toolName: string; toolUseId: string; originalToolUseId?: string; input: unknown; parentToolUseId?: string }
+   | { type: 'tool_result'; toolUseId: string; originalToolUseId?: string; content: unknown; isError: boolean; parentToolUseId?: string }
+-  | { type: 'thinking'; text: string; complete?: boolean }
++  | { type: 'thinking'; text: string; complete?: boolean; /** Epoch ms the server first saw this thinking block; anchors the live elapsed-time tick to "generation began". */ serverStart?: number; serverTs?: number }
+   | { type: 'status'; state: ChatState; verb?: string; attemptStart?: boolean }
+   | { type: 'api_retry'; attempt: number; maxRetries: number; retryDelayMs: number; errorStatus: number | null; errorType?: string; errorMessage?: string }
+   | { type: 'streaming_fallback'; cause: StreamingFallbackCause }
+@@ -289,6 +298,10 @@ export type AgentTaskNotification = {
+ 
+ export type BackgroundAgentTaskUsage = {
+   totalTokens?: number
++  /** Generated tokens; the thinking share is `thinkTokens` when reported. */
++  outputTokens?: number
++  /** Thinking share of the output. Absent when the engine reported no split. */
++  thinkTokens?: number
+   toolUses?: number
+   durationMs?: number
+ }
+@@ -347,8 +360,16 @@ export type UIMessage =
+    * member transcript.
+    */
+   | { id: string; type: 'user_text'; content: string; sessionReferences?: Array<{ sessionId: string }>; collaboration?: { sourceSessionId: string; messageId?: string }; modelContent?: string; transcriptMessageId?: string; timestamp: number; attachments?: UIAttachment[]; pending?: boolean; optimisticQueued?: boolean; teammateFrom?: string }
+-  | { id: string; type: 'assistant_text'; content: string; transcriptMessageId?: string; timestamp: number; model?: string }
+-  | { id: string; type: 'thinking'; content: string; timestamp: number }
++  /**
++   * `usage` is the token counts the API call that produced this row reported,
++   * carried so a turn can total them. `usageKey` dedupes it: one reply is
++   * persisted as a dozen transcript lines that each repeat the whole `usage`
++   * object, so the number belongs to the call, not to the row. Rows of a reply
++   * that reported nothing — older transcripts, providers that return no usage —
++   * simply do not carry it, and the turn then shows no total.
++   */
++  | { id: string; type: 'assistant_text'; content: string; transcriptMessageId?: string; timestamp: number; model?: string; usage?: MessageUsage; usageKey?: string }
++  | { id: string; type: 'thinking'; content: string; timestamp: number; /** Wall-clock ms this block spent generating; set on completion (live) or mapped from the transcript (history). */ thinkingDurationMs?: number; /** Exact tokens the engine generated for this block, summed from the id side channel while it streamed. Absent on history (the transcript does not carry it) and when the engine reports no ids — the badge falls back to estimating from content then. */ thinkingTokens?: number; usage?: MessageUsage; usageKey?: string; serverTs?: number }
+   | {
+       id: string
+       type: 'tool_use'
+@@ -361,6 +382,8 @@ export type UIMessage =
+       isPending?: boolean
+       status?: 'stopped'
+       partialInput?: string
++      usage?: MessageUsage
++      usageKey?: string
+     }
+   | { id: string; type: 'tool_result'; toolUseId: string; originalToolUseId?: string; content: unknown; isError: boolean; timestamp: number; parentToolUseId?: string }
+   | { id: string; type: 'background_task'; task: BackgroundAgentTask; timestamp: number }
+diff --git a/desktop/src/types/session.ts b/desktop/src/types/session.ts
+index 3ba309e0..a6fe46c3 100644
+--- a/desktop/src/types/session.ts
++++ b/desktop/src/types/session.ts
+@@ -49,6 +49,8 @@ export type MessageEntry = {
+   collaboration?: { sourceSessionId: string; messageId?: string }
+   id: string
+   type: 'user' | 'assistant' | 'system' | 'tool_use' | 'tool_result'
++  /** Raw JSONL subtype, present for compact boundary system entries. */
++  subtype?: string
+   content: unknown
+   toolUseResult?: unknown
+   timestamp: string
+@@ -60,6 +62,12 @@ export type MessageEntry = {
+    * totals usage must count each key once. Absent means the line carries no id — count it.
+    */
+   usageKey?: string
++  /**
++   * Wall-clock ms this thinking block spent generating (content_block_start →
++   * content_block_stop), persisted on the transcript line. Only on assistant
++   * lines whose single content block is a thinking block.
++   */
++  thinkingDurationMs?: number
+   parentUuid?: string
+   parentToolUseId?: string
+   isSidechain?: boolean
+diff --git a/desktop/src/types/settings.ts b/desktop/src/types/settings.ts
+index ef9c7c9e..c8de51e8 100644
+--- a/desktop/src/types/settings.ts
++++ b/desktop/src/types/settings.ts
+@@ -113,6 +113,13 @@ export type H5AccessSettings = {
+   fixedPort: number | null
+   /** Idle grace period (seconds) before a disconnected, idle session's CLI is stopped. null = built-in 30s default. */
+   disconnectGraceSeconds: number | null
++  /**
++   * Whether browser H5 access requires the Bearer H5 token. Default false:
++   * every source accesses H5 tokenless (0.0.0.0/0). When true, public-network
++   * sources must carry the token; loopback and private-network (RFC1918 /
++   * IPv6 ULA) sources are always exempt.
++   */
++  requireToken: boolean
+ }
+ 
+ export type H5HostStaleness = 'ok' | 'unreachable' | 'proxy' | 'unset'
+@@ -152,6 +159,15 @@ export type UserSettings = {
+   modelContext?: string
+   effort?: EffortLevel
+   alwaysThinkingEnabled?: boolean
++  sendThinkingHistory?: boolean
++  /** Context-compaction engine: 'algorithm' (pi-vcc, default) or 'llm'. */
++  vccCompactBackend?: 'algorithm' | 'llm'
++  /**
++   * Whether the session UI shows the usage and timing readouts this fork adds
++   * (thinking badge, activity totals, subagent durations, TPS). Defaults to on;
++   * a transcript is still recorded either way.
++   */
++  sessionExtendedInfo?: boolean
+   workflowKeywordTriggerEnabled?: boolean
+   agentTeamsEnabled?: boolean
+   autoDreamEnabled?: boolean
+@@ -164,6 +180,8 @@ export type UserSettings = {
+   skipWebFetchPreflight?: boolean
+   desktopNotificationsEnabled?: boolean
+   webSearch?: WebSearchSettings
++  /** When true, skip the startup update check and disable the manual "check now" action. */
++  disableUpdates?: boolean
+   updateProxy?: Partial<UpdateProxySettings>
+   network?: {
+     aiRequestTimeoutMs?: number
+diff --git a/src/server/index.ts b/src/server/index.ts
+index 7dedd892..6a86bd24 100644
+--- a/src/server/index.ts
++++ b/src/server/index.ts
+@@ -8,18 +8,22 @@ import { handleSessionCollaborationApi } from './api/sessionCollaboration.js'
+  * 读写与 CLI 完全相同的文件系统，确保 CLI/UI 数据互通。
+  */
+ 
++import { existsSync, unlinkSync } from 'node:fs'
++import { stat } from 'node:fs/promises'
+ import { handleApiRequest } from './router.js'
+-import { handleWebSocket, type WebSocketData } from './ws/handler.js'
++import { handleWebSocket, sendToSession, type WebSocketData } from './ws/handler.js'
+ import { resolveCors, type CorsResolution } from './middleware/cors.js'
+ import { requireAuth, requireH5Token } from './middleware/auth.js'
+ import { teamWatcher } from './services/teamWatcher.js'
+ import { cronScheduler } from './services/cronScheduler.js'
+ import { handleProxyRequest } from './proxy/handler.js'
++import { setTpsTokenSink } from './proxy/tpsTokenSink.js'
++import { withGzipIfEligible } from './responseCompression.js'
+ import { ProviderService } from './services/providerService.js'
+ import { handleHahaOAuthCallback } from './api/haha-oauth.js'
+ import { handleHahaOpenAIOAuthCallback } from './api/haha-openai-oauth.js'
+ import { handlePreviewFs } from './api/previewFs.js'
+-import { handleLocalFile } from './api/localFile.js'
++import { handleLocalFile, handleBatchLocalFileInfo } from './api/localFile.js'
+ import { sessionService } from './services/sessionService.js'
+ import { localIndexCoordinator } from './services/localIndex/coordinator.js'
+ import { searchContentCoordinator } from './services/localIndex/searchContentCoordinator.js'
+@@ -145,6 +149,41 @@ function beginBackgroundIndexStartup(): void {
+   })
+ }
+ 
++/**
++ * Transcript size per session, cached briefly.
++ *
++ * Only consulted once a response is otherwise eligible for compression. The H5
++ * history walk issues one request per page and every page asks the same
++ * question, so the cache keeps a deep walk from re-resolving the same file on
++ * each of its (hundreds of) requests. A null result means "unknown" and falls
++ * back to compressing, so a transient stat failure cannot strand large
++ * sessions uncompressed.
++ */
++const SESSION_SIZE_CACHE_TTL_MS = 10_000
++const SESSION_SIZE_CACHE_LIMIT = 64
++const sessionSizeCache = new Map<string, { size: number | null; at: number }>()
++
++async function resolveSessionSizeBytes(sessionId: string): Promise<number | null> {
++  const now = Date.now()
++  const cached = sessionSizeCache.get(sessionId)
++  if (cached && now - cached.at < SESSION_SIZE_CACHE_TTL_MS) return cached.size
++
++  let size: number | null = null
++  try {
++    const found = await sessionService.findSessionFile(sessionId)
++    if (found) size = (await stat(found.filePath)).size
++  } catch {
++    size = null
++  }
++
++  sessionSizeCache.set(sessionId, { size, at: now })
++  if (sessionSizeCache.size > SESSION_SIZE_CACHE_LIMIT) {
++    const oldest = sessionSizeCache.keys().next().value
++    if (oldest !== undefined) sessionSizeCache.delete(oldest)
++  }
++  return size
++}
++
+ function withCors(response: Response, cors: CorsResolution): Response {
+   const headers = new Headers(response.headers)
+   for (const [key, value] of Object.entries(cors.headers)) {
+@@ -256,6 +295,13 @@ export function startServer(port = PORT, host = HOST) {
+     process.env.SERVER_AUTH_REQUIRED === '1'
+   const h5AccessService = new H5AccessService()
+ 
++  // The proxy reads real per-chunk token counts off local engines and needs to
++  // push them to the session's client. It cannot import the WS layer (that
++  // would close a cycle through titleService), so the wiring lives here.
++  setTpsTokenSink((sessionId, tokens, kind) => {
++    sendToSession(sessionId, { type: 'tps_tokens', tokens, kind })
++  })
++
+   const publicAccess = new PublicAccessServer({
+     handleApiRequest,
+     handleStatic: handleStaticH5Request,
+@@ -263,7 +309,12 @@ export function startServer(port = PORT, host = HOST) {
+     serverPort: () => serverPort,
+   })
+   publicAccessServers.add(publicAccess)
+-  let server: ReturnType<typeof Bun.serve<WebSocketData>>
++  // Named so `serverFetch` can annotate its handle parameter without writing
++  // `typeof server` inside a parameter that itself shadows `server` — that
++  // self-reference made the annotation unresolvable (TS2502) and silently cost
++  // every `server.upgrade` / `server.requestIP` call in the handler its types.
++  type ServerHandle = ReturnType<typeof Bun.serve<WebSocketData>>
++  let server: ServerHandle
+ 
+   // Open SQLite before the first REST request. Discovery still runs in the
+   // background; without this, getPublicStatus() reports `off` and the sidebar
+@@ -271,12 +322,12 @@ export function startServer(port = PORT, host = HOST) {
+   void localIndexCoordinator.start().catch(() => undefined)
+ 
+   try {
+-    server = Bun.serve<WebSocketData>({
+-      port,
+-      hostname: host,
+-      idleTimeout: HTTP_CONNECTION_IDLE_TIMEOUT_SECONDS,
+-
+-      async fetch(req, server) {
++    // Shared request pipeline. Extracted (rather than inlined in Bun.serve) so a
++    // test-only unix-socket mirror below can reuse the exact same auth/proxy/static
++    // routing. A request over that socket carries no peer address, which H5 auth
++    // treats as a public (non-LAN) source — used by integration tests to exercise
++    // the "remote browser needs the H5 token" path without a real public IP.
++    const serverFetch = async (req: Request, server: ServerHandle): Promise<Response> => {
+         const url = new URL(req.url)
+         if (isPublicAccessControlPath(url.pathname)) return publicAccess.control(req)
+ 
+@@ -366,6 +417,7 @@ export function startServer(port = PORT, host = HOST) {
+           request: req,
+           url,
+           h5Enabled: h5Settings.enabled,
++          requireToken: h5Settings.requireToken,
+           context: h5RequestContext,
+         })
+         const h5AccessDisabledBlocked = shouldBlockDisabledH5Access({
+@@ -397,6 +449,41 @@ export function startServer(port = PORT, host = HOST) {
+           return new Response(null, { status: 204, headers: cors.headers })
+         }
+ 
++        // Dedicated terminal WebSocket channel for the H5 browser terminal.
++        // The literal path /ws/terminal would otherwise be swallowed by the
++        // generic /ws/{sessionId} branch below, so it must be routed first.
++        if (url.pathname === '/ws/terminal') {
++          if (cors.rejected) {
++            return corsRejectedResponse(cors)
++          }
++
++          if (!petAccessAuthorized && authRequired) {
++            const authError = await requireH5Token(req, url.searchParams.get('token'))
++            if (authError) {
++              return withCors(authError, cors)
++            }
++          } else if (!petAccessAuthorized && forceAuth) {
++            const authError = await requireAuth(req, url.searchParams.get('token'))
++            if (authError) {
++              return withCors(authError, cors)
++            }
++          }
++
++          const upgraded = server.upgrade(req, {
++            data: {
++              sessionId: 'terminal',
++              connectedAt: Date.now(),
++              channel: 'terminal',
++              clientKind: 'full',
++              sdkToken: null,
++              serverPort,
++              serverHost: localConnectHost,
++            },
++          })
++          if (upgraded) return undefined
++          return new Response('WebSocket upgrade failed', { status: 400 })
++        }
++
+         // WebSocket upgrade
+         if (url.pathname.startsWith('/ws/')) {
+           if (cors.rejected) {
+@@ -512,6 +599,33 @@ export function startServer(port = PORT, host = HOST) {
+           return withCors(response, cors)
+         }
+ 
++        // Batch file-metadata endpoint for download cards (one request for all
++        // sizes). Must sit BEFORE the `/local-file/` prefix branch since the
++        // path also starts with that prefix.
++        if (url.pathname === '/local-file/info' && req.method === 'POST') {
++          if (cors.rejected) {
++            return corsRejectedResponse(cors)
++          }
++          if (authRequired) {
++            const authError = await requireH5Token(req)
++            if (authError) {
++              return withCors(authError, cors)
++            }
++          } else if (forceAuth) {
++            const authError = await requireAuth(req)
++            if (authError) {
++              return withCors(authError, cors)
++            }
++          }
++          try {
++            const body = await req.json()
++            const response = await handleBatchLocalFileInfo(body)
++            return withCors(response, cors)
++          } catch {
++            return withCors(new Response('bad request', { status: 400 }), cors)
++          }
++        }
++
+         // Local filesystem — serve an ABSOLUTE local file ($HOME/tmp/registered
+         // roots sandbox) so `file://` links / AI-emitted absolute paths open in
+         // the in-app browser. Gated identically to /preview-fs above.
+@@ -560,7 +674,13 @@ export function startServer(port = PORT, host = HOST) {
+               req,
+               handleApiRequest(req, url, { remoteBrowser: classifyH5Request(req, url, h5RequestContext) === 'h5-browser' }),
+             )
+-            return withCors(response, cors)
++            // Remote API responses are gzip-compressed (transparent to browser
++            // fetch); loopback desktop traffic stays uncompressed, and sessions
++            // below the transport floor skip compression entirely.
++            return withCors(
++              await withGzipIfEligible(req, response, clientAddress, resolveSessionSizeBytes),
++              cors,
++            )
+           } catch (error) {
+             void diagnosticsService.recordEvent({
+               type: 'api_request_failed',
+@@ -619,15 +739,46 @@ export function startServer(port = PORT, host = HOST) {
+         }
+ 
+         return new Response('Not Found', { status: 404 })
+-      },
++    }
++
++    server = Bun.serve<WebSocketData>({
++      port,
++      hostname: host,
++      idleTimeout: HTTP_CONNECTION_IDLE_TIMEOUT_SECONDS,
++
++      fetch: serverFetch,
+ 
+       websocket: handleWebSocket,
+     })
++
++    // Test-only unix-socket mirror sharing the same fetch/websocket handlers.
++    // A request over this socket has no peer address, so H5 auth treats it as a
++    // public (non-LAN) source — integration tests use it to assert that a remote
++    // browser must present the H5 token, without needing a real public source IP.
++    const testUnixSocket = process.env.CC_HAHA_TEST_UNIX_SOCKET
++    let testUnixServer: ReturnType<typeof Bun.serve<WebSocketData>> | null = null
++    if (testUnixSocket) {
++      try {
++        if (existsSync(testUnixSocket)) unlinkSync(testUnixSocket)
++        testUnixServer = Bun.serve<WebSocketData>({
++          unix: testUnixSocket,
++          fetch: serverFetch,
++          websocket: handleWebSocket,
++        })
++      } catch (error) {
++        console.warn(
++          `[Server] test unix socket ${testUnixSocket} not started: ` +
++            (error instanceof Error ? error.message : String(error)),
++        )
++      }
++    }
+     const disposeCollaboration = configureSessionCollaborationHost(localConnectHost, server.port)
++
+     const stop = server.stop.bind(server)
+     server.stop = (closeActiveConnections?: boolean) => {
+       apiPerformanceMonitor.stop()
+       disposeCollaboration()
++      if (testUnixServer) testUnixServer.stop(closeActiveConnections)
+       publicAccess.disable()
+       publicAccessServers.delete(publicAccess)
+       return stop(closeActiveConnections)
+diff --git a/src/server/responseCompression.test.ts b/src/server/responseCompression.test.ts
+new file mode 100644
+index 00000000..a97f7128
+--- /dev/null
++++ b/src/server/responseCompression.test.ts
+@@ -0,0 +1,205 @@
++import { describe, expect, test, beforeEach, afterEach } from 'bun:test'
++import { gunzipSync } from 'node:zlib'
++import { shouldGzipResponse, withGzipIfEligible, sessionIdFromPath, MIN_COMPRESSIBLE_SESSION_BYTES } from './responseCompression.js'
++
++const big = 'x'.repeat(300 * 1024)
++const small = 'x'.repeat(1024)
++
++function jsonReq(acceptEncoding?: string | null) {
++  return new Request('http://127.0.0.1:7788/api/sessions/x/messages', {
++    method: 'GET',
++    headers: acceptEncoding === undefined ? {} : { 'accept-encoding': acceptEncoding },
++  })
++}
++
++function jsonRes(body: string) {
++  return Response.json(JSON.parse(body))
++}
++
++describe('shouldGzipResponse', () => {
++  test('compresses remote large json with gzip advertised', () => {
++    expect(
++      shouldGzipResponse(jsonReq('gzip, deflate'), jsonRes(`{"m":"${big}"}`), '192.168.1.50'),
++    ).toBe(true)
++  })
++
++  test('skips loopback by default', () => {
++    expect(
++      shouldGzipResponse(jsonReq('gzip'), jsonRes(`{"m":"${big}"}`), '127.0.0.1'),
++    ).toBe(false)
++    expect(
++      shouldGzipResponse(jsonReq('gzip'), jsonRes(`{"m":"${big}"}`), '::1'),
++    ).toBe(false)
++  })
++
++  test('skips when client does not advertise gzip', () => {
++    expect(
++      shouldGzipResponse(jsonReq('br'), jsonRes(`{"m":"${big}"}`), '192.168.1.50'),
++    ).toBe(false)
++    expect(
++      shouldGzipResponse(jsonReq(null), jsonRes(`{"m":"${big}"}`), '192.168.1.50'),
++    ).toBe(false)
++  })
++
++  test('skips small payloads with a declared length', () => {
++    const res = new Response(`{"m":"${small}"}`, {
++      status: 200,
++      headers: {
++        'content-type': 'application/json',
++        'content-length': String(Buffer.byteLength(`{"m":"${small}"}`)),
++      },
++    })
++    expect(shouldGzipResponse(jsonReq('gzip'), res, '192.168.1.50')).toBe(false)
++  })
++
++  test('skips non-200 and non-GET', () => {
++    const res = new Response(JSON.stringify({ error: 'x'.repeat(300 * 1024) }), {
++      status: 413,
++      headers: { 'content-type': 'application/json' },
++    })
++    expect(shouldGzipResponse(jsonReq('gzip'), res, '192.168.1.50')).toBe(false)
++
++    const post = new Request('http://127.0.0.1:7788/api/x', {
++      method: 'POST',
++      headers: { 'accept-encoding': 'gzip' },
++    })
++    expect(shouldGzipResponse(post, jsonRes(`{"m":"${big}"}`), '192.168.1.50')).toBe(false)
++  })
++
++  test('skips non-json content type', () => {
++    const res = new Response(big, { headers: { 'content-type': 'text/html' } })
++    expect(shouldGzipResponse(jsonReq('gzip'), res, '192.168.1.50')).toBe(false)
++  })
++
++  test('env CC_HAHA_TRANSPORT_GZIP=0 disables, =1 forces loopback', () => {
++    const orig0 = process.env.CC_HAHA_TRANSPORT_GZIP
++    process.env.CC_HAHA_TRANSPORT_GZIP = '0'
++    expect(
++      shouldGzipResponse(jsonReq('gzip'), jsonRes(`{"m":"${big}"}`), '192.168.1.50'),
++    ).toBe(false)
++    process.env.CC_HAHA_TRANSPORT_GZIP = '1'
++    expect(
++      shouldGzipResponse(jsonReq('gzip'), jsonRes(`{"m":"${big}"}`), '127.0.0.1'),
++    ).toBe(true)
++    if (orig0 === undefined) delete process.env.CC_HAHA_TRANSPORT_GZIP
++    else process.env.CC_HAHA_TRANSPORT_GZIP = orig0
++  })
++})
++
++describe('withGzipIfEligible', () => {
++  let envBackup: string | undefined
++
++  beforeEach(() => {
++    envBackup = process.env.CC_HAHA_TRANSPORT_GZIP
++    delete process.env.CC_HAHA_TRANSPORT_GZIP
++  })
++
++  afterEach(() => {
++    if (envBackup === undefined) delete process.env.CC_HAHA_TRANSPORT_GZIP
++    else process.env.CC_HAHA_TRANSPORT_GZIP = envBackup
++  })
++
++  test('compresses the body and sets content-encoding, client text is identical', async () => {
++    const body = { messages: Array.from({ length: 300 }, (_, i) => ({ id: i, text: big.slice(0, 1000) })) }
++
++    const out = await withGzipIfEligible(jsonReq('gzip'), jsonRes(JSON.stringify(body)), '192.168.1.50')
++
++    expect(out.headers.get('content-encoding')).toBe('gzip')
++    expect(Number(out.headers.get('content-length'))).toBeLessThan(
++      Buffer.byteLength(JSON.stringify(body)),
++    )
++    // 浏览器 fetch 按规范透明解压 gzip（res.text()/res.json() 拿到明文
++    // JSON）；Bun 的 Response 不替我们解压，这里手动 gunzip 模拟客户端视角。
++    const raw = new Uint8Array(await out.arrayBuffer())
++    expect(JSON.parse(gunzipSync(raw).toString())).toEqual(body)
++  })
++
++  test('leaves loopback responses untouched', async () => {
++    const body = { messages: [{ id: 1, text: big }] }
++    const out = await withGzipIfEligible(jsonReq('gzip'), jsonRes(JSON.stringify(body)), '127.0.0.1')
++    expect(out.headers.get('content-encoding')).toBeNull()
++    expect(JSON.parse(await out.text())).toEqual(body)
++  })
++
++  test('leaves small responses untouched', async () => {
++    const body = { ok: true, text: small }
++    const out = await withGzipIfEligible(jsonReq('gzip'), jsonRes(JSON.stringify(body)), '192.168.1.50')
++    expect(out.headers.get('content-encoding')).toBeNull()
++  })
++
++  describe('session size floor', () => {
++    const bigBody = JSON.stringify({
++      messages: Array.from({ length: 300 }, (_, i) => ({ id: i, text: big.slice(0, 1000) })),
++    })
++    const seen: Array<string> = []
++    const resolver = (size: number | null) => async (sessionId: string) => {
++      seen.push(sessionId)
++      return size
++    }
++
++    test('compresses a session at or above the floor', async () => {
++      seen.length = 0
++      const out = await withGzipIfEligible(
++        jsonReq('gzip'), jsonRes(bigBody), '192.168.1.50',
++        resolver(MIN_COMPRESSIBLE_SESSION_BYTES),
++      )
++      expect(out.headers.get('content-encoding')).toBe('gzip')
++      expect(seen).toEqual(['x'])
++    })
++
++    test('skips a session below the floor even when the response is large', async () => {
++      const out = await withGzipIfEligible(
++        jsonReq('gzip'), jsonRes(bigBody), '192.168.1.50',
++        resolver(MIN_COMPRESSIBLE_SESSION_BYTES - 1),
++      )
++      expect(out.headers.get('content-encoding')).toBeNull()
++      expect(JSON.parse(await out.text())).toEqual(JSON.parse(bigBody))
++    })
++
++    test('unknown size falls back to compressing', async () => {
++      const out = await withGzipIfEligible(
++        jsonReq('gzip'), jsonRes(bigBody), '192.168.1.50', resolver(null),
++      )
++      expect(out.headers.get('content-encoding')).toBe('gzip')
++    })
++
++    test('never resolves the size for loopback or non-session traffic', async () => {
++      seen.length = 0
++      // Loopback is rejected before the floor check.
++      await withGzipIfEligible(jsonReq('gzip'), jsonRes(bigBody), '127.0.0.1', resolver(1))
++      // Not session-scoped: no id to look up, and the response still compresses.
++      const other = new Request('http://127.0.0.1:7788/api/settings', {
++        method: 'GET', headers: { 'accept-encoding': 'gzip' },
++      })
++      const out = await withGzipIfEligible(other, jsonRes(bigBody), '192.168.1.50', resolver(1))
++      expect(out.headers.get('content-encoding')).toBe('gzip')
++      expect(seen).toEqual([])
++    })
++
++    test('a small response still compresses nothing, though the size is consulted', async () => {
++      // `Response.json` sets no content-length, so `shouldGzipResponse` cannot
++      // apply the per-response floor up front — it returns true and the real
++      // size check happens after the body is buffered. The session lookup
++      // therefore does run here; this pins that (slightly wasteful) ordering so
++      // a future change to it is a deliberate one.
++      seen.length = 0
++      const out = await withGzipIfEligible(
++        jsonReq('gzip'), jsonRes(`{"m":"${small}"}`), '192.168.1.50', resolver(1),
++      )
++      expect(out.headers.get('content-encoding')).toBeNull()
++      expect(seen).toEqual(['x'])
++    })
++  })
++})
++
++describe('sessionIdFromPath', () => {
++  test('extracts the session id and ignores other routes', () => {
++    expect(sessionIdFromPath('/api/sessions/abc-123/messages')).toBe('abc-123')
++    expect(sessionIdFromPath('/api/sessions/abc-123')).toBe('abc-123')
++    expect(sessionIdFromPath('/api/sessions')).toBeNull()
++    expect(sessionIdFromPath('/api/settings')).toBeNull()
++    // Must not be fooled by a route that merely shares the prefix.
++    expect(sessionIdFromPath('/api/sessionsfoo/bar')).toBeNull()
++  })
++})
++
+diff --git a/src/server/responseCompression.ts b/src/server/responseCompression.ts
+new file mode 100644
+index 00000000..891da02b
+--- /dev/null
++++ b/src/server/responseCompression.ts
+@@ -0,0 +1,167 @@
++import { gzip } from 'node:zlib'
++import { isLoopbackHost } from './h5AccessPolicy.js'
++
++/**
++ * Compress off the main thread. `gzipSync` blocks the event loop for the whole
++ * deflate, and the remote history path is exactly where that hurts: a large
++ * session is fetched as many sequential pages, so every page stalled every
++ * other request (and the paging loop itself) for the duration.
++ * The async form runs on the libuv threadpool, so concurrent work keeps
++ * progressing while a page compresses.
++ */
++function gzipBuffer(input: Uint8Array): Promise<Buffer> {
++  return new Promise((resolve, reject) => {
++    gzip(input, { level: 6 }, (error, result) =>
++      error ? reject(error) : resolve(result),
++    )
++  })
++}
++
++/**
++ * Transport compression for non-local API responses.
++ *
++ * Opening a large H5 session transfers the whole transcript paged from the
++ * sidecar (measured: ~140 MB / 701 pages for one 37k-message session).
++ * Loopback desktop traffic stays uncompressed to preserve the local
++ * zero-overhead path; remote (H5) responses are gzip-compressed when the
++ * client advertises `Accept-Encoding: gzip` and the body is large enough
++ * for the CPU cost to pay off.
++ *
++ * Browsers decompress gzip transparently inside `fetch()` — `res.text()` /
++ * `res.json()` see the plain JSON either way — so no client change is
++ * required. Compression is best-effort: any failure returns the original
++ * response untouched.
++ */
++
++// Below this size the win is marginal (a ~200 KB page compresses to ~70 KB).
++const MIN_COMPRESS_BYTES = 128 * 1024
++
++/**
++ * Only compress when the *session* is big enough to be worth it.
++ *
++ * Compression is decided per response, but the cost is per response too, and a
++ * small session produces small responses on every page. Once transcripts are
++ * no longer dominated by echoed file bodies, most sessions are small enough
++ * that paying deflate on each page buys little; below this floor the plain JSON
++ * is sent as-is.
++ */
++export const MIN_COMPRESSIBLE_SESSION_BYTES = 10 * 1024 * 1024
++
++const SESSION_PATH_PATTERN = /^\/api\/sessions\/([^/]+)(?:\/|$)/
++
++/** The session a request addresses, or null when it is not session-scoped. */
++export function sessionIdFromPath(pathname: string): string | null {
++  const match = SESSION_PATH_PATTERN.exec(pathname)
++  if (!match?.[1]) return null
++  try {
++    return decodeURIComponent(match[1])
++  } catch {
++    return match[1]
++  }
++}
++
++const DEBUG_LOG_LIMIT = 5
++
++let debugLogsEmitted = 0
++
++export function shouldGzipResponse(
++  request: Request,
++  response: Response,
++  clientAddress: string | null,
++): boolean {
++  if (process.env.CC_HAHA_TRANSPORT_GZIP === '0') return false
++  if (request.method !== 'GET' || response.status !== 200) return false
++  if (!response.body) return false
++
++  const acceptEncoding = request.headers.get('accept-encoding')?.toLowerCase() ?? ''
++  if (!acceptEncoding.includes('gzip')) return false
++
++  // Remote by default; loopback only skips compression unless forced on.
++  const isLocal = clientAddress !== null && isLoopbackHost(clientAddress)
++  if (isLocal && process.env.CC_HAHA_TRANSPORT_GZIP !== '1') return false
++
++  const contentType = response.headers.get('content-type') ?? ''
++  if (!contentType.includes('json')) return false
++
++  // Response.json does not always set content-length, so this is a fast skip
++  // only; the authoritative size check happens after the body is read in
++  // withGzipIfEligible.
++  const declared = Number.parseInt(response.headers.get('content-length') ?? '', 10)
++  if (Number.isFinite(declared) && declared > 0 && declared < MIN_COMPRESS_BYTES) {
++    return false
++  }
++  return true
++}
++export async function withGzipIfEligible(
++  request: Request,
++  response: Response,
++  clientAddress: string | null,
++  resolveSessionSize?: (sessionId: string) => Promise<number | null>,
++): Promise<Response> {
++  if (!shouldGzipResponse(request, response, clientAddress)) return response
++
++  // Session floor is checked last, and only once the cheap checks above have
++  // already decided this response would be compressed — resolving the size
++  // costs a filesystem lookup, so loopback/small/non-JSON traffic must not pay
++  // for it. A failed lookup (`null`) falls back to the previous behaviour
++  // rather than silently dropping compression.
++  if (resolveSessionSize) {
++    const sessionId = sessionIdFromPath(new URL(request.url).pathname)
++    if (sessionId) {
++      const size = await resolveSessionSize(sessionId).catch(() => null)
++      if (size !== null && size < MIN_COMPRESSIBLE_SESSION_BYTES) return response
++    }
++  }
++
++  let raw: Uint8Array
++  try {
++    raw = new Uint8Array(await response.arrayBuffer())
++  } catch (error) {
++    // Body already consumed (abort mid-read). The caller's abort path owns
++    // that case; surface the original response shape.
++    console.warn(
++      '[Server] gzip transport read failed, sending original response:',
++      error instanceof Error ? error.message : String(error),
++    )
++    return response
++  }
++  // The body was consumed by arrayBuffer(); any non-compressed fallback must
++  // rebuild a Response from `raw` or the client receives an empty body.
++  const passthrough = () =>
++    new Response(raw, {
++      status: response.status,
++      headers: Object.fromEntries(response.headers.entries()),
++    })
++
++  if (raw.length < MIN_COMPRESS_BYTES) return passthrough()
++
++  let compressed: Uint8Array
++  try {
++    compressed = new Uint8Array(await gzipBuffer(raw))
++  } catch (error) {
++    console.warn(
++      '[Server] gzip compression failed, sending uncompressed:',
++      error instanceof Error ? error.message : String(error),
++    )
++    return passthrough()
++  }
++  if (compressed.length >= raw.length) return passthrough()
++
++  if (debugLogsEmitted < DEBUG_LOG_LIMIT) {
++    debugLogsEmitted += 1
++    console.log(
++      `[Server] gzip transport: ${(raw.length / 1024 / 1024).toFixed(2)}MB -> ` +
++        `${(compressed.length / 1024 / 1024).toFixed(2)}MB ` +
++        `(${(raw.length / compressed.length).toFixed(1)}x) ${request.method} ${request.url}`,
++    )
++  }
++  return new Response(compressed, {
++    status: response.status,
++    headers: {
++      ...Object.fromEntries(response.headers.entries()),
++      'content-encoding': 'gzip',
++      'content-length': String(compressed.length),
++      'cache-control': 'no-store',
++    },
++  })
++}
+diff --git a/src/server/services/boundedSessionHistory.test.ts b/src/server/services/boundedSessionHistory.test.ts
+index b1ec4b63..cacdcdf9 100644
+--- a/src/server/services/boundedSessionHistory.test.ts
++++ b/src/server/services/boundedSessionHistory.test.ts
+@@ -3,7 +3,7 @@ import { mkdtemp, rm, writeFile, appendFile, open, rename } from 'node:fs/promis
+ import { tmpdir } from 'node:os'
+ import { join } from 'node:path'
+ import sharp from 'sharp'
+-import { readBoundedHistoryPage, streamBoundedHistory, withHistoryReadBudget, HISTORY_SCAN_BYTES, HISTORY_FULL_SCAN_BYTES, HISTORY_RECORD_BYTES, HISTORY_SEMANTIC_RECORD_BYTES, HISTORY_PAGE_BYTES, HISTORY_PAGE_ROWS } from './boundedSessionHistory.js'
++import { readBoundedHistoryPage, streamBoundedHistory, withHistoryReadBudget, boundToolUseResultPreview, TOOL_USE_RESULT_STRING_LIMIT, HISTORY_SCAN_BYTES, HISTORY_FULL_SCAN_BYTES, HISTORY_RECORD_BYTES, HISTORY_SEMANTIC_RECORD_BYTES, HISTORY_PAGE_BYTES, HISTORY_PAGE_ROWS } from './boundedSessionHistory.js'
+ 
+ let directory: string
+ let file: string
+@@ -282,3 +282,40 @@ describe('bounded history pages', () => {
+     expect(await replacement).toBe('replacement')
+   })
+ })
++
++describe('toolUseResult transport projection', () => {
++  test('clips oversized strings and keeps every key and container type', () => {
++    const originalFile = 'x'.repeat(500_000)
++    const result = boundToolUseResultPreview({
++      filePath: '/tmp/big.js',
++      originalFile,
++      structuredPatch: [{ lines: ['+one'] }],
++      replaceAll: false,
++    }) as Record<string, unknown>
++
++    // FileEdit's schema requires a string, and the CLI renderer calls
++    // `.split('\n')` on it unguarded — a null/undefined here would blank the
++    // result entirely.
++    expect(typeof result.originalFile).toBe('string')
++    expect((result.originalFile as string).length).toBeLessThan(originalFile.length)
++    expect((result.originalFile as string)).toStartWith('x'.repeat(TOOL_USE_RESULT_STRING_LIMIT))
++    // Diff rendering and turn stats read these; they must survive intact.
++    expect(result.filePath).toBe('/tmp/big.js')
++    expect(result.structuredPatch).toEqual([{ lines: ['+one'] }])
++    expect(result.replaceAll).toBe(false)
++  })
++
++  test('leaves ordinary results byte-identical', () => {
++    const small = { filePath: '/tmp/a.txt', originalFile: 'tiny\n', replaceAll: false }
++    expect(boundToolUseResultPreview(small)).toEqual(small)
++  })
++
++  test('does not flag truncation, so historyComplete cannot flip', () => {
++    const result = boundToolUseResultPreview({
++      originalFile: 'y'.repeat(200_000),
++    }) as Record<string, unknown>
++    // A truncated *body* marks the transcript incomplete; this is a transport
++    // clip of a display-only field, so it must stay silent.
++    expect(result.bodyTruncated).toBeUndefined()
++  })
++})
+diff --git a/src/server/services/boundedSessionHistory.ts b/src/server/services/boundedSessionHistory.ts
+index 5da62344..bceb4c42 100644
+--- a/src/server/services/boundedSessionHistory.ts
++++ b/src/server/services/boundedSessionHistory.ts
+@@ -6,8 +6,12 @@ export const HISTORY_SCAN_BYTES = 16 * 1024 * 1024
+ /** Scan ceiling for the full-history read. It may walk much further than a
+  * single page because its output budget is `HISTORY_FULL_BYTES`, but the I/O
+  * per request still needs a hard cap: one bounded read is a synchronous walk
+- * with no other yield point. */
+-export const HISTORY_FULL_SCAN_BYTES = 64 * 1024 * 1024
++ * with no other yield point.
++ * Kept at 3x `HISTORY_FULL_BYTES` to absorb records skipped by
++ * `HISTORY_SEMANTIC_RECORD_BYTES`. The scan budget — not the output budget — is
++ * what actually bounds a request's latency and (on the remote path) the
++ * synchronous gzip, so lowering the output budget alone would change nothing. */
++export const HISTORY_FULL_SCAN_BYTES = 24 * 1024 * 1024
+ export const HISTORY_SEMANTIC_RECORD_BYTES = 8 * 1024 * 1024
+ export const HISTORY_RECORD_BYTES = 1024 * 1024
+ export const HISTORY_PAGE_BYTES = 256 * 1024
+@@ -16,8 +20,11 @@ export const HISTORY_PAGE_ROWS = 500
+ /** Single-request ceiling for the "load the whole transcript at once" path.
+  * The desktop timeline reads this in one shot so it never has to stitch pages
+  * together; past the budget the reader still returns the newest slice and
+- * reports `historyComplete: false` instead of failing with 413. */
+-export const HISTORY_FULL_BYTES = 32 * 1024 * 1024
++ * reports `historyComplete: false` instead of failing with 413.
++ * Deliberately small: one response must not spike renderer memory or block the
++ * event loop in `gzipSync` for a transcript whose individual records are
++ * already bounded by the tool-result preview. */
++export const HISTORY_FULL_BYTES = 8 * 1024 * 1024
+ /** Row ceiling for the full-history path. The byte budget is the real bound;
+  * this only stops pathological all-tiny-record transcripts from building a
+  * six-figure-entry array. */
+@@ -93,6 +100,50 @@ function decodeCursor(value: string): Cursor {
+ 
+ /** Produce a display preview without dropping a message's identity. Durable
+  * replay and semantic state reducers always receive the original record. */
++/** Per-string clip for the `toolUseResult` projection that ships with history.
++ * `toolUseResult` echoes tool *inputs* back to the client — notably FileEdit's
++ * `originalFile`, the entire pre-edit file. It is display-only (the model sees
++ * `mapToolResultToToolResultBlockParam` output, and turn diffs read
++ * `structuredPatch`), so clipping long strings cannot change what the model was
++ * told or what a diff shows. */
++export const TOOL_USE_RESULT_STRING_LIMIT = 16 * 1024
++const TOOL_USE_RESULT_ITEM_LIMIT = 2048
++const TOOL_USE_RESULT_DEPTH_LIMIT = 12
++
++/**
++ * Bound `toolUseResult` for transport. Keys and container types are preserved
++ * so consumers keep working; only oversized strings (and pathologically long
++ * arrays/objects) are trimmed.
++ *
++ * Deliberately reports nothing: setting `bodyTruncated` here would propagate to
++ * `contentTruncated` and then `historyComplete`, making the client treat a
++ * complete transcript as incomplete and re-enter recovery for a field that was
++ * only ever a transport concern.
++ */
++export function boundToolUseResultPreview(value: unknown): unknown {
++  const visit = (input: unknown, depth: number): unknown => {
++    if (typeof input === 'string') {
++      return input.length <= TOOL_USE_RESULT_STRING_LIMIT
++        ? input
++        : `${input.slice(0, TOOL_USE_RESULT_STRING_LIMIT)}\n… [truncated preview]`
++    }
++    if (!input || typeof input !== 'object') return input
++    if (depth >= TOOL_USE_RESULT_DEPTH_LIMIT) return input
++    if (Array.isArray(input)) {
++      const kept = input.length > TOOL_USE_RESULT_ITEM_LIMIT
++        ? input.slice(0, TOOL_USE_RESULT_ITEM_LIMIT)
++        : input
++      return kept.map(item => visit(item, depth + 1))
++    }
++    const entries = Object.entries(input)
++    const kept = entries.length > TOOL_USE_RESULT_ITEM_LIMIT
++      ? entries.slice(0, TOOL_USE_RESULT_ITEM_LIMIT)
++      : entries
++    return Object.fromEntries(kept.map(([key, child]) => [key, visit(child, depth + 1)]))
++  }
++  return visit(value, 0)
++}
++
+ export function displayPreview(entry: Record<string, unknown>): Record<string, unknown> {
+   let truncated = false
+   let remaining = 48 * 1024
+diff --git a/src/server/services/sessionService.ts b/src/server/services/sessionService.ts
+index 182d1c1a..73b3aef8 100644
+--- a/src/server/services/sessionService.ts
++++ b/src/server/services/sessionService.ts
+@@ -1,6 +1,7 @@
+ import { splitSessionReferenceContext } from './sessionReferenceContext.js'
+ import { parseSessionCollaborationEnvelope } from '../../utils/sessionCollaborationEnvelope.js'
+ import { readHistoryContexts } from './sessionHistoryContext.js'
++import { readStoredTranscriptMetadata, writeStoredTranscriptMetadata } from './transcriptMetadataCache.js'
+ import { recoverBoundedSessionHistory, type SessionHistoryRecovery } from './sessionHistoryRecovery.js'
+ /**
+  * Session Service — 会话文件的读写操作封装
+@@ -9,7 +10,7 @@ import { recoverBoundedSessionHistory, type SessionHistoryRecovery } from './ses
+  * 确保 Desktop App 与 CLI 的数据完全互通。
+  */
+ 
+-import { HISTORY_SEMANTIC_RECORD_BYTES, HISTORY_PAGE_BYTES, displayPreview, readBoundedHistoryPage, streamBoundedHistory, withHistoryReadBudget, type HistoryPageInfo } from './boundedSessionHistory.js'
++import { HISTORY_SEMANTIC_RECORD_BYTES, HISTORY_PAGE_BYTES, boundToolUseResultPreview, displayPreview, readBoundedHistoryPage, streamBoundedHistory, withHistoryReadBudget, type HistoryPageInfo } from './boundedSessionHistory.js'
+ import { constants, createReadStream, createWriteStream, type Stats } from 'node:fs'
+ import { createHash } from 'node:crypto'
+ import * as fs from 'node:fs/promises'
+@@ -62,6 +63,7 @@ import type {
+   SessionListSummary,
+ } from './localIndex/types.js'
+ import { localIndexCoordinator } from './localIndex/coordinator.js'
++import { resolveExtraProjectRoots } from './localIndex/config.js'
+ import { readSessionEntriesByLocator } from './localIndex/sessionEntries.js'
+ import type {
+   IndexedSessionRow,
+@@ -221,6 +223,8 @@ export type MessageEntry = {
+   collaboration?: { sourceSessionId: string; messageId: string }
+   id: string
+   type: 'user' | 'assistant' | 'system' | 'tool_use' | 'tool_result'
++  /** Raw JSONL subtype, present for compact boundary system entries ('compact_boundary' / 'microcompact_boundary'). */
++  subtype?: string
+   content: unknown
+   bodyTruncated?: boolean
+   toolUseResult?: unknown
+@@ -236,14 +240,20 @@ export type MessageEntry = {
+    * the line carries no message id, which by the same convention means "always count it".
+    */
+   usageKey?: string
++  /**
++   * Wall-clock ms this thinking block spent generating (content_block_start →
++   * content_block_stop), persisted on the transcript line by the SDK stream.
++   * Only present on assistant lines whose single content block is a thinking
++   * block; lets a reopened session re-show the per-thought timing.
++   */
++  thinkingDurationMs?: number
+   parentUuid?: string
+   parentToolUseId?: string
+   isSidechain?: boolean
+   cwd?: string
+ }
+ 
+-export type SessionMessagesWithEvidence = {
+-  messages: MessageEntry[]
++export type SessionMessagesWithEvidence = {  messages: MessageEntry[]
+   transcriptEvidenceComplete: boolean
+ }
+ 
+@@ -278,6 +288,19 @@ export type SessionTaskNotification = {
+   result?: string
+   outputFile?: string
+   timestamp?: string
++  /**
++   * Tokens the run generated, derived from its own transcript when the session
++   * is read back. Output-side only, matching the live notification: `thinkTokens`
++   * is present only while thinking is not sent to the API (the same gate the
++   * live path applies), so the reader can show a split without knowing which
++   * case it is in.
++   */
++  usage?: {
++    totalTokens?: number
++    outputTokens?: number
++    thinkTokens?: number
++    toolUses?: number
++  }
+ }
+ 
+ /** Canonical terminal identity within a session. Child agents may reuse the
+@@ -357,7 +380,7 @@ export type TranscriptContextEstimate = {
+ }
+ 
+ /** Raw entry parsed from a single JSONL line */
+-type RawEntry = {
++export type RawEntry = {
+   type?: string
+   subtype?: string
+   content?: unknown
+@@ -417,19 +440,52 @@ type TranscriptContextAccumulator = {
+   transcriptHasMediaInput: boolean
+ }
+ 
++/** One call's usage as it has already been folded into the running totals. */
++type CountedUsage = {
++  model: string
++  inputTokens: number
++  outputTokens: number
++  cacheReadInputTokens: number
++  cacheCreationInputTokens: number
++  webSearchRequests: number
++  costUSD: number
++}
++
++/** Which call a line's `usage` belongs to, and what that key has already contributed. */
++type UsageClaim = {
++  /** `null` when the line carries no identity to deduplicate on and is counted as-is. */
++  key: string | null
++  /**
++   * The value already counted for this key. Non-null means this line **supersedes** that
++   * contribution rather than adding to it.
++   */
++  previous: CountedUsage | null
++}
++
+ /**
+- * Whether this line's `usage` is the first sighting of its reply.
++ * Resolves which call this line's `usage` describes, or `null` when it must not be counted
++ * (an inherited fork line).
+  *
+  * Claude Code writes one JSONL line per content block of an assistant message and repeats the
+- * complete `usage` object on every one — a reply with thinking, text and 12 tool_use blocks is
+- * 14 lines carrying the same numbers. Summing raw lines overstated real transcripts by 2.2x,
+- * which is why `stats.ts` and the activity index both deduplicate; the inspector paths had
+- * inherited only the fork check and so reported inflated totals to the context panel.
++ * `usage` object on every one — a reply with thinking, text and 12 tool_use blocks is 14 lines.
++ * Summing raw lines overstated real transcripts by 2.2x, which is why `stats.ts` and the
++ * activity index both deduplicate.
++ *
++ * The repeats are **not identical**, which is what the dedup has to respect: measured over 1227
++ * calls, a call's early lines carry `output_tokens: 0` (with, per provider, either the prompt
++ * total and no cache fields, or a running prefix), and the last line carries the final split —
++ * uncached input, cache read/write, and the real output count. Keeping the **first** line threw
++ * away every output token and every cache read of the session, which read in the context panel
++ * as 0 tok/s and a 0% cache hit rate on a perfectly healthy session. A later line therefore
++ * replaces its key's earlier contribution instead of being discarded.
+  *
+  * Rules (and the key shape) come from `usageAccounting.ts` so every reader of a transcript
+  * agrees about what one session cost.
+  */
+-function claimUsageRecord(entry: RawEntry, countedKeys: Set<string>): boolean {
++function claimUsageRecord(
++  entry: RawEntry,
++  countedUsage: Map<string, CountedUsage>,
++): UsageClaim | null {
+   const record = entry as unknown as Record<string, unknown>
+   const identity = {
+     version: record.version,
+@@ -438,13 +494,14 @@ function claimUsageRecord(entry: RawEntry, countedKeys: Set<string>): boolean {
+     messageId: entry.message?.id,
+     forkedFrom: record.forkedFrom,
+   }
+-  if (!isBillableUsageRecord(identity)) return false
++  if (!isBillableUsageRecord(identity)) return null
+   const key = usageRecordKey(identity)
+-  if (key === null) return true
+-  if (countedKeys.has(key)) return false
+-  if (countedKeys.size >= 50_000 || key.length > 4096) throw new ApiError(413, 'Usage inspection exceeds its record budget', 'HISTORY_INSPECTION_LIMIT')
+-  countedKeys.add(key)
+-  return true
++  if (key === null) return { key: null, previous: null }
++  const previous = countedUsage.get(key)
++  if (previous === undefined && (countedUsage.size >= 50_000 || key.length > 4096)) {
++    throw new ApiError(413, 'Usage inspection exceeds its record budget', 'HISTORY_INSPECTION_LIMIT')
++  }
++  return { key, previous: previous ?? null }
+ }
+ 
+ function createTranscriptContextAccumulator(): TranscriptContextAccumulator {
+@@ -567,6 +624,18 @@ type SessionListSummaryCacheEntry = {
+   summary: SessionListSummary
+ }
+ 
++/**
++ * How far into a transcript the presence check reads before giving up.
++ *
++ * Deliberately generous: the check stops at the first qualifying entry, so a
++ * real transcript costs only its first few KB, and this cap only decides what to
++ * do with a file whose head is a long run of non-conversation records (large
++ * `file-history-snapshot` entries, for instance). 8 MB is far past the point
++ * where a placeholder would have shown its first real message, while still being
++ * a rounding error against the hundreds of MB the unbounded read used to parse.
++ */
++const TRANSCRIPT_PRESENCE_SCAN_BYTES = 8 * 1024 * 1024
++
+ const DEFAULT_SESSION_LIST_CACHE_MAX_ENTRIES = 16
+ const DEFAULT_SESSION_LIST_SUMMARY_CACHE_MAX_ENTRIES = 20_000
+ 
+@@ -773,7 +842,7 @@ export class SessionService {
+       hydrate: async (row) => {
+         try {
+           await this.validateIndexedTranscriptPath(
+-            row.transcriptPath, row.projectPath, row.id, await fs.realpath(this.getProjectsDir()),
++            row.transcriptPath, row.projectPath, row.id, await this.getIndexedProjectsRoots(),
+           )
+           return await this.hydrateIndexedSession(row)
+         } catch (error) {
+@@ -1068,9 +1137,38 @@ export class SessionService {
+     return path.resolve(getClaudeConfigHomeDir())
+   }
+ 
+-  private getProjectsDir(): string {
+-    return path.join(this.getConfigDir(), 'projects')
+-  }
++    private getProjectsDir(): string {
++      return path.join(this.getConfigDir(), 'projects')
++    }
++
++    /**
++     * Every `projects/` root the index reads from: this config dir's own, plus
++     * any listed in `CC_HAHA_EXTRA_PROJECT_ROOTS`.
++     *
++     * The index discovers transcripts under all of them, so every check that
++     * asks "is this row ours?" has to accept the same set — validating against
++     * only the config dir's own root is what silently dropped every session that
++     * came from an extra root (the row failed the ancestry check and was
++     * discarded, leaving a list that reported the right total but almost no
++     * rows).
++     *
++     * Realpath'd because callers compare the result against a realpath'd
++     * transcript path. A root that does not exist is skipped: the extra roots are
++     * optional, and requiring one would make an unset path an error.
++     */
++    private async getIndexedProjectsRoots(): Promise<string[]> {
++      const roots = [this.getProjectsDir(), ...resolveExtraProjectRoots()]
++      const resolved: string[] = []
++      for (const root of roots) {
++        try {
++          const real = await fs.realpath(root)
++          if (!resolved.includes(real)) resolved.push(real)
++        } catch {
++          // Optional extra root that is not there (or not readable yet).
++        }
++      }
++      return resolved
++    }
+ 
+   /**
+    * Sanitize a path the same way the shared session storage does.
+@@ -1119,6 +1217,46 @@ export class SessionService {
+     return (await this.readJsonlFileWithDiagnostics(filePath)).entries
+   }
+ 
++  /**
++   * Whether a transcript holds real conversation, read from the head only.
++   *
++   * `hasConversationTranscript` asks an existential question, so a full parse
++   * answers it at unbounded cost: this used to read and `JSON.parse` the whole
++   * file, and because one session id can exist under several discovery roots it
++   * did so for each match — measured 4–6 s per `findSessionFile` for a 139 MB
++   * session that also existed as a 184 MB copy, on a path nearly every session
++   * endpoint takes. Reading until the first qualifying entry answers the same
++   * question, and the cap keeps a pathological head (all metadata, no message)
++   * from scanning a giant file.
++   */
++  private async hasConversationTranscriptInFile(filePath: string): Promise<boolean> {
++    const stream = createReadStream(filePath, {
++      encoding: 'utf8',
++      start: 0,
++      end: TRANSCRIPT_PRESENCE_SCAN_BYTES - 1,
++    })
++    const lines = createInterface({ input: stream, crlfDelay: Infinity })
++    try {
++      for await (const line of lines) {
++        const trimmed = line.trim()
++        if (!trimmed) continue
++        let parsed: RawEntry
++        try {
++          parsed = JSON.parse(trimmed) as RawEntry
++        } catch {
++          continue
++        }
++        if (this.hasConversationTranscript([parsed])) return true
++      }
++      return false
++    } catch (err: unknown) {
++      if ((err as NodeJS.ErrnoException).code === 'ENOENT') return false
++      throw err
++    } finally {
++      stream.destroy()
++    }
++  }
++
+   private async readTargetedJsonlEntries(
+     found: { filePath: string; projectDir: string },
+     entryTypes: string[],
+@@ -1235,6 +1373,13 @@ export class SessionService {
+     }, 'recovery')
+   }
+ 
++  /** Keeps the in-memory layer small; the durable copy is what makes a miss cheap. */
++  private enforceMetadataProjectionCacheCapacity(): void {
++    while (this.metadataProjectionCache.size > 32) {
++      this.metadataProjectionCache.delete(this.metadataProjectionCache.keys().next().value!)
++    }
++  }
++
+   private async scanSessionListSummary(
+     filePath: string,
+     projectDir: string,
+@@ -1258,6 +1403,21 @@ export class SessionService {
+       this.metadataProjectionCache.set(key, cached)
+       return cached
+     }
++    // A fresh process used to rescan every transcript it touched; the projection
++    // is a few KB of scalars, so a stored copy saves that full pass on the first
++    // open of a large session. It is trusted only for the exact signature it was
++    // built from, so a stale entry costs a scan rather than a wrong answer.
++    const stored = await readStoredTranscriptMetadata<{
++      summary: SessionListSummary
++      launchInfo: SessionLaunchInfo
++      customTitle: string | null
++      complete: boolean
++    }>(this.getConfigDir(), filePath, signature, projectDir)
++    if (stored) {
++      this.metadataProjectionCache.set(key, { signature, ...stored })
++      this.enforceMetadataProjectionCacheCapacity()
++      return stored
++    }
+     const requestKey = `${key}\0${signature}`
+     const pending = this.metadataProjectionRequests.get(requestKey)
+     if (pending) return pending
+@@ -1339,7 +1499,8 @@ export class SessionService {
+       }
+       this.metadataProjectionCache.delete(key)
+       this.metadataProjectionCache.set(key, { signature: scan.sourceVersion, ...result })
+-      while (this.metadataProjectionCache.size > 32) this.metadataProjectionCache.delete(this.metadataProjectionCache.keys().next().value!)
++      this.enforceMetadataProjectionCacheCapacity()
++      writeStoredTranscriptMetadata(this.getConfigDir(), filePath, scan.sourceVersion, projectDir, result)
+       return result
+     }, 'metadata')
+     this.metadataProjectionRequests.set(requestKey, request)
+@@ -1902,11 +2063,22 @@ export class SessionService {
+       ...(sessionReferences ? { sessionReferences } : {}),
+       ...(collaboration ? { collaboration } : {}),
+       ...(entry.bodyTruncated === true ? { bodyTruncated: true } : {}),
+-      ...(entry.toolUseResult !== undefined ? { toolUseResult: entry.toolUseResult } : {}),
++      // Tool results echo tool *inputs* back (FileEdit's `originalFile` is the
++      // whole pre-edit file). Ship a bounded projection so one edited file
++      // cannot dominate the transport; the field itself is kept because
++      // consumers use its presence to tell tool results from human turns.
++      ...(entry.toolUseResult !== undefined
++        ? { toolUseResult: boundToolUseResultPreview(entry.toolUseResult) }
++        : {}),
+       timestamp: entry.timestamp || new Date().toISOString(),
+       model: msg.model,
+       ...(usage ? { usage } : {}),
+       ...(usageKey ? { usageKey } : {}),
++      ...(typeof entry.thinkingDurationMs === 'number' &&
++      Number.isFinite(entry.thinkingDurationMs) &&
++      entry.thinkingDurationMs >= 0
++        ? { thinkingDurationMs: entry.thinkingDurationMs }
++        : {}),
+       parentUuid: entry.parentUuid ?? undefined,
+       parentToolUseId,
+       isSidechain: entry.isSidechain,
+@@ -2580,7 +2752,7 @@ export class SessionService {
+     filePath: string,
+     projectDir: string,
+     sessionId: string,
+-    projectsRoot: string,
++    projectsRoots: readonly string[],
+   ): Promise<Stats> {
+     const invalid = (): Error & { code: string } => Object.assign(
+       new Error('Indexed transcript path failed scope validation'),
+@@ -2596,21 +2768,38 @@ export class SessionService {
+       throw invalid()
+     }
+ 
+-    const projectsDir = this.getProjectsDir()
+-    const expectedPath = path.join(projectsDir, projectDir, `${sessionId}.jsonl`)
++    // The row is ours if it is the transcript we would have built under ANY
++    // indexed root — the config dir's own, or one an extra root contributes. The
++    // path shape and the root it sits in both have to match, so a row cannot
++    // point at some other directory's file and still pass.
+     const indexedRealPath = await fs.realpath(filePath)
+-    const expectedRealPath = path.resolve(expectedPath) === path.resolve(filePath)
+-      ? indexedRealPath
+-      : await fs.realpath(expectedPath)
+-    const relativePath = path.relative(projectsRoot, indexedRealPath)
+-    if (
+-      expectedRealPath !== indexedRealPath ||
+-      relativePath === '..' ||
+-      relativePath.startsWith(`..${path.sep}`) ||
+-      path.isAbsolute(relativePath)
+-    ) {
+-      throw invalid()
++    let withinAnIndexedRoot = false
++    for (const projectsRoot of projectsRoots) {
++      const expectedPath = path.join(projectsRoot, projectDir, `${sessionId}.jsonl`)
++      let expectedRealPath: string
++      if (path.resolve(expectedPath) === path.resolve(filePath)) {
++        expectedRealPath = indexedRealPath
++      } else {
++        try {
++          expectedRealPath = await fs.realpath(expectedPath)
++        } catch {
++          // No such transcript under this root; try the next one.
++          continue
++        }
++      }
++      if (expectedRealPath !== indexedRealPath) continue
++      const relativePath = path.relative(projectsRoot, indexedRealPath)
++      if (
++        relativePath === '..' ||
++        relativePath.startsWith(`..${path.sep}`) ||
++        path.isAbsolute(relativePath)
++      ) {
++        continue
++      }
++      withinAnIndexedRoot = true
++      break
+     }
++    if (!withinAnIndexedRoot) throw invalid()
+ 
+     const stat = await fs.stat(indexedRealPath)
+     if (!stat.isFile()) throw invalid()
+@@ -2633,8 +2822,8 @@ export class SessionService {
+         if (!this.indexStatusRemainsUsable()) {
+           this.markIndexReadFailure()
+         } else {
+-          const projectsRoot = indexedMatches.length > 0
+-            ? await fs.realpath(this.getProjectsDir())
++          const projectsRoots = indexedMatches.length > 0
++            ? await this.getIndexedProjectsRoots()
+             : null
+           const hydratedMatches: Array<SessionFileMatch & { mtimeMs: number; hasTranscript: boolean }> = []
+           let hydrationFailed = false
+@@ -2644,13 +2833,17 @@ export class SessionService {
+                 match.filePath,
+                 match.projectDir,
+                 sessionId,
+-                projectsRoot!,
++                projectsRoots!,
+               )
+-              const entries = await this.readJsonlFile(match.filePath)
++              // Only transcript-vs-placeholder ordering is needed here, so this
++              // reads the head rather than the whole file: a full parse cost 4-6 s
++              // per call for a large session with copies under several roots, on
++              // the path nearly every session endpoint takes. The filesystem
++              // fallback below stays mtime-only for the same reason.
+               hydratedMatches.push({
+                 ...match,
+                 mtimeMs: stat.mtimeMs,
+-                hasTranscript: this.hasConversationTranscript(entries),
++                hasTranscript: await this.hasConversationTranscriptInFile(match.filePath),
+               })
+             } catch (error) {
+               if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
+@@ -2695,18 +2888,35 @@ export class SessionService {
+     const matches: Array<{ filePath: string; projectDir: string; mtimeMs: number; hasTranscript: boolean }> = []
+     for (const dir of projectDirs) {
+       const filePath = path.join(projectsDir, dir, `${sessionId}.jsonl`)
++      let stat: Awaited<ReturnType<typeof fs.stat>>
+       try {
+-        const stat = await fs.stat(filePath)
+-        const entries = await this.readJsonlFile(filePath)
+-        matches.push({
+-          filePath,
+-          projectDir: dir,
+-          mtimeMs: stat.mtimeMs,
+-          hasTranscript: this.hasConversationTranscript(entries),
+-        })
++        stat = await fs.stat(filePath)
+       } catch {
+         continue
+       }
++      matches.push({
++        filePath,
++        projectDir: dir,
++        mtimeMs: stat.mtimeMs,
++        hasTranscript: false,
++      })
++    }
++
++    // The transcript path is stable per session id, so an unbounded full read
++    // here would run on every reader call (inspection/history/subagent lookups).
++    // It is only ever needed to rank two files that share an id — a worktree
++    // transcript vs. the original placeholder — where the transcript must win
++    // even if its mtime is not strictly newer.
++    if (matches.length > 1) {
++      for (const match of matches) {
++        try {
++          match.hasTranscript = this.hasConversationTranscript(
++            await this.readJsonlFile(match.filePath),
++          )
++        } catch {
++          match.hasTranscript = false
++        }
++      }
+     }
+ 
+     return matches
+@@ -2930,6 +3140,8 @@ export class SessionService {
+     const promptTokens = latest.inputTokens + latest.cacheReadInputTokens + latest.cacheCreationInputTokens
+     const providerTokens = promptTokens + latest.outputTokens
+     const hasProviderUsage = providerTokens > 0
++    // estimatedTokens 仍用全量 rough 累加（媒体信任启发式需要「内容估计」为
++    // 正且小于窗口才能触发），显示总量单独走 usage 锚口径（见 totalTokens）。
+     const estimatedTokens = estimatedTokensFromMessages || promptTokens
+     const contextBudget = calculateContextBudget({
+       estimatedTokens,
+@@ -2945,15 +3157,13 @@ export class SessionService {
+       }),
+       hasMediaInput: transcriptHasMediaInput,
+     })
++    // 显示总量走 usage 锚口径（与 auto-compact 的 tokenCountWithEstimation
++    // 同口径）：最后一条真实 usage 总量 + 其后 rough 累加。bc 中间件压缩后
++    // usage 回落 → 百分比收敛，不再被自 boundary 的全量累加钉死 100%。
++    // 低信任+媒体的可疑 usage 尖峰仍走估计口径（ignoredUsageReason 分支）。
+     const totalTokens =
+       hasProviderUsage && !contextBudget.ignoredUsageReason
+-        ? Math.min(
+-            Math.max(
+-              contextBudget.usedTokens,
+-              providerTokens + estimatedTokensAfterUsage,
+-            ),
+-            rawMaxTokens,
+-          )
++        ? Math.min(providerTokens + estimatedTokensAfterUsage, rawMaxTokens)
+         : contextBudget.usedTokens
+     const percentage = rawMaxTokens > 0 ? Math.round((totalTokens / rawMaxTokens) * 100) : 0
+     const usageCategories: TranscriptContextEstimate['categories'] = [
+@@ -3087,7 +3297,7 @@ export class SessionService {
+     let lastUsageAt: number | null = null
+ 
+     const contextState = createTranscriptContextAccumulator()
+-    const countedUsageKeys = new Set<string>()
++    const countedUsage = new Map<string, CountedUsage>()
+ 
+     await this.streamJsonlFile(found.filePath, (entry) => {
+       if (typeof entry.message?.model === 'string') {
+@@ -3170,9 +3380,10 @@ export class SessionService {
+         ? usage.server_tool_use.web_search_requests
+         : 0
+ 
+-      // Fork-inherited lines and the repeated usage objects of a multi-block reply are the
+-      // same class of over-count; `claimUsageRecord` rejects both.
+-      if (!claimUsageRecord(entry, countedUsageKeys)) return
++      // Fork-inherited lines are skipped; a repeated line for a call already counted comes
++      // back with `previous` so it can replace that contribution (see `claimUsageRecord`).
++      const claim = claimUsageRecord(entry, countedUsage)
++      if (claim === null) return
+ 
+       if (
+         inputTokens === 0 &&
+@@ -3219,6 +3430,28 @@ export class SessionService {
+         models.set(model, modelUsage)
+       }
+ 
++      // A newer line for the same call first takes back what the older one contributed: the
++      // early line's numbers are a partial view of the same request, not a separate one.
++      if (claim.previous) {
++        const previous = claim.previous
++        const previousModel = models.get(previous.model)
++        if (previousModel) {
++          previousModel.inputTokens -= previous.inputTokens
++          previousModel.outputTokens -= previous.outputTokens
++          previousModel.cacheReadInputTokens -= previous.cacheReadInputTokens
++          previousModel.cacheCreationInputTokens -= previous.cacheCreationInputTokens
++          previousModel.webSearchRequests -= previous.webSearchRequests
++          previousModel.costUSD -= previous.costUSD
++          previousModel.costDisplay = this.formatCost(previousModel.costUSD)
++        }
++        totalCostUSD -= previous.costUSD
++        totalInputTokens -= previous.inputTokens
++        totalOutputTokens -= previous.outputTokens
++        totalCacheReadInputTokens -= previous.cacheReadInputTokens
++        totalCacheCreationInputTokens -= previous.cacheCreationInputTokens
++        totalWebSearchRequests -= previous.webSearchRequests
++      }
++
+       modelUsage.inputTokens += inputTokens
+       modelUsage.outputTokens += outputTokens
+       modelUsage.cacheReadInputTokens += cacheReadInputTokens
+@@ -3234,6 +3467,18 @@ export class SessionService {
+       totalCacheCreationInputTokens += cacheCreationInputTokens
+       totalWebSearchRequests += webSearchRequests
+ 
++      if (claim.key !== null) {
++        countedUsage.set(claim.key, {
++          model,
++          inputTokens,
++          outputTokens,
++          cacheReadInputTokens,
++          cacheCreationInputTokens,
++          webSearchRequests,
++          costUSD,
++        })
++      }
++
+       if (entry.timestamp) {
+         const time = Date.parse(entry.timestamp)
+         if (!Number.isNaN(time)) {
+@@ -3279,6 +3524,9 @@ export class SessionService {
+           // them from, so callers must treat 0 as "unknown" rather than "instant".
+           totalDecodeDuration: 0,
+           totalTtftDuration: 0,
++          // Nothing to pair with either: a transcript carries no decode span, so the panel
++          // must not divide these tokens by someone else's timing.
++          totalTimedOutputTokens: 0,
+           totalDuration:
+             firstUsageAt !== null && lastUsageAt !== null
+               ? Math.max(0, Math.round((lastUsageAt - firstUsageAt) / 1000))
+@@ -3575,14 +3823,14 @@ export class SessionService {
+ 
+       const sessions: SessionListItem[] = []
+       const pathExists = this.createCachedPathExists()
+-      const projectsRoot = await fs.realpath(this.getProjectsDir())
++      const projectsRoots = await this.getIndexedProjectsRoots()
+       for (const row of indexedPage.sessions) {
+         try {
+           await this.validateIndexedTranscriptPath(
+             row.transcriptPath,
+             row.projectPath,
+             row.id,
+-            projectsRoot,
++            projectsRoots,
+           )
+           sessions.push(await this.hydrateIndexedSession(row, pathExists))
+         } catch {
+@@ -4219,45 +4467,87 @@ export class SessionService {
+     } finally { await handle.close() }
+   }
+ 
+-  async findSubagentAgentIdByToolUseId(
+-    sessionId: string,
+-    toolUseId: string,
+-    expectedOwnerAgentId: string | null,
+-  ): Promise<string | null> {
++  /**
++   * Where a session keeps its subagent sidecars, derived from the session's own
++   * transcript path rather than from the config dir. A session served out of an
++   * extra index root keeps its subagents next to its transcript, not under this
++   * instance's projects dir — deriving from the config dir would look in the
++   * wrong place for exactly those sessions.
++   */
++  private subagentsDirForTranscript(filePath: string, sessionId: string): string {
++    return path.join(path.dirname(filePath), sessionId, 'subagents')
++  }
++
++  /**
++   * Every subagent sidecar of one session: which Agent call each transcript
++   * belongs to, and which agent owns it.
++   *
++   * Returned as a list because a session can carry hundreds of agents, and
++   * resolving them one toolUseId at a time would re-list and re-parse the whole
++   * sidecar directory per lookup. `complete` reports whether every sidecar was
++   * readable, which is what makes the legacy fallback below safe to trust.
++   */
++  async listSubagentSidecars(sessionId: string): Promise<{
++    sidecars: Array<{ agentId: string; toolUseId: string; ownerAgentId?: string }>
++    complete: boolean
++  }> {
+     const found = await this.findSessionFile(sessionId)
+     if (!found) {
+       throw ApiError.notFound(`Session not found: ${sessionId}`)
+     }
+ 
+-    const subagentsDir = path.join(
+-      this.getProjectsDir(),
+-      found.projectDir,
+-      sessionId,
+-      'subagents',
+-    )
++    const subagentsDir = this.subagentsDirForTranscript(found.filePath, sessionId)
+     const files = await fs.readdir(subagentsDir).catch(() => [])
+     if (files.length > 4096) throw new ApiError(413, 'Agent directory exceeds its viewing budget', 'SUBAGENT_METADATA_LIMIT')
+-    const candidates: Array<{ agentId: string; ownerAgentId?: string }> = []
+-    let metadataComplete = true
++    const sidecars: Array<{ agentId: string; toolUseId: string; ownerAgentId?: string }> = []
++    let complete = true
+ 
+     for (const metadataFile of files.filter((file) => file.endsWith('.meta.json'))) {
+       try {
+         const metadata = await this.readSubagentMetadata(path.join(subagentsDir, metadataFile))
+-        if (metadata.toolUseId !== toolUseId) continue
++        if (typeof metadata.toolUseId !== 'string' || !metadata.toolUseId) continue
+         const ownerAgentId = typeof metadata.ownerAgentId === 'string' && metadata.ownerAgentId
+           ? metadata.ownerAgentId
+           : undefined
+-        candidates.push({
++        sidecars.push({
+           agentId: metadataFile.replace(/^agent-/, '').replace(/\.meta\.json$/, ''),
++          toolUseId: metadata.toolUseId,
+           ...(ownerAgentId ? { ownerAgentId } : {}),
+         })
+       } catch (error) {
+         if (error instanceof ApiError) throw error
+         // A half-written sidecar must not hide the other candidates.
+-        metadataComplete = false
++        complete = false
+       }
+     }
+ 
++    return { sidecars, complete }
++  }
++
++  /**
++   * The raw entries of one subagent transcript — what a run actually generated,
++   * which is the only place its token usage can be recovered from once the
++   * parent session's result text has aged out of the useful fields. Empty when
++   * the sidecar is gone.
++   */
++  async readSubagentTranscriptEntries(sessionId: string, agentId: string): Promise<RawEntry[]> {
++    const found = await this.findSessionFile(sessionId)
++    if (!found) return []
++    const normalizedAgentId = agentId.startsWith('agent-') ? agentId : `agent-${agentId}`
++    return this.readJsonlFile(path.join(
++      this.subagentsDirForTranscript(found.filePath, sessionId),
++      `${normalizedAgentId}.jsonl`,
++    ))
++  }
++
++  async findSubagentAgentIdByToolUseId(
++    sessionId: string,
++    toolUseId: string,
++    expectedOwnerAgentId: string | null,
++  ): Promise<string | null> {
++    const { sidecars, complete } = await this.listSubagentSidecars(sessionId)
++    const candidates = sidecars.filter(sidecar => sidecar.toolUseId === toolUseId)
++
+     const exact = candidates.filter(candidate => expectedOwnerAgentId === null
+       ? candidate.ownerAgentId === undefined
+       : candidate.ownerAgentId === expectedOwnerAgentId)
+@@ -4270,7 +4560,7 @@ export class SessionService {
+     // cross-parent collision this owner join is meant to prevent.
+     if (
+       expectedOwnerAgentId !== null &&
+-      metadataComplete &&
++      complete &&
+       candidates.length === 1 &&
+       candidates[0]!.ownerAgentId === undefined
+     ) {
+@@ -5199,6 +5489,21 @@ export class SessionService {
+         continue
+       }
+ 
++      // Compact boundary entries carry no `message` role, so the generic filter below
++      // would drop them. Surface them as a typed system entry so the client can use the
++      // boundaries as export range markers (and the UI already renders the
++      // "Conversation compacted" text as a compact summary).
++      if (entry.type === 'system' && (entry.subtype === 'compact_boundary' || entry.subtype === 'microcompact_boundary')) {
++        messages.push({
++          id: typeof entry.uuid === 'string' && entry.uuid ? entry.uuid : crypto.randomUUID(),
++          type: 'system',
++          subtype: entry.subtype,
++          content: entry.content,
++          timestamp: entry.timestamp || new Date().toISOString(),
++        })
++        continue
++      }
++
+       // Only process transcript entries (user / assistant / system with messages)
+       if (!entry.message?.role) continue
+ 
+diff --git a/src/utils/fileHistory.security.test.ts b/src/utils/fileHistory.security.test.ts
+index f8ad608a..3f426f55 100644
+--- a/src/utils/fileHistory.security.test.ts
++++ b/src/utils/fileHistory.security.test.ts
+@@ -553,6 +553,57 @@ describe('completed turn checkpoint persistence', () => {
+     await fileHistoryCompleteSnapshot(updateState, randomUUID() as UUID)
+     expect(getState().snapshots[0]?.completedFileBackups).toBeUndefined()
+   })
++
++  test('reuses the previous end-of-turn copy when the file is untouched', async () => {
++    const firstTurn = randomUUID() as UUID
++    const secondTurn = randomUUID() as UUID
++    const trackedPath = join(getOriginalCwd(), 'stable.txt')
++    await writeFile(trackedPath, 'turn one\n')
++    const { getState, updateState } = createHistoryState(firstTurn)
++    await fileHistoryTrackEdit(updateState, trackedPath, firstTurn)
++
++    await fileHistoryCompleteSnapshot(updateState, firstTurn)
++    const firstBackup =
++      getState().snapshots.find(s => s.messageId === firstTurn)!
++        .completedFileBackups!['stable.txt']!
++
++    // Next turn starts, the tracked file set is inherited, and the file is not
++    // touched. Copying again here is what made the backup directory grow with
++    // turns rather than with edits.
++    await fileHistoryMakeSnapshot(updateState, secondTurn)
++    await fileHistoryCompleteSnapshot(updateState, secondTurn)
++    const secondBackup =
++      getState().snapshots.find(s => s.messageId === secondTurn)!
++        .completedFileBackups!['stable.txt']!
++
++    expect(secondBackup.backupFileName).toBe(firstBackup.backupFileName)
++    expect((await readBackupFileSafely(secondBackup.backupFileName!)).content.toString()).toBe('turn one\n')
++  })
++
++  test('still copies when the file changed, and the copy holds the new bytes', async () => {
++    const firstTurn = randomUUID() as UUID
++    const secondTurn = randomUUID() as UUID
++    const trackedPath = join(getOriginalCwd(), 'changing.txt')
++    await writeFile(trackedPath, 'turn one\n')
++    const { getState, updateState } = createHistoryState(firstTurn)
++    await fileHistoryTrackEdit(updateState, trackedPath, firstTurn)
++    await fileHistoryCompleteSnapshot(updateState, firstTurn)
++    const firstBackup =
++      getState().snapshots.find(s => s.messageId === firstTurn)!
++        .completedFileBackups!['changing.txt']!
++
++    await fileHistoryMakeSnapshot(updateState, secondTurn)
++    await writeFile(trackedPath, 'turn two\n')
++    await fileHistoryCompleteSnapshot(updateState, secondTurn)
++    const secondBackup =
++      getState().snapshots.find(s => s.messageId === secondTurn)!
++        .completedFileBackups!['changing.txt']!
++
++    expect(secondBackup.backupFileName).not.toBe(firstBackup.backupFileName)
++    expect((await readBackupFileSafely(secondBackup.backupFileName!)).content.toString()).toBe('turn two\n')
++    // The earlier turn's bytes must survive for rewind.
++    expect((await readBackupFileSafely(firstBackup.backupFileName!)).content.toString()).toBe('turn one\n')
++  })
+ })
+ 
+ 
+diff --git a/src/utils/fileHistory.ts b/src/utils/fileHistory.ts
+index c3701c62..297bdaa1 100644
+--- a/src/utils/fileHistory.ts
++++ b/src/utils/fileHistory.ts
+@@ -382,8 +382,20 @@ export async function fileHistoryCompleteSnapshot(
+ ): Promise<void> {
+   if (!fileHistoryEnabled()) return
+   let captured: FileHistorySnapshot | undefined
++  const priorCompletedByPath = new Map<string, FileHistoryBackup>()
+   updateFileHistoryState(state => {
+-    captured = state.snapshots.find(snapshot => snapshot.messageId === messageId)
++    const index = state.snapshots.findIndex(snapshot => snapshot.messageId === messageId)
++    captured = index >= 0 ? state.snapshots[index] : undefined
++    // Only snapshots *before* this one can hold an earlier end-of-turn copy, so
++    // a path the user has not touched since can reuse that copy instead of
++    // accumulating an identical one per turn.
++    for (let i = 0; i < index; i++) {
++      const prior = state.snapshots[i]?.completedFileBackups
++      if (!prior) continue
++      for (const [trackingPath, backup] of Object.entries(prior)) {
++        if (backup.backupFileName) priorCompletedByPath.set(trackingPath, backup)
++      }
++    }
+     return state
+   })
+   if (!captured || captured.completedFileBackups) return
+@@ -392,13 +404,28 @@ export async function fileHistoryCompleteSnapshot(
+   // cannot collide with the next turn's incrementing before-backup version.
+   for (const [trackingPath, before] of Object.entries(captured.trackedFileBackups)) {
+     try {
+-      completedFileBackups[trackingPath] = await createBackup(maybeExpandFilePath(trackingPath), before.version, `completed-${messageId}-${randomUUID()}`)
++      const expandedPath = maybeExpandFilePath(trackingPath)
++      // This loop runs for every tracked file every turn, and a tracked set only
++      // grows — copying unconditionally made the backup directory O(files x
++      // turns), with the overwhelming majority of copies byte-identical. Reuse
++      // the previous end-of-turn copy when the file is unchanged (same check
++      // `fileHistoryMakeSnapshot` uses), keeping the `-completed-` filename so
++      // rewind's after-boundary semantics are untouched.
++      const prior = priorCompletedByPath.get(trackingPath)
++      if (prior?.backupFileName) {
++        const changed = await checkOriginFileChanged(expandedPath, prior.backupFileName)
++        if (!changed) {
++          completedFileBackups[trackingPath] = prior
++          continue
++        }
++      }
++      completedFileBackups[trackingPath] = await createBackup(expandedPath, before.version, `completed-${messageId}-${randomUUID()}`)
+     } catch (error) { logError(error) }
+   }
+   let completed: FileHistorySnapshot | undefined
+-  updateFileHistoryState(state => ({ ...state, snapshots: state.snapshots.map(snapshot => {
+-    if (snapshot.messageId !== messageId || snapshot.completedFileBackups) return snapshot
+-    completed = { ...migrateFileHistorySnapshot(snapshot), completedFileBackups }
++  updateFileHistoryState(state => ({ ...state, snapshots: state.snapshots.map(s => {
++    if (s.messageId !== messageId || s.completedFileBackups) return s
++    completed = { ...migrateFileHistorySnapshot(s), completedFileBackups }
+     return completed
+   }) }))
+   if (completed) await recordFileHistorySnapshot(messageId, completed, true)
+diff --git a/src/utils/sessionStorage.originalFileBound.test.ts b/src/utils/sessionStorage.originalFileBound.test.ts
+new file mode 100644
+index 00000000..9e598e92
+--- /dev/null
++++ b/src/utils/sessionStorage.originalFileBound.test.ts
+@@ -0,0 +1,68 @@
++import { describe, expect, test } from 'bun:test'
++import type { Message } from '../types/message.js'
++
++/**
++ * 章二十二「优化膨胀源」: storage must not keep the whole pre-edit file in
++ * `toolUseResult.originalFile`. It is display-only (the model never sees it, and
++ * the turn diff reads `structuredPatch`), and the client is only ever sent a
++ * 16KB preview — so bounding at the source is invisible to readers while
++ * removing the 67% of transcript bytes it accounted for.
++ */
++const MODULE = '../utils/sessionStorage.js'
++
++async function loadHelper() {
++  const mod = await import(MODULE)
++  return mod as {
++    boundOriginalFileForStorage: (message: Message) => Message
++    ORIGINAL_FILE_STRING_LIMIT: number
++  }
++}
++
++function toolResultMessage(toolUseResult: unknown): Message {
++  return {
++    type: 'user',
++    uuid: '00000000-0000-4000-8000-000000000001',
++    message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: 't1', content: 'ok' }] },
++    toolUseResult,
++  } as unknown as Message
++}
++
++describe('boundOriginalFileForStorage', () => {
++  test('clips an oversized originalFile to the transport bound and records its size', async () => {
++    const { boundOriginalFileForStorage, ORIGINAL_FILE_STRING_LIMIT } = await loadHelper()
++    const originalFile = 'x'.repeat(ORIGINAL_FILE_STRING_LIMIT + 5_000)
++    const saved = boundOriginalFileForStorage(
++      toolResultMessage({ filePath: '/a.ts', originalFile, structuredPatch: [{ oldStart: 1 }] }),
++    )
++    const result = saved.toolUseResult as Record<string, unknown>
++    expect((result.originalFile as string).length).toBe(ORIGINAL_FILE_STRING_LIMIT)
++    expect(result.originalFileTruncated).toBe(true)
++    expect(result.originalFileBytes).toBe(originalFile.length)
++    // The diff and the rest of the payload survive untouched.
++    expect(result.filePath).toBe('/a.ts')
++    expect(result.structuredPatch).toEqual([{ oldStart: 1 }])
++  })
++
++  test('leaves a small originalFile byte-identical', async () => {
++    const { boundOriginalFileForStorage } = await loadHelper()
++    const message = toolResultMessage({ filePath: '/a.ts', originalFile: 'small' })
++    expect(boundOriginalFileForStorage(message)).toBe(message)
++  })
++
++  test('is a no-op when there is no toolUseResult or no originalFile', async () => {
++    const { boundOriginalFileForStorage } = await loadHelper()
++    const bare = toolResultMessage(undefined)
++    expect(boundOriginalFileForStorage(bare)).toBe(bare)
++    const noFile = toolResultMessage({ filePath: '/a.ts', originalFile: null })
++    expect(boundOriginalFileForStorage(noFile)).toBe(noFile)
++  })
++
++  test('does not touch an oversized string in a sibling field', async () => {
++    const { boundOriginalFileForStorage, ORIGINAL_FILE_STRING_LIMIT } = await loadHelper()
++    // Only originalFile is display-only; other fields may be read back by
++    // recovery, so they must keep the original record.
++    const big = 'y'.repeat(ORIGINAL_FILE_STRING_LIMIT + 1)
++    const message = toolResultMessage({ originalFile: 'small', newString: big })
++    expect(boundOriginalFileForStorage(message)).toBe(message)
++  })
++})
+diff --git a/src/utils/sessionStorage.ts b/src/utils/sessionStorage.ts
+index bc6f9454..4911514f 100644
+--- a/src/utils/sessionStorage.ts
++++ b/src/utils/sessionStorage.ts
+@@ -4713,11 +4713,60 @@ function transformMessagesForExternalTranscript(
+   }) as Transcript
+ }
+ 
++/** A transcript message may carry the raw tool output alongside it. */
++type MessageWithToolUseResult = Message & { toolUseResult?: unknown }
++
++/**
++ * Storage-side bound on `toolUseResult.originalFile` (章二十二「优化膨胀源」).
++ *
++ * `originalFile` is the pre-edit file, kept only so the edit card can render a
++ * diff: the model never sees it (`mapToolResultToToolResultBlockParam` is what
++ * goes to the API) and the turn diff itself is read from `structuredPatch`.
++ * Storage nevertheless kept the whole file on every edit, which made transcripts
++ * ~3x larger than the conversation they describe (2.1GB of 3.1GB measured).
++ *
++ * This mirrors the transport clip (`TOOL_USE_RESULT_STRING_LIMIT`, 16KB, in
++ * `src/server/services/boundedSessionHistory.ts`) — the same bound the client
++ * has always been sent — so bounding at the source changes nothing anyone can
++ * see. Only `originalFile` is touched: other `toolUseResult` fields can be
++ * read back by recovery/semantic paths, which must keep the original record.
++ */
++export const ORIGINAL_FILE_STRING_LIMIT = 16 * 1024
++
++/** Trim an oversized `originalFile` to the preview bound, recording the original
++ * length so the record explains its own truncation. */
++export function boundOriginalFileForStorage(
++  message: MessageWithToolUseResult,
++): MessageWithToolUseResult {
++  const result = message.toolUseResult
++  if (!result || typeof result !== 'object' || Array.isArray(result)) {
++    return message
++  }
++  const originalFile = (result as Record<string, unknown>).originalFile
++  if (
++    typeof originalFile !== 'string' ||
++    originalFile.length <= ORIGINAL_FILE_STRING_LIMIT
++  ) {
++    return message
++  }
++  return {
++    ...message,
++    toolUseResult: {
++      ...(result as Record<string, unknown>),
++      originalFile: originalFile.slice(0, ORIGINAL_FILE_STRING_LIMIT),
++      originalFileTruncated: true,
++      originalFileBytes: originalFile.length,
++    },
++  }
++}
++
+ export function cleanMessagesForLogging(
+   messages: Message[],
+   allMessages: readonly Message[] = messages,
+ ): Transcript {
+-  const filtered = messages.filter(isLoggableMessage) as Transcript
++  const filtered = messages
++    .filter(isLoggableMessage)
++    .map(message => boundOriginalFileForStorage(message)) as Transcript
+   return getUserType() !== 'ant'
+     ? transformMessagesForExternalTranscript(
+         filtered,
+diff --git a/src/vendor/computer-use-mcp/toolCalls.test.ts b/src/vendor/computer-use-mcp/toolCalls.test.ts
+index 8b6d584f..1c45133b 100644
+--- a/src/vendor/computer-use-mcp/toolCalls.test.ts
++++ b/src/vendor/computer-use-mcp/toolCalls.test.ts
+@@ -18,9 +18,7 @@ import {
+   resetMouseButtonHeld,
+ } from './toolCalls.js'
+ import { bindSessionContext } from './mcpServer.js'
+-import type { ComputerUseSessionContext } from './types.js'
+ import { buildComputerUseTools } from './tools.js'
+-import { bindSessionContext } from './mcpServer.js'
+ import { COMPUTER_USE_INSTRUCTIONS } from './instructions.js'
+ import { isSystemKeyCombo } from './keyBlocklist.js'
+ import type {
