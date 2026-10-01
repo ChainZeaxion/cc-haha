@@ -1,0 +1,260 @@
+diff --git a/desktop/src/components/workbench/WorkspaceFileTreePane.tsx b/desktop/src/components/workbench/WorkspaceFileTreePane.tsx
+index f1050aeb..c0e6bb9e 100644
+--- a/desktop/src/components/workbench/WorkspaceFileTreePane.tsx
++++ b/desktop/src/components/workbench/WorkspaceFileTreePane.tsx
+@@ -403,7 +403,9 @@ export function WorkspaceFileTreePane({
+               size="sm"
+               data-testid="workspace-tree-download"
+               onClick={() => {
+-                downloadLocalFile(resolveAbsoluteOpenPath(menu.row.path, workDir ?? undefined))
++                // Failure is reported by the helper (it logs the reason); the menu
++                // still closes, so a failed save never leaves the row stuck open.
++                void downloadLocalFile(resolveAbsoluteOpenPath(menu.row.path, workDir ?? undefined))
+                 closeMenu()
+               }}
+             >
+diff --git a/desktop/src/lib/handlePreviewLink.test.ts b/desktop/src/lib/handlePreviewLink.test.ts
+index 5ea48337..6199eba4 100644
+--- a/desktop/src/lib/handlePreviewLink.test.ts
++++ b/desktop/src/lib/handlePreviewLink.test.ts
+@@ -1,4 +1,17 @@
+-import { describe, expect, it, vi } from 'vitest'
++import { beforeEach, describe, expect, it, vi } from 'vitest'
++
++// jsdom implements neither, and the helper only needs them to produce a string.
++if (typeof URL.createObjectURL !== 'function') {
++  URL.createObjectURL = () => 'blob:test'
++}
++if (typeof URL.revokeObjectURL !== 'function') {
++  URL.revokeObjectURL = () => {}
++}
++
++const apiGetBlob = vi.fn()
++vi.mock('../api/client', () => ({
++  apiGetBlob: (...args: unknown[]) => apiGetBlob(...args),
++}))
+ import {
+   downloadLocalFile,
+   fileNameFromPath,
+@@ -229,9 +242,9 @@ describe('previewFsUrl (unchanged, regression guard)', () => {
+ 
+ describe('downloadLocalFile', () => {
+   // This entry had no test at all, which is how it shipped unable to download:
+-  // the list card (user-clicked, carries `download`) worked while the tree menu
+-  // and the open-with menu (both routed here) did not.
+-  function clickDownload(path: string) {
++  // the only other entry (the list card) is an anchor the user clicks, and both
++  // failed the same way for the same reason.
++  function clickDownload() {
+     const clicked: HTMLAnchorElement[] = []
+     const create = document.createElement.bind(document)
+     const spy = vi.spyOn(document, 'createElement').mockImplementation((tag: string) => {
+@@ -242,38 +255,80 @@ describe('downloadLocalFile', () => {
+       }
+       return el
+     })
++    return { clicked, restore: () => spy.mockRestore() }
++  }
++
++  beforeEach(() => apiGetBlob.mockReset())
++
++  it('fetches the bytes through the API client rather than pointing the DOM at the route', async () => {
++    // The whole point: a URL the DOM loads by itself carries neither the
++    // Authorization header nor an Origin the server trusts, and the packaged
++    // renderer's origin serializes to `null` for it — measured 403 against a
++    // route that answers 200 to the API client.
++    apiGetBlob.mockResolvedValue(new Blob(['hello']))
++    const createSpy = vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:test-url')
++
++    const { clicked, restore } = clickDownload()
++    let saved: boolean | undefined
+     try {
+-      downloadLocalFile(path)
++      saved = await downloadLocalFile('/home/me/notes.txt')
++      expect(apiGetBlob).toHaveBeenCalledWith('/local-file/home/me/notes.txt?download=1')
++      expect(createSpy).toHaveBeenCalledOnce()
++      expect(clicked[0]?.href).toContain('blob:test-url')
++      expect(clicked[0]?.download).toBe('notes.txt')
+     } finally {
+-      spy.mockRestore()
++      restore()
++      createSpy.mockRestore()
+     }
+-    return clicked
+-  }
+-
+-  it('marks the anchor as a download so the click does not become a navigation', () => {
+-    // Without `download`, an anchor click navigates the window. In the packaged
+-    // app that navigation is a cross-site request from a `file://` renderer and
+-    // the sidecar's origin gate rejects it, so the download silently never
+-    // starts. The attribute is what routes it through the download path
+-    // instead — the same reason the working card sets it.
+-    const [anchor] = clickDownload('/home/me/notes.txt')
+-    expect(anchor).toBeDefined()
+-    expect(anchor!.download).toBe('notes.txt')
+-    expect(anchor!.href).toContain('/local-file/home/me/notes.txt?download=1')
++    expect(saved).toBe(true)
+   })
+ 
+-  it('asks the server for the attachment form of the route', () => {
+-    const [anchor] = clickDownload('/home/me/report final.pdf')
+-    expect(anchor!.href).toContain('?download=1')
+-    // Spaces survive as escapes, so the URL is not truncated at the space.
+-    expect(anchor!.href).toContain('report%20final.pdf')
+-    expect(anchor!.download).toBe('report final.pdf')
++  it('keeps the server route and the saved name for a path with spaces', async () => {
++    apiGetBlob.mockResolvedValue(new Blob(['x']))
++    const { clicked, restore } = clickDownload()
++    try {
++      await downloadLocalFile('/home/me/report final.pdf')
++    } finally {
++      restore()
++    }
++    expect(apiGetBlob).toHaveBeenCalledWith('/local-file/home/me/report%20final.pdf?download=1')
++    expect(clicked[0]?.download).toBe('report final.pdf')
+   })
+ 
+-  it('leaves nothing behind in the document', () => {
+-    clickDownload('/home/me/notes.txt')
++  it('leaves nothing behind in the document', async () => {
++    apiGetBlob.mockResolvedValue(new Blob(['x']))
++    const { restore } = clickDownload()
++    try {
++      await downloadLocalFile('/home/me/notes.txt')
++    } finally {
++      restore()
++    }
+     expect(document.querySelector('a[download]')).toBeNull()
+   })
++
++  it('reports failure instead of throwing when the save path fails', async () => {
++    // The callers are fire-and-forget menu handlers, so a rejection here would
++    // become an unhandled one and the user would see nothing at all. The failure
++    // is staged in the save step rather than in the mock: an exception thrown
++    // from inside a vitest mock is recorded as a test failure of its own, which
++    // would mask what this is checking.
++    apiGetBlob.mockResolvedValue(new Blob(['x']))
++    const createSpy = vi.spyOn(URL, 'createObjectURL').mockImplementation(() => {
++      throw new Error('blob rejected')
++    })
++    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
++    const { clicked, restore } = clickDownload()
++    try {
++      const saved = await downloadLocalFile('/home/me/notes.txt')
++      expect(saved).toBe(false)
++      expect(clicked).toHaveLength(0)
++      expect(warn).toHaveBeenCalled()
++    } finally {
++      restore()
++      createSpy.mockRestore()
++      warn.mockRestore()
++    }
++  })
+ })
+ 
+ describe('fileNameFromPath', () => {
+diff --git a/desktop/src/lib/handlePreviewLink.ts b/desktop/src/lib/handlePreviewLink.ts
+index 535bd0ac..6080cd13 100644
+--- a/desktop/src/lib/handlePreviewLink.ts
++++ b/desktop/src/lib/handlePreviewLink.ts
+@@ -1,6 +1,6 @@
++import { apiGetBlob } from '../api/client'
+ import { classifyPreviewLink } from './previewLinkRouter'
+ import { shouldOfferStaticHtmlPreview } from './htmlPreviewPolicy'
+-import { getServerBaseUrl } from './desktopRuntime'
+ 
+ export type PreviewLinkReveal = { line: number; column?: number }
+ 
+@@ -62,29 +62,51 @@ export function localFileUrl(base: string, absPath: string): string {
+ }
+ 
+ /**
+- * Download a file through the local server's `/local-file/<abs-path>?download=1`
+- * route, which streams it with an RFC 5987 `Content-Disposition: attachment`
+- * header. A temporary anchor is used rather than `fetch` so the browser
+- * downloads the binary as-is (no need to buffer the whole file or guess a
+- * `Blob` MIME type) and the server's attachment header drives the saved name.
++ * Save a file through the local server's `/local-file/<abs-path>?download=1`
++ * route.
+  *
+- * The `download` attribute is set even though the server also sends the header,
+- * because it is what makes the click a download rather than a navigation: an
+- * anchor without it navigates the window, and in the packaged app the renderer
+- * is loaded from `file://`, where such a request to the sidecar is a cross-site
+- * one that the origin gate rejects. The download list card — the entry that
+- * works — sets it for the same reason, as do the app's other programmatic
+- * downloads.
++ * The bytes are fetched through the app's own API client and handed to the DOM as
++ * a blob URL, instead of pointing an anchor straight at the route. A URL the DOM
++ * loads is a request the browser issues by itself, and it carries neither the
++ * Authorization header the API client attaches nor an Origin the server trusts:
++ * the packaged renderer runs at `file://`, whose origin serializes to `null` for
++ * exactly this kind of request, and the server refuses `null`. Measured against
++ * the running app — the same route answers 200 for no Origin and 403
++ * `CORS origin not allowed` for `Origin: null`, which is why the download began
++ * and then failed ("无法从网站上提取文件") rather than never starting.
++ *
++ * Fetching first uses the credential path every other call already uses;
++ * `apiGetBlob` documents the same reasoning for app icons, which hit the
++ * identical wall. The cost is that the file is held in memory to build the blob,
++ * the trade this app already makes for its icon and export downloads.
++ *
++ * @returns whether the file was handed to the browser to save.
+  */
+-export function downloadLocalFile(absolutePath: string): void {
+-  const url = `${localFileUrl(getServerBaseUrl(), absolutePath)}?download=1`
+-  const anchor = document.createElement('a')
+-  anchor.href = url
+-  anchor.download = fileNameFromPath(absolutePath)
+-  anchor.rel = 'noopener'
+-  document.body.appendChild(anchor)
+-  anchor.click()
+-  anchor.remove()
++export async function downloadLocalFile(absolutePath: string): Promise<boolean> {
++  try {
++    // An empty base so the helper yields the path the API client wants.
++    const path = `${localFileUrl('', absolutePath)}?download=1`
++    const blob = await apiGetBlob(path)
++    const url = URL.createObjectURL(blob)
++    const anchor = document.createElement('a')
++    anchor.href = url
++    // Still named here: the blob URL has no filename of its own, so the server's
++    // Content-Disposition cannot drive the saved name through this path.
++    anchor.download = fileNameFromPath(absolutePath)
++    anchor.rel = 'noopener'
++    document.body.appendChild(anchor)
++    anchor.click()
++    anchor.remove()
++    // Released on the next task: the click above has already been dispatched, and
++    // revoking synchronously can cancel a download that has not started yet.
++    setTimeout(() => URL.revokeObjectURL(url), 0)
++    return true
++  } catch (error) {
++    console.warn(
++      `[download] ${absolutePath} failed: ${error instanceof Error ? error.message : String(error)}`,
++    )
++    return false
++  }
+ }
+ 
+ /** Last path segment, for the download's suggested save name. */
+diff --git a/desktop/src/lib/openWithMenuItems.ts b/desktop/src/lib/openWithMenuItems.ts
+index 0d85d6c7..4d63ddb2 100644
+--- a/desktop/src/lib/openWithMenuItems.ts
++++ b/desktop/src/lib/openWithMenuItems.ts
+@@ -94,11 +94,11 @@ export function openWithMenuDeps(
+               await copyTextToClipboard(result.content)
+             })().catch(() => {})
+           },
+-          // A file is the only context with something to save; the download goes
+-          // through the local server's attachment route so the browser streams it
+-          // and the server's header fixes the saved name.
++          // A file is the only context with something to save. The helper fetches
++          // the bytes through the API client and saves a blob; see it for why a
++          // plain anchor at the route cannot work from this renderer.
+           downloadFile: (absolutePath: string) => {
+-            downloadLocalFile(absolutePath)
++            void downloadLocalFile(absolutePath)
+           },
+         }
+       : {}),

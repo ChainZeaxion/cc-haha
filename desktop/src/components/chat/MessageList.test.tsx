@@ -321,7 +321,9 @@ describe('MessageList nested tool calls', () => {
     vi.restoreAllMocks()
     vi.unstubAllGlobals()
     resetSessionScrollSnapshotsForTests()
-    useSettingsStore.setState({ locale: 'en' })
+    // Both are store state a test can flip; reset them together so a test that
+    // turns one off cannot silently change what the next one renders.
+    useSettingsStore.setState({ locale: 'en', sessionExtendedInfo: true })
     useUIStore.setState({ pendingSettingsTab: null })
     useTabStore.setState({ activeTabId: ACTIVE_TAB, tabs: [{ sessionId: ACTIVE_TAB, title: 'Test', type: 'session' as const, status: 'idle' }] })
     useSessionStore.setState({ sessions: [], activeSessionId: null, isLoading: false, error: null })
@@ -1683,6 +1685,39 @@ describe('MessageList nested tool calls', () => {
     render(<MessageList />)
 
     expect(screen.getByTestId('background-task-event-card').textContent).toContain('1 分 5 秒')
+  })
+
+  it('hides the background task duration when session detail readouts are off', () => {
+    // This inline card was the one background-task duration the switch missed,
+    // so turning it off still left times on the conversation timeline.
+    useSettingsStore.setState({ locale: 'zh', sessionExtendedInfo: false })
+    useChatStore.setState({
+      sessions: {
+        [ACTIVE_TAB]: makeSessionState({
+          messages: [
+            {
+              id: 'background-task-shell-off',
+              type: 'background_task',
+              timestamp: 2,
+              task: {
+                taskId: 'shell-task-off',
+                toolUseId: 'shell-tool-off',
+                status: 'stopped',
+                taskType: 'local_bash',
+                summary: 'Running Playwright checks',
+                usage: { totalTokens: 1200, toolUses: 4, durationMs: 65000 },
+                startedAt: 2,
+                updatedAt: 2,
+              },
+            },
+          ],
+        }),
+      },
+    })
+
+    render(<MessageList />)
+
+    expect(screen.getByTestId('background-task-event-card').textContent).not.toContain('1 分 5 秒')
   })
 
   it('leaves a completed background task to the activity panel, but keeps a failure', () => {
@@ -6547,13 +6582,14 @@ describe('MessageList nested tool calls', () => {
     await waitFor(() => expect(container.querySelector('[data-chat-render-item-key="assistant-virtual-file"]')).toBeNull())
     act(() => useWorkspaceStore.getState().setLayout(ACTIVE_TAB, 'hidden'))
 
-    // The first frame remounts the virtual row; the next frame restores focus.
-    // Flush React between frames instead of racing real rAF against role queries.
-    await advanceFrame(32)
-    const remountedOpener = screen.getByRole('button', { name: 'Open src/virtual.ts in workspace' })
+    // Restore runs on an rAF retry loop (up to 7 frames); give it real headroom
+    // under full-suite load where frames stretch past the 1s findByRole default.
+    const remountedOpener = await waitFor(
+      async () => screen.findByRole('button', { name: 'Open src/virtual.ts in workspace' }),
+      { timeout: 5000 },
+    )
     expect(remountedOpener).not.toBe(opener)
-    await advanceFrame(48)
-    expect(document.activeElement).toBe(remountedOpener)
+    await waitFor(() => expect(document.activeElement).toBe(remountedOpener), { timeout: 5000 })
     expect(screen.getByRole('button', { name: 'Hide changed files' }).getAttribute('aria-expanded')).toBe('true')
     expect(useWorkspaceStore.getState().getSession(ACTIVE_TAB).origin).toBeNull()
   })
@@ -9361,7 +9397,9 @@ describe('MessageList agent card activity', () => {
     vi.unstubAllGlobals()
     resetAgentRunActivityCache()
     resetSessionScrollSnapshotsForTests()
-    useSettingsStore.setState({ locale: 'en' })
+    // Both are store state a test can flip; reset them together so a test that
+    // turns one off cannot silently change what the next one renders.
+    useSettingsStore.setState({ locale: 'en', sessionExtendedInfo: true })
     useUIStore.setState({ pendingSettingsTab: null })
     useTabStore.setState({
       activeTabId: ACTIVE_TAB,

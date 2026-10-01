@@ -4,6 +4,13 @@ import { mkdtemp, rm, writeFile } from 'fs/promises'
 import { tmpdir } from 'os'
 import { join } from 'path'
 import { executeEffort } from '../../commands/effort/effort.js'
+
+import { isolateModelDefaultsEnv } from '../../testUtils/modelEnv.js'
+
+// The machine exports model-override env vars that decide which models count as
+// xhigh-capable, which is exactly what this file asserts about. Without the
+// isolation the file failed even when run on its own.
+isolateModelDefaultsEnv()
 import { resetSettingsCache } from '../settings/settingsCache.js'
 import { modelSupportsXHighEffort } from '../effort.js'
 import { canEnableUltracode } from './ultracode.js'

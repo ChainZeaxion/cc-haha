@@ -1,0 +1,518 @@
+diff --git a/desktop/src/stores/chatStore.test.ts b/desktop/src/stores/chatStore.test.ts
+index 4836ac5c..f6e7a08d 100644
+--- a/desktop/src/stores/chatStore.test.ts
++++ b/desktop/src/stores/chatStore.test.ts
+@@ -10635,7 +10635,7 @@ describe('chatStore history mapping', () => {
+     useChatStore.setState({ sessions: { [sessionId]: makeSession() } })
+ 
+     // Relay a real count, then the text of those same tokens.
+-    useChatStore.getState().handleServerMessage(sessionId, { type: 'tps_tokens', tokens: 40 })
++    useChatStore.getState().handleServerMessage(sessionId, { type: 'tps_tokens', tokens: 40, kind: 'content' })
+     useChatStore.getState().handleServerMessage(sessionId, { type: 'content_delta', text: 'x'.repeat(200) })
+ 
+     const meter = getSessionTpsMeter(sessionId)
+@@ -10644,6 +10644,35 @@ describe('chatStore history mapping', () => {
+     expect(meter.windowTokens()).toBeCloseTo(40, 5)
+   })
+ 
++  it('attributes relayed reasoning tokens to the open thought block', () => {
++    const sessionId = '__thinking-tokens'
++    useChatStore.setState({ sessions: { [sessionId]: makeSession() } })
++
++    // Open a thought block, then stream its reasoning.
++    useChatStore.getState().handleServerMessage(sessionId, { type: 'thinking', text: 'first thought' })
++    useChatStore.getState().handleServerMessage(sessionId, { type: 'tps_tokens', tokens: 12, kind: 'thinking' })
++    useChatStore.getState().handleServerMessage(sessionId, { type: 'tps_tokens', tokens: 30, kind: 'thinking' })
++    // Content tokens are not part of the thought and must not land on it.
++    useChatStore.getState().handleServerMessage(sessionId, { type: 'tps_tokens', tokens: 99, kind: 'content' })
++
++    const thinking = useChatStore.getState().sessions[sessionId]!.messages
++      .find((message) => message.type === 'thinking')
++    expect(thinking?.type === 'thinking' ? thinking.thinkingTokens : undefined).toBe(42)
++  })
++
++  it('drops reasoning tokens that arrive with no thought block open', () => {
++    const sessionId = '__thinking-tokens-none'
++    useChatStore.setState({ sessions: { [sessionId]: makeSession() } })
++
++    useChatStore.getState().handleServerMessage(sessionId, { type: 'tps_tokens', tokens: 15, kind: 'thinking' })
++
++    // Nothing to attribute to, so nothing is invented anywhere.
++    expect(
++      useChatStore.getState().sessions[sessionId]!.messages
++        .some((message) => message.type === 'thinking'),
++    ).toBe(false)
++  })
++
+   it('drops the sampling window when the transport reconnects', () => {
+     clearTpsCalibration()
+     const sessionId = '__tps-reconnect'
+diff --git a/desktop/src/stores/chatStore.ts b/desktop/src/stores/chatStore.ts
+index 668bef80..da9b6f5f 100644
+--- a/desktop/src/stores/chatStore.ts
++++ b/desktop/src/stores/chatStore.ts
+@@ -19,7 +19,7 @@ import { randomSpinnerVerb } from '../config/spinnerVerbs'
+ import { notifyDesktop } from '../lib/desktopNotifications'
+ import { createAsyncRefreshCoalescer } from '../lib/asyncRefreshCoalescer'
+ import { deriveSessionTitle, isPlaceholderSessionTitle } from '../lib/sessionTitle'
+-import { TpsMeter, isTpsEnabled } from '../lib/tpsMeter'
++import { TpsMeter, isTpsEnabled, setEstimationCalibration } from '../lib/tpsMeter'
+ import { loadTpsCalibration, saveTpsCalibration } from '../lib/tpsCalibration'
+ import { t } from '../i18n'
+ import {
+@@ -1019,7 +1019,11 @@ export function getSessionTpsMeter(sessionId: string): TpsMeter {
+     // Seed what earlier sessions with this model measured, so a fresh session
+     // does not under-read until its first call completes.
+     const model = tpsModelFor(sessionId)
+-    meter.setCalibration(loadTpsCalibration(model))
++    const seeded = loadTpsCalibration(model)
++    meter.setCalibration(seeded)
++    // The badge/digest estimate from characters, so they want the same learned
++    // coefficients the meter reads its rate with.
++    setEstimationCalibration(seeded)
+     tpsCalibrationModelBySession.set(sessionId, model)
+     tpsMeterBySession.set(sessionId, meter)
+   }
+@@ -4989,7 +4993,9 @@ export const useChatStore = create<ChatStore>((setState, get) => {
+         if (isTpsEnabled() && msg.modelId) {
+           const meter = getSessionTpsMeter(sessionId)
+           saveTpsCalibration(tpsCalibrationModelBySession.get(sessionId), meter.calibration())
+-          meter.setCalibration(loadTpsCalibration(msg.modelId))
++          const next = loadTpsCalibration(msg.modelId)
++          meter.setCalibration(next)
++          setEstimationCalibration(next)
+           tpsCalibrationModelBySession.set(sessionId, msg.modelId)
+         }
+         const selected = useSessionRuntimeStore.getState().selections[sessionId]
+@@ -5588,9 +5594,36 @@ export const useChatStore = create<ChatStore>((setState, get) => {
+         break
+ 
+       case 'tps_tokens': {
+-        // The engine reported real per-chunk token ids. These counts are exact,
+-        // so this session's text frames must no longer be sampled — they carry
+-        // the same tokens and would double the rate (see pushTpsFrame).
++        // The engine reported real per-chunk token ids, tagged with what the
++        // chunk carried. Reasoning tokens belong to the thought block open right
++        // now, and this is the only source of an exact per-thought count: the
++        // transcript has no such field, so the badge otherwise has to infer it
++        // from content (measured ~60% off).
++        //
++        // Attributed only while a thought block is open. A batch arriving after
++        // the block closed belongs to content or tool input by then, so it is
++        // dropped rather than guessed at; batches are 200 ms, so the loss is a
++        // fraction of a thought, not a thought.
++        if (msg.kind === 'thinking') {
++          update((s) => {
++            const activeId = s.activeThinkingId
++            if (!activeId) return {}
++            const index = s.messages.findIndex(
++              (message) => message.id === activeId && message.type === 'thinking',
++            )
++            if (index < 0) return {}
++            const block = s.messages[index]
++            if (!block || block.type !== 'thinking') return {}
++            const messages = [...s.messages]
++            messages[index] = {
++              ...block,
++              thinkingTokens: (block.thinkingTokens ?? 0) + msg.tokens,
++            }
++            return { messages }
++          })
++        }
++        // The same counts are exact feed for the TPS meter, where the sampled
++        // text frames would otherwise double-count them.
+         if (!isTpsEnabled()) break
+         const meter = getSessionTpsMeter(sessionId)
+         if (!tpsIdsModeBySession.get(sessionId)) {
+@@ -5616,7 +5649,9 @@ export const useChatStore = create<ChatStore>((setState, get) => {
+           // Only bank it when a coefficient actually moved: persisting the
+           // neutral 1.0 values would tell the next session nothing.
+           if (learned) {
+-            saveTpsCalibration(tpsCalibrationModelBySession.get(sessionId), meter.calibration())
++            const calibration = meter.calibration()
++            saveTpsCalibration(tpsCalibrationModelBySession.get(sessionId), calibration)
++            setEstimationCalibration(calibration)
+           }
+         }
+         if (consumeAllPendingTaskToolUseIds(sessionId)) {
+@@ -6571,9 +6606,13 @@ function normalizeBackgroundTaskUsage(value: unknown): BackgroundAgentTaskUsage
+   const totalTokens = record.total_tokens ?? record.totalTokens
+   const toolUses = record.tool_uses ?? record.toolUses
+   const durationMs = record.duration_ms ?? record.durationMs
++  const outputTokens = record.output_tokens ?? record.outputTokens
++  const thinkTokens = record.think_tokens ?? record.thinkTokens
+   if (typeof totalTokens === 'number') usage.totalTokens = totalTokens
+   if (typeof toolUses === 'number') usage.toolUses = toolUses
+   if (typeof durationMs === 'number') usage.durationMs = durationMs
++  if (typeof outputTokens === 'number') usage.outputTokens = outputTokens
++  if (typeof thinkTokens === 'number') usage.thinkTokens = thinkTokens
+   return Object.keys(usage).length > 0 ? usage : undefined
+ }
+ 
+diff --git a/desktop/src/types/chat.ts b/desktop/src/types/chat.ts
+index 7d3080e7..05f4fedd 100644
+--- a/desktop/src/types/chat.ts
++++ b/desktop/src/types/chat.ts
+@@ -108,7 +108,7 @@ export type ServerMessage =
+    * feeds the TPS meter exactly, and the text frames it duplicates are then
+    * ignored. Only sent for endpoints that reported token ids.
+    */
+-  | { type: 'tps_tokens'; tokens: number }
++  | { type: 'tps_tokens'; tokens: number; kind: 'thinking' | 'content' | 'tool' }
+   | { type: 'tool_use_complete'; toolName: string; toolUseId: string; originalToolUseId?: string; input: unknown; parentToolUseId?: string }
+   | { type: 'tool_result'; toolUseId: string; originalToolUseId?: string; content: unknown; isError: boolean; parentToolUseId?: string }
+   | {
+@@ -298,6 +298,10 @@ export type AgentTaskNotification = {
+ 
+ export type BackgroundAgentTaskUsage = {
+   totalTokens?: number
++  /** Generated tokens; the thinking share is `thinkTokens` when reported. */
++  outputTokens?: number
++  /** Thinking share of the output. Absent when the engine reported no split. */
++  thinkTokens?: number
+   toolUses?: number
+   durationMs?: number
+ }
+@@ -365,7 +369,7 @@ export type UIMessage =
+    * simply do not carry it, and the turn then shows no total.
+    */
+   | { id: string; type: 'assistant_text'; content: string; transcriptMessageId?: string; timestamp: number; model?: string; usage?: MessageUsage; usageKey?: string }
+-  | { id: string; type: 'thinking'; content: string; timestamp: number; /** Wall-clock ms this block spent generating; set on completion (live) or mapped from the transcript (history). */ thinkingDurationMs?: number; usage?: MessageUsage; usageKey?: string }
++  | { id: string; type: 'thinking'; content: string; timestamp: number; /** Wall-clock ms this block spent generating; set on completion (live) or mapped from the transcript (history). */ thinkingDurationMs?: number; /** Exact tokens the engine generated for this block, summed from the id side channel while it streamed. Absent on history (the transcript does not carry it) and when the engine reports no ids — the badge falls back to estimating from content then. */ thinkingTokens?: number; usage?: MessageUsage; usageKey?: string }
+   | {
+       id: string
+       type: 'tool_use'
+diff --git a/src/server/__tests__/proxy-transform.test.ts b/src/server/__tests__/proxy-transform.test.ts
+index 6ce0b0ae..ebb49f3b 100644
+--- a/src/server/__tests__/proxy-transform.test.ts
++++ b/src/server/__tests__/proxy-transform.test.ts
+@@ -2339,3 +2339,35 @@ describe('prompt caching semantics', () => {
+     })
+   })
+ })
++
++describe('openaiUsageToAnthropic reasoning pass-through', () => {
++  // One total cannot say whether a model spent its tokens deliberating or
++  // answering, and on a reasoning model the two differ by several times. The
++  // engine reports the split; dropping it here would strand it one hop short of
++  // the client that needs it.
++  test('carries the Chat-style reasoning split', () => {
++    const usage = openaiUsageToAnthropic({
++      prompt_tokens: 100,
++      completion_tokens: 600,
++      completion_tokens_details: { reasoning_tokens: 430 },
++    })
++    expect(usage.reasoning_tokens).toBe(430)
++    expect(usage.output_tokens).toBe(600)
++  })
++
++  test('carries the Responses-style reasoning split', () => {
++    const usage = openaiUsageToAnthropic({
++      input_tokens: 100,
++      output_tokens: 600,
++      output_tokens_details: { reasoning_tokens: 430 },
++    })
++    expect(usage.reasoning_tokens).toBe(430)
++  })
++
++  test('omits the field when upstream did not measure one', () => {
++    // Zero and "not reported" mean different things; an absent field is the only
++    // way to say the second.
++    const usage = openaiUsageToAnthropic({ prompt_tokens: 100, completion_tokens: 600 })
++    expect('reasoning_tokens' in usage).toBe(false)
++  })
++})
+diff --git a/src/server/index.ts b/src/server/index.ts
+index fd20a38f..6a86bd24 100644
+--- a/src/server/index.ts
++++ b/src/server/index.ts
+@@ -298,8 +298,8 @@ export function startServer(port = PORT, host = HOST) {
+   // The proxy reads real per-chunk token counts off local engines and needs to
+   // push them to the session's client. It cannot import the WS layer (that
+   // would close a cycle through titleService), so the wiring lives here.
+-  setTpsTokenSink((sessionId, tokens) => {
+-    sendToSession(sessionId, { type: 'tps_tokens', tokens })
++  setTpsTokenSink((sessionId, tokens, kind) => {
++    sendToSession(sessionId, { type: 'tps_tokens', tokens, kind })
+   })
+ 
+   const publicAccess = new PublicAccessServer({
+diff --git a/src/server/proxy/handler.ts b/src/server/proxy/handler.ts
+index 78799963..6564f64f 100644
+--- a/src/server/proxy/handler.ts
++++ b/src/server/proxy/handler.ts
+@@ -27,6 +27,7 @@ import { openaiChatToAnthropic } from './transform/openaiChatToAnthropic.js'
+ import { openaiResponsesToAnthropic } from './transform/openaiResponsesToAnthropic.js'
+ import { openaiChatStreamToAnthropic } from './streaming/openaiChatStreamToAnthropic.js'
+ import { emitTpsTokens } from './tpsTokenSink.js'
++import { TOKEN_CHUNK_KINDS, type TokenChunkKind } from './streaming/openaiChatStreamToAnthropic.js'
+ import { openaiResponsesStreamToAnthropic } from './streaming/openaiResponsesStreamToAnthropic.js'
+ import type { AnthropicRequest } from './transform/types.js'
+ import { getProxyFetchOptions } from '../../utils/proxy.js'
+@@ -949,7 +950,10 @@ function isLocalEngineHost(hostname: string): boolean {
+  * endpoint never reported token ids, so the parameter is not asked for again.
+  */
+ function createTpsTokenRelay(sessionId: string | null, baseUrl: string) {
+-  let pending = 0
++  // One counter per kind. A single total cannot be split after the fact, and
++  // the kinds are what a consumer attributes: the thought badge wants the
++  // reasoning count, which is only a fraction of the response.
++  const pending: Record<TokenChunkKind, number> = { thinking: 0, content: 0, tool: 0 }
+   let flushTimer: ReturnType<typeof setTimeout> | null = null
+   let sawTokenIds = false
+   const origin = endpointOrigin(baseUrl)
+@@ -964,18 +968,21 @@ function createTpsTokenRelay(sessionId: string | null, baseUrl: string) {
+ 
+   const flush = () => {
+     flushTimer = null
+-    if (!sessionId || pending <= 0) return
+-    const tokens = pending
+-    pending = 0
+-    emitTpsTokens(sessionId, tokens)
++    if (!sessionId) return
++    for (const kind of TOKEN_CHUNK_KINDS) {
++      const tokens = pending[kind]
++      if (tokens <= 0) continue
++      pending[kind] = 0
++      emitTpsTokens(sessionId, tokens, kind)
++    }
+   }
+ 
+   return {
+-    onTokenIds(count: number) {
++    onTokenIds(count: number, kind: TokenChunkKind) {
+       if (count <= 0) return
+       sawTokenIds = true
+       clearTimeout(probeTimer)
+-      pending += count
++      pending[kind] += count
+       if (flushTimer === null) {
+         flushTimer = setTimeout(flush, TPS_TOKEN_FLUSH_MS)
+         flushTimer.unref?.()
+diff --git a/src/server/proxy/streaming/openaiChatStreamToAnthropic.test.ts b/src/server/proxy/streaming/openaiChatStreamToAnthropic.test.ts
+index 46015689..7a4a04a3 100644
+--- a/src/server/proxy/streaming/openaiChatStreamToAnthropic.test.ts
++++ b/src/server/proxy/streaming/openaiChatStreamToAnthropic.test.ts
+@@ -157,6 +157,37 @@ describe('real token id side channel', () => {
+     return { counts, output }
+   }
+ 
++  async function collectKinds(input: string) {
++    const seen: Array<{ count: number; kind: string }> = []
++    const source = new ReadableStream<Uint8Array>({
++      start(controller) {
++        controller.enqueue(new TextEncoder().encode(input))
++        controller.close()
++      },
++    })
++    await new Response(openaiChatStreamToAnthropic(source, 'fixture', {
++      onTokenIds: (count, kind) => seen.push({ count, kind }),
++    })).text()
++    return seen
++  }
++
++  test('tags each count with what the chunk carries', async () => {
++    // A count alone cannot answer "how many tokens did this thought take": one
++    // response interleaves reasoning, content and tool input, and only the
++    // chunk itself knows which of the three it is.
++    const seen = await collectKinds(
++      idsChunk([1, 2], { reasoning_content: 'thinking...' })
++      + idsChunk([3], { content: 'answer' })
++      + idsChunk([4, 5, 6], { tool_calls: [{ index: 0, function: { arguments: '{}' } }] })
++      + 'data: [DONE]\n\n',
++    )
++    expect(seen).toEqual([
++      { count: 2, kind: 'thinking' },
++      { count: 1, kind: 'content' },
++      { count: 3, kind: 'tool' },
++    ])
++  })
++
+   function idsChunk(ids: number[], delta: Record<string, unknown> = { content: 'x' }, finish: string | null = null) {
+     return `data: ${JSON.stringify({ id: 'fixture', choices: [{ index: 0, delta, finish_reason: finish, token_ids: ids }] })}\n\n`
+   }
+diff --git a/src/server/proxy/streaming/openaiChatStreamToAnthropic.ts b/src/server/proxy/streaming/openaiChatStreamToAnthropic.ts
+index 21620d20..fa29d991 100644
+--- a/src/server/proxy/streaming/openaiChatStreamToAnthropic.ts
++++ b/src/server/proxy/streaming/openaiChatStreamToAnthropic.ts
+@@ -69,8 +69,13 @@ type StreamState = {
+    * Reports the real token count of each streamed chunk, when the engine sends
+    * `token_ids` (vLLM-family `return_token_ids`). Purely a side channel for the
+    * desktop's TPS meter — it never affects the Anthropic stream below.
++   *
++   * The kind is what the chunk carries, taken from the same `delta` the stream
++   * is built from. It is reported because a count on its own cannot answer
++   * "how many tokens did this thought take": a response interleaves reasoning,
++   * content and tool input, and only the chunk knows which one it is.
+    */
+-  onTokenIds?: (count: number) => void
++  onTokenIds?: (count: number, kind: TokenChunkKind) => void
+ }
+ 
+ // ─── Helpers ───────────────────────────────────────────────
+@@ -79,7 +84,7 @@ function formatSse(event: string, data: unknown): string {
+   return `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`
+ }
+ 
+-function createState(model: string, onTokenIds?: (count: number) => void): StreamState {
++function createState(model: string, onTokenIds?: (count: number, kind: TokenChunkKind) => void): StreamState {
+   return {
+     ...(onTokenIds ? { onTokenIds } : {}),
+     queue: [],
+@@ -106,7 +111,7 @@ function createState(model: string, onTokenIds?: (count: number) => void): Strea
+ export function openaiChatStreamToAnthropic(
+   upstream: ReadableStream<Uint8Array>,
+   model: string,
+-  options: { onTokenIds?: (count: number) => void } = {},
++  options: { onTokenIds?: (count: number, kind: TokenChunkKind) => void } = {},
+ ): ReadableStream<Uint8Array> {
+   const encoder = new TextEncoder()
+   const decoder = new TextDecoder()
+@@ -323,6 +328,16 @@ function closeAllOpenBlocks(state: StreamState): void {
+ 
+ // ─── Block type detection (follows LiteLLM priority) ───────
+ 
++/**
++ * Which part of a response a chunk's tokens belong to. Reported alongside the
++ * count so a consumer can total one part (the thought badge wants reasoning
++ * only) instead of the whole response.
++ */
++export type TokenChunkKind = 'thinking' | 'content' | 'tool'
++
++/** Every kind, so a batcher can drain them without repeating the list. */
++export const TOKEN_CHUNK_KINDS: readonly TokenChunkKind[] = ['thinking', 'content', 'tool']
++
+ type DeltaEx = Record<string, unknown> & {
+   content?: string | null
+   tool_calls?: Array<{
+@@ -368,6 +383,21 @@ function extractReasoning(delta: DeltaEx): { thinking: string; signature: string
+   return null
+ }
+ 
++/**
++ * What a chunk carries, for attributing its token count.
++ *
++ * Reasoning is checked first: a provider that streams reasoning and content in
++ * the same delta is emitting the thought first, and the thought is the part a
++ * count gets attributed to. Tool input is checked last, because `tool_calls`
++ * rides on argument fragments that carry no `content` of their own.
++ */
++function deltaKind(delta: DeltaEx): TokenChunkKind {
++  if (extractReasoning(delta)) return 'thinking'
++  if (delta.content) return 'content'
++  if (delta.tool_calls?.length) return 'tool'
++  return 'content'
++}
++
+ // ─── Main chunk processing ─────────────────────────────────
+ 
+ function processChunk(chunk: OpenAIChatStreamChunk, state: StreamState): void {
+@@ -386,11 +416,15 @@ function processChunk(chunk: OpenAIChatStreamChunk, state: StreamState): void {
+   state.model = chunk.model || state.model
+   ensureMessageStart(state, chunk.id)
+ 
+-  // Real per-chunk token counts, when the engine reports them. Counted before
+-  // the finish-reason guard so the last chunk's ids still land.
+-  if (choice.token_ids?.length) state.onTokenIds?.(choice.token_ids.length)
+-
+   const delta = (choice.delta || {}) as DeltaEx
++
++  // Real per-chunk token counts, when the engine reports them. Counted before
++  // the finish-reason guard so the last chunk's ids still land, and tagged with
++  // what this chunk carries so a consumer can attribute them to one part of the
++  // response (the thought badge wants reasoning only).
++  if (choice.token_ids?.length) {
++    state.onTokenIds?.(choice.token_ids.length, deltaKind(delta))
++  }
+   if (state.finishReason) {
+     if (chunk.usage) mergeUsageIntoHeldDelta(state, chunk.usage)
+     if (extractReasoning(delta) || delta.content || delta.tool_calls?.length) {
+diff --git a/src/server/proxy/tpsTokenSink.ts b/src/server/proxy/tpsTokenSink.ts
+index 2e3fbbf7..ca6721d4 100644
+--- a/src/server/proxy/tpsTokenSink.ts
++++ b/src/server/proxy/tpsTokenSink.ts
+@@ -7,7 +7,9 @@
+  * server registers its broadcaster here once, at startup, instead.
+  */
+ 
+-type TpsTokenSink = (sessionId: string, tokens: number) => void
++import type { TokenChunkKind } from './streaming/openaiChatStreamToAnthropic.js'
++
++type TpsTokenSink = (sessionId: string, tokens: number, kind: TokenChunkKind) => void
+ 
+ let sink: TpsTokenSink | null = null
+ 
+@@ -16,7 +18,11 @@ export function setTpsTokenSink(next: TpsTokenSink | null): void {
+ }
+ 
+ /** No-op until a sink is registered (headless runs, tests). */
+-export function emitTpsTokens(sessionId: string, tokens: number): void {
++export function emitTpsTokens(
++  sessionId: string,
++  tokens: number,
++  kind: TokenChunkKind,
++): void {
+   if (tokens <= 0) return
+-  sink?.(sessionId, tokens)
++  sink?.(sessionId, tokens, kind)
+ }
+diff --git a/src/server/proxy/transform/types.ts b/src/server/proxy/transform/types.ts
+index c3fa56d2..b499ebfb 100644
+--- a/src/server/proxy/transform/types.ts
++++ b/src/server/proxy/transform/types.ts
+@@ -85,6 +85,14 @@ export type OpenAICompatibleUsage = {
+   total_tokens?: number
+   input_tokens_details?: { cached_tokens?: number }
+   prompt_tokens_details?: { cached_tokens?: number }
++  /**
++   * How many of the completion tokens were reasoning. Carried so a caller can
++   * separate a model's deliberation from its answer: on a reasoning model the
++   * two differ by several times, and one total cannot express either. vLLM
++   * reports this shape; `output_tokens_details` is the Responses one.
++   */
++  completion_tokens_details?: { reasoning_tokens?: number }
++  output_tokens_details?: { reasoning_tokens?: number }
+   cache_read_input_tokens?: number
+   cache_creation_input_tokens?: number
+ }
+@@ -287,5 +295,7 @@ export type AnthropicResponse = {
+     output_tokens: number
+     cache_read_input_tokens?: number
+     cache_creation_input_tokens?: number
++    /** Extension: reasoning share of `output_tokens`, when upstream reported it. */
++    reasoning_tokens?: number
+   }
+ }
+diff --git a/src/server/proxy/transform/usage.ts b/src/server/proxy/transform/usage.ts
+index 17915ac5..332d1c3e 100644
+--- a/src/server/proxy/transform/usage.ts
++++ b/src/server/proxy/transform/usage.ts
+@@ -82,5 +82,15 @@ export function openaiUsageToAnthropic(usage: OpenAICompatibleUsage | undefined)
+   }
+   if (cacheRead > 0) result.cache_read_input_tokens = cacheRead
+   if (cacheCreation > 0) result.cache_creation_input_tokens = cacheCreation
++
++  // Pass the reasoning split through when upstream measured one. It is not part
++  // of Anthropic's schema, so a consumer that does not know the field ignores
++  // it; one that does gets the only number that separates thinking from answer.
++  // Both nested spellings are accepted: vLLM's Chat API reports the first, the
++  // Responses API the second.
++  const reasoningTokens = validTokenCount(
++    usage.completion_tokens_details?.reasoning_tokens,
++  ) ?? validTokenCount(usage.output_tokens_details?.reasoning_tokens)
++  if (reasoningTokens !== undefined) result.reasoning_tokens = reasoningTokens
+   return result
+ }
+diff --git a/src/server/ws/events.ts b/src/server/ws/events.ts
+index a6d05921..ea86a682 100644
+--- a/src/server/ws/events.ts
++++ b/src/server/ws/events.ts
+@@ -85,7 +85,7 @@ export type ServerMessage =
+    * desktop feeds it to the TPS meter, which then ignores the text frames it
+    * duplicates. Sent only for endpoints that reported token ids.
+    */
+-  | { type: 'tps_tokens'; tokens: number }
++  | { type: 'tps_tokens'; tokens: number; kind: 'thinking' | 'content' | 'tool' }
+   | { type: 'tool_use_complete'; toolName: string; toolUseId: string; originalToolUseId?: string; input: unknown; parentToolUseId?: string }
+   | { type: 'tool_result'; toolUseId: string; originalToolUseId?: string; content: unknown; isError: boolean; parentToolUseId?: string }
+   | {

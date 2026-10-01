@@ -19,11 +19,15 @@ import { drainSdkEvents } from '../../utils/sdkEventQueue.js'
 import { _clearOutputsForTest } from '../../utils/task/diskOutput.js'
 import {
   backgroundAgentTask,
+  createProgressTracker,
   enqueueAgentNotification,
+  getReasoningTokenCountFromTracker,
+  getTokenCountFromTracker,
   type LocalAgentTaskState,
   registerAgentForeground,
   registerAsyncAgent,
   updateAgentSummary,
+  updateProgressFromMessage,
 } from './LocalAgentTask.js'
 
 const selectedAgent = {
@@ -96,6 +100,53 @@ afterEach(async () => {
   drainSdkEvents()
   resetCommandQueue()
   resetStateForTests()
+})
+
+describe('enqueueAgentNotification thinking split', () => {
+  // The numbers are emitted only while the thinking itself is withheld: with
+  // the reasoning visible, one total reads fine; with it hidden, the pair is the
+  // only evidence that most of the cost was deliberation.
+  test('emits think_tokens alongside the output when thinking is not returned', () => {
+    const harness = makeHarness()
+
+    enqueueAgentNotification({
+      taskId: harness.taskId,
+      description: 'Write an article',
+      status: 'completed',
+      setAppState: harness.setAppState,
+      toolUseId: 'toolu_agent',
+      usage: {
+        totalTokens: 11_900,
+        toolUses: 1,
+        durationMs: 60_000,
+        outputTokens: 11_900,
+        reasoningTokens: 9_000,
+      },
+    })
+
+    const value = String(getCommandQueue()[0]?.value)
+    expect(value).toContain('<think_tokens>9000</think_tokens>')
+    expect(value).toContain('<output_tokens>11900</output_tokens>')
+    // The pre-existing total stays, so readers that only know it keep working.
+    expect(value).toContain('<total_tokens>11900</total_tokens>')
+  })
+
+  test('omits the split when the run reported no reasoning share', () => {
+    const harness = makeHarness()
+
+    enqueueAgentNotification({
+      taskId: harness.taskId,
+      description: 'Run a command',
+      status: 'completed',
+      setAppState: harness.setAppState,
+      toolUseId: 'toolu_agent',
+      usage: { totalTokens: 2000, toolUses: 1, durationMs: 1000 },
+    })
+
+    const value = String(getCommandQueue()[0]?.value)
+    expect(value).toContain('<total_tokens>2000</total_tokens>')
+    expect(value).not.toContain('think_tokens')
+  })
 })
 
 describe('enqueueAgentNotification ownership', () => {
@@ -215,5 +266,143 @@ describe('Agent task registration ownership', () => {
       ),
     ).toBe(true)
     await foreground.backgroundSignal
+  })
+})
+
+
+describe('getTokenCountFromTracker usage basis', () => {
+  // The tracker sees both sides, but a run's "usage" means what it generated.
+  // The input side is the window it was handed, so adding it made a run that
+  // read a lot look busier than one that wrote a lot. The synchronous path was
+  // moved onto this same basis so a run's number means one thing.
+  test('reports generated output tokens, not the context it read', () => {
+    const tracker = createProgressTracker()
+    const turn = (input: number, cacheRead: number, output: number) => ({
+      type: 'assistant' as const,
+      message: {
+        content: [],
+        usage: {
+          input_tokens: input,
+          cache_read_input_tokens: cacheRead,
+          cache_creation_input_tokens: 0,
+          output_tokens: output,
+        },
+      },
+    })
+
+    updateProgressFromMessage(tracker, turn(1000, 5000, 300) as never)
+    updateProgressFromMessage(tracker, turn(4000, 9000, 700) as never)
+
+    expect(tracker.cumulativeOutputTokens).toBe(1000)
+    // `latestInputTokens` is the latest turn's input, not a sum.
+    expect(tracker.latestInputTokens).toBe(13000)
+    expect(getTokenCountFromTracker(tracker)).toBe(1000)
+  })
+})
+
+describe('thinking share of a run', () => {
+  // On a reasoning model most of the output is deliberation, so a single total
+  // cannot be read: 12k may be a 3k answer or a 3k answer plus 9k of thinking.
+  test('prefers the engine count when it reports one', () => {
+    const tracker = createProgressTracker()
+    const turn = (output: number, reasoning?: number) => ({
+      type: 'assistant' as const,
+      message: {
+        // Thinking content present, so an estimate would have a number to use —
+        // the engine's own count must win anyway.
+        content: [{ type: 'thinking', thinking: 'x'.repeat(4000) }],
+        usage: {
+          input_tokens: 10,
+          cache_read_input_tokens: 0,
+          cache_creation_input_tokens: 0,
+          output_tokens: output,
+          ...(reasoning === undefined ? {} : { reasoning_tokens: reasoning }),
+        },
+      },
+    })
+
+    updateProgressFromMessage(tracker, turn(500, 300) as never)
+    updateProgressFromMessage(tracker, turn(400, 150) as never)
+
+    expect(tracker.cumulativeReasoningTokens).toBe(450)
+    expect(getReasoningTokenCountFromTracker(tracker)).toBe(450)
+  })
+
+  test('estimates the thinking when the engine reports none', () => {
+    const tracker = createProgressTracker()
+    // 4000 chars of thinking at 4 bytes/token = 1000, used because no engine
+    // count came with the turn — otherwise this endpoint would have no split.
+    updateProgressFromMessage(tracker, {
+      type: 'assistant' as const,
+      message: {
+        content: [{ type: 'thinking', thinking: 'x'.repeat(4000) }],
+        usage: {
+          input_tokens: 10,
+          cache_read_input_tokens: 0,
+          cache_creation_input_tokens: 0,
+          output_tokens: 1200,
+        },
+      },
+    } as never)
+
+    expect(tracker.cumulativeReasoningTokens).toBe(1000)
+  })
+
+  test('does not estimate a thinking record whose response reported the count', () => {
+    // Measured shape on the local engine (agent-a47f5e65272e0bd40.jsonl): one
+    // response arrives as two records sharing a message id — the thinking block
+    // alone with `output_tokens: 0` and no reasoning, then the text record with
+    // the real pair. Estimating the first on top of the second made a 9.3k run
+    // report 15.7k of thinking, so the UI's `total - think` read zero.
+    const tracker = createProgressTracker()
+    const record = (output: number, content: unknown, reasoning?: number) => ({
+      type: 'assistant' as const,
+      message: {
+        id: 'msg_1',
+        content,
+        usage: {
+          input_tokens: 10,
+          cache_read_input_tokens: 0,
+          cache_creation_input_tokens: 0,
+          output_tokens: output,
+          ...(reasoning === undefined ? {} : { reasoning_tokens: reasoning }),
+        },
+      },
+    })
+
+    updateProgressFromMessage(
+      tracker,
+      record(0, [{ type: 'thinking', thinking: 'x'.repeat(4000) }]) as never,
+    )
+    updateProgressFromMessage(
+      tracker,
+      record(1200, [{ type: 'text', text: 'done' }], 800) as never,
+    )
+
+    // The withdrawn estimate leaves the engine's own count alone.
+    expect(tracker.cumulativeReasoningTokens).toBe(800)
+    expect(tracker.cumulativeOutputTokens).toBe(1200)
+    // And the non-thinking part stays positive, which is what the bar shows.
+    expect(tracker.cumulativeOutputTokens - tracker.cumulativeReasoningTokens).toBe(400)
+  })
+
+  test('reports no thinking share for a run that did not think', () => {
+    const tracker = createProgressTracker()
+    updateProgressFromMessage(tracker, {
+      type: 'assistant' as const,
+      message: {
+        content: [{ type: 'text', text: 'answer' }],
+        usage: {
+          input_tokens: 10,
+          cache_read_input_tokens: 0,
+          cache_creation_input_tokens: 0,
+          output_tokens: 40,
+        },
+      },
+    } as never)
+
+    // Absent rather than 0: a reader must be able to tell "no thinking" from
+    // "the number is there and it is zero".
+    expect(getReasoningTokenCountFromTracker(tracker)).toBeUndefined()
   })
 })

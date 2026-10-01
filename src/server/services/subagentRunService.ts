@@ -13,6 +13,8 @@ export type SubagentRunUsage = {
   inputTokens?: number
   outputTokens?: number
   totalTokens?: number
+  /** Thinking share of the output. Absent when the engine reported no split. */
+  thinkTokens?: number
 }
 
 export type SubagentRunResponse = {
@@ -363,6 +365,9 @@ function normalizeUsage(usage: SubagentRunUsage): SubagentRunUsage | undefined {
   if (typeof usage.outputTokens === 'number' && Number.isFinite(usage.outputTokens)) {
     normalized.outputTokens = usage.outputTokens
   }
+  if (typeof usage.thinkTokens === 'number' && Number.isFinite(usage.thinkTokens)) {
+    normalized.thinkTokens = usage.thinkTokens
+  }
   if (typeof usage.totalTokens === 'number' && Number.isFinite(usage.totalTokens)) {
     normalized.totalTokens = usage.totalTokens
   } else if (
@@ -381,6 +386,7 @@ function extractUsage(text: string): SubagentRunUsage | undefined {
     inputTokens: readNumberValue(usageText, ['input_tokens', 'inputTokens']),
     outputTokens: readNumberValue(usageText, ['output_tokens', 'outputTokens']),
     totalTokens: readNumberValue(usageText, ['total_tokens', 'totalTokens']),
+    thinkTokens: readNumberValue(usageText, ['think_tokens', 'thinkTokens']),
   })
 }
 
@@ -395,6 +401,7 @@ function mergeUsage(
     inputTokens: preferred.inputTokens ?? fallback.inputTokens,
     outputTokens: preferred.outputTokens ?? fallback.outputTokens,
     totalTokens: preferred.totalTokens ?? fallback.totalTokens,
+    thinkTokens: preferred.thinkTokens ?? fallback.thinkTokens,
   })
 }
 

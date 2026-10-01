@@ -97,6 +97,7 @@ import {
   type SystemPrompt,
 } from "../../utils/systemPromptType.js";
 import { tokenCountFromLastAPIResponse } from "../../utils/tokens.js";
+import { modelUsesBoundThinking, shouldSendThinkingToAPI } from "../../utils/thinking.js";
 import { getDynamicConfig_BLOCKS_ON_INIT } from "../analytics/growthbook.js";
 import {
   currentLimits,
@@ -1419,6 +1420,14 @@ async function* queryModel(
     messages,
     filteredTools,
     options.model,
+    // When the "send thinking back to the API" toggle is OFF (default),
+    // strip the previous turn's thinking blocks from the request body to
+    // save prefill tokens. Local history always keeps them.
+    // Exception: bound-thinking models (Fable 5.1) need the replayed
+    // thinking blocks in the request so the API can drop the ones bound
+    // to an old prefix (block_binding drop_block); stripping them breaks
+    // replay after a system change.
+    { stripThinking: !shouldSendThinkingToAPI() && !modelUsesBoundThinking(options.model) },
   );
   queryCheckpoint("query_message_normalization_end");
 
@@ -1832,9 +1841,12 @@ async function* queryModel(
       }
     }
 
-    // Get API context management strategies if enabled
+    // Get API context management strategies if enabled. Only request the
+    // clear_thinking "keep:all" retention strategy when thinking is actually
+    // being sent back to the API — otherwise it's a pointless instruction to
+    // a backend that has no thinking blocks to retain.
     const contextManagement = getAPIContextManagement({
-      hasThinking,
+      hasThinking: hasThinking && shouldSendThinkingToAPI(),
       isRedactThinkingActive: betasParams.includes(REDACT_THINKING_BETA_HEADER),
       clearAllThinking: thinkingClearLatched,
     });
@@ -1988,6 +2000,11 @@ async function* queryModel(
   let stopReason: BetaStopReason | null = null;
   const completedBlockIndexes = new Set<number>();
   const completedToolUseIds = new Set<string>();
+  // Per-block wall-clock start for thinking blocks: content_block_start fires
+  // right before the first thinking delta, so block_start -> block_stop is the
+  // block's pure generation span. Persisted as thinkingDurationMs on the
+  // transcript line so a reopened session can re-show the per-thought timing.
+  const thinkingStartedAtByIndex = new Map<number, number>();
   const handledStopReasons = new Set<BetaStopReason>();
   let incompleteStream = false;
   let didFallBackToNonStreaming = false;
@@ -2420,6 +2437,7 @@ async function* queryModel(
                   // initialize signature to ensure field exists even if signature_delta never arrives
                   signature: "",
                 };
+                thinkingStartedAtByIndex.set(part.index, Date.now());
                 break;
               default:
                 // even more awkwardly, the sdk mutates the contents of text blocks
@@ -2597,6 +2615,18 @@ async function* queryModel(
               type: "assistant",
               uuid: randomUUID(),
               timestamp: new Date().toISOString(),
+              ...(contentBlock.type === "thinking" &&
+                (() => {
+                  const startedAt = thinkingStartedAtByIndex.get(part.index);
+                  thinkingStartedAtByIndex.delete(part.index);
+                  // No anchor (a resumed or partial stream that never saw this
+                  // block's content_block_start) means the span was never
+                  // measured. Omit the field rather than writing 0: absent is
+                  // the contract for "not measured", and a 0 would render as a
+                  // confident `0.0s` next to the token count.
+                  if (typeof startedAt !== "number") return {};
+                  return { thinkingDurationMs: Math.max(0, Date.now() - startedAt) };
+                })()),
               ...(process.env.USER_TYPE === "ant" &&
                 research !== undefined && { research }),
               ...(advisorModel && { advisorModel }),
@@ -3588,6 +3618,18 @@ export function updateUsage(
     inference_geo: usage.inference_geo,
     iterations: partUsage.iterations ?? usage.iterations,
     speed: (partUsage as BetaUsage).speed ?? usage.speed,
+    // reasoning_tokens: how much of output_tokens the model spent thinking.
+    // Reported by compatible engines, absent from SDK types and from the
+    // Anthropic schema, so it is kept off NonNullableUsage and read back with a
+    // cast (same treatment as cache_deleted_input_tokens below). Uses the > 0
+    // guard the input fields use: a later delta's 0 must not erase a real value.
+    reasoning_tokens:
+      (partUsage as unknown as { reasoning_tokens?: number })
+        .reasoning_tokens != null &&
+      (partUsage as unknown as { reasoning_tokens: number }).reasoning_tokens > 0
+        ? (partUsage as unknown as { reasoning_tokens: number }).reasoning_tokens
+        : ((usage as unknown as { reasoning_tokens?: number }).reasoning_tokens ??
+          0),
   };
 }
 

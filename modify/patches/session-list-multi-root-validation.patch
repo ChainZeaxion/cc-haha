@@ -1,0 +1,161 @@
+diff --git a/src/server/services/sessionService.ts b/src/server/services/sessionService.ts
+index 31c0a43e..32c926f4 100644
+--- a/src/server/services/sessionService.ts
++++ b/src/server/services/sessionService.ts
+@@ -62,6 +62,7 @@ import type {
+   SessionListSummary,
+ } from './localIndex/types.js'
+ import { localIndexCoordinator } from './localIndex/coordinator.js'
++import { resolveExtraProjectRoots } from './localIndex/config.js'
+ import { readSessionEntriesByLocator } from './localIndex/sessionEntries.js'
+ import type {
+   IndexedSessionRow,
+@@ -815,7 +816,7 @@ export class SessionService {
+       hydrate: async (row) => {
+         try {
+           await this.validateIndexedTranscriptPath(
+-            row.transcriptPath, row.projectPath, row.id, await fs.realpath(this.getProjectsDir()),
++            row.transcriptPath, row.projectPath, row.id, await this.getIndexedProjectsRoots(),
+           )
+           return await this.hydrateIndexedSession(row)
+         } catch (error) {
+@@ -1110,9 +1111,38 @@ export class SessionService {
+     return path.resolve(getClaudeConfigHomeDir())
+   }
+ 
+-  private getProjectsDir(): string {
+-    return path.join(this.getConfigDir(), 'projects')
+-  }
++    private getProjectsDir(): string {
++      return path.join(this.getConfigDir(), 'projects')
++    }
++
++    /**
++     * Every `projects/` root the index reads from: this config dir's own, plus
++     * any listed in `CC_HAHA_EXTRA_PROJECT_ROOTS`.
++     *
++     * The index discovers transcripts under all of them, so every check that
++     * asks "is this row ours?" has to accept the same set — validating against
++     * only the config dir's own root is what silently dropped every session that
++     * came from an extra root (the row failed the ancestry check and was
++     * discarded, leaving a list that reported the right total but almost no
++     * rows).
++     *
++     * Realpath'd because callers compare the result against a realpath'd
++     * transcript path. A root that does not exist is skipped: the extra roots are
++     * optional, and requiring one would make an unset path an error.
++     */
++    private async getIndexedProjectsRoots(): Promise<string[]> {
++      const roots = [this.getProjectsDir(), ...resolveExtraProjectRoots()]
++      const resolved: string[] = []
++      for (const root of roots) {
++        try {
++          const real = await fs.realpath(root)
++          if (!resolved.includes(real)) resolved.push(real)
++        } catch {
++          // Optional extra root that is not there (or not readable yet).
++        }
++      }
++      return resolved
++    }
+ 
+   /**
+    * Sanitize a path the same way the shared session storage does.
+@@ -2633,7 +2663,7 @@ export class SessionService {
+     filePath: string,
+     projectDir: string,
+     sessionId: string,
+-    projectsRoot: string,
++    projectsRoots: readonly string[],
+   ): Promise<Stats> {
+     const invalid = (): Error & { code: string } => Object.assign(
+       new Error('Indexed transcript path failed scope validation'),
+@@ -2649,21 +2679,38 @@ export class SessionService {
+       throw invalid()
+     }
+ 
+-    const projectsDir = this.getProjectsDir()
+-    const expectedPath = path.join(projectsDir, projectDir, `${sessionId}.jsonl`)
++    // The row is ours if it is the transcript we would have built under ANY
++    // indexed root — the config dir's own, or one an extra root contributes. The
++    // path shape and the root it sits in both have to match, so a row cannot
++    // point at some other directory's file and still pass.
+     const indexedRealPath = await fs.realpath(filePath)
+-    const expectedRealPath = path.resolve(expectedPath) === path.resolve(filePath)
+-      ? indexedRealPath
+-      : await fs.realpath(expectedPath)
+-    const relativePath = path.relative(projectsRoot, indexedRealPath)
+-    if (
+-      expectedRealPath !== indexedRealPath ||
+-      relativePath === '..' ||
+-      relativePath.startsWith(`..${path.sep}`) ||
+-      path.isAbsolute(relativePath)
+-    ) {
+-      throw invalid()
++    let withinAnIndexedRoot = false
++    for (const projectsRoot of projectsRoots) {
++      const expectedPath = path.join(projectsRoot, projectDir, `${sessionId}.jsonl`)
++      let expectedRealPath: string
++      if (path.resolve(expectedPath) === path.resolve(filePath)) {
++        expectedRealPath = indexedRealPath
++      } else {
++        try {
++          expectedRealPath = await fs.realpath(expectedPath)
++        } catch {
++          // No such transcript under this root; try the next one.
++          continue
++        }
++      }
++      if (expectedRealPath !== indexedRealPath) continue
++      const relativePath = path.relative(projectsRoot, indexedRealPath)
++      if (
++        relativePath === '..' ||
++        relativePath.startsWith(`..${path.sep}`) ||
++        path.isAbsolute(relativePath)
++      ) {
++        continue
++      }
++      withinAnIndexedRoot = true
++      break
+     }
++    if (!withinAnIndexedRoot) throw invalid()
+ 
+     const stat = await fs.stat(indexedRealPath)
+     if (!stat.isFile()) throw invalid()
+@@ -2686,8 +2733,8 @@ export class SessionService {
+         if (!this.indexStatusRemainsUsable()) {
+           this.markIndexReadFailure()
+         } else {
+-          const projectsRoot = indexedMatches.length > 0
+-            ? await fs.realpath(this.getProjectsDir())
++          const projectsRoots = indexedMatches.length > 0
++            ? await this.getIndexedProjectsRoots()
+             : null
+           const hydratedMatches: Array<SessionFileMatch & { mtimeMs: number; hasTranscript: boolean }> = []
+           let hydrationFailed = false
+@@ -2697,7 +2744,7 @@ export class SessionService {
+                 match.filePath,
+                 match.projectDir,
+                 sessionId,
+-                projectsRoot!,
++                projectsRoots!,
+               )
+               // The index already validated this exact path, so one bounded read
+               // here only serves transcript-vs-placeholder ordering. The
+@@ -3687,14 +3734,14 @@ export class SessionService {
+ 
+       const sessions: SessionListItem[] = []
+       const pathExists = this.createCachedPathExists()
+-      const projectsRoot = await fs.realpath(this.getProjectsDir())
++      const projectsRoots = await this.getIndexedProjectsRoots()
+       for (const row of indexedPage.sessions) {
+         try {
+           await this.validateIndexedTranscriptPath(
+             row.transcriptPath,
+             row.projectPath,
+             row.id,
+-            projectsRoot,
++            projectsRoots,
+           )
+           sessions.push(await this.hydrateIndexedSession(row, pathExists))
+         } catch {

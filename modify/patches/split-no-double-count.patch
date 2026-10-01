@@ -1,0 +1,254 @@
+diff --git a/src/server/services/sessionUsageRollup.test.ts b/src/server/services/sessionUsageRollup.test.ts
+index 2bec7438..1d97353c 100644
+--- a/src/server/services/sessionUsageRollup.test.ts
++++ b/src/server/services/sessionUsageRollup.test.ts
+@@ -29,6 +29,33 @@ function assistant(output: number, content: unknown = [], reasoning?: number): R
+ }
+ 
+ const thinking = (text: string) => [{ type: 'thinking', thinking: text }]
++/**
++ * One record of a response that was streamed in several records — the shape the
++ * CLI actually writes: the thinking block lands as its own assistant record with
++ * no usage of its own, and the response's usage (reasoning included) lands on the
++ * text record sharing its id. Measured on the local engine, both records carry
++ * `output_tokens: 0, no reasoning` and `output_tokens: N, reasoning: R`.
++ */
++function assistantOfResponse(
++  id: string,
++  output: number,
++  content: unknown = [],
++  reasoning?: number,
++): RawEntry {
++  return entry({
++    type: 'assistant',
++    message: {
++      id,
++      role: 'assistant',
++      content,
++      usage: {
++        input_tokens: 10,
++        output_tokens: output,
++        ...(reasoning !== undefined ? { reasoning_tokens: reasoning } : {}),
++      },
++    },
++  })
++}
+ const toolUse = [{ type: 'tool_use', id: 't1', name: 'Read', input: {} }]
+ 
+ describe('computeSubagentUsage', () => {
+@@ -72,6 +99,30 @@ describe('computeSubagentUsage', () => {
+     expect(computeSubagentUsage([assistant(0)])).toBeUndefined()
+     expect(computeSubagentUsage([entry({ type: 'user', message: { role: 'user' } })])).toBeUndefined()
+   })
++  it('does not estimate the thinking of a record whose response reported it', () => {
++    // Measured shape (agent-a47f5e65272e0bd40.jsonl): the thinking record carries
++    // output_tokens 0 and no reasoning; its sibling reports the real pair.
++    // Estimating the first on top of the second made a 9.3k run report 15.7k of
++    // thinking, which drove the UI's `total - think` to zero.
++    const usage = computeSubagentUsage([
++      assistantOfResponse('msg_1', 0, thinking('思'.repeat(400))),
++      assistantOfResponse('msg_1', 100, [{ type: 'text', text: 'done' }], 60),
++    ])
++    expect(usage?.outputTokens).toBe(100)
++    expect(usage?.thinkTokens).toBe(60)
++    expect((usage?.totalTokens ?? 0) - (usage?.thinkTokens ?? 0)).toBe(40)
++  })
++
++  it('still estimates when no record of the response reported reasoning', () => {
++    // Same split shape on an engine without the split: the estimate is the only
++    // signal there is, and it must survive.
++    const usage = computeSubagentUsage([
++      assistantOfResponse('msg_2', 0, thinking('思'.repeat(40))),
++      assistantOfResponse('msg_2', 100, [{ type: 'text', text: 'done' }]),
++    ])
++    expect(usage?.outputTokens).toBe(100)
++    expect(usage?.thinkTokens).toBe(10)
++  })
+ })
+ 
+ describe('attachUsageToNotifications', () => {
+diff --git a/src/server/services/sessionUsageRollup.ts b/src/server/services/sessionUsageRollup.ts
+index 8eb008e7..fed5f08b 100644
+--- a/src/server/services/sessionUsageRollup.ts
++++ b/src/server/services/sessionUsageRollup.ts
+@@ -58,10 +58,18 @@ function countToolUsesInEntries(entries: readonly RawEntry[]): number {
+  */
+ export function computeSubagentUsage(entries: readonly RawEntry[]): SubagentUsage | undefined {
+   let outputTokens = 0
+-  let thinkTokens = 0
+   let sawOutput = false
+-
+-  for (const entry of entries) {
++  // Grouped by response, because a streamed response arrives as several records:
++  // the thinking one alone (carrying no usage of its own), then the text one with
++  // the usage. Only the latter can report reasoning, so estimating the thinking
++  // record *and* adding its sibling's real count counts the same thinking twice —
++  // a run then reports more thinking than it generated and the UI's
++  // `total - think` collapses to zero. A reported count wins for its response;
++  // the estimate is kept only where nothing was reported.
++  const reportedThinkByResponse = new Map<string, number>()
++  const estimatedThinkByResponse = new Map<string, number>()
++
++  for (const [index, entry] of entries.entries()) {
+     if (entry.type !== 'assistant') continue
+     const usage = entry.message?.usage
+     if (!usage) continue
+@@ -73,13 +81,32 @@ export function computeSubagentUsage(entries: readonly RawEntry[]): SubagentUsag
+       sawOutput = true
+     }
+ 
++    // A record with no id cannot be grouped with its siblings, so it stands
++    // alone — the old behavior, which is right for a single-record response.
++    const responseId = entry.message?.id ?? `__record_${index}`
+     const reported = getReasoningTokenCountFromUsage(reportedUsage)
+-    const part = reported !== undefined && reported > 0
+-      ? reported
+-      : roughTokenCountEstimationForThinking(
+-          entry.message?.content as Parameters<typeof roughTokenCountEstimationForThinking>[0],
+-        )
+-    if (part > 0) thinkTokens += part
++    if (reported !== undefined && reported > 0) {
++      reportedThinkByResponse.set(
++        responseId,
++        (reportedThinkByResponse.get(responseId) ?? 0) + reported,
++      )
++      continue
++    }
++    const estimate = roughTokenCountEstimationForThinking(
++      entry.message?.content as Parameters<typeof roughTokenCountEstimationForThinking>[0],
++    )
++    if (estimate > 0) {
++      estimatedThinkByResponse.set(
++        responseId,
++        (estimatedThinkByResponse.get(responseId) ?? 0) + estimate,
++      )
++    }
++  }
++
++  let thinkTokens = 0
++  for (const reported of reportedThinkByResponse.values()) thinkTokens += reported
++  for (const [responseId, estimate] of estimatedThinkByResponse) {
++    if (!reportedThinkByResponse.has(responseId)) thinkTokens += estimate
+   }
+ 
+   if (!sawOutput) return undefined
+diff --git a/src/tasks/LocalAgentTask/LocalAgentTask.test.ts b/src/tasks/LocalAgentTask/LocalAgentTask.test.ts
+index 9b9cb199..08b851e3 100644
+--- a/src/tasks/LocalAgentTask/LocalAgentTask.test.ts
++++ b/src/tasks/LocalAgentTask/LocalAgentTask.test.ts
+@@ -348,6 +348,44 @@ describe('thinking share of a run', () => {
+     expect(tracker.cumulativeReasoningTokens).toBe(1000)
+   })
+ 
++  test('does not estimate a thinking record whose response reported the count', () => {
++    // Measured shape on the local engine (agent-a47f5e65272e0bd40.jsonl): one
++    // response arrives as two records sharing a message id — the thinking block
++    // alone with `output_tokens: 0` and no reasoning, then the text record with
++    // the real pair. Estimating the first on top of the second made a 9.3k run
++    // report 15.7k of thinking, so the UI's `total - think` read zero.
++    const tracker = createProgressTracker()
++    const record = (output: number, content: unknown, reasoning?: number) => ({
++      type: 'assistant' as const,
++      message: {
++        id: 'msg_1',
++        content,
++        usage: {
++          input_tokens: 10,
++          cache_read_input_tokens: 0,
++          cache_creation_input_tokens: 0,
++          output_tokens: output,
++          ...(reasoning === undefined ? {} : { reasoning_tokens: reasoning }),
++        },
++      },
++    })
++
++    updateProgressFromMessage(
++      tracker,
++      record(0, [{ type: 'thinking', thinking: 'x'.repeat(4000) }]) as never,
++    )
++    updateProgressFromMessage(
++      tracker,
++      record(1200, [{ type: 'text', text: 'done' }], 800) as never,
++    )
++
++    // The withdrawn estimate leaves the engine's own count alone.
++    expect(tracker.cumulativeReasoningTokens).toBe(800)
++    expect(tracker.cumulativeOutputTokens).toBe(1200)
++    // And the non-thinking part stays positive, which is what the bar shows.
++    expect(tracker.cumulativeOutputTokens - tracker.cumulativeReasoningTokens).toBe(400)
++  })
++
+   test('reports no thinking share for a run that did not think', () => {
+     const tracker = createProgressTracker()
+     updateProgressFromMessage(tracker, {
+diff --git a/src/tasks/LocalAgentTask/LocalAgentTask.tsx b/src/tasks/LocalAgentTask/LocalAgentTask.tsx
+index ff57ba4f..8d1041d9 100644
+--- a/src/tasks/LocalAgentTask/LocalAgentTask.tsx
++++ b/src/tasks/LocalAgentTask/LocalAgentTask.tsx
+@@ -57,6 +57,19 @@ export type ProgressTracker = {
+    * which is how a reader tells "no split available" from "no thinking".
+    */
+   cumulativeReasoningTokens: number;
++  /**
++   * Thinking estimated for records whose response reported no reasoning, keyed by
++   * response id.
++   *
++   * A streamed response reaches the tracker as several records — the thinking one
++   * alone, then the text one carrying the usage — and only the latter can report
++   * reasoning (measured on the local engine: `output_tokens: 0` with no
++   * reasoning on the thinking record, then the real pair on the text record).
++   * Without this map, the thinking record is estimated *and* its sibling's real
++   * count is added, so a run reported more thinking than it generated in total
++   * (15.7k against 9.3k) and the UI's `total - think` collapsed to zero.
++   */
++  thinkingEstimatesByResponse: Map<string, number>;
+   recentActivities: ToolActivity[];
+ };
+ export function createProgressTracker(): ProgressTracker {
+@@ -65,6 +78,7 @@ export function createProgressTracker(): ProgressTracker {
+     latestInputTokens: 0,
+     cumulativeOutputTokens: 0,
+     cumulativeReasoningTokens: 0,
++    thinkingEstimatesByResponse: new Map(),
+     recentActivities: []
+   };
+ }
+@@ -116,11 +130,33 @@ export function updateProgressFromMessage(tracker: ProgressTracker, message: Mes
+   // A reported 0 counts as "not measured": an engine that fills the field
+   // without computing it reports 0, and treating that as a real measurement
+   // would suppress the estimate and hide the split entirely.
+-  const reported = getReasoningTokenCountFromUsage(usage);
+-  tracker.cumulativeReasoningTokens +=
+-    reported !== undefined && reported > 0
+-      ? reported
+-      : roughTokenCountEstimationForThinking(message.message.content);
++    const reported = getReasoningTokenCountFromUsage(usage);
++    const responseId = (message.message as { id?: string }).id;
++    if (reported !== undefined && reported > 0) {
++      // The real count covers this response's thinking, so an estimate made for
++      // an earlier record of the SAME response must be withdrawn rather than
++      // added to (see thinkingEstimatesByResponse).
++      const pending = responseId
++        ? tracker.thinkingEstimatesByResponse.get(responseId)
++        : undefined;
++      if (pending !== undefined && responseId) {
++        tracker.cumulativeReasoningTokens -= pending;
++        tracker.thinkingEstimatesByResponse.delete(responseId);
++      }
++      tracker.cumulativeReasoningTokens += reported;
++    } else {
++      const estimate = roughTokenCountEstimationForThinking(message.message.content);
++      if (estimate > 0) {
++        tracker.cumulativeReasoningTokens += estimate;
++        if (responseId) {
++          tracker.thinkingEstimatesByResponse.set(
++            responseId,
++            (tracker.thinkingEstimatesByResponse.get(responseId) ?? 0) + estimate,
++          );
++        }
++      }
++    }
++    if (tracker.cumulativeReasoningTokens < 0) tracker.cumulativeReasoningTokens = 0;
+   for (const content of message.message.content) {
+     if (content.type === 'tool_use') {
+       tracker.toolUseCount++;

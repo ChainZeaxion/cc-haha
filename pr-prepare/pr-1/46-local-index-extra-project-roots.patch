@@ -1,0 +1,420 @@
+diff --git a/src/server/services/localIndex/config.ts b/src/server/services/localIndex/config.ts
+index e34d813a..4953309d 100644
+--- a/src/server/services/localIndex/config.ts
++++ b/src/server/services/localIndex/config.ts
+@@ -1,4 +1,4 @@
+-import { join } from 'node:path'
++import { delimiter, join } from 'node:path'
+ import { getCcHahaDir } from '../../../utils/envUtils.js'
+ import type { LocalIndexMode } from './types.js'
+ 
+@@ -29,3 +29,23 @@ export function resolveLocalIndexMode(
+ export function getLocalIndexDatabasePath(): string {
+   return join(getCcHahaDir(), 'db', 'index-v1.sqlite')
+ }
++
++/**
++ * Extra `projects/` directories to index alongside the active config dir's own.
++ *
++ * A development instance runs with its own `CLAUDE_CONFIG_DIR`, which also makes
++ * its discovery root its own — so its session list shows only the sessions that
++ * instance created, and the conversations in the real config dir never appear.
++ * Listing that dir's `projects/` here makes the dev server read and display the
++ * real history while keeping the config dir (port, settings, database file)
++ * separate. Read-only by itself: the listing only widens what discovery walks.
++ */
++export function resolveExtraProjectRoots(
++  value = process.env.CC_HAHA_EXTRA_PROJECT_ROOTS,
++): string[] {
++  if (!value) return []
++  return value
++    .split(delimiter)
++    .map(entry => entry.trim())
++    .filter(entry => entry.length > 0)
++}
+diff --git a/src/server/services/localIndex/coordinator.test.ts b/src/server/services/localIndex/coordinator.test.ts
+index 4edff93f..af076d53 100644
+--- a/src/server/services/localIndex/coordinator.test.ts
++++ b/src/server/services/localIndex/coordinator.test.ts
+@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it } from 'bun:test'
+ import { getEventListeners } from 'node:events'
+ import { appendFile, chmod, mkdir, mkdtemp, readdir, rm, stat, symlink, writeFile } from 'node:fs/promises'
+ import { tmpdir } from 'node:os'
+-import { dirname, join } from 'node:path'
++import { delimiter, dirname, join } from 'node:path'
+ import type { LocalIndexDatabase } from './database.js'
+ import {
+   createLocalIndexCoordinator,
+@@ -10,6 +10,7 @@ import {
+   discoverTranscriptSources,
+   type LocalIndexCoordinator,
+ } from './coordinator.js'
++import { resolveExtraProjectRoots } from './config.js'
+ import type {
+   IndexedSessionRow,
+   PersistedBackfillState,
+@@ -2326,3 +2327,92 @@ describe('discoverActivityTranscriptSources', () => {
+       .toBe(false)
+   })
+ })
++
++describe('extra project roots', () => {
++  // A dev instance has its own CLAUDE_CONFIG_DIR, so its discovery root holds only
++  // the sessions it created and the real config dir's conversations never show.
++  // Listing that dir here is what makes the dev server display the real history.
++  const ENV_KEY = 'CC_HAHA_EXTRA_PROJECT_ROOTS'
++
++  afterEach(() => {
++    delete process.env[ENV_KEY]
++  })
++
++  it('parses a delimiter-separated list, trimming blanks', () => {
++    delete process.env[ENV_KEY]
++    expect(resolveExtraProjectRoots()).toEqual([])
++    expect(resolveExtraProjectRoots('')).toEqual([])
++    expect(resolveExtraProjectRoots(` /a ${delimiter}/b ${delimiter} `)).toEqual(['/a', '/b'])
++  })
++
++  it("indexes sessions from an extra root alongside the scope's own", async () => {
++    const scope = await createTempDir('extra-root-scope')
++    const real = await createTempDir('extra-root-real')
++    await createRealTranscript(scope, '-dev', 'dev-session', 'dev')
++    await createRealTranscript(real, '-prod', 'prod-session', 'prod')
++    process.env[ENV_KEY] = join(real, 'projects')
++
++    const emitted: SessionSourceCandidate[] = []
++    const result = await discoverTranscriptSources(
++      scope,
++      new AbortController().signal,
++      async candidates => {
++        emitted.push(...candidates)
++      },
++    )
++
++    expect(result).toEqual({ complete: true })
++    expect(emitted.map(candidate => candidate.sessionId).sort())
++      .toEqual(['dev-session', 'prod-session'])
++    // projectPath stays the raw directory name, so the row's work dir is still derivable.
++    expect(emitted.find(candidate => candidate.sessionId === 'prod-session')?.projectPath)
++      .toBe('-prod')
++  })
++
++  it('skips a missing extra root instead of degrading the scan', async () => {
++    const scope = await createTempDir('extra-root-missing')
++    await createRealTranscript(scope, '-dev', 'dev-session', 'dev')
++    process.env[ENV_KEY] = join(scope, 'does-not-exist')
++
++    const emitted: SessionSourceCandidate[] = []
++    const result = await discoverTranscriptSources(
++      scope,
++      new AbortController().signal,
++      async candidates => {
++        emitted.push(...candidates)
++      },
++    )
++
++    // A root that is not there is optional: the scope still indexed cleanly.
++    expect(result).toEqual({ complete: true })
++    expect(emitted.map(candidate => candidate.sessionId)).toEqual(['dev-session'])
++  })
++
++  it('reports the root missing only when no root exists at all', async () => {
++    const scope = await createTempDir('extra-root-none')
++    process.env[ENV_KEY] = join(scope, 'also-missing')
++
++    const result = await discoverTranscriptSources(
++      scope,
++      new AbortController().signal,
++      async () => {},
++    )
++
++    expect(result).toEqual({ complete: true, rootMissing: true })
++  })
++
++  it('includes extra roots in activity discovery', async () => {
++    const scope = await createTempDir('extra-root-activity')
++    const real = await createTempDir('extra-root-activity-real')
++    await mkdir(join(real, 'projects', '-prod'), { recursive: true })
++    await writeFile(join(real, 'projects', '-prod', 'prod-session.jsonl'), '')
++    process.env[ENV_KEY] = join(real, 'projects')
++
++    const result = await discoverActivityTranscriptSources(
++      scope,
++      new AbortController().signal,
++    )
++
++    expect(result.candidates.map(candidate => candidate.sessionId)).toEqual(['prod-session'])
++  })
++})
+diff --git a/src/server/services/localIndex/coordinator.ts b/src/server/services/localIndex/coordinator.ts
+index b5eb9230..7fd716f8 100644
+--- a/src/server/services/localIndex/coordinator.ts
++++ b/src/server/services/localIndex/coordinator.ts
+@@ -3,6 +3,7 @@ import { basename, join, relative, resolve, sep } from 'node:path'
+ import { getClaudeConfigHomeDir } from '../../../utils/envUtils.js'
+ import {
+   getLocalIndexDatabasePath,
++  resolveExtraProjectRoots,
+   resolveLocalIndexMode,
+   type LocalIndexModeResolution,
+ } from './config.js'
+@@ -202,17 +203,10 @@ export async function discoverTranscriptSources(
+   emit: SourceDiscoveryEmitter,
+   fileSystem: DiscoveryFileSystem = defaultDiscoveryFileSystem,
+ ): Promise<SourceDiscoveryResult> {
+-  const projectsDir = join(scope, 'projects')
+-  let projectEntries
+-  try {
+-    projectEntries = await fileSystem.readdirWithFileTypes(projectsDir)
+-  } catch (error) {
+-    if (isMissing(error)) return { complete: true, rootMissing: true }
+-    throw error
+-  }
+-
++  const roots = [join(scope, 'projects'), ...resolveExtraProjectRoots()]
+   let candidates: SessionSourceCandidate[] = []
+   let complete = true
++  let sawRoot = false
+   const flushCandidates = async (): Promise<void> => {
+     if (candidates.length === 0) return
+     candidates.sort((left, right) =>
+@@ -222,29 +216,27 @@ export async function discoverTranscriptSources(
+     candidates = []
+     await emit(batch)
+   }
+-  for (const projectEntry of projectEntries) {
++  for (const projectsDir of roots) {
+     if (signal.aborted) return { complete: false }
+-    if (!projectEntry.isDirectory()) continue
+-    const projectPath = projectEntry.name
+-    const projectDir = join(projectsDir, projectPath)
+-    let files
++    let projectEntries
+     try {
+-      files = await fileSystem.readdirWithFileTypes(projectDir)
++      projectEntries = await fileSystem.readdirWithFileTypes(projectsDir)
+     } catch (error) {
+-      if (isMissing(error)) {
+-        complete = false
+-        continue
+-      }
++      // An extra root may legitimately not exist (or be unreadable) without
++      // making the whole discovery incomplete — only the absence of every root
++      // means there is nothing to index.
++      if (isMissing(error)) continue
+       throw error
+     }
+-
+-    for (const file of files) {
++    sawRoot = true
++    for (const projectEntry of projectEntries) {
+       if (signal.aborted) return { complete: false }
+-      if (!file.isFile() || !file.name.endsWith('.jsonl')) continue
+-      const path = join(projectDir, file.name)
+-      let snapshot
++      if (!projectEntry.isDirectory()) continue
++      const projectPath = projectEntry.name
++      const projectDir = join(projectsDir, projectPath)
++      let files
+       try {
+-        snapshot = await fileSystem.statPath(path)
++        files = await fileSystem.readdirWithFileTypes(projectDir)
+       } catch (error) {
+         if (isMissing(error)) {
+           complete = false
+@@ -252,19 +244,36 @@ export async function discoverTranscriptSources(
+         }
+         throw error
+       }
+-      candidates.push({
+-        path,
+-        sessionId: file.name.slice(0, -'.jsonl'.length),
+-        projectPath,
+-        fallbackCreatedAt: snapshot.birthtime.toISOString(),
+-        fallbackModifiedAt: snapshot.mtime.toISOString(),
+-        fallbackWorkDir: desanitizeProjectPath(projectPath),
+-        modifiedAtMs: snapshot.mtimeMs,
+-      })
+-      if (candidates.length >= 25) await flushCandidates()
++
++      for (const file of files) {
++        if (signal.aborted) return { complete: false }
++        if (!file.isFile() || !file.name.endsWith('.jsonl')) continue
++        const path = join(projectDir, file.name)
++        let snapshot
++        try {
++          snapshot = await fileSystem.statPath(path)
++        } catch (error) {
++          if (isMissing(error)) {
++            complete = false
++            continue
++          }
++          throw error
++        }
++        candidates.push({
++          path,
++          sessionId: file.name.slice(0, -'.jsonl'.length),
++          projectPath,
++          fallbackCreatedAt: snapshot.birthtime.toISOString(),
++          fallbackModifiedAt: snapshot.mtime.toISOString(),
++          fallbackWorkDir: desanitizeProjectPath(projectPath),
++          modifiedAtMs: snapshot.mtimeMs,
++        })
++        if (candidates.length >= 25) await flushCandidates()
++      }
+     }
+   }
+   await flushCandidates()
++  if (!sawRoot) return { complete: true, rootMissing: true }
+   return { complete }
+ }
+ 
+@@ -315,82 +324,87 @@ export async function discoverActivityTranscriptSources(
+   scope: string,
+   signal: AbortSignal,
+ ): Promise<ActivitySourceDiscoveryResult> {
+-  const projectsDir = join(scope, 'projects')
+-  let projectEntries
+-  try {
+-    projectEntries = await readdir(projectsDir, { withFileTypes: true })
+-  } catch (error) {
+-    if (isMissing(error)) {
+-      return { complete: true, rootMissing: true, candidates: [] }
+-    }
+-    throw error
+-  }
+-
++  const roots = [join(scope, 'projects'), ...resolveExtraProjectRoots()]
+   const candidates: ActivitySourceCandidate[] = []
+   let complete = true
+-  for (const projectEntry of projectEntries) {
++  let sawRoot = false
++  for (const projectsDir of roots) {
+     if (signal.aborted) return { complete: false, candidates }
+-    if (!projectEntry.isDirectory()) continue
+-    const projectPath = projectEntry.name
+-    const projectDir = join(projectsDir, projectPath)
+-    let entries
++    let projectEntries
+     try {
+-      entries = await readdir(projectDir, { withFileTypes: true })
++      projectEntries = await readdir(projectsDir, { withFileTypes: true })
+     } catch (error) {
+-      if (isMissing(error)) {
+-        complete = false
+-        continue
+-      }
++      // Optional extra root: skip it rather than failing the whole scan. Only
++      // "no root at all" means discovery has nothing to report.
++      if (isMissing(error)) continue
+       throw error
+     }
+-
+-    for (const entry of entries) {
++    sawRoot = true
++    for (const projectEntry of projectEntries) {
+       if (signal.aborted) return { complete: false, candidates }
+-      if (entry.isFile() && entry.name.endsWith('.jsonl')) {
+-        const path = join(projectDir, entry.name)
+-        try {
+-          const snapshot = await stat(path)
+-          candidates.push({
+-            path,
+-            sessionId: entry.name.slice(0, -'.jsonl'.length),
+-            projectPath,
+-            fallbackCreatedAt: snapshot.birthtime.toISOString(),
+-            fallbackModifiedAt: snapshot.mtime.toISOString(),
+-            fallbackWorkDir: desanitizeProjectPath(projectPath),
+-            modifiedAtMs: snapshot.mtimeMs,
+-            isSubagent: false,
+-          })
+-        } catch (error) {
+-          if (isMissing(error)) complete = false
+-          else throw error
++      if (!projectEntry.isDirectory()) continue
++      const projectPath = projectEntry.name
++      const projectDir = join(projectsDir, projectPath)
++      let entries
++      try {
++        entries = await readdir(projectDir, { withFileTypes: true })
++      } catch (error) {
++        if (isMissing(error)) {
++          complete = false
++          continue
+         }
+-        continue
++        throw error
+       }
+-      if (!entry.isDirectory()) continue
+-      const subagentsDir = join(projectDir, entry.name, 'subagents')
+-      const found = await collectSubagentPaths(subagentsDir, signal)
+-      if (!found.complete) complete = false
+-      for (const path of found.paths) {
++
++      for (const entry of entries) {
+         if (signal.aborted) return { complete: false, candidates }
+-        try {
+-          const snapshot = await stat(path)
+-          candidates.push({
+-            path,
+-            sessionId: entry.name,
+-            projectPath,
+-            fallbackCreatedAt: snapshot.birthtime.toISOString(),
+-            fallbackModifiedAt: snapshot.mtime.toISOString(),
+-            fallbackWorkDir: desanitizeProjectPath(projectPath),
+-            modifiedAtMs: snapshot.mtimeMs,
+-            isSubagent: true,
+-          })
+-        } catch (error) {
+-          if (isMissing(error)) complete = false
+-          else throw error
++        if (entry.isFile() && entry.name.endsWith('.jsonl')) {
++          const path = join(projectDir, entry.name)
++          try {
++            const snapshot = await stat(path)
++            candidates.push({
++              path,
++              sessionId: entry.name.slice(0, -'.jsonl'.length),
++              projectPath,
++              fallbackCreatedAt: snapshot.birthtime.toISOString(),
++              fallbackModifiedAt: snapshot.mtime.toISOString(),
++              fallbackWorkDir: desanitizeProjectPath(projectPath),
++              modifiedAtMs: snapshot.mtimeMs,
++              isSubagent: false,
++            })
++          } catch (error) {
++            if (isMissing(error)) complete = false
++            else throw error
++          }
++          continue
++        }
++        if (!entry.isDirectory()) continue
++        const subagentsDir = join(projectDir, entry.name, 'subagents')
++        const found = await collectSubagentPaths(subagentsDir, signal)
++        if (!found.complete) complete = false
++        for (const path of found.paths) {
++          if (signal.aborted) return { complete: false, candidates }
++          try {
++            const snapshot = await stat(path)
++            candidates.push({
++              path,
++              sessionId: entry.name,
++              projectPath,
++              fallbackCreatedAt: snapshot.birthtime.toISOString(),
++              fallbackModifiedAt: snapshot.mtime.toISOString(),
++              fallbackWorkDir: desanitizeProjectPath(projectPath),
++              modifiedAtMs: snapshot.mtimeMs,
++              isSubagent: true,
++            })
++          } catch (error) {
++            if (isMissing(error)) complete = false
++            else throw error
++          }
+         }
+       }
+     }
+   }
++  if (!sawRoot) return { complete: true, rootMissing: true, candidates }
+   candidates.sort((left, right) =>
+     right.modifiedAtMs - left.modifiedAtMs || left.path.localeCompare(right.path))
+   return { complete, candidates }

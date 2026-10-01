@@ -6,6 +6,7 @@ import { ApiError } from '../../api/client'
 import { sessionsApi, type SessionRewindMode, type SessionTurnCheckpoint, type WorkspaceChangedFile } from '../../api/sessions'
 import { listPendingPermissions, useChatStore } from '../../stores/chatStore'
 import { useSessionStore } from '../../stores/sessionStore'
+import { useSettingsStore } from '../../stores/settingsStore'
 import { useWorkspaceChatContextStore } from '../../stores/workspaceChatContextStore'
 import { useWorkspaceStore, type WorkspaceOrigin } from '../../stores/workspaceStore'
 import { useWorkspaceReviewStore } from '../../stores/workspaceReviewStore'
@@ -400,11 +401,15 @@ function GoalContinuationDivider({ message }: { message: GoalEvent }) {
 
 function BackgroundTaskEventCard({ message }: { message: BackgroundTaskEvent }) {
   const t = useTranslation()
+  // The switch is documented as covering background-task durations, and this
+  // inline card is such a duration — it was the one readout left ungated, so
+  // turning the switch off still left times on the conversation timeline.
+  const sessionExtendedInfo = useSettingsStore((state) => state.sessionExtendedInfo)
   const { task } = message
   const isRunning = task.status === 'running'
   const isFailed = task.status === 'failed'
   const isStopped = task.status === 'stopped'
-  const duration = formatDurationMs(task.usage?.durationMs, t)
+  const duration = sessionExtendedInfo === false ? null : formatDurationMs(task.usage?.durationMs, t)
   const detail = task.summary || task.lastToolName || task.description || task.outputFile || task.taskId
   const label = getBackgroundTaskLabel(task.taskType, t)
 
@@ -2334,6 +2339,29 @@ export function MessageList({
     }
     return statuses
   }, [backgroundAgentTasks])
+  // What the runs still in flight have produced so far. A running dispatch
+  // reports progress on every turn, and a reader waiting on a group of agents
+  // wants the number to move rather than appear only once the last one lands.
+  // Only running tasks are keyed: a settled run's notification already carries
+  // its final numbers, and this must not shadow them with a stale snapshot.
+  const agentTaskLiveUsage = useMemo<Record<string, { totalTokens?: number; thinkTokens?: number }>>(() => {
+    const usage: Record<string, { totalTokens?: number; thinkTokens?: number }> = {}
+    for (const task of Object.values(backgroundAgentTasks ?? {})) {
+      if (!task.toolUseId || !task.usage) continue
+      // A settled run whose notification carried numbers is authoritative and
+      // must not be shadowed. But a run the user stopped (or one that died)
+      // closes with no usage at all — there `task.usage` holds the last figure
+      // reported while it was alive, and dropping it would blank the readout at
+      // the very moment it becomes the only record of what the run did.
+      const settledFinal = agentTaskNotifications[task.toolUseId]?.usage?.totalTokens
+      if (task.status !== 'running' && settledFinal !== undefined) continue
+      usage[task.toolUseId] = {
+        ...(task.usage.totalTokens !== undefined ? { totalTokens: task.usage.totalTokens } : {}),
+        ...(task.usage.thinkTokens !== undefined ? { thinkTokens: task.usage.thinkTokens } : {}),
+      }
+    }
+    return usage
+  }, [backgroundAgentTasks, agentTaskNotifications])
   const hasRunningBackgroundTasks = hasAnyRunningBackgroundTasks(backgroundAgentTasks)
   const pendingPermissions = listPendingPermissions(sessionState)
   const activeAskUserQuestionToolUseId =
@@ -3581,72 +3609,71 @@ export function MessageList({
 
     return (
       <>
-        <RenderItemBoundary>
-          {item.kind === 'tool_group' ? (
-            <ToolCallGroup
-              sessionId={resolvedSessionId}
-              onOpenAgentRun={onOpenAgentRun}
-              resolveAgentActivityTarget={resolveAgentActivityTarget}
-              toolCalls={item.toolCalls}
-              steps={item.steps}
-              resultMap={toolResultMap}
-              childToolCallsByParent={childToolCallsByParent}
-              agentTaskNotifications={agentTaskNotifications}
-              agentTaskStatuses={agentTaskStatuses}
-              activeThinkingId={activeThinkingId}
-              isStreaming={
-                chatState === 'tool_executing' &&
-                item.toolCalls.some((tc) => !toolResultMap.has(tc.toolUseId))
-              }
-              // Only the tail of a live turn can still grow. Everything above it
-              // is finished, whatever any individual tool's state looks like this
-              // instant — which is why this, and not `isStreaming`, decides
-              // whether a run stands open.
-              isLive={chatState !== 'idle' && index === renderItems.length - 1 && !hasTrailingStreamingItem}
-              disclosureKey={getRenderItemKey(item)}
-            />
-          ) : item.kind === 'team_card' ? (
-            resolvedSessionId ? (() => {
-              const cardSnapshot = snapshotForTeamCard(teamSnapshot, item)
-              const fallbackPhase = item.endedAt !== undefined || teamTaskWindows.some((window) => (
-                item.startedAt >= window.startedAt &&
-                window.endedAt !== undefined &&
-                item.startedAt <= window.endedAt
-              )) ? 'completed' : 'forming'
-              return (
-              <AgentTeamsInlineCard
-                snapshot={cardSnapshot}
-                teamName={item.teamName}
-                fallbackPhase={fallbackPhase}
-                phaseOverride={item.endedAt !== undefined ? 'completed' : undefined}
-                onOpen={cardSnapshot
-                  ? () => openTeamWorkbench(resolvedSessionId, cardSnapshot.team.name)
-                  : undefined}
-              >
-                <TeamCoordinationAudit toolCalls={item.coordinationToolCalls} />
-              </AgentTeamsInlineCard>
-              )
-            })() : null
-          ) : (
-            <MessageBlock
-              sessionId={resolvedSessionId}
-              message={item.message}
-              team={memberSessionTeam ?? undefined}
-              activeThinkingId={activeThinkingId}
-              agentTaskNotifications={agentTaskNotifications}
-              toolResult={
-                item.message.type === 'tool_use'
-                  ? toolResultByToolUseId.get(item.message.toolUseId) ?? null
-                  : null
-              }
-              branchAction={branchActionByMessageId.get(item.message.id)}
-              turnChangedFiles={changedFilesByRenderIndex.get(index)}
-              isTurnOutputOwner={turnOutputOwnerIndexes.has(index)}
-              turnCompletion={turnCompletionByMessageId.get(item.message.id)}
-              supersededAskUserQuestionIds={supersededAskUserQuestionIds}
-            />
-          )}
-        </RenderItemBoundary>
+        {item.kind === 'tool_group' ? (
+          <ToolCallGroup
+            sessionId={resolvedSessionId}
+            onOpenAgentRun={onOpenAgentRun}
+            resolveAgentActivityTarget={resolveAgentActivityTarget}
+            toolCalls={item.toolCalls}
+            steps={item.steps}
+            resultMap={toolResultMap}
+            childToolCallsByParent={childToolCallsByParent}
+            agentTaskNotifications={agentTaskNotifications}
+            agentTaskStatuses={agentTaskStatuses}
+            agentTaskLiveUsage={agentTaskLiveUsage}
+            activeThinkingId={activeThinkingId}
+            isStreaming={
+              chatState === 'tool_executing' &&
+              item.toolCalls.some((tc) => !toolResultMap.has(tc.toolUseId))
+            }
+            // Only the tail of a live turn can still grow. Everything above it
+            // is finished, whatever any individual tool's state looks like this
+            // instant — which is why this, and not `isStreaming`, decides
+            // whether a run stands open.
+            isLive={chatState !== 'idle' && index === renderItems.length - 1 && !hasTrailingStreamingItem}
+            disclosureKey={getRenderItemKey(item)}
+          />
+        ) : item.kind === 'team_card' ? (
+          resolvedSessionId ? (() => {
+            const cardSnapshot = snapshotForTeamCard(teamSnapshot, item)
+            const fallbackPhase = item.endedAt !== undefined || teamTaskWindows.some((window) => (
+              item.startedAt >= window.startedAt &&
+              window.endedAt !== undefined &&
+              item.startedAt <= window.endedAt
+            )) ? 'completed' : 'forming'
+            return (
+            <AgentTeamsInlineCard
+              snapshot={cardSnapshot}
+              teamName={item.teamName}
+              fallbackPhase={fallbackPhase}
+              phaseOverride={item.endedAt !== undefined ? 'completed' : undefined}
+              onOpen={cardSnapshot
+                ? () => openTeamWorkbench(resolvedSessionId, cardSnapshot.team.name)
+                : undefined}
+            >
+              <TeamCoordinationAudit toolCalls={item.coordinationToolCalls} />
+            </AgentTeamsInlineCard>
+            )
+          })() : null
+        ) : (
+          <MessageBlock
+            sessionId={resolvedSessionId}
+            message={item.message}
+            team={memberSessionTeam ?? undefined}
+            activeThinkingId={activeThinkingId}
+            agentTaskNotifications={agentTaskNotifications}
+            toolResult={
+              item.message.type === 'tool_use'
+                ? toolResultByToolUseId.get(item.message.toolUseId) ?? null
+                : null
+            }
+            branchAction={branchActionByMessageId.get(item.message.id)}
+            turnChangedFiles={changedFilesByRenderIndex.get(index)}
+            isTurnOutputOwner={turnOutputOwnerIndexes.has(index)}
+            turnCompletion={turnCompletionByMessageId.get(item.message.id)}
+            supersededAskUserQuestionIds={supersededAskUserQuestionIds}
+          />
+        )}
 
 
         {resolvedSessionId && cardsForItem.map((card) => {
@@ -3956,7 +3983,7 @@ export const MessageBlock = memo(function MessageBlock({
     case 'thinking':
       // No wrapper padding: the row's own `-mx-2 … px-2` already lands its text
       // on the column's left edge, the same as one inside a run.
-      return <ThinkingBlock content={message.content} isActive={message.id === activeThinkingId} disclosureKey={message.id} />
+      return <ThinkingBlock content={message.content} isActive={message.id === activeThinkingId} disclosureKey={message.id} thinkingDurationMs={message.thinkingDurationMs} thinkingTokens={message.thinkingTokens} liveStartAt={message.timestamp} />
     case 'tool_use':
       if (message.toolName === 'AskUserQuestion' && !message.isPending) {
         return (
