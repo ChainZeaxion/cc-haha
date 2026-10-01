@@ -21,15 +21,8 @@ import {
   type PersistedBackfillState,
   type SessionIndex,
   type SessionSourceRecord,
-import { resolveExtraProjectRoots } from './config.js'
-import type {
-  IndexedSessionRow,
-  PersistedBackfillState,
-  SessionIndex,
-  SessionSourceRecord,
-
-
 } from './sessionIndex.js'
+import { resolveExtraProjectRoots } from './config.js'
 import {
   createSessionProjector,
   MAX_PROJECTION_RECORD_BYTES,
@@ -2826,6 +2819,9 @@ describe('source-scoped index failures', () => {
     } finally {
       await restarted.stop()
     }
+  })
+})
+
 describe('extra project roots', () => {
   // A dev instance has its own CLAUDE_CONFIG_DIR, so its discovery root holds only
   // the sessions it created and the real config dir's conversations never show.

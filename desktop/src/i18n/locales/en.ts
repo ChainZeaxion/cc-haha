@@ -4071,7 +4071,6 @@ Row 9, all 8 cells: continuing from straight down, turning left through lower-le
   'session.export.range': 'Export range',
   'session.export.range.latest': 'Latest compact → newest (default)',
   'session.export.range.all': 'All messages',
- custom-066
 } as const
 
 export type TranslationKey = keyof typeof en

@@ -4072,5 +4072,4 @@ export const jp: Record<TranslationKey, string> = {
   'session.export.range': 'エクスポート範囲',
   'session.export.range.latest': '最新の圧縮 → 最新メッセージ（デフォルト）',
   'session.export.range.all': 'すべてのメッセージ',
- custom-066
 }

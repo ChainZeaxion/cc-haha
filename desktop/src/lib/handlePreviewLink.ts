@@ -77,8 +77,10 @@ export function localFileUrl(base: string, absPath: string): string {
  */
 export function filesystemImageUrl(base: string, filePath: string): string {
   return `${base.replace(/\/$/, '')}/api/filesystem/file?path=${encodeURIComponent(filePath)}`
- * Save a file by pointing an anchor at the local server's
- * `/local-file/<abs-path>?download=1` route.
+}
+
+/**
+ * Save a file by pointing an anchor at the local server's * `/local-file/<abs-path>?download=1` route.
  *
  * A click on an anchor is a navigation, not a fetch. The browser sends no Origin
  * header with it, so the request reaches the server on the no-Origin path every

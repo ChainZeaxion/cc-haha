@@ -53,7 +53,6 @@ export function WorkspaceFileTreePane({
   // Tree paths are workspace-relative; downloading resolves them to an absolute
   // path against the session's working directory, the same way the open-with
   // menu does. Read from the store here rather than threaded as a prop.
-  const workDir = useWorkspaceContentStore((state) => state.statusBySession[sessionId]?.workDir) ?? null
   const [contextMenu, setContextMenu] = useState<{ sessionId: string; row: TreeRow; x: number; y: number } | null>(null)
   const menu = contextMenu?.sessionId === sessionId ? contextMenu : null
   const menuRef = useRef<HTMLDivElement>(null)

@@ -2229,6 +2229,17 @@ export class SessionService {
     )
   }
 
+  private isToolResultContent(content: unknown): boolean {
+    return (
+      Array.isArray(content) &&
+      content.some((block) =>
+        block &&
+        typeof block === 'object' &&
+        (block as Record<string, unknown>).type === 'tool_result'
+      )
+    )
+  }
+
   private isTaskNotificationContent(content: unknown): boolean {
     const textBlocks = this.extractTextBlocks(content)
     return (
@@ -4384,11 +4395,19 @@ export class SessionService {
       offsets: result.entries.map(item => item.byteStart),
       signal,
       includeUnownedSidechains,
-      agentToolId: raw => this.extractAgentToolUseId(raw as RawEntry),
+      classify: raw => {
+        const entry = raw as RawEntry
+        const user = entry.message?.role === 'user' && !entry.isMeta
+        return {
+          notification: user && this.isTaskNotificationContent(entry.message?.content),
+          reset: user && !this.isToolResultContent(entry.message?.content),
+          agentToolId: this.extractAgentToolUseId(entry),
+        }
+      },
     })
     const visibleEntries = result.entries.flatMap(item => {
       const state = context.contexts.get(item.byteStart)!
-      if (state.hidden && !this.isGoalLocalCommandEntry(item.entry as RawEntry)) return []
+      if (state.suppressed && !this.isGoalLocalCommandEntry(item.entry as RawEntry)) return []
       return [{ ...item.entry, ...(state.owner ? { parent_tool_use_id: state.owner } : {}) } as RawEntry]
     })
     return { entries: visibleEntries, contextScanBytes: context.scannedBytes }

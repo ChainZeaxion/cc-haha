@@ -4071,5 +4071,4 @@ export const zh: Record<TranslationKey, string> = {
   'session.export.range': '导出范围',
   'session.export.range.latest': '最近一次压缩 → 最新消息（默认）',
   'session.export.range.all': '全部消息',
- custom-066
 }

@@ -4073,5 +4073,4 @@ export const kr: Record<TranslationKey, string> = {
   'session.export.range': '내보내기 범위',
   'session.export.range.latest': '최근 압축 → 최신 메시지 (기본)',
   'session.export.range.all': '모든 메시지',
- custom-066
 }

@@ -4069,5 +4069,4 @@ export const zh: Record<TranslationKey, string> = {
   'session.export.range': '匯出範圍',
   'session.export.range.latest': '最近一次壓縮 → 最新訊息（預設）',
   'session.export.range.all': '全部訊息',
- custom-066
 }
