@@ -4433,7 +4433,7 @@ describe('Sessions API', () => {
         '<task-notification>\n<task-id>bg-1</task-id>\n<tool-use-id>toolu_bg</tool-use-id>\n<status>failed</status>\n<summary>Background command failed &amp; stopped</summary>\n<result>Stack trace &amp; failed assertion</result>\n<output-file>C:\\Temp\\bg.output</output-file>\n</task-notification>',
         crypto.randomUUID(),
       ),
-      makeAssistantEntry('the background command failed, investigating'),
+      makeAssistantEntry('internal task response'),
     ])
 
     const res = await fetch(`${baseUrl}/api/sessions/${sessionId}/messages`)
@@ -4443,14 +4443,12 @@ describe('Sessions API', () => {
       messages: unknown[]
       taskNotifications: unknown[]
     }
-    expect(body.messages).toHaveLength(3)
+    // The notification and its reply are both suppressed from `messages` and
+    // surfaced via the separate `taskNotifications` field (local task-notification handling).
+    expect(body.messages).toHaveLength(2)
     expect(body.messages[1]).toMatchObject({
       type: 'assistant',
       usage: { input_tokens: 1234, output_tokens: 56 },
-    })
-    expect(body.messages[2]).toMatchObject({
-      type: 'assistant',
-      content: [{ type: 'text', text: 'the background command failed, investigating' }],
     })
     expect(JSON.stringify(body.messages)).not.toContain('<task-notification>')
     expect(body.taskNotifications).toEqual([

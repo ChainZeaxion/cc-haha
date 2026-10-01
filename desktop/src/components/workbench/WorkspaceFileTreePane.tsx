@@ -15,8 +15,6 @@ import { useAnchoredPosition } from '@/hooks/useAnchoredPosition'
 import { WorkspaceFileOpenWith } from '@/components/workspace/WorkspaceFileOpenWith'
 import { resolveAbsoluteOpenPath } from '@/lib/systemFileOpen'
 import { useMenuKeyboard } from '@/components/workbench/menuKeyboard'
-import { downloadLocalFile } from '@/lib/handlePreviewLink'
-import { resolveAbsoluteOpenPath } from '@/lib/systemFileOpen'
 
 export type WorkspaceFileTreePaneProps = {
   sessionId: string
@@ -402,23 +400,18 @@ export function WorkspaceFileTreePane({
           }}>
             {t('workspace.addSelectionToChat')}
           </Button>
-          {!menu.row.isDirectory ? (
-            <Button
-              role="menuitem"
-              variant="ghost"
-              size="sm"
-              data-testid="workspace-tree-download"
-              onClick={() => {
-                // Failure is reported by the helper (it logs the reason); the menu
-                // still closes, so a failed save never leaves the row stuck open.
-                void downloadLocalFile(resolveAbsoluteOpenPath(menu.row.path, workDir ?? undefined))
-                closeMenu()
-              }}
-            >
-              {t('workspace.download')}
-            </Button>
+          {workDir ? (
+            <WorkspaceFileOpenWith
+              absolutePath={resolveAbsoluteOpenPath(menu.row.path, workDir)}
+              sessionId={sessionId}
+              workspacePath={menu.row.path}
+              isDirectory={menu.row.isDirectory}
+              onPreview={() => onOpen(menu.row.path)}
+              onAfterSelect={closeMenu}
+            />
           ) : null}
-        </div>      ) : null}
+        </div>
+      ) : null}
     </div>
   )
 }

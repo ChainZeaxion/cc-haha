@@ -367,8 +367,10 @@ describe('remote H5 auth and CORS integration', () => {
       headers: { ...headers, 'X-Forwarded-For': '192.168.0.44' },
     })
     expect(proxiedPreflight.status).toBe(403)
+    // session-cleanup now follows the General settings page (H5 token is sufficient),
+    // so a trusted-renderer preflight is allowed like /api/settings (no longer local-credential-only).
     const cleanupPreflight = await fetch(`${baseUrl}/api/settings/session-cleanup`, { method: 'OPTIONS', headers })
-    expect(cleanupPreflight.status).toBe(403)
+    expect(cleanupPreflight.status).toBe(204)
   })
 
   test('rejects loopback preflight when no renderer origin is trusted', async () => {

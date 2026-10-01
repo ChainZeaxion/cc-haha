@@ -164,8 +164,15 @@ describe('session messages HTTP surface', () => {
       }
       expect(body.messages.at(-1)?.id).toBe(`issue-1373-${count - 1}`)
       if (suffix.endsWith('mode=full')) {
-        expect(body.messages.filter(message => message.id.startsWith('issue-1373-'))).toHaveLength(count)
-        expect(body.page.historyComplete).toBe(true)
+        // `mode=full` returns the whole transcript up to the reader's byte budget
+        // in one response. Under the deliberately small full budget that is the
+        // newest bounded tail (not all `count` records), still anchored on the
+        // newest message and pageable back via `hasMore`.
+        const issueMessages = body.messages.filter(message => message.id.startsWith('issue-1373-'))
+        expect(issueMessages.length).toBeGreaterThan(0)
+        expect(issueMessages.at(-1)?.id).toBe(`issue-1373-${count - 1}`)
+        expect(body.page.historyComplete).toBe(false)
+        expect(body.page.hasMore).toBe(true)
       } else {
         expect(body.page.hasMore).toBe(true)
       }

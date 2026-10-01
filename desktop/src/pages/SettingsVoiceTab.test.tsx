@@ -18,9 +18,10 @@ vi.mock('@/features/voiceInput/recorder', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/features/voiceInput/recorder')>()),
   isVoiceCaptureSupported: vi.fn(() => true),
 }))
-// The browser (H5) shell renders these two panels; their own tests cover them.
+// The browser (H5) shell renders the full desktop section list; its own test
+// covers navigation parity, so here we only stub the panels this file renders.
 vi.mock('./settings/ProviderSettings', () => ({ ProviderSettings: () => <div>provider-panel</div> }))
-vi.mock('./settings/H5GeneralSettings', () => ({ H5GeneralSettings: () => <div>general-panel</div> }))
+vi.mock('./settings/GeneralSettings', () => ({ GeneralSettings: () => <div>general-panel</div> }))
 
 import { voiceApi } from '@/api/voice'
 import { DesktopSettings } from './Settings'
@@ -86,7 +87,8 @@ describe('Voice Input settings tab wiring', () => {
 
     expect(await screen.findByText('provider-panel')).toBeInTheDocument()
     expect(screen.queryByRole('heading', { name: 'Voice Input' })).not.toBeInTheDocument()
-    expect(within(screen.getByRole('navigation', { name: 'Settings' })).getAllByRole('button')).toHaveLength(2)
+    // The H5 shell shows the full desktop section list (voice filtered out).
+    expect(within(screen.getByRole('navigation', { name: 'Settings' })).getAllByRole('button')).toHaveLength(16)
     await waitFor(() => expect(useUIStore.getState().activeSettingsTab).toBe('providers'))
   })
 })

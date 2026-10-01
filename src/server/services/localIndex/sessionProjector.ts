@@ -446,7 +446,7 @@ async function streamProjection(options: {
               if (++visited > 16_384) throw new ProjectionLimitError()
               metadataBytes += 64
               if (typeof value === 'string') {
-                if (Buffer.byteLength(value) > MAX_PROJECTION_METADATA_VALUE_BYTES) throw new ProjectionLimitError()
+                if (value.length > 4096) throw new ProjectionLimitError()
                 metadataBytes += Buffer.byteLength(value)
               } else if (typeof value === 'object') {
                 for (const key in value) {

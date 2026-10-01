@@ -104,7 +104,7 @@ test('launch metadata, title, work directory and metadata appends never material
 })
 
 
-test('history pages hide the notification turn but keep its reply, preserve sidechain ownership, and index only appended bytes', async () => {
+test('history pages hide the notification turn and its reply, preserve sidechain ownership, and index only appended bytes', async () => {
   const notification = '<task-notification><task-id>task</task-id><tool-use-id>agent</tool-use-id><status>completed</status></task-notification>'
   await writeFile(file, [
     entry('assistant', 'owner', [{ type: 'tool_use', id: 'agent', name: 'Agent', input: {} }]),
@@ -113,7 +113,10 @@ test('history pages hide the notification turn but keep its reply, preserve side
     entry('assistant', 'reply', 'the agent finished, here is the result'),
   ].map(value => JSON.stringify(value)).join('\n') + '\n')
   const latest = await service.getSessionHistoryPage(id, { limit: 1 })
-  expect(latest.messages).toMatchObject([{ id: 'reply' }])
+  // The notification is plumbing and its reply is its response, so local suppresses
+  // both from the timeline (they surface via `taskNotifications`); the sidechain
+  // child and the owner's tool call remain visible.
+  expect(latest.messages).toEqual([])
   expect(latest.page.contextScanBytes).toBeGreaterThan(0)
   const noticePage = await service.getSessionHistoryPage(id, { limit: 1, cursor: latest.page.nextCursor! })
   expect(noticePage.messages).toEqual([])

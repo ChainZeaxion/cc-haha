@@ -1085,7 +1085,7 @@ export class SessionService {
     projectDir?: string,
   ): Promise<IndexedSessionRow[]> {
     const projectsDir = path.resolve(this.getProjectsDir())
-    const projectsRoot = await fs.realpath(projectsDir)
+    const projectsRoots = await this.getIndexedProjectsRoots()
     const rows: IndexedSessionRow[] = []
     for (const filePath of plan.excludedPaths) {
       const physicalProjectDir = path.basename(path.dirname(filePath))
@@ -1093,7 +1093,7 @@ export class SessionService {
       if (projectDir !== undefined && physicalProjectDir !== projectDir) continue
       const sessionId = path.basename(filePath, '.jsonl')
       try {
-        const stat = await this.validateIndexedTranscriptPath(filePath, physicalProjectDir, sessionId, projectsRoot)
+        const stat = await this.validateIndexedTranscriptPath(filePath, physicalProjectDir, sessionId, projectsRoots)
         const summary = await this.getCachedSessionListSummary(filePath, physicalProjectDir, stat, scope)
         if (!summary.isTeamWorker) {
           rows.push({ ...summary, id: sessionId, projectPath: physicalProjectDir, transcriptPath: filePath })
@@ -4014,10 +4014,10 @@ export class SessionService {
       const limit = options?.limit ?? 50
       const sessions: SessionListItem[] = []
       const pathExists = this.createCachedPathExists()
-      const projectsRoot = await fs.realpath(this.getProjectsDir())
+      const projectsRoots = await this.getIndexedProjectsRoots()
       for (const row of rows.slice(offset, offset + limit)) {
         try {
-          await this.validateIndexedTranscriptPath(row.transcriptPath, row.projectPath, row.id, projectsRoot)
+          await this.validateIndexedTranscriptPath(row.transcriptPath, row.projectPath, row.id, projectsRoots)
           sessions.push(await this.hydrateIndexedSession(row, pathExists))
         } catch {
           // Drop a single stale/unreadable row, like the healthy index list.

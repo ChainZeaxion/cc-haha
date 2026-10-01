@@ -321,13 +321,13 @@ export function shouldRequireH5Token({
   request,
   url,
   h5Enabled,
-  requireToken,
+  requireToken = true,
   context,
 }: {
   request: Request
   url: URL
   h5Enabled: boolean
-  requireToken: boolean
+  requireToken?: boolean
   context: H5RequestContext
 }): boolean {
   if (!h5Enabled) {

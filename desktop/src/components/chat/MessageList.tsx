@@ -3609,6 +3609,7 @@ export function MessageList({
 
     return (
       <>
+      <RenderItemBoundary>
         {item.kind === 'tool_group' ? (
           <ToolCallGroup
             sessionId={resolvedSessionId}
@@ -3674,7 +3675,7 @@ export function MessageList({
             supersededAskUserQuestionIds={supersededAskUserQuestionIds}
           />
         )}
-
+      </RenderItemBoundary>
 
         {resolvedSessionId && cardsForItem.map((card) => {
           const error = turnActionErrors[card.target.messageId] ?? null
@@ -3726,8 +3727,7 @@ export function MessageList({
     )
   }
 
-  return (
-    <div ref={messageListRef} data-testid="message-list" className="relative min-h-0 flex-1">
+  return (    <div ref={messageListRef} data-testid="message-list" className="relative min-h-0 flex-1">
       <div
         ref={scrollContainerRef}
         onScroll={updateAutoScrollState}

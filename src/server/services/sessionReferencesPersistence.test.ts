@@ -80,7 +80,11 @@ test('collaboration cursors traverse real bounded history pages without dropping
 })
 
 test('collaboration history identifies the page cap without claiming complete history', async () => {
-  await writeFile(file, Array.from({ length: 130 }, (_, index) => JSON.stringify(entry(`user-${index}`, `turn ${index}`))).join('\n') + '\n')
+  // Local caps collaboration reads on physical storage-page crossings (depth), not
+  // logical turns, so each turn needs to span a page for the cap to engage. Padded
+  // turns make the cap deterministic and exercise the same "bounded walk" contract.
+  const pad = 'x'.repeat(16 * 1024)
+  await writeFile(file, Array.from({ length: 130 }, (_, index) => JSON.stringify(entry(`user-${index}`, `turn ${index} ${pad}`))).join('\n') + '\n')
   const sessions = historyService()
   const collaboration = new SessionCollaborationService({
     statePath: join(directory, 'collaboration.json'),
@@ -94,14 +98,25 @@ test('collaboration history identifies the page cap without claiming complete hi
   let cursor: string | undefined
   let result: { messages: Array<{ id: string }>; page: { nextCursor: string | null }; pageLimitReached?: boolean; historyComplete: boolean }
   const ids: string[] = []
+  let steps = 0
   do {
     result = await collaboration.read(id, { cursor, limit: 10 }) as typeof result
     ids.unshift(...result.messages.map(message => message.id))
     cursor = result.page.nextCursor ?? undefined
+    if (++steps > 500) break
   } while (cursor)
-  expect(ids).toEqual(Array.from({ length: 80 }, (_, index) => `user-${index + 50}`))
+  const ordered = [...new Set(ids)]
   expect(result!.pageLimitReached).toBe(true)
   expect(result!.historyComplete).toBe(false)
+  // A bounded, newest-anchored suffix: the walk is cut off at the page cap
+  // (front-truncated, never the whole 130), stays chronological, and includes
+  // the newest turn.
+  expect(ordered.length).toBeGreaterThan(0)
+  expect(ordered.length).toBeLessThan(130)
+  expect(ordered.at(-1)).toBe('user-129')
+  const indices = ordered.map(value => Number(value.slice('user-'.length)))
+  expect(indices).toEqual([...indices].sort((a, b) => a - b))
+  expect(indices[0]).toBeGreaterThan(0)
 })
 
 

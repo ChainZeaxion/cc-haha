@@ -1052,6 +1052,10 @@ actions={
             </div>
           ) : null}
 
+          {active && activeTabId && <div className="mx-auto w-full max-w-[900px] shrink-0 px-4">
+            <AgentTeamsPlanCard key={activeTabId} sessionId={activeTabId} />
+          </div>}
+
           <div className="relative">
             <ChatInput
               sessionId={activeTabId ?? undefined}

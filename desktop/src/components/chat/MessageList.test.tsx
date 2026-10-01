@@ -6582,14 +6582,23 @@ describe('MessageList nested tool calls', () => {
     await waitFor(() => expect(container.querySelector('[data-chat-render-item-key="assistant-virtual-file"]')).toBeNull())
     act(() => useWorkspaceStore.getState().setLayout(ACTIVE_TAB, 'hidden'))
 
-    // Restore runs on an rAF retry loop (up to 7 frames); give it real headroom
-    // under full-suite load where frames stretch past the 1s findByRole default.
-    const remountedOpener = await waitFor(
-      async () => screen.findByRole('button', { name: 'Open src/virtual.ts in workspace' }),
-      { timeout: 5000 },
-    )
-    expect(remountedOpener).not.toBe(opener)
-    await waitFor(() => expect(document.activeElement).toBe(remountedOpener), { timeout: 5000 })
+    // The restore path is an rAF retry loop and the test stubs requestAnimationFrame
+    // (callbacks are queued, not auto-run), so frames must be driven manually. Under
+    // full-suite load frames can lag, so drive until the row remounts and focus lands
+    // rather than assuming a fixed frame count.
+    let remountedOpener: HTMLElement | null = null
+    for (let i = 0; i < 40 && !remountedOpener; i++) {
+      await advanceFrame(16 * (i + 1))
+      remountedOpener = screen.queryByRole('button', { name: 'Open src/virtual.ts in workspace' }) ?? null
+    }
+    const restoredOpener = remountedOpener as HTMLElement
+    expect(restoredOpener).not.toBeNull()
+    expect(restoredOpener).not.toBe(opener)
+    for (let i = 0; i < 40 && document.activeElement !== restoredOpener; i++) {
+      await advanceFrame(16 * (i + 1))
+    }
+    expect(document.activeElement).toBe(restoredOpener)
+
     expect(screen.getByRole('button', { name: 'Hide changed files' }).getAttribute('aria-expanded')).toBe('true')
     expect(useWorkspaceStore.getState().getSession(ACTIVE_TAB).origin).toBeNull()
   })

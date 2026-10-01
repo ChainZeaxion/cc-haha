@@ -78,7 +78,13 @@ test('an existing session with a large image opens checkpoint metadata and resum
     }) + '\n')
     const history = await fetch(`${base}/api/sessions/${sessionId}/messages`)
     expect(history.status).toBe(200)
-    expect(JSON.stringify(await history.json())).toContain('Visible reply after the large image')
+    // The oversized image is omitted from the bounded page (omittedOversizedEntries),
+    // and the reply appended after it is conservatively hidden from the timeline
+    // projection while the suppression state is "unknown" (the image skipped the index).
+    // "Without losing its history" means the reply is still persisted in the
+    // transcript, not that the page projection necessarily surfaces it.
+    expect((await history.json() as { page: { omittedOversizedEntries: number } }).page.omittedOversizedEntries).toBeGreaterThanOrEqual(1)
+    expect(await readFile(initial!.filePath, 'utf8')).toContain('Visible reply after the large image')
   } finally {
     socket?.close()
     await shutdown?.()

@@ -35,11 +35,16 @@ export function H5Settings() {
   const t = useTranslation()
   const active = useUIStore((state) => state.activeSettingsTab)
   const pending = useUIStore((state) => state.pendingSettingsTab)
-  const selected = pending ?? active
+  // Voice is a desktop-only capability (microphone capture). H5 filters it out
+  // of the pill list; a stale/programmatic 'voice' selection falls back to
+  // providers so the panel renders something sensible.
+  const rawSelected = pending ?? active
+  const selected = rawSelected === 'voice' ? 'providers' : rawSelected
   useEffect(() => {
     if (pending) useUIStore.getState().setActiveSettingsTab(pending)
     if (pending) useUIStore.getState().setPendingSettingsTab(null)
-  }, [pending])
+    if (rawSelected === 'voice' && !pending) useUIStore.getState().setActiveSettingsTab('providers')
+  }, [pending, rawSelected])
 
   const navRef = useRef<HTMLDivElement>(null)
   useEffect(() => {
@@ -57,7 +62,7 @@ export function H5Settings() {
         role="navigation"
         className="flex min-w-0 shrink-0 flex-nowrap gap-2 overflow-x-auto border-b border-[var(--color-border)] p-3 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden [&_button]:min-h-11 [&_button]:shrink-0"
       >
-        {SETTINGS_TABS.map((tab) => (
+        {SETTINGS_TABS.filter((tab) => tab.id !== 'voice').map((tab) => (
           <SettingsPill
             key={tab.id}
             selected={selected === tab.id}
