@@ -1,0 +1,3199 @@
+diff --git a/desktop/src/components/chat/TpsIndicator.test.tsx b/desktop/src/components/chat/TpsIndicator.test.tsx
+new file mode 100644
+index 00000000..979f52c5
+--- /dev/null
++++ b/desktop/src/components/chat/TpsIndicator.test.tsx
+@@ -0,0 +1,112 @@
++import { cleanup, render } from '@testing-library/react'
++import '@testing-library/jest-dom'
++import { afterEach, beforeEach, expect, it, vi } from 'vitest'
++import { TpsMeter } from '@/lib/tpsMeter'
++import * as chatStore from '@/stores/chatStore'
++import { useSettingsStore } from '@/stores/settingsStore'
++import { TpsIndicator, formatTps } from './TpsIndicator'
++
++// Drive the real meters with a fake clock so the sliding windows behave
++// deterministically, and stub only the store lookups.
++let now = 1_000_000
++const ownMeter = new TpsMeter(1500, 500)
++const subMeter = new TpsMeter(1500, 500)
++
++function pump(meter: TpsMeter, n = 10): void {
++  for (let i = 0; i < n; i++) {
++    now += 100
++    meter.push('x'.repeat(6))
++  }
++}
++
++beforeEach(() => {
++  now = 1_000_000
++  ownMeter.reset()
++  subMeter.reset()
++  useSettingsStore.setState({ sessionExtendedInfo: true })
++  vi.spyOn(performance, 'now').mockImplementation(() => now)
++  vi.spyOn(chatStore, 'getSessionTpsMeter').mockReturnValue(ownMeter)
++  vi.spyOn(chatStore, 'getSubordinateTpsMeters').mockReturnValue([subMeter])
++})
++
++afterEach(() => {
++  cleanup()
++  useSettingsStore.setState({ sessionExtendedInfo: true })
++  vi.restoreAllMocks()
++})
++
++it('shows the aggregated total with a Σn badge while a subagent is emitting', async () => {
++  pump(ownMeter)
++  pump(subMeter)
++
++  const { container } = render(<TpsIndicator sessionId="main" />)
++  // The mount effect runs tick() synchronously, so the indicator has a reading.
++  const indicator = container.querySelector('[data-testid="tps-indicator"]')
++  expect(indicator).not.toBeNull()
++
++
++  // Σ badge appears because the subagent meter is live in the window.
++  expect(container.querySelector('[data-testid="tps-subagent-badge"]')).toHaveTextContent('Σ1')
++  // Number rendered, and it is the combined total (> a single stream).
++  const numberText = indicator!.textContent?.replace(/TPS|t\/s|Σ1/g, '').trim() ?? ''
++  const shown = Number(numberText)
++  expect(shown).toBeGreaterThan(0)
++})
++
++it('drops the Σ badge once the subagent stops (its held speed must not inflate the total)', async () => {
++  pump(subMeter)
++  // Subagent finishes; drain its 1500ms window.
++  now += 10_000
++  pump(ownMeter)
++
++  const { container } = render(<TpsIndicator sessionId="main" />)
++  expect(container.querySelector('[data-testid="tps-indicator"]')).not.toBeNull()
++  expect(container.querySelector('[data-testid="tps-subagent-badge"]')).toBeNull()
++
++})
++
++it('caps the displayed value at 4 digits (9999)', () => {
++  // Asserted on the formatter, not through the meter: a rate that high cannot
++  // come out of the meter any more, because a sample carrying more tokens than
++  // any real decode could produce in its interval is treated as a batch and left
++  // out (that rule is what stopped the 1600+ t/s readings). The cap stays as the
++  // display's own guarantee for any source.
++  expect(formatTps(21_000)).toBe('9999')
++  expect(formatTps(9999)).toBe('9999')
++  expect(formatTps(250)).toBe('250')
++})
++
++it('reports an exact (ids) reading without the approximate mark', () => {
++  // A plausible stream from the exact tier: 50 tokens per 200 ms flush = 250 t/s.
++  for (let i = 0; i < 20; i++) {
++    now += 200
++    ownMeter.pushTokens(50)
++  }
++  const { container } = render(<TpsIndicator sessionId="main" />)
++  const indicator = container.querySelector('[data-testid="tps-indicator"]')!
++  expect(indicator).toHaveAttribute('data-tps-source', 'ids')
++  expect(indicator).not.toHaveAttribute('title', expect.stringContaining('≈'))
++})
++
++it('marks a sampled (non-ids) reading as approximate', () => {
++  pump(ownMeter)
++  const { container } = render(<TpsIndicator sessionId="main" />)
++  const indicator = container.querySelector('[data-testid="tps-indicator"]')!
++  expect(indicator).toHaveAttribute('data-tps-source', 'char')
++  expect(indicator).toHaveAttribute('title', expect.stringContaining('≈'))
++})
++
++it('stays hidden before anything has streamed', () => {
++  const { container } = render(<TpsIndicator sessionId="main" />)
++  expect(container.querySelector('[data-testid="tps-indicator"]')).toBeNull()
++})
++
++it('renders nothing when session extended info is off, even with a live reading', () => {
++  pump(ownMeter)
++  useSettingsStore.setState({ sessionExtendedInfo: false })
++  const { container } = render(<TpsIndicator sessionId="main" />)
++  expect(container.querySelector('[data-testid="tps-indicator"]')).toBeNull()
++})
++
++
++
+diff --git a/desktop/src/components/chat/TpsIndicator.tsx b/desktop/src/components/chat/TpsIndicator.tsx
+new file mode 100644
+index 00000000..60c15d9b
+--- /dev/null
++++ b/desktop/src/components/chat/TpsIndicator.tsx
+@@ -0,0 +1,154 @@
++import { useEffect, useState } from 'react'
++import { getSessionTpsMeter, getSubordinateTpsMeters } from '../../stores/chatStore'
++import { aggregateMeterReadings, isTpsEnabled, type TpsSource } from '../../lib/tpsMeter'
++import { useTranslation } from '../../i18n'
++import { useSettingsStore } from '../../stores/settingsStore'
++
++/**
++ * Real-time decode-speed (TPS) indicator.
++ *
++ * Lifecycle:
++ *  - Before this session has ever streamed (no input/decoded tokens yet) →
++ *    hidden.
++ *  - After the first streamed chunk it stays visible for the rest of the
++ *    session. While decoding, value() is the live window speed and updates
++ *    every poll; when decoding pauses it holds the last speed.
++ *  - If no new data arrives for HIDE_AFTER_IDLE_MS (5 min) it hides again.
++ *
++ * This session's own decode is aggregated with its subagents/team-members so
++ * the main view shows the team-wide total; a "Σn" badge appears while at least
++ * one subagent is actively emitting (see aggregateMeterReadings).
++ *
++ * Rendered as plain text `TPS {n}t/s` (no pill background) — the chat header
++ * stacks it under the cost badge in a two-line block. Coloring: <27 red, <53
++ * orange, <80 green, >=80 purple. Polled at POLL_MS (≈5-6 Hz). Meter is
++ * per-session (see getSessionTpsMeter), so parallel sessions each show their
++ * own decode speed.
++ */
++
++const POLL_MS = 180
++const LOW_TIER = 27
++const MED_TIER = 53
++const HIGH_TIER = 80
++const HIDE_AFTER_IDLE_MS = 5 * 60 * 1000
++// 显示口径：数值最多 4 位（用户要求 "TPS XXt/s" 最多四位数）。聚合/保持值
++// 偶可超 4 位（子代理汇聚或移动端批量突发），封顶显示避免撑破固定栏宽。
++const MAX_DISPLAY_TPS = 9999
++
++type TpsTier = 'red' | 'orange' | 'green' | 'purple'
++
++/** Display integer, capped at 4 digits (see MAX_DISPLAY_TPS). */
++export function formatTps(tps: number): string {
++  const rounded = Math.round(tps)
++  return String(Math.min(rounded, MAX_DISPLAY_TPS))
++}
++
++function tierFor(tps: number): TpsTier {
++  if (tps < LOW_TIER) return 'red'
++  if (tps < MED_TIER) return 'orange'
++  if (tps < HIGH_TIER) return 'green'
++  return 'purple'
++}
++
++const TIER_STYLE: Record<TpsTier, { color: string }> = {
++  red: { color: 'var(--color-error)' },
++  orange: { color: '#f59e0b' },
++  green: { color: 'var(--color-success)' },
++  purple: { color: '#a855f7' },
++}
++
++export function TpsIndicator({ sessionId, vertical = false }: { sessionId: string; vertical?: boolean }) {
++  const t = useTranslation()
++  const sessionExtendedInfo = useSettingsStore((state) => state.sessionExtendedInfo)
++  const [tps, setTps] = useState(0)
++  const [visible, setVisible] = useState(false)
++  const [activeSubs, setActiveSubs] = useState(0)
++  const [source, setSource] = useState<TpsSource>('char')
++
++  // Master switch: when disabled the indicator renders nothing and never polls
++  // the meter (the meter itself is also not fed in the content_delta path).
++  // 会话扩展信息关闭时同样整块隐藏——TPS 是本 fork 新增读数，缺省视为开启。
++  // 两个渲染分支（vertical/横向）都在此处之后，故单次提前返回即可覆盖。
++  if (!isTpsEnabled() || sessionExtendedInfo === false) return null
++
++  useEffect(() => {
++    const meter = getSessionTpsMeter(sessionId)
++    const tick = () => {
++      // Own session + its subagent/team-member meters, folded into one
++      // team-wide reading (visibility/idle-hide judged across the whole group).
++      const { visible: shown, tps: value, activeSubs: subs } = aggregateMeterReadings(
++        meter,
++        getSubordinateTpsMeters(sessionId),
++        performance.now(),
++        HIDE_AFTER_IDLE_MS,
++      )
++      if (!shown) {
++        setVisible(false)
++        return
++      }
++      setActiveSubs(subs)
++      setSource(meter.source())
++      // A near-zero read at a stream boundary (text↔thinking↔tool) is not a
++      // real decode speed — hold the previous reading instead of flashing 0.
++      setTps((prev) => {
++        if (value < 0.5) return prev > 0.5 ? prev : value
++        // opt23 §11.27: 指数平滑（新值 30% + 上次 70%）抑制移动端突发导致
++        // 的 TPS 忽高忽低；首次读取直接采用。
++        return prev > 0.5 ? prev * 0.7 + value * 0.3 : value
++      })
++      setVisible(true)
++    }
++    tick()
++    const timer = setInterval(tick, POLL_MS)
++    return () => clearInterval(timer)
++  }, [sessionId])
++
++  if (!visible) return null
++  const tier = tierFor(tps)
++  const style = TIER_STYLE[tier]
++  const baseTitle = activeSubs > 0
++    ? t('chat.tpsAggregateTitle', { count: String(activeSubs) })
++    : t('chat.tpsSpeedTitle')
++  // `ids` is the engine's own token count; the other tiers are learned
++  // approximations, so the tooltip says so rather than implying precision.
++  const approximate = source !== 'ids'
++  const title = approximate ? `${baseTitle} · ≈` : baseTitle
++
++  if (vertical) {
++    return (
++      <span
++        data-testid="tps-indicator"
++        data-tps-source={source}
++        className="inline-flex shrink-0 flex-col items-center justify-center font-mono text-[10px] font-semibold leading-none tabular-nums"
++        style={{ color: style.color }}
++        title={title}
++      >
++        <span className="inline-block text-center leading-none">
++          TPS {formatTps(tps)}t/s
++        </span>
++        {activeSubs > 0 ? (
++          <span data-testid="tps-subagent-badge" className="mt-0.5 leading-none">
++            Σ{activeSubs}
++          </span>
++        ) : null}
++      </span>
++    )
++  }
++
++  return (
++    <span
++      data-testid="tps-indicator"
++      data-tps-source={source}
++      className="inline-flex shrink-0 items-center font-mono text-[10px] font-semibold leading-tight tabular-nums"
++      style={{ color: style.color }}
++      title={title}
++    >
++      <span className="inline-block">TPS {formatTps(tps)}t/s</span>
++      {activeSubs > 0 ? (
++        <span data-testid="tps-subagent-badge" className="ml-1">
++          Σ{activeSubs}
++        </span>
++      ) : null}
++    </span>
++  )
++}
+diff --git a/desktop/src/components/layout/AppShell.test.tsx b/desktop/src/components/layout/AppShell.test.tsx
+index a4699c9e..08c80fa8 100644
+--- a/desktop/src/components/layout/AppShell.test.tsx
++++ b/desktop/src/components/layout/AppShell.test.tsx
+@@ -84,6 +84,12 @@ vi.mock('../../stores/chatStore', () => ({
+       connectToSession: mocks.connectToSession,
+     }),
+   },
++  getSessionTpsMeter: () => ({
++    hasStreamed: () => false,
++    lastDataTime: () => 0,
++    value: () => 0,
++  }),
++  getSubordinateTpsMeters: () => [],
+ }))
+ 
+ vi.mock('../../hooks/useKeyboardShortcuts', () => ({
+diff --git a/desktop/src/components/layout/AppShell.tsx b/desktop/src/components/layout/AppShell.tsx
+index c8613d06..b0b9b726 100644
+--- a/desktop/src/components/layout/AppShell.tsx
++++ b/desktop/src/components/layout/AppShell.tsx
+@@ -428,10 +428,18 @@ export function AppShell() {
+             ) : null}
+             {isActiveChatTab ? (
+               <div className="flex shrink-0 items-center gap-1">
+-                {activeTabId ? <TpsIndicator sessionId={activeTabId} vertical /> : null}
+-                {activeTabId ? (
+-                  <SessionCostBadge sessionId={activeTabId} active={activeTab?.status === 'running'} compact />
+-                ) : null}
++                {/* 两行块：上=费用，下=TPS。与桌面端同口径——TPS 行水平居中于费用徽章下方
++                    （`items-center`），两行宽度不对等时居中更对仗。 */}
++                <div className="flex h-[36px] shrink-0 flex-col items-center justify-center gap-0.5">
++                  <div className="flex h-[15px] items-center">
++                    {activeTabId ? (
++                      <SessionCostBadge sessionId={activeTabId} active={activeTab?.status === 'running'} compact />
++                    ) : null}
++                  </div>
++                  <div className="flex h-[13px] items-center">
++                    {activeTabId ? <TpsIndicator sessionId={activeTabId} vertical /> : null}
++                  </div>
++                </div>
+                 <IconButton
+                   data-testid="session-manual-refresh-mobile"
+                   icon={refreshingSession ? 'progress_activity' : 'refresh'}
+diff --git a/desktop/src/lib/tpsCalibration.test.ts b/desktop/src/lib/tpsCalibration.test.ts
+new file mode 100644
+index 00000000..b3342def
+--- /dev/null
++++ b/desktop/src/lib/tpsCalibration.test.ts
+@@ -0,0 +1,84 @@
++import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
++import {
++  TPS_CALIBRATION_STORAGE_KEY,
++  TPS_CALIBRATION_VERSION,
++  clearTpsCalibration,
++  loadTpsCalibration,
++  saveTpsCalibration,
++} from './tpsCalibration'
++
++describe('tpsCalibration', () => {
++  beforeEach(() => {
++    localStorage.clear()
++  })
++  afterEach(() => {
++    vi.restoreAllMocks()
++    localStorage.clear()
++  })
++
++  it('round-trips the learned coefficients for a model', () => {
++    expect(loadTpsCalibration('qwen3-coder')).toBeNull()
++    saveTpsCalibration('qwen3-coder', { kCjk: 2.5, kAscii: 1.18 })
++    expect(loadTpsCalibration('qwen3-coder')).toEqual({ kCjk: 2.5, kAscii: 1.18 })
++  })
++
++  it('keeps models apart so switching re-learns instead of inheriting', () => {
++    saveTpsCalibration('model-a', { kCjk: 3, kAscii: 1.2 })
++    saveTpsCalibration('model-b', { kCjk: 1, kAscii: 1.05 })
++    expect(loadTpsCalibration('model-a')?.kCjk).toBe(3)
++    expect(loadTpsCalibration('model-b')?.kCjk).toBe(1)
++    expect(loadTpsCalibration('model-c')).toBeNull()
++  })
++
++  it('falls back to a shared bucket when the session has no model yet', () => {
++    saveTpsCalibration(undefined, { kCjk: 4, kAscii: 1.1 })
++    expect(loadTpsCalibration(null)).toEqual({ kCjk: 4, kAscii: 1.1 })
++    expect(loadTpsCalibration('  ')).toEqual({ kCjk: 4, kAscii: 1.1 })
++  })
++
++  it('discards a payload written by another version instead of trusting it', () => {
++    localStorage.setItem(TPS_CALIBRATION_STORAGE_KEY, JSON.stringify({
++      version: TPS_CALIBRATION_VERSION + 1,
++      models: { 'qwen3-coder': { kCjk: 9, kAscii: 9, n: 1, updatedAt: 1 } },
++    }))
++    expect(loadTpsCalibration('qwen3-coder')).toBeNull()
++  })
++
++  it('ignores a corrupt or non-numeric payload', () => {
++    localStorage.setItem(TPS_CALIBRATION_STORAGE_KEY, '{not json')
++    expect(loadTpsCalibration('qwen3-coder')).toBeNull()
++
++    localStorage.setItem(TPS_CALIBRATION_STORAGE_KEY, JSON.stringify({
++      version: TPS_CALIBRATION_VERSION,
++      models: { 'qwen3-coder': { kCjk: 'x', kAscii: 1, n: 1, updatedAt: 1 } },
++    }))
++    expect(loadTpsCalibration('qwen3-coder')).toBeNull()
++  })
++
++  it('never stores a non-positive coefficient and survives a failing storage', () => {
++    saveTpsCalibration('qwen3-coder', { kCjk: 0, kAscii: 1 })
++    expect(loadTpsCalibration('qwen3-coder')).toBeNull()
++
++    vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
++      throw new Error('quota exceeded')
++    })
++    expect(() => saveTpsCalibration('qwen3-coder', { kCjk: 2, kAscii: 1 })).not.toThrow()
++  })
++
++  it('caps how many models it remembers, dropping the stalest', () => {
++    const saving = vi.spyOn(Date, 'now')
++    for (let i = 0; i < 40; i++) {
++      saving.mockReturnValue(1_000 + i)
++      saveTpsCalibration(`model-${i}`, { kCjk: 1 + i / 100, kAscii: 1 })
++    }
++    // The earliest models are gone; the most recent survive.
++    expect(loadTpsCalibration('model-0')).toBeNull()
++    expect(loadTpsCalibration('model-39')).not.toBeNull()
++  })
++
++  it('clears every remembered model', () => {
++    saveTpsCalibration('model-a', { kCjk: 2, kAscii: 1 })
++    clearTpsCalibration()
++    expect(loadTpsCalibration('model-a')).toBeNull()
++  })
++})
+diff --git a/desktop/src/lib/tpsCalibration.ts b/desktop/src/lib/tpsCalibration.ts
+new file mode 100644
+index 00000000..1d203bfc
+--- /dev/null
++++ b/desktop/src/lib/tpsCalibration.ts
+@@ -0,0 +1,116 @@
++/**
++ * Persisted TPS calibration.
++ *
++ * The meter learns its tokens-per-unit coefficients from the real
++ * `usage.output_tokens` each API call reports (see TpsMeter.endCall). A fresh
++ * session would otherwise start from the neutral 1.0 and mis-read until its
++ * first call completes, so the coefficients are remembered per model.
++ *
++ * Keyed by model id because the coefficients describe one model's tokenizer
++ * density — how many tokens a CJK character and a Latin/code character cost
++ * it. Switching models therefore re-learns instead of inheriting the previous
++ * model's numbers.
++ *
++ * Version 2 replaced the previous shape (kChunk/kChar, learned against a
++ * per-frame unit). Those numbers were learned from a unit whose token density
++ * varies by ~40x between content classes and went badly wrong on tool-input
++ * traffic, so a stored v1 payload is discarded rather than reinterpreted.
++ */
++
++import type { TpsCalibration } from './tpsMeter'
++
++export const TPS_CALIBRATION_STORAGE_KEY = 'cc-haha.tpsCalibration'
++export const TPS_CALIBRATION_VERSION = 2
++
++/** Keep the store small; the least recently used models are dropped first. */
++const MAX_MODELS = 32
++const UNKNOWN_MODEL = '__default__'
++
++type StoredModelCalibration = {
++  kCjk: number
++  kAscii: number
++  /** How many completed calls taught this entry (diagnostics). */
++  n: number
++  updatedAt: number
++}
++
++type StoredCalibration = {
++  version: number
++  models: Record<string, StoredModelCalibration>
++}
++
++function emptyStore(): StoredCalibration {
++  return { version: TPS_CALIBRATION_VERSION, models: {} }
++}
++
++function modelKey(model: string | null | undefined): string {
++  const trimmed = model?.trim()
++  return trimmed ? trimmed : UNKNOWN_MODEL
++}
++
++function isPositiveFinite(value: unknown): value is number {
++  return typeof value === 'number' && Number.isFinite(value) && value > 0
++}
++
++function readStore(): StoredCalibration {
++  try {
++    const raw = localStorage.getItem(TPS_CALIBRATION_STORAGE_KEY)
++    if (!raw) return emptyStore()
++    const parsed = JSON.parse(raw) as Partial<StoredCalibration> | null
++    // A payload from a future build is not ours to interpret; start clean
++    // rather than guess at its shape.
++    if (!parsed || parsed.version !== TPS_CALIBRATION_VERSION || typeof parsed.models !== 'object') {
++      return emptyStore()
++    }
++    return { version: TPS_CALIBRATION_VERSION, models: parsed.models as Record<string, StoredModelCalibration> }
++  } catch {
++    return emptyStore()
++  }
++}
++
++function writeStore(store: StoredCalibration): void {
++  try {
++    localStorage.setItem(TPS_CALIBRATION_STORAGE_KEY, JSON.stringify(store))
++  } catch { /* localStorage unavailable — keep the in-memory value */ }
++}
++
++/** Learned coefficients for `model`, or null when nothing usable is stored. */
++export function loadTpsCalibration(model: string | null | undefined): TpsCalibration | null {
++  const entry = readStore().models[modelKey(model)]
++  if (!entry || !isPositiveFinite(entry.kCjk) || !isPositiveFinite(entry.kAscii)) return null
++  return { kCjk: entry.kCjk, kAscii: entry.kAscii }
++}
++
++/** Record what this model's calls taught, replacing any earlier entry. */
++export function saveTpsCalibration(
++  model: string | null | undefined,
++  calibration: TpsCalibration,
++  calls = 0,
++): void {
++  if (!isPositiveFinite(calibration.kCjk) || !isPositiveFinite(calibration.kAscii)) return
++  const store = readStore()
++  const key = modelKey(model)
++  const previous = store.models[key]
++  const previousCalls = previous && Number.isFinite(previous.n) ? previous.n : 0
++  store.models[key] = {
++    kCjk: calibration.kCjk,
++    kAscii: calibration.kAscii,
++    n: Math.max(0, calls) || previousCalls + 1,
++    updatedAt: Date.now(),
++  }
++  const keys = Object.keys(store.models)
++  if (keys.length > MAX_MODELS) {
++    keys
++      .sort((a, b) => (store.models[a]?.updatedAt ?? 0) - (store.models[b]?.updatedAt ?? 0))
++      .slice(0, keys.length - MAX_MODELS)
++      .forEach((stale) => { delete store.models[stale] })
++  }
++  writeStore(store)
++}
++
++/** Drop every remembered model (tests / troubleshooting). */
++export function clearTpsCalibration(): void {
++  try {
++    localStorage.removeItem(TPS_CALIBRATION_STORAGE_KEY)
++  } catch { /* localStorage unavailable */ }
++}
+diff --git a/desktop/src/lib/tpsMeter.test.ts b/desktop/src/lib/tpsMeter.test.ts
+new file mode 100644
+index 00000000..a758b4e4
+--- /dev/null
++++ b/desktop/src/lib/tpsMeter.test.ts
+@@ -0,0 +1,678 @@
++import { describe, expect, it, vi, afterEach } from 'vitest'
++import { TpsMeter, aggregateMeterReadings, estimateTokens, setEstimationCalibration } from './tpsMeter'
++
++describe('TpsMeter fallback', () => {
++  afterEach(() => vi.restoreAllMocks())
++
++  it('holds the turn-ending speed after the stream pauses', () => {
++    let now = 1_000_000
++    vi.spyOn(performance, 'now').mockImplementation(() => now)
++
++    const meter = new TpsMeter(1500, 2000)
++    expect(meter.hasStreamed()).toBe(false)
++    expect(meter.value()).toBe(0)
++
++    // Stream ~60 tokens over ~1 second.
++    for (let i = 0; i < 10; i++) {
++      now += 100
++      meter.push('x'.repeat(6))
++    }
++    expect(estimateTokens('x'.repeat(6))).toBeGreaterThan(0)
++    expect(meter.hasStreamed()).toBe(true)
++
++    const live = meter.value()
++    expect(live).toBeGreaterThan(0)
++
++    // Simulate turn end: no more pushes, window drains (advance 10s).
++    now += 10_000
++    const held = meter.value()
++    // Fallback should still be > 0 (not dropped to 0).
++    expect(held).toBeGreaterThan(0)
++  })
++
++  it('does not collapse to 0 on a sparse boundary sample', () => {
++    let now = 1_000_000
++    vi.spyOn(performance, 'now').mockImplementation(() => now)
++
++    const meter = new TpsMeter(1500, 2000)
++    // Steady stream first so the fallback has a meaningful speed.
++    for (let i = 0; i < 20; i++) {
++      now += 50
++      meter.push('x'.repeat(6))
++    }
++    const baseline = meter.value()
++    expect(baseline).toBeGreaterThan(0)
++
++    // Stream boundary: a single tiny fragment lands (e.g. tool-input start),
++    // then the window prunes the old bulk samples.
++    now += 1600 // evict previous samples from the 1500ms window
++    meter.push('{')
++    // Only one ~1-token sample in the window now.
++    const boundary = meter.value()
++    // Must NOT read ~0: hold the smoothed fallback instead.
++    expect(boundary).toBeGreaterThan(0.5)
++  })
++
++  it('skips the last 0.35s when computing the fallback average', () => {
++    let now = 1_000_000
++    vi.spyOn(performance, 'now').mockImplementation(() => now)
++
++    const meter = new TpsMeter(1500, 2000)
++    // Steady decode: 6 chars (≈1.7 tokens) every 100ms over 2s.
++    for (let i = 0; i < 20; i++) {
++      now += 100
++      meter.push('x'.repeat(6))
++    }
++    const steady = meter.value()
++    expect(steady).toBeGreaterThan(0)
++
++    // Simulate a stream-switch burn: a long silent gap (0.6s) with no samples.
++    now += 600
++    // value() with an empty live window must fall back to a non-zero average
++    // rather than 0 — the switch overhead is absorbed by the skip window.
++    const heldAfterGap = meter.value()
++    expect(heldAfterGap).toBeGreaterThan(0)
++  })
++
++  it('estimates tokens: CJK 1:1, full-width punctuation counted, ASCII 1:3.5, whitespace free', () => {
++    // 4 CJK chars + 1 full-width comma → 5 tokens.
++    expect(estimateTokens('你好世界，')).toBeCloseTo(5, 5)
++    // 7 ASCII chars → 2 tokens (7 / 3.5).
++    expect(estimateTokens('abcdefg')).toBeCloseTo(2, 5)
++    // Whitespace and newlines carry no tokens of their own.
++    expect(estimateTokens('a b\nc')).toBeCloseTo(3 / 3.5, 5)
++    // Empty / whitespace-only input never over-counts.
++    expect(estimateTokens('')).toBe(0)
++    expect(estimateTokens('   \n\t')).toBe(0)
++    })
++
++    it("estimates with the model's learned coefficients when one is set", () => {
++      // The neutral default is only a guess at a tokenizer's density. Once the
++      // meter has reconciled text against the real output_tokens a call
++      // reported, that guess is worse than what it learned -- which is why the
++      // numbers are persisted at all.
++      setEstimationCalibration({ kCjk: 0.8, kAscii: 1.6 })
++      expect(estimateTokens('你好世界，')).toBeCloseTo(5 * 0.8, 5)
++      expect(estimateTokens('abcdefg')).toBeCloseTo((7 / 3.5) * 1.6, 5)
++
++      // Clearing returns to neutral, so a session with no calibration behaves
++      // exactly as it did before the coefficients existed.
++      setEstimationCalibration(null)
++      expect(estimateTokens('你好世界，')).toBeCloseTo(5, 5)
++      expect(estimateTokens('abcdefg')).toBeCloseTo(2, 5)
++    })
++
++    it('ignores a non-positive or malformed calibration', () => {
++      setEstimationCalibration({ kCjk: 0, kAscii: 1.5 })
++      expect(estimateTokens('你好世界，')).toBeCloseTo(5, 5)
++      setEstimationCalibration(undefined)
++      expect(estimateTokens('abcdefg')).toBeCloseTo(2, 5)
++    })
++})
++
++describe('real-token accounting', () => {
++  afterEach(() => vi.restoreAllMocks())
++
++  function clock(start = 1_000_000) {
++    const ref = { now: start }
++    vi.spyOn(performance, 'now').mockImplementation(() => ref.now)
++    return ref
++  }
++
++  it('sums relayed token ids exactly and ignores the duplicated text frames', () => {
++    const ref = clock()
++    const meter = new TpsMeter(1500, 500)
++
++    // The sidecar relays the engine's real token counts for the same tokens the
++    // text frames carry; only the counts may reach the window.
++    for (let i = 0; i < 10; i++) {
++      ref.now += 100
++      meter.pushTokens(3)
++    }
++    expect(meter.source()).toBe('ids')
++    // 30 tokens over the 1000ms those batches cover. The denominator runs from
++    // the batch *before* the first one to the last one, because a batch's
++    // tokens are produced between it and its predecessor: ten batches of 3
++    // cover ten 100 ms intervals (30 t/s), not the nine in-window gaps — the
++    // 33.3 this used to assert, an 11% over-read on every steady reading.
++    expect(meter.windowTokens()).toBeCloseTo(30, 5)
++    expect(meter.value()).toBeCloseTo(30, 1)
++  })
++
++  it('learns from the real usage so the window matches the real token total', () => {
++    const ref = clock()
++    const meter = new TpsMeter(1500, 500)
++
++    // The text is latin, so before learning the neutral 1.0 coefficient
++    // under-reads the real 60 tokens (6 chars = 1.71 units, not 2 tokens)…
++    meter.beginCall()
++    for (let i = 0; i < 30; i++) {
++      ref.now += 50
++      meter.push('x'.repeat(6))
++    }
++    expect(meter.windowTokens()).toBeLessThan(55)
++
++    // …and the real usage from that call teaches the coefficients.
++    meter.endCall(60, 1500)
++
++    // Fresh window for the next call (calibration is kept across reset()).
++    meter.reset()
++    meter.beginCall()
++    for (let i = 0; i < 30; i++) {
++      ref.now += 50
++      meter.push('x'.repeat(6))
++    }
++    expect(meter.windowTokens()).toBeCloseTo(60, 5)
++  })
++
++  it('weights a whole-block delivery by its text instead of counting it as one frame', () => {
++    const ref = clock()
++    const meter = new TpsMeter(1500, 500)
++
++    meter.beginCall()
++    ref.now += 100
++    meter.push('你好世界', { wholeBlock: true })
++    meter.endCall(4, 100)
++    // 4 CJK chars == 4 tokens; a frame count would have read 1.
++    expect(meter.windowTokens()).toBeCloseTo(4, 5)
++  })
++
++  it('anchors the held speed to the real decode rate when the call ends', () => {
++    const ref = clock()
++    const meter = new TpsMeter(1500, 500)
++
++    const before = meter.calibration()
++    meter.beginCall()
++    ref.now += 20
++    meter.push('x'.repeat(6))
++    meter.endCall(120, 2000)
++    // One frame is too small a sample to settle a coefficient…
++    expect(meter.calibration()).toEqual(before)
++
++    // …but it still anchors the held speed to the real decode rate.
++    ref.now += 10_000
++    expect(meter.value()).toBeCloseTo(120 / 2, 5)
++  })
++
++  it('rejects a ballooned call (replayed prefix) and clamps the coefficients', () => {
++    const ref = clock()
++    const meter = new TpsMeter(1500, 500)
++    meter.setCalibration({ kCjk: 1, kAscii: 1 })
++
++    // Establish a normal call size first (100 latin frames ≈ 171 units).
++    meter.beginCall()
++    for (let i = 0; i < 100; i++) { ref.now += 5; meter.push('x'.repeat(6)) }
++    meter.endCall(100, 2000)
++    const baseline = meter.calibration().kAscii
++
++    // A fallback replay delivers the whole prefix again as one huge unit count.
++    meter.beginCall()
++    for (let i = 0; i < 1000; i++) { ref.now += 1; meter.push('x'.repeat(6)) }
++    meter.endCall(100, 2000)
++    expect(meter.calibration().kAscii).toBe(baseline)
++
++    // A genuine extreme ratio still lands inside the clamp.
++    meter.beginCall()
++    for (let i = 0; i < 100; i++) { ref.now += 5; meter.push('x'.repeat(6)) }
++    meter.endCall(100_000, 2000)
++    expect(meter.calibration().kAscii).toBeLessThanOrEqual(6)
++  })
++
++  it('does not bill sparse prose frames at a dense tool-input call\'s rate', () => {
++    // The reported failure: one call whose frames carried large tool-input
++    // JSON taught the then-per-frame coefficient its ceiling, after which six
++    // subagents writing prose — sparse frames — read ~800 tok/s while the
++    // engine log showed ~250. Learning is per character class now, so the
++    // dense latin call moves only kAscii and CJK prose is untouched by it.
++    const ref = clock()
++    const meter = new TpsMeter(1500, 500)
++
++    // Call 1: 6 frames, but ~2.5k latin characters and 1,320 real tokens
++    // (the measured shape of a 6-subagent Agent tool call).
++    meter.beginCall()
++    for (let i = 0; i < 6; i++) {
++      ref.now += 100
++      meter.push('{"prompt":"' + 'a'.repeat(400) + '"}')
++    }
++    meter.endCall(1320, 600)
++    expect(meter.calibration().kAscii).toBeGreaterThan(1.5)
++    // The dense latin call must not touch the CJK coefficient.
++    expect(meter.calibration().kCjk).toBe(1)
++
++    // Call 2: the subagents' prose. Four CJK characters per frame, so four
++    // tokens per frame — read as such, not at the tool-input density.
++    meter.reset()
++    meter.beginCall()
++    for (let i = 0; i < 10; i++) {
++      ref.now += 100
++      meter.push('你好世界')
++    }
++    expect(meter.windowTokens()).toBeCloseTo(40, 5)
++    // Same arithmetic as the ids case above: ten four-token batches cover 1 s,
++    // so 40 t/s — the prose is read at its own character density, and the
++    // denominator now counts every batch's own interval.
++    expect(meter.value()).toBeCloseTo(40, 1)
++  })
++
++  it('predicts the measured mixed call instead of staying at the neutral 1.0', () => {
++    // Measured on the local vLLM+DFlash engine: one parent call delivered 242
++    // CJK characters of thinking, 65 of prose and a 2,464-character latin
++    // tool-input blob, and the CLI reported 1,627 output tokens. The single
++    // coefficient a mixed call supports reproduces that within a few percent
++    // (the per-class solution needs a second call with a different mix).
++    const ref = clock()
++    const meter = new TpsMeter(1500, 500)
++    meter.beginCall()
++    ref.now += 50
++    meter.push('内容是'.repeat(80) + '内容')      // 242 CJK characters
++    ref.now += 50
++    meter.push('先深'.repeat(32) + '先')          // 65 CJK characters
++    ref.now += 50
++    meter.push('x'.repeat(2464))                  // latin tool-input JSON
++    expect(meter.endCall(1627, 4000)).toBe(true)
++
++    const { kCjk, kAscii } = meter.calibration()
++    const estimate = 307 * kCjk + (2464 / 3.5) * kAscii
++    expect(estimate).toBeGreaterThan(1627 * 0.95)
++    expect(estimate).toBeLessThan(1627 * 1.05)
++  })
++
++  it('separates the CJK and latin densities from mixed traffic', () => {
++    const ref = clock()
++    const meter = new TpsMeter(1500, 500)
++    const PROSE = '这是一段中文说明文字，用于验证密度分离。'.repeat(3)   // 60 CJK chars
++    const CODE = '{"key":"value","n":123},'.repeat(8)                  // 192 latin chars
++
++    // Six calls alternating prose and code, with the real counts their
++    // densities imply: 1 token per CJK char, 1.75 tokens per latin unit.
++    for (let call = 0; call < 6; call++) {
++      meter.beginCall()
++      ref.now += 20
++      if (call % 2 === 0) {
++        meter.push(PROSE)
++        meter.endCall(60, 500)
++      } else {
++        meter.push(CODE)
++        meter.endCall(Math.round((192 / 3.5) * 1.75), 500)
++      }
++      meter.reset()
++    }
++
++    const { kCjk, kAscii } = meter.calibration()
++    expect(kCjk).toBeGreaterThan(0.8)
++    expect(kCjk).toBeLessThan(1.2)
++    expect(kAscii).toBeGreaterThan(1.5)
++    expect(kAscii).toBeLessThan(2.1)
++  })
++
++  it('survives reset() with its calibration and needs a fresh call window', () => {
++    const ref = clock()
++    const meter = new TpsMeter(1500, 500)
++
++    meter.beginCall()
++    for (let i = 0; i < 30; i++) {
++      ref.now += 20
++      meter.push('x'.repeat(6))
++    }
++    meter.endCall(60, 600)
++    const learned = meter.calibration()
++    expect(learned).not.toEqual({ kCjk: 1, kAscii: 1 })
++
++    meter.reset()
++    expect(meter.hasStreamed()).toBe(false)
++    expect(meter.calibration()).toEqual(learned)
++    expect(meter.windowTokens()).toBe(0)
++
++    // A frame outside any call still counts, it just cannot teach.
++    ref.now += 20
++    meter.push('x'.repeat(6))
++    expect(meter.windowTokens()).toBeGreaterThan(0)
++    expect(meter.calibration()).toEqual(learned)
++  })
++})
++
++describe('aggregateMeterReadings', () => {
++  afterEach(() => vi.restoreAllMocks())
++
++  // Push a steady ~60 tok/s stream into `meter` while advancing the fake clock.
++  function pump(meter: TpsMeter, nowRef: { t: number }, n = 10): void {
++    for (let i = 0; i < n; i++) {
++      nowRef.t += 100
++      meter.push('x'.repeat(6))
++    }
++  }
++
++  it('reports the own meter without re-adding subordinate speed, and counts active subs', () => {
++    let now = 1_000_000
++    vi.spyOn(performance, 'now').mockImplementation(() => now)
++
++    const own = new TpsMeter(1500, 500)
++    const sub = new TpsMeter(1500, 500)
++    const ref = { t: now }
++    pump(own, ref)
++    pump(sub, ref) // both still inside the 1500ms window → both live
++
++    const r = aggregateMeterReadings(own, [sub], now, 5 * 60 * 1000)
++    expect(r.visible).toBe(true)
++    expect(r.activeSubs).toBe(1)
++    // The parent meter already carries the subagent's relayed tokens
++    // (chatStore ingestSubagentTps), so the subordinate meter is a count
++    // source only — adding its speed would double the reported rate.
++    const single = aggregateMeterReadings(own, [], now, 5 * 60 * 1000)
++    expect(r.tps).toBeCloseTo(single.tps, 5)
++  })
++
++  it('stays hidden when only a subordinate has streamed', () => {
++    let now = 1_000_000
++    vi.spyOn(performance, 'now').mockImplementation(() => now)
++
++    const own = new TpsMeter(1500, 500)
++    const sub = new TpsMeter(1500, 500)
++    const ref = { t: now }
++    pump(sub, ref)
++
++    // Nothing is folded into the displayed meter yet, so there is no rate to
++    // show — masking it is better than flashing a number the user cannot trace.
++    const r = aggregateMeterReadings(own, [sub], now, 5 * 60 * 1000)
++    expect(r.visible).toBe(false)
++    expect(r.tps).toBe(0)
++  })
++
++  it('excludes a subagent whose window has drained (finished, held value must not leak)', () => {
++    let now = 1_000_000
++    vi.spyOn(performance, 'now').mockImplementation(() => now)
++
++    const own = new TpsMeter(1500, 500)
++    const sub = new TpsMeter(1500, 500)
++    const ref = { t: now }
++    pump(sub, ref)
++
++    // Sub stops; advance 10s so its 1500ms window drains (held speed stays
++    // non-zero via its own fallback, but it is no longer "live").
++    now += 10_000
++    pump(own, ref) // own is freshly emitting
++
++    const r = aggregateMeterReadings(own, [sub], now, 5 * 60 * 1000)
++    expect(r.visible).toBe(true)
++    expect(r.activeSubs).toBe(0)
++    // Must equal own-only (no inflated contribution from the drained sub).
++    const single = aggregateMeterReadings(own, [], now, 5 * 60 * 1000)
++    expect(r.tps).toBeCloseTo(single.tps, 5)
++  })
++
++  it('is unchanged for a lone main session (no subordinates)', () => {
++    let now = 1_000_000
++    vi.spyOn(performance, 'now').mockImplementation(() => now)
++
++    const own = new TpsMeter(1500, 500)
++    const ref = { t: now }
++    pump(own, ref)
++
++    // Live: aggregate === own live value, activeSubs 0.
++    let r = aggregateMeterReadings(own, [], now, 5 * 60 * 1000)
++    expect(r.visible).toBe(true)
++    expect(r.activeSubs).toBe(0)
++    expect(r.tps).toBeCloseTo(own.value(), 5)
++
++    // After the window drains, aggregate falls back to own held speed.
++    now += 10_000
++    r = aggregateMeterReadings(own, [], now, 5 * 60 * 1000)
++    expect(r.visible).toBe(true)
++    expect(r.tps).toBeCloseTo(own.value(), 5)
++  })
++
++  it('stays hidden before anything has streamed, and hides after the 5-min idle', () => {
++    let now = 1_000_000
++    vi.spyOn(performance, 'now').mockImplementation(() => now)
++
++    const own = new TpsMeter(1500, 500)
++    expect(aggregateMeterReadings(own, [], now, 5 * 60 * 1000).visible).toBe(false)
++
++    const ref = { t: now }
++    pump(own, ref)
++    expect(aggregateMeterReadings(own, [], now, 5 * 60 * 1000).visible).toBe(true)
++
++    // 5-min idle: even though the window is drained, nothing new arrived.
++    now += 6 * 60 * 1000
++    expect(aggregateMeterReadings(own, [], now, 5 * 60 * 1000).visible).toBe(false)
++  })
++})
++
++describe('TpsMeter at a generation-phase handoff', () => {
++  afterEach(() => vi.restoreAllMocks())
++
++  /**
++   * The relay batches ids on a 200 ms timer, so samples are flushes. When
++   * generation stalls — the tool → content handoff, where a tool runs for
++   * seconds with nothing streaming — the window drains, and the flush that
++   * follows lands alone. A rate computed from one sample's arrival gap (zero)
++   * falls back to BURST_FLOOR_MS, so the flush reads as a burst proportional to
++   * how long generation was actually stopped: the reported 2-5x spike.
++   */
++  it('does not turn a stall-and-flush into a burst', () => {
++    let now = 1_000_000
++    vi.spyOn(performance, 'now').mockImplementation(() => now)
++
++    const meter = new TpsMeter()
++    meter.beginCall()
++    // Steady 200 tps: a 40-token flush every 200 ms.
++    for (let i = 0; i < 15; i++) {
++      now += 200
++      meter.pushTokens(40)
++    }
++    const steady = meter.value()
++    expect(steady).toBeGreaterThan(150)
++
++    // A tool runs: 2.5 s with nothing streaming, which drains the window.
++    // Generation resumes at the same rate and its first flush carries 2.5 s of
++    // tokens. Reading that against the 400 ms floor would report ~1200 tps.
++    now += 2500
++    meter.pushTokens(500)
++    const afterStall = meter.value()
++
++    expect(afterStall).toBeLessThan(steady * 1.35)
++    // The stall is the denominator, so the answer is the real rate: 500 tokens
++    // over ~2.7 s of stopped generation.
++    expect(afterStall).toBeGreaterThan(150)
++  })
++
++  it('keeps the anchor when the source switches mid-stream', () => {
++    let now = 1_000_000
++    vi.spyOn(performance, 'now').mockImplementation(() => now)
++
++    const meter = new TpsMeter()
++    meter.beginCall()
++    for (let i = 0; i < 15; i++) {
++      now += 200
++      meter.pushTokens(40)
++    }
++
++    // Ids start arriving, so the window is reset to avoid mixing units. The
++    // tokens either side of it split one continuous generation, so the next
++    // flush must still be divided by the time since generation last advanced.
++    now += 2500
++    meter.reset()
++    meter.beginCall()
++    now += 200
++    meter.pushTokens(500)
++
++    expect(meter.value()).toBeLessThan(300)
++  })
++
++  it('reads steady decoding exactly, anchor and all', () => {
++    let now = 1_000_000
++    vi.spyOn(performance, 'now').mockImplementation(() => now)
++
++    const meter = new TpsMeter()
++    meter.beginCall()
++    // 200 tps held for 3 s. The anchor lengthens the denominator by one batch
++    // interval here too, and that is correct rather than a concession: the
++    // extra interval is exactly the one the batch before the window covers, so
++    // k batches of 40 over k 200 ms intervals read 200 — not the 222 the
++    // unanchored form gave by charging ten batches to nine gaps.
++    for (let i = 0; i < 15; i++) {
++      now += 200
++      meter.pushTokens(40)
++    }
++    expect(meter.value()).toBeCloseTo(200, 0)
++  })
++
++  it('does not read a backlog as a burst one flush later', () => {
++    // The reported spike, in its exact shape: the anchor used to apply only
++    // when the in-window span fell *below* the floor, so a flush arriving
++    // ~400 ms after the stall — span == floor — skipped it and charged the
++    // whole backlog to 400 ms. With a team's tokens behind it that is the
++    // thousands-per-second the indicator pinned at.
++    let now = 1_000_000
++    vi.spyOn(performance, 'now').mockImplementation(() => now)
++
++    const meter = new TpsMeter()
++    meter.beginCall()
++    for (let i = 0; i < 15; i++) {
++      now += 200
++      meter.pushTokens(40)
++    }
++    const steady = meter.value()
++
++    now += 2500
++    meter.pushTokens(600)     // the backlog of the stall
++    now += 400
++    meter.pushTokens(40)      // normal generation again, span == the floor
++
++    expect(meter.value()).toBeLessThan(steady * 1.35)
++  })
++
++  it('holds the last rate instead of rating a block handed over in one sample', () => {
++    // A whole thinking block can arrive in a single frame. Its tokens were
++    // generated over an interval nothing in the window records, so there is no
++    // rate to compute — dividing them by the floor anyway read 22500 t/s. The
++    // honest answer is the rate already held.
++    let now = 1_000_000
++    vi.spyOn(performance, 'now').mockImplementation(() => now)
++
++    const meter = new TpsMeter()
++    meter.beginCall()
++    for (let i = 0; i < 15; i++) {
++      now += 200
++      meter.pushTokens(40)
++    }
++    const steady = meter.value()
++
++    now += 200
++    meter.pushTokens(9000)
++
++    expect(meter.value()).toBeLessThan(steady * 1.35)
++  })
++})
++
++describe('TpsMeter with batched delivery', () => {
++  afterEach(() => vi.restoreAllMocks())
++
++  /**
++   * A burst is not a decode reading. The tokens in it were generated before they
++   * were delivered (a replayed prefix, a non-streamed fallback handed over whole,
++   * a backlog the relay delivered while the page was busy — a Bash step's output
++   * keeps the main thread occupied exactly that way), and nothing in the window
++   * records when. Counting them against any interval here is what produced the
++   * readings the user kept seeing climb past 1600 t/s.
++   */
++  function clock() {
++    let now = 1_000_000
++    vi.spyOn(performance, 'now').mockImplementation(() => now)
++    return { advance: (ms: number) => { now += ms } }
++  }
++
++  function steady(meter: TpsMeter, advance: (ms: number) => void, flushes = 25) {
++    // 50 tokens per 200 ms flush = a real 250 t/s.
++    for (let i = 0; i < flushes; i++) {
++      advance(200)
++      meter.pushTokens(50)
++    }
++    expect(meter.value()).toBeCloseTo(250, 0)
++  }
++
++  it('holds the real rate when a whole block is delivered in one burst', () => {
++    const { advance } = clock()
++    const meter = new TpsMeter(1500, 2000)
++    steady(meter, advance)
++
++    // 9000 tokens across 20 frames arriving 5 ms apart: nothing could generate
++    // that fast, so these are not decode samples. Measured 7153 t/s before the
++    // rate was restricted to samples that arrived at their generation pace.
++    for (let i = 0; i < 20; i++) {
++      advance(5)
++      meter.pushTokens(450)
++    }
++    advance(300)
++    expect(meter.value()).toBeCloseTo(250, 0)
++  })
++
++  it('does not read a tool-pause backlog as a burst', () => {
++    const { advance } = clock()
++    const meter = new TpsMeter(1500, 2000)
++    steady(meter, advance)
++
++    // A bash step: 900 ms with nothing, then the queued frames arrive together.
++    advance(900)
++    for (let i = 0; i < 12; i++) {
++      advance(5)
++      meter.pushTokens(400)
++    }
++    advance(300)
++
++    // The first delayed batch keeps its own gap, so it is rated against the
++    // pause it was generated across; the rest are batches and are left out. The
++    // result stays in the same league as the real rate instead of the ~3600 the
++    // whole burst used to be charged for.
++    expect(meter.value()).toBeLessThan(600)
++  })
++})
++
++describe('TpsMeter concurrent streams', () => {
++  afterEach(() => vi.restoreAllMocks())
++
++  function clock(start = 1_000_000) {
++    const ref = { now: start }
++    vi.spyOn(performance, 'now').mockImplementation(() => ref.now)
++    return ref
++  }
++
++  it("measures a stream's pace against its own last chunk, not another stream's", () => {
++    const ref = clock()
++    const meter = new TpsMeter(1500, 500)
++
++    // Three decoders — a main turn plus two subagents — each emit 5 units every
++    // 100 ms: 50 units/s apiece, 150 together. They interleave inside a single
++    // tick, 0.5 ms apart, which is what the relay does with several runs in
++    // flight.
++    const streams = ['main', 'sub-a', 'sub-b']
++    for (let tick = 0; tick < 30; tick++) {
++      for (const stream of streams) {
++        ref.now += 0.5
++        meter.push('中'.repeat(5), { external: true, stream })
++      }
++      ref.now += 100
++    }
++
++    // Per stream this is 5 units per 100 ms, so the window holds 150 units/s.
++    // Against the neighbouring chunk it would be 5/0.0005 = 10 000 units/s —
++    // every sample discarded as a batch, and the readout collapsing to the held
++    // value, which is how four subagents pinned the indicator at a third of the
++    // engine's real rate.
++    expect(meter.value()).toBeGreaterThan(120)
++    expect(meter.value()).toBeLessThan(180)
++  })
++
++  it('still reads an untagged single stream at its own rate', () => {
++    const ref = clock()
++    const meter = new TpsMeter(1500, 500)
++
++    for (let tick = 0; tick < 30; tick++) {
++      ref.now += 100
++      meter.push('中'.repeat(5))
++    }
++
++    expect(meter.value()).toBeGreaterThan(40)
++    expect(meter.value()).toBeLessThan(60)
++  })
++})
+diff --git a/desktop/src/lib/tpsMeter.ts b/desktop/src/lib/tpsMeter.ts
+new file mode 100644
+index 00000000..3db38365
+--- /dev/null
++++ b/desktop/src/lib/tpsMeter.ts
+@@ -0,0 +1,747 @@
++/**
++ * Real-time decode-speed (TPS) meter.
++ *
++ * Reports output tokens/second for a session's live stream, from whichever
++ * signal the backend actually provides:
++ *
++ *  1. `ids`  — the sidecar relayed the engine's real per-chunk token ids
++ *              (`tps_tokens`). Those counts are exact, so they are summed
++ *              as-is and every other signal is ignored for that window.
++ *  2. `char` — no ids, so the streamed text itself is the measurement: CJK
++ *              characters and full-width punctuation weigh one unit each,
++ *              other non-whitespace characters a third of a unit, and each
++ *              unit's tokens-per-unit is learned per model from the real
++ *              `usage.output_tokens` every completed call reports.
++ *
++ * ## Why the text, and not the number of streamed frames
++ *
++ * An earlier version counted frames ("each chunk = one unit") and learned an
++ * average tokens-per-frame. That is unsound for any engine that batches
++ * unevenly, and this one does: measured on the local vLLM+DFlash engine, a
++ * frame carrying streamed *text* holds ~2.5 tokens, a frame carrying
++ * *thinking* ~12, and a frame carrying a tool-input JSON blob ~90-220. The
++ * client also coalesces deltas before the meter sees them, so the observable
++ * frame count is partly a property of the client's throttling.
++ *
++ * One global tokens-per-frame cannot serve densities that differ ~40x, and it
++ * fails loudly rather than quietly: a single call whose frames were dense JSON
++ * taught the local meter ~51 tokens/frame (clamped to the ceiling of 8), after
++ * which six concurrent subagents writing prose — sparse frames, ~2.5 tokens
++ * each — were billed at the JSON density and the indicator read ~800 tok/s
++ * while the engine log showed ~250. The text length has no such failure mode:
++ * it is a direct measure of what was decoded, whatever the batch size, so the
++ * frame count is now used only for liveness and for the window's time span.
++ *
++ * Two coefficients rather than one, because the two character classes really
++ * do tokenize at different rates: measured on the same engine, CJK prose is
++ * ~1.0 token/char-unit while JSON/code is ~1.9 (short tokens, dense
++ * punctuation). Both are learned together (least squares over every completed
++ * call's units and its real token count) and stored per model, so mixed
++ * Chinese-plus-code traffic stays inside a few tens of percent instead of the
++ * factor-of-two a single coefficient would carry between a prose call and a
++ * tool-input call.
++ *
++ * Window smoothing adapts to any emission granularity. Session lifecycle:
++ *  - hasStreamed() is true once any content arrived; the UI stays visible.
++ *  - While decoding, value() returns the live window speed.
++ *  - When decoding pauses / a turn ends, value() falls back to the held speed —
++ *    anchored to the real `output_tokens / decode span` when endCall() saw one,
++ *    so the number the user keeps seeing is a real-token rate.
++ */
++
++const WINDOW_MS = 1500
++// Held value = average speed over the 0.5s immediately before the stream's last
++// emitted chunk, i.e. the speed at which the turn ended.
++const FALLBACK_WINDOW_MS = 500
++// Denominator floor for the live-window speed (ms). Mobile ws/event loops can
++// batch many deltas so the intra-window span collapses to near-zero and
++// total/span would read in the hundreds/thousands. A small floor (NOT the full
++// 1.5s window) keeps that burst suppression while letting a turn's *opening*
++// read the real speed quickly — the old 1.5s floor spread a fresh turn's first
++// seconds across the whole window and systematically under-read the start. The
++// UI's 30/70 exponential smoothing then damps any residual spike.
++const BURST_FLOOR_MS = 400
++// How long a batch must have been in the window before it is rated. The relay
++// flushes on a ~200 ms timer, so the batch at the leading edge is a partial one
++// whose count AND interval both understate; on a phase switch it is instead the
++// whole backlog of a stall, which is the other way to be wrong. Rating the
++// window only up to a settled point drops both cases. The cost is that the
++// readout lags this much, which is below what the eye resolves on a rate.
++const SETTLE_MS = 230
++// Upper bound on the tokens a sample can carry per second of the interval since
++// the previous one. Nothing measured here comes close (the local engines run
++// around 250, the fastest configurations under 1000), so a sample above this is
++// not a decode reading at all: it is a batch whose tokens were generated before
++// they were delivered. Generous on purpose — it only has to separate "delivered
++// as generated" from "delivered at once", and those differ by orders of magnitude.
++const MAX_INSTANT_TPS = 5_000
++const CJK_RE = /[\u3400-\u9fff\u3040-\u30ff\uac00-\ud7af\u3000-\u303f\uff00-\uffef]/
++const WHITESPACE_RE = /\s/
++const NON_CJK_TOKEN_WEIGHT = 1 / 3.5
++// A live-window speed below this many tokens/second is treated as a stream
++// boundary (text ↔ thinking ↔ tool-input switch), not real slow decoding: the
++// just-flushed window holds only a couple of sparse samples whose rate would
++// otherwise collapse toward 0. We hold the smoothed fallback instead.
++const SPARSE_SPEED_THRESHOLD = 5
++// Tail skip when computing the held average. 0: the user wants the speed over
++// the 0.5s slice *immediately before* the last chunk, including the final
++// moments — so nothing is skipped.
++const FALLBACK_SKIP_MS = 0
++
++// ── Calibration ───────────────────────────────────────────────────────────
++/**
++ * Bounds for a learned tokens-per-unit coefficient. The band spans the
++ * plausible tokenizer densities (a mixed corpus sits near 1.0, dense
++ * code/JSON near 2) with room on either side, while still bounding the damage
++ * a single weird call could do.
++ */
++const K_MIN = 0.25
++const K_MAX = 6
++/** A call below this many real output tokens is too small to teach anything. */
++const MIN_REAL_TOKENS_TO_LEARN = 50
++/** Nor may a call settle coefficients from only a handful of text units. */
++const MIN_UNITS_TO_LEARN = 40
++/** A call whose unit count dwarfs the running mean is a replay, not a real burst. */
++const OUTLIER_UNIT_FACTOR = 3
++const UNIT_MEAN_EWMA_ALPHA = 0.2
++/**
++ * Forgetting factor on the least-squares accumulators: the engine's density is
++ * stable, but a session that switched models (and kept this meter) should not
++ * be outvoted forever by its first calls.
++ */
++const LEARN_FORGET = 0.9
++/** Below this relative determinant the two classes are not separable yet. */
++const SINGULAR_EPS = 1e-6
++
++/**
++ * Master switch for the TPS indicator. Set to false to disable the meter
++ * (no sampling in the content_delta path and no UI) while keeping the code in
++ * place — used to isolate whether the indicator interacts with tool calls.
++ */
++const TPS_ENABLED = true
++
++export function isTpsEnabled(): boolean {
++  return TPS_ENABLED
++}
++
++export type TpsSource = 'ids' | 'char'
++
++/** Learned tokens-per-unit, per character class (see the module docs). */
++export type TpsCalibration = { kCjk: number; kAscii: number }
++
++/** Text units split by class, the meter's raw measurement. */
++type Sample = {
++  t: number
++  /** CJK / full-width characters, 1 unit each. */
++  cjk: number
++  /** Other non-whitespace characters, 1/3.5 unit each. */
++  ascii: number
++  /** Relayed exact token count (0 for text samples). */
++  ids: number
++  /**
++   * Which concurrently-decoding stream this sample came from. Undefined for the
++   * session's own output, which is the only stream in the single-stream case.
++   *
++   * Several streams (the main turn plus every running subagent) interleave into
++   * one sample list, so "the gap since the previous sample" is not the interval
++   * this sample's tokens were produced over unless the previous sample came from
++   * the same stream. See sliceRate().
++   */
++  stream?: string
++}
++
++function clamp(value: number, min: number, max: number): number {
++  if (!Number.isFinite(value)) return min
++  return Math.min(max, Math.max(min, value))
++}
++
++function textUnits(text: string): { cjk: number; ascii: number } {
++  let cjk = 0
++  let ascii = 0
++  for (const ch of text) {
++    if (WHITESPACE_RE.test(ch)) continue
++    if (CJK_RE.test(ch)) cjk += 1
++    else ascii += 1
++  }
++  return { cjk, ascii: ascii * NON_CJK_TOKEN_WEIGHT }
++}
++
++export class TpsMeter {
++  private samples: Sample[] = []
++  private lastPushAt = 0
++  private fallbackTps = 0
++  private everStreamed = false
++  private readonly windowMs: number
++  private readonly fallbackWindowMs: number
++
++  // Learned coefficients and the least-squares accumulators behind them. They
++  // describe the model, not this window, so reset() keeps them.
++  /**
++   * Arrival time of the sample just before the window's first one. A window's
++   * in-span says how fast samples arrived, not how long the tokens inside them
++   * took to generate, and the two stop agreeing across a pause: at a phase
++   * switch the engine stalls, the relay keeps batching, and the backlog flushes
++   * as one fat sample. Anchoring to this instead of to the burst floor is what
++   * keeps that backlog from reading as a burst — see value().
++   */
++  private preWindowAt = 0
++  private kCjk = 1
++  private kAscii = 1
++  private sCC = 0
++  private sAA = 0
++  private sCA = 0
++  private sCY = 0
++  private sAY = 0
++  private unitMean: number | null = null
++
++  // Units observed since beginCall(); reconciled against real tokens in endCall().
++  private callOpen = false
++  private callCjk = 0
++  private callAscii = 0
++  private callIds = 0
++  private callFirstAt = 0
++  private callLastAt = 0
++
++  constructor(windowMs = WINDOW_MS, fallbackWindowMs = FALLBACK_WINDOW_MS) {
++    this.windowMs = windowMs
++    this.fallbackWindowMs = fallbackWindowMs
++  }
++
++  /**
++   * Feed a streamed text chunk.
++   *
++   * `wholeBlock` marks a delivery that carries a finished block rather than a
++   * fragment (a replayed `thinking` block, a non-streamed answer). It is
++   * accepted for call-site compatibility but changes nothing: the measurement
++   * is the text itself, which a whole block carries just as well as a
++   * fragment does.
++   */
++  push(
++    text: string,
++    options: { wholeBlock?: boolean; external?: boolean; stream?: string } = {},
++  ): void {
++    const now = performance.now()
++    this.lastPushAt = now
++    this.everStreamed = true
++    const external = options.external === true
++    const { cjk, ascii } = text ? textUnits(text) : { cjk: 0, ascii: 0 }
++    if (cjk === 0 && ascii === 0) {
++      if (!external) this.noteCallFrame(now)
++      return
++    }
++    this.samples.push({
++      t: now,
++      cjk,
++      ascii,
++      ids: 0,
++      ...(options.stream ? { stream: options.stream } : {}),
++    })
++    if (!external) this.noteCallFrame(now, cjk, ascii)
++    // A slice with no timable span reports 0 — that means "no measurement",
++    // not "the rate is zero", so the held speed keeps its last real value.
++    const held = this.computeFallbackTps(now)
++    if (held > 0) this.fallbackTps = held
++  }
++
++  /**
++   * Feed a real token count relayed by the sidecar (the engine's per-chunk
++   * `token_ids`). These are exact, so they bypass calibration entirely.
++   */
++  pushTokens(tokens: number, stream?: string): void {
++    const count = Math.floor(tokens)
++    if (!Number.isFinite(count) || count <= 0) return
++    const now = performance.now()
++    this.samples.push({
++      t: now,
++      cjk: 0,
++      ascii: 0,
++      ids: count,
++      ...(stream ? { stream } : {}),
++    })
++    this.lastPushAt = now
++    this.everStreamed = true
++    this.noteCallFrame(now, 0, 0, count)
++    // A slice with no timable span reports 0 — that means "no measurement",
++    // not "the rate is zero", so the held speed keeps its last real value.
++    const held = this.computeFallbackTps(now)
++    if (held > 0) this.fallbackTps = held
++  }
++
++  /** Bump liveness without recording units (a frame the exact source already covers). */
++  touch(): void {
++    this.lastPushAt = performance.now()
++    this.everStreamed = true
++  }
++
++  /** True once this session has ever received streamed content. */
++  hasStreamed(): boolean {
++    return this.everStreamed
++  }
++
++  /**
++   * True while the sliding window still holds fresh samples — i.e. this
++   * stream is actively emitting right now. Once the window drains, a
++   * finished session's held turn-ending speed must not keep feeding the
++   * aggregate (see aggregateMeterReadings).
++   */
++  hasLiveSamples(): boolean {
++    this.prune()
++    return this.samples.length > 0
++  }
++
++  /** Epoch ms of the most recent streamed chunk (0 if never). */
++  lastDataTime(): number {
++    return this.lastPushAt
++  }
++
++  /** Which signal the current window is reading (for UI/diagnostics). */
++  source(): TpsSource {
++    this.prune()
++    for (const sample of this.samples) {
++      if (sample.ids > 0) return 'ids'
++    }
++    return 'char'
++  }
++
++  /** Learned coefficients, for persistence per model (see tpsCalibration). */
++  calibration(): TpsCalibration {
++    return { kCjk: this.kCjk, kAscii: this.kAscii }
++  }
++
++  /**
++   * Seed coefficients learned from earlier sessions with the same model.
++   *
++   * `undefined` leaves the current coefficients alone; `null` means "this model
++   * has nothing remembered" and resets to the neutral 1.0 (so a model switch
++   * re-learns instead of inheriting the previous model's numbers).
++   */
++  setCalibration(calibration: TpsCalibration | null | undefined): void {
++    if (calibration === undefined) return
++    if (calibration === null) {
++      this.kCjk = 1
++      this.kAscii = 1
++      this.sCC = 0
++      this.sAA = 0
++      this.sCA = 0
++      this.sCY = 0
++      this.sAY = 0
++      this.unitMean = null
++      return
++    }
++    const { kCjk, kAscii } = calibration
++    if (Number.isFinite(kCjk) && kCjk > 0) this.kCjk = clamp(kCjk, K_MIN, K_MAX)
++    if (Number.isFinite(kAscii) && kAscii > 0) this.kAscii = clamp(kAscii, K_MIN, K_MAX)
++  }
++
++  /** Open a reconciliation window for one API call. */
++  beginCall(): void {
++    this.callOpen = true
++    this.callCjk = 0
++    this.callAscii = 0
++    this.callIds = 0
++    this.callFirstAt = 0
++    this.callLastAt = 0
++  }
++
++  /** Open a call window unless one is already open (idempotent per frame). */
++  ensureCall(): void {
++    if (!this.callOpen) this.beginCall()
++  }
++
++  /**
++   * Close the call opened by beginCall() and reconcile the measured text with
++   * the real output token count the CLI reported.
++   *
++   * Always anchors the held speed to the real rate when a decode span can be
++   * measured; learns the coefficients only when the call carried no exact ids
++   * (those need no calibration) and the sample is big enough to trust.
++   *
++   * @param decodeSpanMs real decode span when the CLI reported one, else the
++   *        caller's observed span (first→last frame of the call).
++   * @returns whether a coefficient was actually updated (so callers know
++   *          whether there is anything new worth persisting).
++   */
++  endCall(realTokens: number, decodeSpanMs?: number): boolean {
++    const callCjk = this.callCjk
++    const callAscii = this.callAscii
++    const callIds = this.callIds
++    const firstAt = this.callFirstAt
++    const lastAt = this.callLastAt
++    this.callOpen = false
++    this.callCjk = 0
++    this.callAscii = 0
++    this.callIds = 0
++    this.callFirstAt = 0
++    this.callLastAt = 0
++
++    const real = Math.floor(realTokens)
++    if (!Number.isFinite(real) || real <= 0) return false
++
++    const spanMs = decodeSpanMs && decodeSpanMs > 0
++      ? decodeSpanMs
++      : (firstAt > 0 && lastAt > firstAt ? lastAt - firstAt : 0)
++    if (spanMs > 0) this.fallbackTps = real / (spanMs / 1000)
++
++    if (callIds > 0) return false
++    const units = callCjk + callAscii
++    if (units < MIN_UNITS_TO_LEARN) return false
++    // A fallback/retry replays the prefix, inflating units without inflating
++    // real tokens. Drop the sample instead of teaching the coefficients a lie.
++    if (this.unitMean !== null && units > OUTLIER_UNIT_FACTOR * this.unitMean) return false
++    if (real < MIN_REAL_TOKENS_TO_LEARN) return false
++    this.unitMean = this.unitMean === null
++      ? units
++      : this.unitMean + UNIT_MEAN_EWMA_ALPHA * (units - this.unitMean)
++
++    return this.learn(callCjk, callAscii, real)
++  }
++
++  /**
++   * Fold one call's (class units, real tokens) into the two coefficients by
++   * least squares, so the estimator sums to the real count for the calls seen
++   * so far rather than to whichever single call came last.
++   *
++   * Two unknowns need more than one equation: the accumulators keep the normal
++   * equations of every past call, which is what lets a prose-heavy call and a
++   * JSON-heavy call separate the classes. Until both classes have actually
++   * appeared the system is singular, and the class that did appear is fitted on
++   * its own.
++   */
++  private learn(cjk: number, ascii: number, real: number): boolean {
++    const f = LEARN_FORGET
++    this.sCC = f * this.sCC + cjk * cjk
++    this.sAA = f * this.sAA + ascii * ascii
++    this.sCA = f * this.sCA + cjk * ascii
++    this.sCY = f * this.sCY + cjk * real
++    this.sAY = f * this.sAY + ascii * real
++
++    const det = this.sCC * this.sAA - this.sCA * this.sCA
++    const scale = this.sCC * this.sAA
++    if (scale > 0 && det > SINGULAR_EPS * scale) {
++      const kCjk = (this.sCY * this.sAA - this.sAY * this.sCA) / det
++      const kAscii = (this.sAY * this.sCC - this.sCY * this.sCA) / det
++      let learned = false
++      if (kCjk > 0) { this.kCjk = clamp(kCjk, K_MIN, K_MAX); learned = true }
++      if (kAscii > 0) { this.kAscii = clamp(kAscii, K_MIN, K_MAX); learned = true }
++      return learned
++    }
++    // Not separable yet — only one class has appeared, or every call so far
++    // mixed them in the same proportion. Fit the single coefficient the data
++    // does support (kCjk = kAscii = k, whose least-squares solution is the sum
++    // over both classes) so the estimator is not stuck at the neutral 1.0
++    // until the mixes happen to diverge.
++    const denom = this.sCC + this.sAA + 2 * this.sCA
++    if (denom <= 0) return false
++    const k = (this.sCY + this.sAY) / denom
++    if (!(k > 0)) return false
++    const settled = clamp(k, K_MIN, K_MAX)
++    // Only classes that actually appeared may be written: a call of pure
++    // latin tool-input says nothing about what a CJK character costs, and
++    // letting it set that coefficient would bill the next Chinese reply at
++    // code density until some later call happened to correct it.
++    let learned = false
++    if (this.sCC > 0) { this.kCjk = settled; learned = true }
++    if (this.sAA > 0) { this.kAscii = settled; learned = true }
++    return learned
++  }
++
++  /**
++   * Tokens/second within the sliding window. While decoding steadily this is
++   * the live window speed; when the engine pauses or switches streams
++   * (text → thinking → tool input) the just-flushed window can hold only a
++   * couple of sparse samples whose instantaneous rate would collapse toward 0.
++   * In that case fall back to the held speed so the indicator holds a sensible
++   * value instead of flashing 0 between turns.
++   */
++  value(): number {
++    this.prune()
++    if (this.samples.length === 0) return this.fallbackTps
++    // Rate the settled part of the window, not its leading edge: the newest
++    // batch is a partial flush — or, at a phase switch, the whole backlog of a
++    // stall — so its count and its interval are the two ways to be wrong at
++    // once. Nothing is settled yet right after a reset, where the held speed is
++    // the honest answer anyway.
++    const settledEnd = performance.now() - SETTLE_MS
++    let lastIndex = this.samples.length - 1
++    while (lastIndex >= 0 && this.samples[lastIndex]!.t > settledEnd) lastIndex--
++    const rate = lastIndex < 0
++      ? null
++      : this.sliceRate(0, lastIndex, this.preWindowAt)
++    if (rate === null) return this.fallbackTps
++    // Boundary guard: a slice whose live speed is below the sparse threshold is
++    // a stream switch, not slow decoding — hold the smoothed fallback and do
++    // NOT let the sparse rate overwrite it. The held value is owned exclusively
++    // by push()/endCall(): refreshing it here would let the shrinking tail
++    // window overwrite the requested turn-ending speed as the window drains.
++    if (rate < SPARSE_SPEED_THRESHOLD) return this.fallbackTps
++    return rate
++  }
++
++  /**
++   * Tokens per second over `samples[fromIndex..lastIndex]`, or `null` when that
++   * slice cannot be timed at all.
++   *
++   * A batch's tokens are produced between it and the batch before it, so the
++   * denominator starts at the batch *preceding* the slice — `originT`, the one
++   * sample just outside it (`prune()` keeps exactly that one as
++   * `preWindowAt`). Anchoring there is not merely safer, it is the correct
++   * arithmetic: k equal batches then cover k intervals, so steady decoding
++   * reads its true rate instead of over-reading by one batch.
++   *
++   * It is also what keeps a phase switch from reading as a burst. When the
++   * engine stalls (think → tool, tool → content) the relay keeps batching and
++   * the next flush carries the whole backlog; dividing that backlog by the
++   * window's own span — or, worse, by the burst floor — turns the stall into a
++   * spike, which is what the readout showed at exactly these boundaries.
++   *
++   * With no preceding batch the oldest sample in the slice has no interval of
++   * its own, so it is dropped rather than charged to the remaining span: that
++   * is how a whole thinking block delivered in one sample read as 22500 t/s.
++   * A slice with nothing timable returns `null`, and the caller holds.
++   */
++  private sliceRate(fromIndex: number, lastIndex: number, originT: number): number | null {
++    const samples = this.samples
++    let start = fromIndex
++    let origin = originT
++    if (!(origin > 0 && origin < samples[start]!.t)) {
++      origin = samples[start]!.t
++      start += 1
++    }
++    if (start > lastIndex) return null
++    // Rate only the samples that could have been generated at the pace their
++    // arrival implies. A sample that arrives carrying more tokens than any real
++    // decode could have produced in the gap since the previous one is part of a
++    // BATCH — a replayed prefix, a non-streamed fallback handed over whole, a
++    // backlog the relay delivered at once while the page was busy (a Bash step's
++    // output keeps the main thread occupied in exactly that way). Those tokens
++    // were generated before they arrived, and nothing in this window records
++    // when, so they are left out instead of being charged to an interval they
++    // did not occupy: measured 7153 t/s for a replayed block and 3602 t/s for a
++    // backlog flush, both against a real 250.
++    //
++    // The first sample of a delayed delivery keeps its large gap, so a backlog
++    // is still rated honestly against the pause it was generated across.
++    //
++    // The gap has to be measured against the previous sample of the SAME stream.
++    // The window holds several streams at once — the main turn and every running
++    // subagent interleave into this one list — and a neighbouring sample usually
++    // belongs to a different one, so the overall gap is a fraction of the
++    // interval the tokens actually took. Measured against it, a normal 5-token
++    // chunk landing 0.3 ms after another stream's chunk reads as 16 000 t/s and
++    // is thrown away as a batch; with four subagents decoding that discarded
++    // ~70% of the window and pinned the readout at ~75 t/s while the engine was
++    // truly doing 250. Per-stream, the same data rates 245.
++    //
++    // A stream whose previous sample lies before the slice falls back to
++    // `origin`, which is the conservative choice: it keeps the sample rather
++    // than discarding it for lack of a reference.
++    let total = 0
++    let lastKeptT = 0
++    let kept = 0
++    const previousByStream = new Map<string, number>()
++    for (let i = start; i <= lastIndex; i++) {
++      const sample = samples[i]!
++      const key = sample.stream ?? ''
++      const previousT = previousByStream.get(key) ?? origin
++      const gapMs = sample.t - previousT
++      const tokens = this.sampleTokens(sample)
++      if (gapMs > 0 && tokens / (gapMs / 1000) <= MAX_INSTANT_TPS) {
++        total += tokens
++        lastKeptT = sample.t
++        kept += 1
++      }
++      previousByStream.set(key, sample.t)
++    }
++    if (kept === 0) return null
++    const span = (lastKeptT - origin) / 1000
++    // Below the floor there is no span worth dividing by, and inventing one
++    // (the old behavior: divide by 400 ms regardless) is what produced the
++    // thousands-per-second readings this is meant to prevent.
++    if (span < BURST_FLOOR_MS / 1000) return null
++    return total / span
++  }
++
++  reset(): void {
++    this.samples = []
++    // A source switch mid-stream resets the window to avoid mixing units, but
++    // the tokens either side of it split one continuous generation, so the
++    // anchor survives: without it the first flush after the switch lands alone
++    // in an empty window and is divided by the burst floor instead of by the
++    // time it actually took. Reset also fires on reconnect and retry, where the
++    // gap is real generation time too, so there is nothing to distinguish.
++    this.preWindowAt = this.lastPushAt
++    this.everStreamed = false
++    this.lastPushAt = 0
++    this.fallbackTps = 0
++    this.callOpen = false
++    this.callCjk = 0
++    this.callAscii = 0
++    this.callIds = 0
++    this.callFirstAt = 0
++    this.callLastAt = 0
++  }
++
++  /** Calibrated token total held in the window (diagnostics/tests). */
++  windowTokens(): number {
++    this.prune()
++    let ids = 0
++    let cjk = 0
++    let ascii = 0
++    for (const sample of this.samples) {
++      ids += sample.ids
++      cjk += sample.cjk
++      ascii += sample.ascii
++    }
++    // The relay reports every call on this session's socket, subagents
++    // included (they share the session id), so an ids window is complete and
++    // must not have a text estimate added on top of it.
++    if (ids > 0) return ids
++    return cjk * this.kCjk + ascii * this.kAscii
++  }
++
++  private noteCallFrame(now: number, cjk = 0, ascii = 0, ids = 0): void {
++    if (!this.callOpen) return
++    if (this.callFirstAt === 0) this.callFirstAt = now
++    this.callLastAt = now
++    this.callCjk += cjk
++    this.callAscii += ascii
++    this.callIds += ids
++  }
++
++  private computeFallbackTps(now: number): number {
++    // Average token rate over the last fallbackWindowMs (0.5s) of streamed
++    // data — the speed at which the turn ended. FALLBACK_SKIP_MS trims the
++    // newest slice (0 by default). Rated by the same rule as the live window,
++    // so a slice whose tokens arrived in one flush cannot be divided by the
++    // slice length: that path held a whole block's tokens against 0.5 s and
++    // pinned the readout at its ceiling for as long as the value was held.
++    const windowEnd = now - FALLBACK_SKIP_MS
++    const windowStart = windowEnd - this.fallbackWindowMs
++    let startIndex = -1
++    let lastIndex = -1
++    let originT = 0
++    for (let i = this.samples.length - 1; i >= 0; i--) {
++      const s = this.samples[i]!
++      if (s.t < windowStart) {
++        // The batch just outside the slice times the first one inside it.
++        originT = s.t
++        break
++      }
++      if (s.t > windowEnd) continue
++      // Walking back to front, so the first hit is the newest in the slice and
++      // the last is the oldest: only the former may be assigned once.
++      if (lastIndex < 0) lastIndex = i
++      startIndex = i
++    }
++    if (startIndex < 0) return 0
++    return this.sliceRate(startIndex, lastIndex, originT) ?? 0
++  }
++
++  private sampleTokens(sample: Sample): number {
++    if (sample.ids > 0) return sample.ids
++    return sample.cjk * this.kCjk + sample.ascii * this.kAscii
++  }
++
++  private prune(): void {
++    const cutoff = performance.now() - this.windowMs
++    while (this.samples.length > 0 && this.samples[0]!.t < cutoff) {
++      // Keep the last one to fall out: it is the anchor a sparse window is
++      // extended back to.
++      this.preWindowAt = this.samples.shift()!.t
++    }
++  }
++}
++
++/**
++ * Aggregate reading for a session's TPS indicator. `tps` is the team-wide
++ * decode speed; `activeSubs` is the count of subagents currently emitting.
++ */
++export type TpsAggregate = {
++  visible: boolean
++  tps: number
++  /** Subagent meters with fresh samples in the window (emitting right now). */
++  activeSubs: number
++}
++
++/**
++ * Build the session's reading from its own meter, using the subordinate
++ * (subagent/team-member) meters only to count who is emitting right now.
++ *
++ *  - `own` already carries every subagent's relayed decode text (chatStore
++ *    folds it in per frame, see ingestSubagentTps), so the summed value is
++ *    just `own.value()`. The subordinate meters must NOT be added on top: they
++ *    hold the same tokens and would double the reported rate.
++ *  - While nothing is decoding the reading falls back to the own session's
++ *    held speed — identical to the pre-aggregation single-session behavior,
++ *    so a lone main session is unaffected.
++ *  - Visibility / the 5-min idle hide rule considers the newest data from
++ *    the whole group, so a busy subagent keeps the main indicator alive.
++ */
++export function aggregateMeterReadings(
++  own: TpsMeter,
++  subordinates: TpsMeter[],
++  now: number,
++  hideAfterIdleMs: number,
++): TpsAggregate {
++  const everStreamed = own.hasStreamed() || subordinates.some((m) => m.hasStreamed())
++  if (!everStreamed) return { visible: false, tps: 0, activeSubs: 0 }
++
++  let lastData = own.lastDataTime()
++  for (const m of subordinates) {
++    if (m.lastDataTime() > lastData) lastData = m.lastDataTime()
++  }
++  if (lastData > 0 && now - lastData > hideAfterIdleMs) {
++    return { visible: false, tps: 0, activeSubs: 0 }
++  }
++
++  if (!own.hasStreamed()) {
++    // Only a subordinate ever streamed: nothing is folded into the displayed
++    // meter, so there is no honest rate to show yet.
++    return { visible: false, tps: 0, activeSubs: 0 }
++  }
++  const activeSubs = subordinates.filter((m) => m.hasLiveSamples()).length
++  return { visible: true, tps: own.value(), activeSubs }
++}
++
++/**
++ * Coefficients {@link estimateTokens} should use, when a model's have been
++ * learned. `null` means the neutral default (one token per CJK character, one
++ * per 3.5 others).
++ *
++ * Module-level because the callers are pure functions invoked from render (the
++ * thought badge, the activity digest) and a client is looking at one model at a
++ * time; the alternative is threading a model id through every one of them. A
++ * client showing two models at once would need this per session.
++ */
++let estimationCalibration: TpsCalibration | null = null
++
++/**
++ * Point the content-based estimates at a model's learned tokenizer density.
++ *
++ * The badge and the digest can only measure characters, so their number is a
++ * guess until the meter has reconciled text against the real `output_tokens` a
++ * call reported. Those learned coefficients are what makes the guess track the
++ * real count (the meter learns them against real usage); using the neutral
++ * default while the calibration sits unread in storage is what left the
++ * estimate further off than it needed to be.
++ */
++export function setEstimationCalibration(calibration: TpsCalibration | null | undefined): void {
++  estimationCalibration = calibration
++    && Number.isFinite(calibration.kCjk) && calibration.kCjk > 0
++    && Number.isFinite(calibration.kAscii) && calibration.kAscii > 0
++    ? {
++        kCjk: clamp(calibration.kCjk, K_MIN, K_MAX),
++        kAscii: clamp(calibration.kAscii, K_MIN, K_MAX),
++      }
++    : null
++}
++
++export function estimateTokens(text: string): number {
++  const { cjk, ascii } = textUnits(text)
++  // Same shape the meter uses (see `value()`), so a learned calibration means
++  // the same thing in both places. With no calibration the multipliers are 1,
++  // which is exactly the neutral default this used to return.
++  const kCjk = estimationCalibration?.kCjk ?? 1
++  const kAscii = estimationCalibration?.kAscii ?? 1
++  return cjk * kCjk + ascii * kAscii
++}
+diff --git a/desktop/src/pages/ActiveSession.tsx b/desktop/src/pages/ActiveSession.tsx
+index 26d5ffbc..4607e36c 100644
+--- a/desktop/src/pages/ActiveSession.tsx
++++ b/desktop/src/pages/ActiveSession.tsx
+@@ -904,8 +904,16 @@ export function ActiveSession({ sessionId, active = true }: { sessionId?: string
+                   metadata={headerMetadata}
+                   actions={
+                     <>
+-                      {activeTabId ? <TpsIndicator sessionId={activeTabId} /> : null}
+-                      {activeTabId ? <SessionCostBadge sessionId={activeTabId} active={chatState !== 'idle'} /> : null}
++                      {/* 两行块：上=会话费用，下=TPS。费用徽章较宽，故 TPS 行**水平居中**于其下方
++                          （`items-center`，而非靠右对齐）——两行宽度不对等时居中才显得对仗工整。 */}
++                      <div className="flex h-[42px] shrink-0 flex-col items-center justify-center gap-0.5">
++                        <div className="flex h-[16px] items-center">
++                          {activeTabId ? <SessionCostBadge sessionId={activeTabId} active={chatState !== 'idle'} /> : null}
++                        </div>
++                        <div className="flex h-[14px] items-center">
++                          {activeTabId ? <TpsIndicator sessionId={activeTabId} /> : null}
++                        </div>
++                      </div>
+                       <Button
+                         variant="ghost"
+                         size="sm"
+diff --git a/desktop/src/stores/chatStore.test.ts b/desktop/src/stores/chatStore.test.ts
+index 3e411dfe..abf3a0f3 100644
+--- a/desktop/src/stores/chatStore.test.ts
++++ b/desktop/src/stores/chatStore.test.ts
+@@ -10,6 +10,7 @@ import {
+   hasVisibleSessionActivity,
+ } from '../components/activity/sessionActivityModel'
+ import { useSessionRuntimeStore } from './sessionRuntimeStore'
++import { clearTpsCalibration, loadTpsCalibration } from '../lib/tpsCalibration'
+ 
+ const {
+   sendMock,
+@@ -10288,6 +10289,178 @@ describe('chatStore history mapping', () => {
+     }
+   })
+ 
++  it("folds an unopened subagent run's decode text into the parent TPS meter", () => {
++    const parentSessionId = '__tps-parent-probe'
++    const send = (event: Extract<ServerMessage, { type: 'agent_run_event' }>['event']) => {
++      useChatStore.getState().handleServerMessage(parentSessionId, {
++        type: 'agent_run_event',
++        runAgentId: 'metered-agent',
++        streamId: 'metered-stream',
++        targetAgentId: 'metered-agent',
++        event,
++      })
++    }
++
++    send({ type: 'content_delta', text: 'x'.repeat(60) })
++
++    const meter = getSessionTpsMeter(parentSessionId)
++    expect(meter.hasStreamed()).toBe(true)
++    // Metered, never rendered: the frame is buffered for a run page that may
++    // never open, and no session state is fabricated for the parent.
++    expect(useChatStore.getState().sessions[parentSessionId]).toBeUndefined()
++
++    // A whole-block thinking hand-over replays text whose fragments already
++    // arrived — metering it again would double the run's token rate.
++    const lastAfterDelta = meter.lastDataTime()
++    send({ type: 'thinking', text: 'y'.repeat(60), complete: true })
++    expect(meter.lastDataTime()).toBe(lastAfterDelta)
++  })
++
++  it('reconciles a finished call against its real usage and banks it per model', () => {
++    clearTpsCalibration()
++    const sessionId = '__tps-reconcile'
++    useSessionRuntimeStore.getState().setSelection(sessionId, {
++      providerId: 'p1',
++      modelId: 'qwen3-coder',
++      effortLevel: 'high',
++    })
++    useChatStore.setState({ sessions: { [sessionId]: makeSession() } })
++
++    // 30 streamed frames, then the CLI reports the call really produced 60 tokens.
++    for (let i = 0; i < 30; i++) {
++      useChatStore.getState().handleServerMessage(sessionId, { type: 'content_delta', text: 'x'.repeat(6) })
++    }
++    const meter = getSessionTpsMeter(sessionId)
++    expect(meter.calibration()).toEqual({ kCjk: 1, kAscii: 1 })
++
++    useChatStore.getState().handleServerMessage(sessionId, {
++      type: 'message_complete',
++      usage: { input_tokens: 10, output_tokens: 60 },
++      timing: { duration_ms: 2000, duration_api_ms: 1800, ttft_ms: 300, decode_ms: 1500 },
++    })
++
++    const learned = meter.calibration()
++    expect(learned).not.toEqual({ kCjk: 1, kAscii: 1 })
++    // The coefficients are remembered for this model, so the next session does
++    // not start from 1.0 and under-read until its own first call completes.
++    expect(loadTpsCalibration('qwen3-coder')).toEqual(learned)
++  })
++
++  it('does not let subagent frames teach the parent call reconciliation', () => {
++    clearTpsCalibration()
++    const sessionId = '__tps-external'
++    useSessionRuntimeStore.getState().setSelection(sessionId, { providerId: 'p1', modelId: 'ext-model' })
++    useChatStore.setState({ sessions: { [sessionId]: makeSession() } })
++
++    // Only a subagent streamed: its tokens reached this socket as relayed text,
++    // but its real usage belongs to another API call, so nothing can be learned.
++    for (let i = 0; i < 30; i++) {
++      useChatStore.getState().handleServerMessage(sessionId, {
++        type: 'agent_run_event',
++        runAgentId: 'a1',
++        streamId: 's1',
++        targetAgentId: 'a1',
++        event: { type: 'content_delta', text: 'x'.repeat(6) },
++      })
++    }
++    expect(getSessionTpsMeter(sessionId).hasStreamed()).toBe(true)
++
++    useChatStore.getState().handleServerMessage(sessionId, {
++      type: 'message_complete',
++      usage: { input_tokens: 10, output_tokens: 60 },
++    })
++    expect(getSessionTpsMeter(sessionId).calibration()).toEqual({ kCjk: 1, kAscii: 1 })
++    expect(loadTpsCalibration('ext-model')).toBeNull()
++  })
++
++  it('counts relayed token ids exactly and stops sampling the duplicated text', () => {
++    const sessionId = '__tps-ids'
++    useChatStore.setState({ sessions: { [sessionId]: makeSession() } })
++
++    // Relay a real count, then the text of those same tokens.
++    useChatStore.getState().handleServerMessage(sessionId, { type: 'tps_tokens', tokens: 40, kind: 'content' })
++    useChatStore.getState().handleServerMessage(sessionId, { type: 'content_delta', text: 'x'.repeat(200) })
++
++    const meter = getSessionTpsMeter(sessionId)
++    expect(meter.source()).toBe('ids')
++    // Only the relayed 40 tokens — the text frame would have added ~57 more.
++    expect(meter.windowTokens()).toBeCloseTo(40, 5)
++  })
++
++  it('attributes relayed reasoning tokens to the open thought block', () => {
++    const sessionId = '__thinking-tokens'
++    useChatStore.setState({ sessions: { [sessionId]: makeSession() } })
++
++    // Open a thought block, then stream its reasoning.
++    useChatStore.getState().handleServerMessage(sessionId, { type: 'thinking', text: 'first thought' })
++    useChatStore.getState().handleServerMessage(sessionId, { type: 'tps_tokens', tokens: 12, kind: 'thinking' })
++    useChatStore.getState().handleServerMessage(sessionId, { type: 'tps_tokens', tokens: 30, kind: 'thinking' })
++    // Content tokens are not part of the thought and must not land on it.
++    useChatStore.getState().handleServerMessage(sessionId, { type: 'tps_tokens', tokens: 99, kind: 'content' })
++
++    const thinking = useChatStore.getState().sessions[sessionId]!.messages
++      .find((message) => message.type === 'thinking')
++    expect(thinking?.type === 'thinking' ? thinking.thinkingTokens : undefined).toBe(42)
++  })
++
++  it('drops reasoning tokens that arrive with no thought block open', () => {
++    const sessionId = '__thinking-tokens-none'
++    useChatStore.setState({ sessions: { [sessionId]: makeSession() } })
++
++    useChatStore.getState().handleServerMessage(sessionId, { type: 'tps_tokens', tokens: 15, kind: 'thinking' })
++
++    // Nothing to attribute to, so nothing is invented anywhere.
++    expect(
++      useChatStore.getState().sessions[sessionId]!.messages
++        .some((message) => message.type === 'thinking'),
++    ).toBe(false)
++  })
++
++  it('drops the sampling window when the transport reconnects', () => {
++    clearTpsCalibration()
++    const sessionId = '__tps-reconnect'
++    useChatStore.setState({ sessions: { [sessionId]: makeSession() } })
++
++    useChatStore.getState().handleServerMessage(sessionId, { type: 'content_delta', text: 'hello' })
++    expect(getSessionTpsMeter(sessionId).windowTokens()).toBeGreaterThan(0)
++
++    // A reconnect can replay deltas; the replayed prefix must not be counted.
++    useChatStore.getState().handleServerMessage(sessionId, { type: 'connected', sessionId })
++    expect(getSessionTpsMeter(sessionId).windowTokens()).toBe(0)
++    expect(getSessionTpsMeter(sessionId).hasStreamed()).toBe(false)
++  })
++
++  it('banks the old model coefficients and starts fresh when the model changes', () => {
++    clearTpsCalibration()
++    const sessionId = '__tps-model-switch'
++    useSessionRuntimeStore.getState().setSelection(sessionId, { providerId: 'p1', modelId: 'model-a' })
++    useChatStore.setState({ sessions: { [sessionId]: makeSession() } })
++
++    for (let i = 0; i < 30; i++) {
++      useChatStore.getState().handleServerMessage(sessionId, { type: 'content_delta', text: 'x'.repeat(6) })
++    }
++    useChatStore.getState().handleServerMessage(sessionId, {
++      type: 'message_complete',
++      usage: { input_tokens: 10, output_tokens: 60 },
++      timing: { duration_ms: 1, duration_api_ms: 1, ttft_ms: 1, decode_ms: 1500 },
++    })
++    const modelA = getSessionTpsMeter(sessionId).calibration()
++    expect(modelA).not.toEqual({ kCjk: 1, kAscii: 1 })
++
++    // The runtime switches to a model nothing is known about yet.
++    useSessionRuntimeStore.getState().setSelection(sessionId, { providerId: 'p1', modelId: 'model-b' })
++    useChatStore.getState().handleServerMessage(sessionId, {
++      type: 'runtime_config_applied',
++      providerId: 'p1',
++      modelId: 'model-b',
++      effortLevel: 'high',
++    })
++
++    // model-a's numbers were banked; model-b re-learns from neutral.
++    expect(loadTpsCalibration('model-a')).toEqual(modelA)
++    expect(getSessionTpsMeter(sessionId).calibration()).toEqual({ kCjk: 1, kAscii: 1 })
++  })
++
+   it('does not replay buffered output after an unregistered run has completed', () => {
+     vi.useFakeTimers()
+     const runSessionId = '__subagent__test-session-1__completed-before-open'
+diff --git a/desktop/src/stores/chatStore.ts b/desktop/src/stores/chatStore.ts
+index efe6950d..76f5f4b0 100644
+--- a/desktop/src/stores/chatStore.ts
++++ b/desktop/src/stores/chatStore.ts
+@@ -19,6 +19,8 @@ import { randomSpinnerVerb } from '../config/spinnerVerbs'
+ import { notifyDesktop } from '../lib/desktopNotifications'
+ import { createAsyncRefreshCoalescer } from '../lib/asyncRefreshCoalescer'
+ import { deriveSessionTitle, isPlaceholderSessionTitle } from '../lib/sessionTitle'
++import { TpsMeter, isTpsEnabled, setEstimationCalibration } from '../lib/tpsMeter'
++import { loadTpsCalibration, saveTpsCalibration } from '../lib/tpsCalibration'
+ import { t } from '../i18n'
+ import {
+   VISUAL_SELECTION_BATCH_PROMPT_HEADER,
+@@ -1006,6 +1008,128 @@ function markPendingToolUseMessagesStopped(messages: UIMessage[]): UIMessage[] {
+   return changed ? stoppedMessages : messages
+ }
+ 
++// Real-time decode-speed (TPS) meters, one per session so parallel sessions
++// each track their own output throughput without cross-talk.
++const tpsMeterBySession = new Map<string, TpsMeter>()
++
++export function getSessionTpsMeter(sessionId: string): TpsMeter {
++  let meter = tpsMeterBySession.get(sessionId)
++  if (!meter) {
++    meter = new TpsMeter()
++    // Seed what earlier sessions with this model measured, so a fresh session
++    // does not under-read until its first call completes.
++    const model = tpsModelFor(sessionId)
++    const seeded = loadTpsCalibration(model)
++    meter.setCalibration(seeded)
++    // The badge/digest estimate from characters, so they want the same learned
++    // coefficients the meter reads its rate with.
++    setEstimationCalibration(seeded)
++    tpsCalibrationModelBySession.set(sessionId, model)
++    tpsMeterBySession.set(sessionId, meter)
++  }
++  return meter
++}
++
++/** Model a session is currently running, for keying the TPS calibration. */
++function tpsModelFor(sessionId: string): string | undefined {
++  return useSessionRuntimeStore.getState().selections[sessionId]?.modelId
++}
++
++/**
++ * The model a session's meter has been learning for. Kept apart from the live
++ * selection because the UI updates the selection before the runtime confirms
++ * it, so on a switch the live selection is already the new model while the
++ * coefficients still describe the old one.
++ */
++const tpsCalibrationModelBySession = new Map<string, string | undefined>()
++
++/**
++ * Sessions whose sidecar relays real per-chunk token counts (`tps_tokens`).
++ * Their text frames duplicate those counts, so they must not also be sampled.
++ * Subagent frames folded into a parent meter are deliberately NOT gated on this
++ * flag: they are measured by the text-based estimator, which needs no per-stream
++ * coefficient.
++ */
++const tpsIdsModeBySession = new Map<string, boolean>()
++
++/**
++ * Feed one of a session's own streamed frames into its TPS meter, opening the
++ * call window on the first frame so endCall() can reconcile it afterwards.
++ */
++function pushTpsFrame(
++  sessionId: string,
++  text: string,
++  options: { wholeBlock?: boolean } = {},
++): void {
++  if (!isTpsEnabled()) return
++  const meter = getSessionTpsMeter(sessionId)
++  if (tpsIdsModeBySession.get(sessionId)) {
++    // The relay already counted these tokens exactly; keep liveness only.
++    meter.touch()
++    return
++  }
++  meter.ensureCall()
++  meter.push(text, options)
++}
++
++/** Drop a session's sampling window (reconnect / retry replays a prefix). */
++function resetTpsWindow(sessionId: string): void {
++  tpsIdsModeBySession.delete(sessionId)
++  tpsMeterBySession.get(sessionId)?.reset()
++}
++
++/**
++ * Meters of the sessions a parent session owns — subagent runs and
++ * team-member runs are synthetic sessions whose `sourceSessionId` points at
++ * the session that launched them. Returned so the parent's TPS indicator can
++ * show the team-wide total (see aggregateMeterReadings).
++ */
++export function getSubordinateTpsMeters(sessionId: string): TpsMeter[] {
++  const meters: TpsMeter[] = []
++  for (const tab of useTabStore.getState().tabs) {
++    if (tab.sessionId === sessionId) continue
++    if (tab.type !== 'subagent' && tab.type !== 'team-member') continue
++    if (tab.sourceSessionId !== sessionId) continue
++    const meter = tpsMeterBySession.get(tab.sessionId)
++    if (meter?.hasStreamed()) meters.push(meter)
++  }
++  return meters
++}
++
++/**
++ * Fold a subagent's relayed decode text into its parent session's meter.
++ *
++ * Runs on the parent socket for every agent_run_event, whether or not that
++ * run's page is open, so the main indicator reports the team-wide decode speed
++ * (the reference implementation in the older cc-haha tree did the same, via a
++ * dedicated `subagent_tps` frame relayed by the sidecar). Only the meter is
++ * touched — the text never reaches streamingText, so subagent prose cannot
++ * leak into the main conversation.
++ *
++ * Whole-block `thinking` hand-overs (complete === true) are skipped: their
++ * fragments already arrived as deltas, so counting both would double the
++ * subagent's token rate in the sliding window.
++ */
++function ingestSubagentTps(
++  parentSessionId: string,
++  event: Extract<ServerMessage, { type: 'agent_run_event' }>['event'],
++): void {
++  if (!isTpsEnabled()) return
++  // `external` keeps these frames out of the parent's call accounting: they
++  // belong to the subagent's own API calls, whose real usage never reaches this
++  // socket, so they may only contribute samples to the shared window. Their
++  // token estimate is text-based, so it is measured the same way the parent's
++  // own prose is — no coefficient has to be guessed for this path.
++  if (event.type === 'content_delta') {
++    if (event.text) getSessionTpsMeter(parentSessionId).push(event.text, { external: true })
++    if (event.toolInput) getSessionTpsMeter(parentSessionId).push(event.toolInput, { external: true })
++    return
++  }
++  if (event.type === 'thinking' && event.complete !== true && event.text) {
++    getSessionTpsMeter(parentSessionId).push(event.text, { external: true })
++  }
++}
++
+ // Streaming throttle for content_delta. Buffers must be per-session because
+ // multiple desktop tabs can stream at the same time.
+ const pendingDeltaBySession = new Map<string, string>()
+@@ -1029,8 +1153,10 @@ function appendPendingDelta(sessionId: string, text: string): void {
+     sessionId,
+     `${pendingDeltaBySession.get(sessionId) ?? ''}${text}`,
+   )
++  pushTpsFrame(sessionId, text)
+ }
+ 
++
+ function clearPendingDelta(sessionId: string): void {
+   const flushTimer = flushTimerBySession.get(sessionId)
+   if (flushTimer) {
+@@ -1056,6 +1182,9 @@ function appendPendingToolInputDelta(sessionId: string, text: string): void {
+     sessionId,
+     `${pendingToolInputDeltaBySession.get(sessionId) ?? ''}${text}`,
+   )
++  // Feed streaming tool inputs (Write/Edit/… argument JSON) into the TPS meter
++  // so the decode-speed reflects all output tokens, not just assistant text.
++  pushTpsFrame(sessionId, text)
+ }
+ 
+ function clearPendingToolInputDelta(sessionId: string): void {
+@@ -3199,6 +3328,7 @@ export const useChatStore = create<ChatStore>((setState, get) => {
+     clearPendingToolInputDelta(sessionId)
+     clearPendingTaskToolUseIds(sessionId)
+     clearPendingToolParentUseIds(sessionId)
++    tpsMeterBySession.delete(sessionId)
+     advanceHistoryLifecycle(sessionId)
+     wsManager.disconnect(sessionId)
+     set((s) => {
+@@ -4496,6 +4626,13 @@ export const useChatStore = create<ChatStore>((setState, get) => {
+ 
+   handleServerMessage: (sessionId, msg) => {
+     if (msg.type === 'agent_run_event') {
++      // Feed the parent's TPS meter with the subagent's relayed decode text
++      // before routing it. A run page's own meter only exists while that page
++      // is open (registerAgentRunSession is called from SubagentRunPage), and
++      // while it is closed the frames below are buffered instead of applied —
++      // so without this the main indicator would ignore subagent output. The
++      // text is meter-only and never rendered into the main conversation.
++      ingestSubagentTps(sessionId, msg.event)
+       if (!dispatchAgentRunEvent(sessionId, msg)) {
+         bufferAgentRunEvent(sessionId, msg)
+       }
+@@ -4525,6 +4662,9 @@ export const useChatStore = create<ChatStore>((setState, get) => {
+ 
+     switch (msg.type) {
+       case 'connected':
++        // A reconnect can replay deltas; start the sampling window clean so the
++        // replayed prefix is not counted on top of what was already sampled.
++        resetTpsWindow(sessionId)
+         // Team lifecycle broadcasts are transition-only. A reconnect must
+         // reconcile against the durable workbench so missed update/delete or
+         // same-name recreate events cannot leave a live cache authoritative.
+@@ -4824,6 +4964,17 @@ export const useChatStore = create<ChatStore>((setState, get) => {
+         break
+ 
+       case 'runtime_config_applied': {
++        // The runtime now runs `msg.modelId`. The TPS coefficients describe a
++        // model, so bank what this session learned for the model it was on and
++        // re-seed from whatever is already known about the new one.
++        if (isTpsEnabled() && msg.modelId) {
++          const meter = getSessionTpsMeter(sessionId)
++          saveTpsCalibration(tpsCalibrationModelBySession.get(sessionId), meter.calibration())
++          const next = loadTpsCalibration(msg.modelId)
++          meter.setCalibration(next)
++          setEstimationCalibration(next)
++          tpsCalibrationModelBySession.set(sessionId, msg.modelId)
++        }
+         const selected = useSessionRuntimeStore.getState().selections[sessionId]
+         const matchesCurrentSelection = Boolean(selected) &&
+           (selected?.providerId ?? null) === msg.providerId &&
+@@ -4947,6 +5098,9 @@ export const useChatStore = create<ChatStore>((setState, get) => {
+ 
+       case 'streaming_fallback': {
+         if (msg.cause === 'stream_retry') {
++          // A retry replays the answer from the start; drop the sampled prefix
++          // so the window (and the call being reconciled) does not double it.
++          resetTpsWindow(sessionId)
+           consumePendingDelta(sessionId)
+           clearPendingToolInputDelta(sessionId)
+           clearPendingTaskToolUseIds(sessionId)
+@@ -5126,7 +5280,15 @@ export const useChatStore = create<ChatStore>((setState, get) => {
+             streamingResponseChars: s.streamingResponseChars + msg.text.length,
+           }
+         })
+-        if (!skippedThinkingBlock) ensureElapsedTimer()
++        if (!skippedThinkingBlock) {
++          // thinking 流式片段同样是 decode 输出 token，必须喂 TPS 米表：不喂的话
++          // thinking 全程零采样，米表窗口排空后 UI 会冻结在正文结束前的旧速度上
++          // （稀疏边界守卫只保旧值不刷新）。skippedThinkingBlock 的整块重放
++          // （流式累积内容与 complete 块逐字相同）已在上层判重，不喂避免重复计数。
++          // complete 块（非重放）没有帧结构可数，按文本权重计入。
++          pushTpsFrame(sessionId, msg.text, { wholeBlock: msg.complete === true })
++          ensureElapsedTimer()
++        }
+         break
+       }
+ 
+@@ -5398,9 +5560,67 @@ export const useChatStore = create<ChatStore>((setState, get) => {
+         })
+         break
+ 
++      case 'tps_tokens': {
++        // The engine reported real per-chunk token ids, tagged with what the
++        // chunk carried. Reasoning tokens belong to the thought block open right
++        // now, and this is the only source of an exact per-thought count: the
++        // transcript has no such field, so the badge otherwise has to infer it
++        // from content (measured ~60% off).
++        //
++        // Attributed only while a thought block is open. A batch arriving after
++        // the block closed belongs to content or tool input by then, so it is
++        // dropped rather than guessed at; batches are 200 ms, so the loss is a
++        // fraction of a thought, not a thought.
++        if (msg.kind === 'thinking') {
++          update((s) => {
++            const activeId = s.activeThinkingId
++            if (!activeId) return {}
++            const index = s.messages.findIndex(
++              (message) => message.id === activeId && message.type === 'thinking',
++            )
++            if (index < 0) return {}
++            const block = s.messages[index]
++            if (!block || block.type !== 'thinking') return {}
++            const messages = [...s.messages]
++            messages[index] = {
++              ...block,
++              thinkingTokens: (block.thinkingTokens ?? 0) + msg.tokens,
++            }
++            return { messages }
++          })
++        }
++        // The same counts are exact feed for the TPS meter, where the sampled
++        // text frames would otherwise double-count them.
++        if (!isTpsEnabled()) break
++        const meter = getSessionTpsMeter(sessionId)
++        if (!tpsIdsModeBySession.get(sessionId)) {
++          // Switching tiers mid-turn: drop the sampled prefix so the window is
++          // not a mix of two different units.
++          meter.reset()
++          tpsIdsModeBySession.set(sessionId, true)
++        }
++        meter.ensureCall()
++        meter.pushTokens(msg.tokens)
++        break
++      }
++
+       case 'message_complete': {
+         const session = get().sessions[sessionId]
+         if (!session) break
++        // Reconcile the call's sampled units against the real token count the
++        // CLI reported: anchors the held speed to the real rate and re-learns
++        // the tokens-per-unit coefficients.
++        if (isTpsEnabled()) {
++          const meter = getSessionTpsMeter(sessionId)
++          const learned = meter.endCall(msg.usage.output_tokens, msg.timing?.decode_ms)
++          // Only bank it when a coefficient actually moved: persisting the
++          // neutral 1.0 values would tell the next session nothing.
++          if (learned) {
++            const calibration = meter.calibration()
++            saveTpsCalibration(tpsCalibrationModelBySession.get(sessionId), calibration)
++            setEstimationCalibration(calibration)
++          }
++        }
+         if (consumeAllPendingTaskToolUseIds(sessionId)) {
+           const cliTaskStore = useCLITaskStore.getState()
+           if (cliTaskStore.sessionId === sessionId) {
+@@ -6349,9 +6569,13 @@ function normalizeBackgroundTaskUsage(value: unknown): BackgroundAgentTaskUsage
+   const totalTokens = record.total_tokens ?? record.totalTokens
+   const toolUses = record.tool_uses ?? record.toolUses
+   const durationMs = record.duration_ms ?? record.durationMs
++  const outputTokens = record.output_tokens ?? record.outputTokens
++  const thinkTokens = record.think_tokens ?? record.thinkTokens
+   if (typeof totalTokens === 'number') usage.totalTokens = totalTokens
+   if (typeof toolUses === 'number') usage.toolUses = toolUses
+   if (typeof durationMs === 'number') usage.durationMs = durationMs
++  if (typeof outputTokens === 'number') usage.outputTokens = outputTokens
++  if (typeof thinkTokens === 'number') usage.thinkTokens = thinkTokens
+   return Object.keys(usage).length > 0 ? usage : undefined
+ }
+ 
+diff --git a/desktop/src/types/chat.ts b/desktop/src/types/chat.ts
+index 645e6fb6..09520e56 100644
+--- a/desktop/src/types/chat.ts
++++ b/desktop/src/types/chat.ts
+@@ -101,6 +101,13 @@ export type ServerMessage =
+     }
+   | { type: 'content_start'; blockType: 'text' | 'tool_use'; toolName?: string; toolUseId?: string; originalToolUseId?: string; parentToolUseId?: string }
+   | { type: 'content_delta'; text?: string; toolInput?: string }
++  /**
++   * Real tokens decoded since the previous frame, relayed from the engine's
++   * per-chunk token ids (vLLM `return_token_ids`). Carries no content — it
++   * feeds the TPS meter exactly, and the text frames it duplicates are then
++   * ignored. Only sent for endpoints that reported token ids.
++   */
++  | { type: 'tps_tokens'; tokens: number; kind: 'thinking' | 'content' | 'tool' }
+   | { type: 'tool_use_complete'; toolName: string; toolUseId: string; originalToolUseId?: string; input: unknown; parentToolUseId?: string }
+   | { type: 'tool_result'; toolUseId: string; originalToolUseId?: string; content: unknown; isError: boolean; parentToolUseId?: string }
+   | {
+@@ -289,6 +296,10 @@ export type AgentTaskNotification = {
+ 
+ export type BackgroundAgentTaskUsage = {
+   totalTokens?: number
++  /** Generated tokens; the thinking share is `thinkTokens` when reported. */
++  outputTokens?: number
++  /** Thinking share of the output. Absent when the engine reported no split. */
++  thinkTokens?: number
+   toolUses?: number
+   durationMs?: number
+ }
+@@ -347,8 +358,16 @@ export type UIMessage =
+    * member transcript.
+    */
+   | { id: string; type: 'user_text'; content: string; sessionReferences?: Array<{ sessionId: string }>; collaboration?: { sourceSessionId: string; messageId?: string }; modelContent?: string; transcriptMessageId?: string; timestamp: number; attachments?: UIAttachment[]; pending?: boolean; optimisticQueued?: boolean; teammateFrom?: string }
+-  | { id: string; type: 'assistant_text'; content: string; transcriptMessageId?: string; timestamp: number; model?: string }
+-  | { id: string; type: 'thinking'; content: string; timestamp: number }
++  /**
++   * `usage` is the token counts the API call that produced this row reported,
++   * carried so a turn can total them. `usageKey` dedupes it: one reply is
++   * persisted as a dozen transcript lines that each repeat the whole `usage`
++   * object, so the number belongs to the call, not to the row. Rows of a reply
++   * that reported nothing — older transcripts, providers that return no usage —
++   * simply do not carry it, and the turn then shows no total.
++   */
++  | { id: string; type: 'assistant_text'; content: string; transcriptMessageId?: string; timestamp: number; model?: string; usage?: MessageUsage; usageKey?: string }
++  | { id: string; type: 'thinking'; content: string; timestamp: number; /** Wall-clock ms this block spent generating; set on completion (live) or mapped from the transcript (history). */ thinkingDurationMs?: number; /** Exact tokens the engine generated for this block, summed from the id side channel while it streamed. Absent on history (the transcript does not carry it) and when the engine reports no ids — the badge falls back to estimating from content then. */ thinkingTokens?: number; usage?: MessageUsage; usageKey?: string }
+   | {
+       id: string
+       type: 'tool_use'
+diff --git a/src/server/__tests__/proxy-transform.test.ts b/src/server/__tests__/proxy-transform.test.ts
+index 6ce0b0ae..ebb49f3b 100644
+--- a/src/server/__tests__/proxy-transform.test.ts
++++ b/src/server/__tests__/proxy-transform.test.ts
+@@ -2339,3 +2339,35 @@ describe('prompt caching semantics', () => {
+     })
+   })
+ })
++
++describe('openaiUsageToAnthropic reasoning pass-through', () => {
++  // One total cannot say whether a model spent its tokens deliberating or
++  // answering, and on a reasoning model the two differ by several times. The
++  // engine reports the split; dropping it here would strand it one hop short of
++  // the client that needs it.
++  test('carries the Chat-style reasoning split', () => {
++    const usage = openaiUsageToAnthropic({
++      prompt_tokens: 100,
++      completion_tokens: 600,
++      completion_tokens_details: { reasoning_tokens: 430 },
++    })
++    expect(usage.reasoning_tokens).toBe(430)
++    expect(usage.output_tokens).toBe(600)
++  })
++
++  test('carries the Responses-style reasoning split', () => {
++    const usage = openaiUsageToAnthropic({
++      input_tokens: 100,
++      output_tokens: 600,
++      output_tokens_details: { reasoning_tokens: 430 },
++    })
++    expect(usage.reasoning_tokens).toBe(430)
++  })
++
++  test('omits the field when upstream did not measure one', () => {
++    // Zero and "not reported" mean different things; an absent field is the only
++    // way to say the second.
++    const usage = openaiUsageToAnthropic({ prompt_tokens: 100, completion_tokens: 600 })
++    expect('reasoning_tokens' in usage).toBe(false)
++  })
++})
+diff --git a/src/server/index.ts b/src/server/index.ts
+index 5b03cd33..03a2100b 100644
+--- a/src/server/index.ts
++++ b/src/server/index.ts
+@@ -10,12 +10,14 @@ import { handleSessionCollaborationApi } from './api/sessionCollaboration.js'
+ 
+ import { existsSync, unlinkSync } from 'node:fs'
+ import { handleApiRequest } from './router.js'
+-import { handleWebSocket, type WebSocketData } from './ws/handler.js'
++import { handleWebSocket, sendToSession, type WebSocketData } from './ws/handler.js'
+ import { resolveCors, type CorsResolution } from './middleware/cors.js'
+ import { requireAuth, requireH5Token } from './middleware/auth.js'
+ import { teamWatcher } from './services/teamWatcher.js'
+ import { cronScheduler } from './services/cronScheduler.js'
+ import { handleProxyRequest } from './proxy/handler.js'
++import { setTpsTokenSink } from './proxy/tpsTokenSink.js'
++import { withGzipIfEligible } from './responseCompression.js'
+ import { ProviderService } from './services/providerService.js'
+ import { handleHahaOAuthCallback } from './api/haha-oauth.js'
+ import { handleHahaOpenAIOAuthCallback } from './api/haha-openai-oauth.js'
+@@ -257,6 +259,13 @@ export function startServer(port = PORT, host = HOST) {
+     process.env.SERVER_AUTH_REQUIRED === '1'
+   const h5AccessService = new H5AccessService()
+ 
++  // The proxy reads real per-chunk token counts off local engines and needs to
++  // push them to the session's client. It cannot import the WS layer (that
++  // would close a cycle through titleService), so the wiring lives here.
++  setTpsTokenSink((sessionId, tokens, kind) => {
++    sendToSession(sessionId, { type: 'tps_tokens', tokens, kind })
++  })
++
+   const publicAccess = new PublicAccessServer({
+     handleApiRequest,
+     handleStatic: handleStaticH5Request,
+diff --git a/src/server/proxy/handler.ts b/src/server/proxy/handler.ts
+index eb126371..bc2d3b09 100644
+--- a/src/server/proxy/handler.ts
++++ b/src/server/proxy/handler.ts
+@@ -26,6 +26,8 @@ import { hoistToolResultMediaForCompatibility, shouldHoistNestedToolResultMedia
+ import { openaiChatToAnthropic } from './transform/openaiChatToAnthropic.js'
+ import { openaiResponsesToAnthropic } from './transform/openaiResponsesToAnthropic.js'
+ import { openaiChatStreamToAnthropic } from './streaming/openaiChatStreamToAnthropic.js'
++import { emitTpsTokens } from './tpsTokenSink.js'
++import { TOKEN_CHUNK_KINDS, type TokenChunkKind } from './streaming/openaiChatStreamToAnthropic.js'
+ import { openaiResponsesStreamToAnthropic } from './streaming/openaiResponsesStreamToAnthropic.js'
+ import type { AnthropicRequest } from './transform/types.js'
+ import { getProxyFetchOptions } from '../../utils/proxy.js'
+@@ -703,7 +705,14 @@ async function handleOpenaiChat(
+   const reasoningProfile = resolveModelReasoningProfile(body.model, 'openai_chat')
+   const transformed = anthropicToOpenaiChat(body, {
+     ...requestOptions,
+-    roundTripReasoningContent: knownDeepSeekHost || reasoningProfile?.family === 'deepseek-v4',
++    // Only ask endpoints we believe are a local engine: the parameter is a
++    // vLLM extension, and a strict OpenAI endpoint would reject it outright.
++    passTokenIds: shouldRequestTokenIds(baseUrl),
++    // Only round-trip reasoning content back to the API when thinking is being
++    // sent back at all; otherwise the previous turn's reasoning is dropped.
++    roundTripReasoningContent:
++      (knownDeepSeekHost || reasoningProfile?.family === 'deepseek-v4') &&
++      shouldSendThinkingToAPI(),
+     passThinkingToggle: knownDeepSeekHost,
+     imageContentMode: shouldUseTextOnlyOpenAIChatContent(baseUrl, body.model) ? 'text_only' : 'vision',
+   })
+@@ -818,7 +827,15 @@ async function handleOpenaiChat(
+     const upstreamBody = withStreamIdleTimeout(upstream.body, networkSettings.aiRequestTimeoutMs)
+     const observedBody = traceContext?.protocolTrace
+       ? observeProtocolStream(upstreamBody, traceContext.protocolTrace) : upstreamBody
+-    const anthropicStream = openaiChatStreamToAnthropic(observedBody, body.model)
++    // Real token counts for the TPS meter ride a side channel: batched so the
++    // client is not woken per chunk, and dropped entirely when the request did
++    // not ask for token ids or no client is attached.
++    const tpsRelay = transformed.return_token_ids === true
++      ? createTpsTokenRelay(traceContext?.sessionId ?? null, baseUrl)
++      : null
++    const anthropicStream = openaiChatStreamToAnthropic(observedBody, body.model, {
++      onTokenIds: tpsRelay?.onTokenIds,
++    })
+     const tracedStream = traceContext
+       ? captureTraceStream(anthropicStream, async (bodySnapshot, error, protocolTraceEnd) => {
+           await recordProxyTrace({
+@@ -873,6 +890,106 @@ async function handleOpenaiChat(
+   return Response.json(anthropicResponse, { status: policyError ? 403 : 200 })
+ }
+ 
++/** Coalescing window for the TPS token side channel (ms). */
++const TPS_TOKEN_FLUSH_MS = 200
++/** After this long without token ids, the endpoint is marked as not supporting them. */
++const TPS_TOKEN_PROBE_MS = 10_000
++const TPS_TOKEN_PROBE_MISSES = 2
++
++/**
++ * Endpoints that answered a `return_token_ids` request without ever sending
++ * token ids: they ignore the parameter, so stop asking. In-memory only — an
++ * engine upgrade mid-process is not worth persisting a negative about.
++ */
++const tokenIdUnsupportedOrigins = new Set<string>()
++const tokenIdProbeMisses = new Map<string, number>()
++
++function endpointOrigin(baseUrl: string): string {
++  try {
++    return new URL(baseUrl).origin
++  } catch {
++    return baseUrl
++  }
++}
++
++/**
++ * Whether to ask this endpoint for per-chunk token ids. Only engines on the
++ * machine or the local network are asked: that is where vLLM-family servers
++ * live, and where an unknown parameter is harmless, whereas a hosted OpenAI
++ * endpoint would reject the request outright.
++ */
++function shouldRequestTokenIds(baseUrl: string): boolean {
++  const origin = endpointOrigin(baseUrl)
++  if (tokenIdUnsupportedOrigins.has(origin)) return false
++  let hostname: string
++  try {
++    hostname = new URL(baseUrl).hostname
++  } catch {
++    return false
++  }
++  return isLocalEngineHost(hostname)
++}
++
++function isLocalEngineHost(hostname: string): boolean {
++  const host = hostname.toLowerCase().replace(/^\[|\]$/g, '')
++  if (host === 'localhost' || host === '::1' || host.endsWith('.local')) return true
++  if (host === '0.0.0.0' || host === '127.0.0.1' || host.startsWith('127.')) return true
++  const octets = host.split('.')
++  if (octets.length !== 4 || octets.some((part) => !/^\d{1,3}$/.test(part))) return false
++  const [a, b] = octets.map(Number) as [number, number, number, number]
++  if (a === 10) return true
++  if (a === 192 && b === 168) return true
++  if (a === 172 && b >= 16 && b <= 31) return true
++  return false
++}
++
++/**
++ * Batches the real per-chunk token counts of one streamed request and hands
++ * them to the TPS meter over the session's WebSocket. Also remembers when an
++ * endpoint never reported token ids, so the parameter is not asked for again.
++ */
++function createTpsTokenRelay(sessionId: string | null, baseUrl: string) {
++  // One counter per kind. A single total cannot be split after the fact, and
++  // the kinds are what a consumer attributes: the thought badge wants the
++  // reasoning count, which is only a fraction of the response.
++  const pending: Record<TokenChunkKind, number> = { thinking: 0, content: 0, tool: 0 }
++  let flushTimer: ReturnType<typeof setTimeout> | null = null
++  let sawTokenIds = false
++  const origin = endpointOrigin(baseUrl)
++  const probeTimer = setTimeout(() => {
++    if (sawTokenIds) return
++    const misses = (tokenIdProbeMisses.get(origin) ?? 0) + 1
++    tokenIdProbeMisses.set(origin, misses)
++    if (misses >= TPS_TOKEN_PROBE_MISSES) tokenIdUnsupportedOrigins.add(origin)
++  }, TPS_TOKEN_PROBE_MS)
++  // Never hold the process open for a diagnostic timer.
++  probeTimer.unref?.()
++
++  const flush = () => {
++    flushTimer = null
++    if (!sessionId) return
++    for (const kind of TOKEN_CHUNK_KINDS) {
++      const tokens = pending[kind]
++      if (tokens <= 0) continue
++      pending[kind] = 0
++      emitTpsTokens(sessionId, tokens, kind)
++    }
++  }
++
++  return {
++    onTokenIds(count: number, kind: TokenChunkKind) {
++      if (count <= 0) return
++      sawTokenIds = true
++      clearTimeout(probeTimer)
++      pending[kind] += count
++      if (flushTimer === null) {
++        flushTimer = setTimeout(flush, TPS_TOKEN_FLUSH_MS)
++        flushTimer.unref?.()
++      }
++    },
++  }
++}
++
+ function shouldUseDeepSeekReasoningCompat(baseUrl: string): boolean {
+   return (
+     /(^|[./-])deepseek([./-]|$)/i.test(baseUrl) ||
+diff --git a/src/server/proxy/streaming/openaiChatStreamToAnthropic.test.ts b/src/server/proxy/streaming/openaiChatStreamToAnthropic.test.ts
+index 9e5330b3..7a4a04a3 100644
+--- a/src/server/proxy/streaming/openaiChatStreamToAnthropic.test.ts
++++ b/src/server/proxy/streaming/openaiChatStreamToAnthropic.test.ts
+@@ -141,3 +141,75 @@ test('nested prompt cache survives zero direct cache creation in streaming usage
+     + `data: ${JSON.stringify({ choices: [], usage })}\n\ndata: [DONE]\n\n`)
+   expect(events.find(e => e.type === 'message_delta').usage).toMatchObject({ input_tokens: 1453, output_tokens: 551, cache_read_input_tokens: 147840 })
+ })
++
++describe('real token id side channel', () => {
++  async function collectWithTokenIds(input: string) {
++    const counts: number[] = []
++    const source = new ReadableStream<Uint8Array>({
++      start(controller) {
++        controller.enqueue(new TextEncoder().encode(input))
++        controller.close()
++      },
++    })
++    const output = await new Response(openaiChatStreamToAnthropic(source, 'fixture', {
++      onTokenIds: (count) => counts.push(count),
++    })).text()
++    return { counts, output }
++  }
++
++  async function collectKinds(input: string) {
++    const seen: Array<{ count: number; kind: string }> = []
++    const source = new ReadableStream<Uint8Array>({
++      start(controller) {
++        controller.enqueue(new TextEncoder().encode(input))
++        controller.close()
++      },
++    })
++    await new Response(openaiChatStreamToAnthropic(source, 'fixture', {
++      onTokenIds: (count, kind) => seen.push({ count, kind }),
++    })).text()
++    return seen
++  }
++
++  test('tags each count with what the chunk carries', async () => {
++    // A count alone cannot answer "how many tokens did this thought take": one
++    // response interleaves reasoning, content and tool input, and only the
++    // chunk itself knows which of the three it is.
++    const seen = await collectKinds(
++      idsChunk([1, 2], { reasoning_content: 'thinking...' })
++      + idsChunk([3], { content: 'answer' })
++      + idsChunk([4, 5, 6], { tool_calls: [{ index: 0, function: { arguments: '{}' } }] })
++      + 'data: [DONE]\n\n',
++    )
++    expect(seen).toEqual([
++      { count: 2, kind: 'thinking' },
++      { count: 1, kind: 'content' },
++      { count: 3, kind: 'tool' },
++    ])
++  })
++
++  function idsChunk(ids: number[], delta: Record<string, unknown> = { content: 'x' }, finish: string | null = null) {
++    return `data: ${JSON.stringify({ id: 'fixture', choices: [{ index: 0, delta, finish_reason: finish, token_ids: ids }] })}\n\n`
++  }
++
++  test('reports each chunk\'s token count without touching the Anthropic stream', async () => {
++    const { counts, output } = await collectWithTokenIds(
++      idsChunk([1, 2, 3]) + idsChunk([4]) + idsChunk([], {}, 'stop') + 'data: [DONE]\n\n',
++    )
++    // Only chunks that actually carried ids are reported.
++    expect(counts).toEqual([3, 1])
++    // The content still streams normally; the ids are a side channel only.
++    const events = output.split('\n\n').filter(Boolean).map(frame => JSON.parse(frame.split('\ndata: ')[1]))
++    expect(events.filter(e => e.delta?.text).map(e => e.delta.text)).toEqual(['x', 'x'])
++  })
++
++  test('reports nothing when the endpoint did not send token ids', async () => {
++    const { counts } = await collectWithTokenIds(chunk({ content: 'hi' }) + chunk({}, 'stop') + 'data: [DONE]\n\n')
++    expect(counts).toEqual([])
++  })
++
++  test('counts ids on the final chunk too (before finish handling)', async () => {
++    const { counts } = await collectWithTokenIds(idsChunk([7, 8], { content: 'x' }, 'stop') + 'data: [DONE]\n\n')
++    expect(counts).toEqual([2])
++  })
++})
+diff --git a/src/server/proxy/streaming/openaiChatStreamToAnthropic.ts b/src/server/proxy/streaming/openaiChatStreamToAnthropic.ts
+index ec0dcfc5..fa29d991 100644
+--- a/src/server/proxy/streaming/openaiChatStreamToAnthropic.ts
++++ b/src/server/proxy/streaming/openaiChatStreamToAnthropic.ts
+@@ -64,6 +64,18 @@ type StreamState = {
+   // (some providers send finish_reason and usage in separate chunks)
+   heldMessageDelta: SseEvent | null
+   finishReason: string | null
++
++  /**
++   * Reports the real token count of each streamed chunk, when the engine sends
++   * `token_ids` (vLLM-family `return_token_ids`). Purely a side channel for the
++   * desktop's TPS meter — it never affects the Anthropic stream below.
++   *
++   * The kind is what the chunk carries, taken from the same `delta` the stream
++   * is built from. It is reported because a count on its own cannot answer
++   * "how many tokens did this thought take": a response interleaves reasoning,
++   * content and tool input, and only the chunk knows which one it is.
++   */
++  onTokenIds?: (count: number, kind: TokenChunkKind) => void
+ }
+ 
+ // ─── Helpers ───────────────────────────────────────────────
+@@ -72,8 +84,9 @@ function formatSse(event: string, data: unknown): string {
+   return `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`
+ }
+ 
+-function createState(model: string): StreamState {
++function createState(model: string, onTokenIds?: (count: number, kind: TokenChunkKind) => void): StreamState {
+   return {
++    ...(onTokenIds ? { onTokenIds } : {}),
+     queue: [],
+     currentBlockType: 'text',
+     currentBlockIndex: -1,
+@@ -98,10 +111,11 @@ function createState(model: string): StreamState {
+ export function openaiChatStreamToAnthropic(
+   upstream: ReadableStream<Uint8Array>,
+   model: string,
++  options: { onTokenIds?: (count: number, kind: TokenChunkKind) => void } = {},
+ ): ReadableStream<Uint8Array> {
+   const encoder = new TextEncoder()
+   const decoder = new TextDecoder()
+-  const state = createState(model)
++  const state = createState(model, options.onTokenIds)
+   const reader = upstream.getReader()
+   let cancelled = false
+ 
+@@ -314,6 +328,16 @@ function closeAllOpenBlocks(state: StreamState): void {
+ 
+ // ─── Block type detection (follows LiteLLM priority) ───────
+ 
++/**
++ * Which part of a response a chunk's tokens belong to. Reported alongside the
++ * count so a consumer can total one part (the thought badge wants reasoning
++ * only) instead of the whole response.
++ */
++export type TokenChunkKind = 'thinking' | 'content' | 'tool'
++
++/** Every kind, so a batcher can drain them without repeating the list. */
++export const TOKEN_CHUNK_KINDS: readonly TokenChunkKind[] = ['thinking', 'content', 'tool']
++
+ type DeltaEx = Record<string, unknown> & {
+   content?: string | null
+   tool_calls?: Array<{
+@@ -359,6 +383,21 @@ function extractReasoning(delta: DeltaEx): { thinking: string; signature: string
+   return null
+ }
+ 
++/**
++ * What a chunk carries, for attributing its token count.
++ *
++ * Reasoning is checked first: a provider that streams reasoning and content in
++ * the same delta is emitting the thought first, and the thought is the part a
++ * count gets attributed to. Tool input is checked last, because `tool_calls`
++ * rides on argument fragments that carry no `content` of their own.
++ */
++function deltaKind(delta: DeltaEx): TokenChunkKind {
++  if (extractReasoning(delta)) return 'thinking'
++  if (delta.content) return 'content'
++  if (delta.tool_calls?.length) return 'tool'
++  return 'content'
++}
++
+ // ─── Main chunk processing ─────────────────────────────────
+ 
+ function processChunk(chunk: OpenAIChatStreamChunk, state: StreamState): void {
+@@ -378,6 +417,14 @@ function processChunk(chunk: OpenAIChatStreamChunk, state: StreamState): void {
+   ensureMessageStart(state, chunk.id)
+ 
+   const delta = (choice.delta || {}) as DeltaEx
++
++  // Real per-chunk token counts, when the engine reports them. Counted before
++  // the finish-reason guard so the last chunk's ids still land, and tagged with
++  // what this chunk carries so a consumer can attribute them to one part of the
++  // response (the thought badge wants reasoning only).
++  if (choice.token_ids?.length) {
++    state.onTokenIds?.(choice.token_ids.length, deltaKind(delta))
++  }
+   if (state.finishReason) {
+     if (chunk.usage) mergeUsageIntoHeldDelta(state, chunk.usage)
+     if (extractReasoning(delta) || delta.content || delta.tool_calls?.length) {
+diff --git a/src/server/proxy/tpsTokenSink.ts b/src/server/proxy/tpsTokenSink.ts
+new file mode 100644
+index 00000000..ca6721d4
+--- /dev/null
++++ b/src/server/proxy/tpsTokenSink.ts
+@@ -0,0 +1,28 @@
++/**
++ * Where the proxy delivers the real per-chunk token counts it reads off the
++ * upstream stream (vLLM `return_token_ids`).
++ *
++ * The proxy cannot import the WebSocket layer itself: `ws/handler` reaches this
++ * module through `titleService`, so a direct import would close a cycle. The
++ * server registers its broadcaster here once, at startup, instead.
++ */
++
++import type { TokenChunkKind } from './streaming/openaiChatStreamToAnthropic.js'
++
++type TpsTokenSink = (sessionId: string, tokens: number, kind: TokenChunkKind) => void
++
++let sink: TpsTokenSink | null = null
++
++export function setTpsTokenSink(next: TpsTokenSink | null): void {
++  sink = next
++}
++
++/** No-op until a sink is registered (headless runs, tests). */
++export function emitTpsTokens(
++  sessionId: string,
++  tokens: number,
++  kind: TokenChunkKind,
++): void {
++  if (tokens <= 0) return
++  sink?.(sessionId, tokens, kind)
++}
+diff --git a/src/server/proxy/transform/anthropicToOpenaiChat.ts b/src/server/proxy/transform/anthropicToOpenaiChat.ts
+index 5fad9be0..3fa2b408 100644
+--- a/src/server/proxy/transform/anthropicToOpenaiChat.ts
++++ b/src/server/proxy/transform/anthropicToOpenaiChat.ts
+@@ -78,6 +78,12 @@ export function anthropicToOpenaiChat(
+   // Many OpenAI-compatible servers omit usage on streams unless asked.
+   if (result.stream) {
+     result.stream_options = { include_usage: true }
++    // Local vLLM-family engines can report each chunk's token ids, which the
++    // desktop turns into a real-token TPS reading. Only asked of endpoints
++    // expected to accept it — a strict OpenAI endpoint rejects the parameter.
++    if (compatibility.returnTokenIds) {
++      result.return_token_ids = true
++    }
+   }
+ 
+   const { outputBudget } = compatibility
+diff --git a/src/server/proxy/transform/requestCompatibility.test.ts b/src/server/proxy/transform/requestCompatibility.test.ts
+index 58ac4917..57c2c84c 100644
+--- a/src/server/proxy/transform/requestCompatibility.test.ts
++++ b/src/server/proxy/transform/requestCompatibility.test.ts
+@@ -136,3 +136,34 @@ describe('request intent survives protocol conversion', () => {
+     expect(transformed.messages[0].reasoning_content).toBeUndefined()
+   })
+ })
++
++describe('per-chunk token ids are asked for only where they are understood', () => {
++  test('the caller may pass it for a local engine, and it reaches the wire body', () => {
++    const streamed = body({ stream: true })
++    expect(anthropicToOpenaiChat(streamed).return_token_ids).toBeUndefined()
++    expect(anthropicToOpenaiChat(streamed, { passTokenIds: true }).return_token_ids).toBe(true)
++    // Not a streaming request: nothing to report per chunk.
++    expect(anthropicToOpenaiChat(body(), { passTokenIds: true }).return_token_ids).toBeUndefined()
++  })
++
++  test('a provider that declares the capability is asked even without the caller hint', () => {
++    const streamed = body({ stream: true })
++    expect(anthropicToOpenaiChat(streamed, { requestCompatibility: { tokenIds: 'supported' } }).return_token_ids).toBe(true)
++    expect(resolveRequestCompatibility(streamed, { protocol: 'openai_chat', requestCompatibility: { tokenIds: 'supported' } }).returnTokenIds).toBe(true)
++  })
++
++  test('an endpoint that rejects unknown parameters is never asked', () => {
++    const streamed = body({ stream: true })
++    // `unsupported` wins over the caller's hint — a strict OpenAI endpoint
++    // would reject the request outright.
++    expect(anthropicToOpenaiChat(streamed, {
++      passTokenIds: true,
++      requestCompatibility: { tokenIds: 'unsupported' },
++    }).return_token_ids).toBeUndefined()
++    expect(resolveRequestCompatibility(streamed, {
++      protocol: 'openai_chat',
++      passTokenIds: true,
++      requestCompatibility: { tokenIds: 'unsupported' },
++    }).returnTokenIds).toBe(false)
++  })
++})
+diff --git a/src/server/proxy/transform/requestCompatibility.ts b/src/server/proxy/transform/requestCompatibility.ts
+index 19d325cc..533fd807 100644
+--- a/src/server/proxy/transform/requestCompatibility.ts
++++ b/src/server/proxy/transform/requestCompatibility.ts
+@@ -7,6 +7,12 @@ export type RequestCompatibilityOptions = {
+   budgetSource?: OutputBudgetSource
+   openAICodexOAuth?: boolean
+   passSamplingParams?: boolean
++  /**
++   * The caller believes this endpoint implements `return_token_ids` (a local
++   * engine, or a provider that declared it). Only matters while the provider
++   * has not declared the capability itself.
++   */
++  passTokenIds?: boolean
+ }
+ 
+ export type ResolvedOutputBudget = {
+@@ -40,6 +46,8 @@ export function resolveRequestCompatibility(
+   outputBudget: ResolvedOutputBudget
+   passSamplingParams: boolean
+   passReasoning: boolean
++  /** Send `return_token_ids` so chunks carry real token counts (vLLM-family). */
++  returnTokenIds: boolean
+   parallelToolCalls?: boolean
+   structuredOutput?: StructuredOutputFormat
+ } {
+@@ -136,6 +144,8 @@ export function resolveRequestCompatibility(
+     passSamplingParams: compatibility.sampling === 'supported'
+       || (compatibility.sampling !== 'unsupported' && options.passSamplingParams === true),
+     passReasoning: compatibility.reasoning !== 'unsupported',
++    returnTokenIds: compatibility.tokenIds === 'supported'
++      || (compatibility.tokenIds !== 'unsupported' && options.passTokenIds === true),
+     ...(parallelToolCalls !== undefined ? { parallelToolCalls } : {}),
+     ...(structuredOutput ? { structuredOutput } : {}),
+   }
+diff --git a/src/server/proxy/transform/types.ts b/src/server/proxy/transform/types.ts
+index c26654f0..b499ebfb 100644
+--- a/src/server/proxy/transform/types.ts
++++ b/src/server/proxy/transform/types.ts
+@@ -56,6 +56,13 @@ export type OpenAIChatRequest = {
+   stop?: string | string[]
+   stream?: boolean
+   stream_options?: { include_usage: boolean }
++  /**
++   * vLLM-family extension: have the engine report each streamed chunk's token
++   * ids, so decode speed can be counted from real tokens instead of estimated
++   * from text. Strict OpenAI endpoints reject the unknown parameter, so this is
++   * only ever set for endpoints that are expected to accept it.
++   */
++  return_token_ids?: boolean
+   tools?: OpenAITool[]
+   tool_choice?: unknown
+   reasoning_effort?: OpenAIReasoningEffort
+@@ -78,6 +85,14 @@ export type OpenAICompatibleUsage = {
+   total_tokens?: number
+   input_tokens_details?: { cached_tokens?: number }
+   prompt_tokens_details?: { cached_tokens?: number }
++  /**
++   * How many of the completion tokens were reasoning. Carried so a caller can
++   * separate a model's deliberation from its answer: on a reasoning model the
++   * two differ by several times, and one total cannot express either. vLLM
++   * reports this shape; `output_tokens_details` is the Responses one.
++   */
++  completion_tokens_details?: { reasoning_tokens?: number }
++  output_tokens_details?: { reasoning_tokens?: number }
+   cache_read_input_tokens?: number
+   cache_creation_input_tokens?: number
+ }
+@@ -120,6 +135,13 @@ export type OpenAIChatStreamChunk = {
+       }>
+     }
+     finish_reason: string | null
++    /**
++     * vLLM-family extension (requested via `return_token_ids`): the token ids
++     * this chunk's delta decodes from. Absent on endpoints that do not
++     * implement it, which is exactly how the TPS meter discovers that the
++     * exact tier is unavailable.
++     */
++    token_ids?: number[] | null
+   }>
+   usage?: OpenAIChatResponse['usage']
+ }
+@@ -273,5 +295,7 @@ export type AnthropicResponse = {
+     output_tokens: number
+     cache_read_input_tokens?: number
+     cache_creation_input_tokens?: number
++    /** Extension: reasoning share of `output_tokens`, when upstream reported it. */
++    reasoning_tokens?: number
+   }
+ }
+diff --git a/src/server/proxy/transform/usage.ts b/src/server/proxy/transform/usage.ts
+index 17915ac5..332d1c3e 100644
+--- a/src/server/proxy/transform/usage.ts
++++ b/src/server/proxy/transform/usage.ts
+@@ -82,5 +82,15 @@ export function openaiUsageToAnthropic(usage: OpenAICompatibleUsage | undefined)
+   }
+   if (cacheRead > 0) result.cache_read_input_tokens = cacheRead
+   if (cacheCreation > 0) result.cache_creation_input_tokens = cacheCreation
++
++  // Pass the reasoning split through when upstream measured one. It is not part
++  // of Anthropic's schema, so a consumer that does not know the field ignores
++  // it; one that does gets the only number that separates thinking from answer.
++  // Both nested spellings are accepted: vLLM's Chat API reports the first, the
++  // Responses API the second.
++  const reasoningTokens = validTokenCount(
++    usage.completion_tokens_details?.reasoning_tokens,
++  ) ?? validTokenCount(usage.output_tokens_details?.reasoning_tokens)
++  if (reasoningTokens !== undefined) result.reasoning_tokens = reasoningTokens
+   return result
+ }
+diff --git a/src/server/types/provider.ts b/src/server/types/provider.ts
+index ef401e2a..552cf22c 100644
+--- a/src/server/types/provider.ts
++++ b/src/server/types/provider.ts
+@@ -85,6 +85,13 @@ export const RequestCompatibilitySchema = z.object({
+   reasoning: RequestCapabilitySchema.optional(),
+   parallelTools: RequestCapabilitySchema.optional(),
+   structuredOutput: RequestCapabilitySchema.optional(),
++  /**
++   * Whether the endpoint accepts `return_token_ids` and reports each streamed
++   * chunk's token ids. vLLM-family servers implement it; a strict OpenAI
++   * endpoint rejects the unknown parameter, so `auto` sends it only to
++   * endpoints believed to be a local engine (see proxy/handler).
++   */
++  tokenIds: RequestCapabilitySchema.optional(),
+ }).passthrough()
+ 
+ export type RequestCompatibility = z.infer<typeof RequestCompatibilitySchema>
+diff --git a/src/server/ws/events.ts b/src/server/ws/events.ts
+index 558d4b97..681bbd3b 100644
+--- a/src/server/ws/events.ts
++++ b/src/server/ws/events.ts
+@@ -79,6 +79,13 @@ export type ServerMessage =
+     }
+   | { type: 'content_start'; blockType: 'text' | 'tool_use'; toolName?: string; toolUseId?: string; originalToolUseId?: string; parentToolUseId?: string }
+   | { type: 'content_delta'; text?: string; toolInput?: string }
++  /**
++   * Real tokens decoded since the previous frame, relayed from the engine's
++   * per-chunk token ids (vLLM `return_token_ids`). Carries no content: the
++   * desktop feeds it to the TPS meter, which then ignores the text frames it
++   * duplicates. Sent only for endpoints that reported token ids.
++   */
++  | { type: 'tps_tokens'; tokens: number; kind: 'thinking' | 'content' | 'tool' }
+   | { type: 'tool_use_complete'; toolName: string; toolUseId: string; originalToolUseId?: string; input: unknown; parentToolUseId?: string }
+   | { type: 'tool_result'; toolUseId: string; originalToolUseId?: string; content: unknown; isError: boolean; parentToolUseId?: string }
+   | {
