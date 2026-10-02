@@ -5,6 +5,7 @@ import { terminalApi } from '../api/terminal'
 import { useSettingsStore } from '../stores/settingsStore'
 import { useUIStore } from '../stores/uiStore'
 import { readTerminalPalette, readTerminalFontFamily } from '../lib/terminalTheme'
+import { randomId } from '../lib/randomId'
 import { Dropdown } from '@/components/ui/Dropdown'
 import { Input } from '@/components/ui/Input'
 import { Button } from '@/components/ui/Button'
@@ -32,14 +33,6 @@ const STATUS_LABEL_KEYS: Record<TerminalStatus, TranslationKey> = {
   exited: 'settings.terminal.status.exited',
   error: 'settings.terminal.status.error',
   unavailable: 'settings.terminal.status.unavailable',
-}
-
-// crypto.randomUUID is only defined in secure contexts (https / localhost).
-// H5 reached over a LAN IP (http://192.168.x.x:port) is a non-secure context,
-// where the call would throw — mirror McpSettings' createId fallback.
-function createTerminalRequestId() {
-  if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) return crypto.randomUUID()
-  return `t-${Date.now()}-${Math.random().toString(36).slice(2)}`
 }
 
 function findScrollableAncestor(element: HTMLElement, deltaY: number): HTMLElement | null {
@@ -205,7 +198,7 @@ export function TerminalSettings({
     const host = hostRef.current
     if (!host) return Promise.resolve()
 
-    const requestId = createTerminalRequestId()
+    const requestId = randomId()
     let exitedDuringStart = false
     const startToken = runtime.startToken + 1
     runtime.startToken = startToken

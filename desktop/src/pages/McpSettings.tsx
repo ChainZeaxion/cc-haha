@@ -8,6 +8,7 @@ import { ErrorState } from '@/components/ui/ErrorState'
 import { IconButton } from '@/components/ui/IconButton'
 import { mcpStatusTone } from '@/lib/mcpStatus'
 import { getMcpServerIdentityKey } from '@/lib/mcpIdentity'
+import { randomId } from '@/lib/randomId'
 import { DirectoryPicker } from '@/components/composite/DirectoryPicker'
 import { SettingsPageHeader } from '@/components/settings/SettingsSection'
 import { Input } from '@/components/ui/Input'
@@ -125,17 +126,12 @@ function displayMcpKeyValueRowValue(row: KeyValueRow): string {
   return redactSensitiveText(row.value)
 }
 
-function createId() {
-  if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) return crypto.randomUUID()
-  return `${Date.now()}-${Math.random().toString(16).slice(2)}`
-}
-
 function createStringRow(value = ''): StringRow {
-  return { id: createId(), value }
+  return { id: randomId(), value }
 }
 
 function createKeyValueRow(key = '', value = ''): KeyValueRow {
-  return { id: createId(), key, value }
+  return { id: randomId(), key, value }
 }
 
 function createEmptyDraft(): McpDraft {

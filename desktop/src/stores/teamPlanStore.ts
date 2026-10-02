@@ -1,6 +1,7 @@
 import { create } from 'zustand'
 import { ApiError } from '@/api/client'
 import { teamPlansApi, type TeamPlanAction, type TeamPlanEdits } from '@/api/teamPlans'
+import { randomId } from '@/lib/randomId'
 import type { TeamPlanRecord } from '../../../src/shared/teamPlan'
 
 export type TeamPlanDraft = TeamPlanEdits & { planId: string; revision: number; dirty: boolean; baseline: TeamPlanEdits }
@@ -133,7 +134,7 @@ export const useTeamPlanStore = create<TeamPlanState>((set, get) => {
       if (!entry?.plan) return false
       const plan = entry.plan
       const key = `${id}:${plan.planId}:${plan.revision}:${action}`
-      const requestId = actionRequests.get(key) ?? crypto.randomUUID()
+      const requestId = actionRequests.get(key) ?? randomId()
       actionRequests.set(key, requestId)
       epochs.set(id, (epochs.get(id) ?? 0) + 1)
       update(id, current => ({ ...current, busy: true, error: null }))
