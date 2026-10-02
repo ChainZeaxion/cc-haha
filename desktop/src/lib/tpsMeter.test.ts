@@ -94,8 +94,10 @@ describe('bucket reading', () => {
     gen.at += 4 * BUCKET
     steady(meter, clock, 1, 13, gen)
 
-    // 3 buckets of 13 over 7 elapsed buckets ≈ 45 t/s, the pause included.
-    expect(meter.value()).toBeCloseTo(39 / (7 * (BUCKET / 1000)), 0)
+    // The short reading window holds the one bucket that was written (13) plus
+    // the empty bucket before it, so the pause reads as half the steady rate
+    // rather than the full 104.
+    expect(meter.value()).toBeCloseTo(13 / (2 * (BUCKET / 1000)), 0)
   })
 
   it('drops the grid after a long silence, so the resumed reading is not diluted', () => {
@@ -130,12 +132,13 @@ describe('bucket reading', () => {
     steady(meter, clock, 1, 1200, gen)
 
     // Holding in one bucket it would read 1200/0.125 = 9600 t/s. Spread back
-    // over the stall it is 1200 tokens over the 9 buckets since the content,
-    // which is 1200/(9×0.125) ≈ 1067 t/s — and no single bucket carries it all.
+    // over the stall, the short (two-bucket) window holds only the tail of it,
+    // so it reads ~1360 t/s — still nowhere near the 9600 a single bucket would
+    // have shown, and no single bucket carries it all.
     const buckets = meter.bucketTokensByIndex()
     expect(Math.max(...buckets.map((b) => b.tokens))).toBeLessThan(200)
     expect(meter.value()).toBeGreaterThan(900)
-    expect(meter.value()).toBeLessThan(1250)
+    expect(meter.value()).toBeLessThan(1600)
   })
 })
 
@@ -320,13 +323,13 @@ describe('calibration learning', () => {
     clock.advance(BUCKET)
   }
 
-  it('learns from the real usage so the window matches the real token total', () => {
+  it('learns from the real usage so the call matches the real token total', () => {
     const clock = arrivalClock()
     const meter = new TpsMeter('arrival')
 
     // Latin text, so the neutral 1.0 under-reads: 240 characters are 68.6 units.
     latinCall(meter, clock)
-    expect(meter.windowTokens()).toBeLessThan(80)
+    expect(meter.callTokens()).toBeLessThan(80)
 
     // The real usage from that call teaches the coefficients (120 tokens for
     // those 68.6 units ⇒ kAscii ≈ 1.75).
@@ -336,7 +339,7 @@ describe('calibration learning', () => {
     // A fresh call now reads the real total for the same text.
     meter.reset()
     latinCall(meter, clock)
-    expect(meter.windowTokens()).toBeCloseTo(120, 0)
+    expect(meter.callTokens()).toBeCloseTo(120, 0)
   })
 
   it('rejects a ballooned call (replayed prefix) and clamps the coefficients', () => {
@@ -393,8 +396,11 @@ describe('calibration learning', () => {
       meter.push('你好世界')
     }
     clock.advance(BUCKET)
-    expect(meter.windowTokens()).toBeCloseTo(40 * cjkBefore, 5)
-    expect(meter.value()).toBeCloseTo(40 * cjkBefore, 1)
+    expect(meter.callTokens()).toBeCloseTo(40 * cjkBefore, 5)
+    // The short window reads the recent rate: each of the last two buckets
+    // carries one four-character frame, so 4 units / 0.125 s ≈ 32 t/s — at the
+    // prose density, not the tool-input one.
+    expect(meter.value()).toBeCloseTo(4 * cjkBefore / (BUCKET / 1000), 1)
   })
 
   it('predicts the measured mixed call instead of staying at the neutral 1.0', () => {
@@ -686,6 +692,6 @@ describe('a backgrounded tab: freeze, then the backlog is handed over at once', 
     steady(meter, clock, 1, 1200, gen)
 
     expect(meter.value()).toBeGreaterThan(900)
-    expect(meter.value()).toBeLessThan(1250)
+    expect(meter.value()).toBeLessThan(1600)
   })
 })

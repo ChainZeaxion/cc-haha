@@ -600,6 +600,16 @@ async function handleAnthropicCompatible(
   // anything that would shadow the request framing or its credential.
   applyUpstreamHeaders(headers, upstreamHeaders)
 
+  // Ask a local engine for the per-chunk token ids the TPS meter measures with.
+  // The engine attaches them only when asked (its Anthropic `return_token_ids` /
+  // `x-return-token-ids`), so the proxy — the only layer that reads the stream —
+  // has to ask. A header, not a body field, so this path stays byte-for-byte.
+  // Only a machine-local/LAN engine is asked: a public Messages endpoint would
+  // ignore it, and the meter falls back to estimation there anyway.
+  if (shouldRequestTokenIds(baseUrl)) {
+    headers['x-return-token-ids'] = '1'
+  }
+
   const traceHeaders = Object.fromEntries(
     Object.entries(headers).map(([name, value]) => {
       const lower = name.toLowerCase()

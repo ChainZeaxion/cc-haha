@@ -24,13 +24,32 @@
  * number past what the watching client shows.
  */
 
-/** One run's streamed output so far. Characters, not tokens — see `estimate`. */
+import {
+  addCounts,
+  classifyChars,
+  emptyCounts,
+  tokensFromCounts,
+  PRIOR_DENSITY,
+  type CharCounts,
+} from '../../shared/tokenDensity.js'
+
+/** One run's streamed output so far. Character classes, not tokens — see `estimate`. */
 type RunProjection = {
   runAgentId: string
   /** The Agent tool call that spawned the run, once a lifecycle frame says so. */
   toolUseId?: string
-  text: number
-  thinking: number
+  /** Visible text (prose plus tool-argument JSON), by character class. */
+  text: CharCounts
+  /** Thinking, by character class. */
+  thinking: CharCounts
+  /**
+   * Real per-chunk token ids the engine attached, when it did — the primary
+   * signal. Populated only on the Anthropic passthrough (its frames carry the
+   * ids through verbatim); the character classes above are the fallback.
+   */
+  realTotal: number
+  realThinking: number
+  sawRealTokens: boolean
   /**
    * Assistant message ids whose blocks already arrived as stream deltas, so the
    * whole-message form of the same content is skipped rather than added twice.
@@ -46,9 +65,11 @@ type RunProjection = {
  */
 const MAX_RUNS_PER_SESSION = 64
 
-/** Characters per token. Matches the client estimator, so the two agree. */
-const CHARS_PER_TOKEN = 4
-
+/**
+ * Tokens come from the engine's real per-chunk ids when the run streamed them,
+ * and from the shared character-class estimator otherwise — the same estimator
+ * the client uses, so the two agree.
+ */
 const projections = new Map<string, Map<string, RunProjection>>()
 
 function sessionRuns(sessionId: string): Map<string, RunProjection> {
@@ -66,8 +87,11 @@ function runFor(sessionId: string, runAgentId: string): RunProjection {
   if (!run) {
     run = {
       runAgentId,
-      text: 0,
-      thinking: 0,
+      text: emptyCounts(),
+      thinking: emptyCounts(),
+      realTotal: 0,
+      realThinking: 0,
+      sawRealTokens: false,
       streamedMessageIds: new Set(),
       updatedAt: Date.now(),
     }
@@ -136,15 +160,23 @@ export function observeAgentRunUsage(sessionId: string, cliMsg: any): void {
     const delta = event.delta
     if (!delta) return
     if (delta.type === 'text_delta' && typeof delta.text === 'string') {
-      run.text += delta.text.length
+      addCounts(run.text, classifyChars(delta.text))
     } else if (delta.type === 'input_json_delta' && typeof delta.partial_json === 'string') {
       // Tool arguments are generation too, and the watching client counts them
       // alongside the visible text.
-      run.text += delta.partial_json.length
+      addCounts(run.text, classifyChars(delta.partial_json))
     } else if (delta.type === 'thinking_delta' && typeof delta.thinking === 'string') {
-      run.thinking += delta.thinking.length
+      addCounts(run.thinking, classifyChars(delta.thinking))
     } else {
       return
+    }
+    // The engine's real per-chunk token count rides every delta on the Anthropic
+    // passthrough, so prefer it over the character estimate whenever it is there.
+    const tokenIds = (event as { token_ids?: unknown }).token_ids
+    if (Array.isArray(tokenIds) && tokenIds.length > 0) {
+      run.sawRealTokens = true
+      run.realTotal += tokenIds.length
+      if (delta.type === 'thinking_delta') run.realThinking += tokenIds.length
     }
     run.updatedAt = Date.now()
     return
@@ -160,7 +192,7 @@ export function observeAgentRunUsage(sessionId: string, cliMsg: any): void {
     for (const block of Array.isArray(message.content) ? message.content : []) {
       // Only text: a thinking block arriving whole was streamed, and the client
       // does not count the whole-message form of it either.
-      if (block?.type === 'text' && typeof block.text === 'string') run.text += block.text.length
+      if (block?.type === 'text' && typeof block.text === 'string') addCounts(run.text, classifyChars(block.text))
     }
     run.updatedAt = Date.now()
   }
@@ -186,11 +218,19 @@ export function projectAgentRunUsage(sessionId: string): ProjectedRunUsage[] {
   if (!runs) return []
   const projected: ProjectedRunUsage[] = []
   for (const run of runs.values()) {
-    const thinkTokens = Math.round(run.thinking / CHARS_PER_TOKEN)
+    // Real ids when the run reported them, the character-class estimate otherwise.
+    const thinkTokens = run.sawRealTokens
+      ? run.realThinking
+      : Math.round(tokensFromCounts(run.thinking, PRIOR_DENSITY))
+    const totalTokens = run.sawRealTokens
+      ? run.realTotal
+      : Math.round(
+          tokensFromCounts(run.text, PRIOR_DENSITY) + tokensFromCounts(run.thinking, PRIOR_DENSITY),
+        )
     projected.push({
       taskId: run.runAgentId,
       ...(run.toolUseId ? { toolUseId: run.toolUseId } : {}),
-      totalTokens: Math.round((run.text + run.thinking) / CHARS_PER_TOKEN),
+      totalTokens,
       thinkTokens,
     })
   }

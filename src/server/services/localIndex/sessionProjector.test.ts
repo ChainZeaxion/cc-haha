@@ -379,7 +379,9 @@ describe('session projector', () => {
     } finally { database.close() }
   })
 
-  it('still rejects an oversized record whose retained metadata breaks the budget', async () => {
+  it('clamps an oversized record whose retained metadata exceeds the per-value budget', async () => {
+    // Same streaming path as an oversized body, but the overrun is a *retained*
+    // identity: it is clamped to the cap, not allowed to fail the source.
     const root = await createTempDir('projector-skeleton-metadata')
     const candidate = await createCandidate({
       root,
@@ -390,7 +392,7 @@ describe('session projector', () => {
     const database = openLocalIndexDatabase({ path: join(root, 'index.sqlite') })
     try {
       const projector = createSessionProjector({ database, index: createSessionIndex(database), scope: root, recordStreamingThresholdBytes: 1 })
-      await expect(projector.projectSource(candidate)).rejects.toMatchObject({ code: 'LOCAL_INDEX_SOURCE_LIMIT' })
+      expect(await projector.projectSource(candidate)).toMatchObject({ kind: 'indexed' })
     } finally { database.close() }
   })
 
@@ -1265,7 +1267,11 @@ describe('session projector', () => {
       database.close()
     }
   })
-  it('rejects oversized retained identities while accepting large discarded bodies', async () => {
+  it('clamps an oversized retained identity instead of failing the source', async () => {
+    // The first window also proves a large *discarded* body (2MB of text the
+    // reducer never retains) is not charged against the metadata budget. The
+    // second is the regression: a single runaway retained value must be clamped
+    // to the cap rather than make the whole source unprojectable.
     const root = await createTempDir('metadata-budget')
     const candidate = await createCandidate({ root, projectPath: '-repo-a', sessionId: 'metadata',
       content: line({ ...user('x'.repeat(2 * 1024 * 1024), '2026-01-01T00:00:00.000Z'), uuid: 'ordinary' }),
@@ -1276,7 +1282,32 @@ describe('session projector', () => {
     try {
       expect(await projector.projectSource(candidate)).toMatchObject({ kind: 'indexed' })
       await appendFile(candidate.path, line({ ...user('small', '2026-01-01T00:00:01.000Z'), uuid: 'x'.repeat(MAX_PROJECTION_METADATA_VALUE_BYTES + 1) }))
-      await expect(projector.projectSource(candidate)).rejects.toMatchObject({ code: 'LOCAL_INDEX_SOURCE_LIMIT' })
+      expect(await projector.projectSource(candidate)).toMatchObject({ kind: 'indexed' })
+    } finally { database.close() }
+  })
+
+  it('indexes a session whose tool_use name is a runaway string', async () => {
+    // The shape seen in production: thinking text mis-parsed into a tool_use
+    // `name` (observed at 12,089 characters). One such historical line used to
+    // mark the whole source degraded; it must clamp and index instead.
+    const root = await createTempDir('tool-name-runaway')
+    const runaway = {
+      type: 'assistant',
+      uuid: 'runaway-1',
+      message: {
+        role: 'assistant',
+        content: [{ type: 'tool_use', id: 'call_1', name: 'x'.repeat(12_089), input: {} }],
+      },
+      timestamp: '2026-01-01T00:00:01.000Z',
+    }
+    const candidate = await createCandidate({ root, projectPath: '-repo-a', sessionId: 'runaway',
+      content: line({ ...user('hi', '2026-01-01T00:00:00.000Z') }) + line(runaway),
+    })
+    const database = openLocalIndexDatabase({ path: join(root, 'index.sqlite') })
+    const index = createSessionIndex(database)
+    const projector = createSessionProjector({ database, index, scope: root })
+    try {
+      expect(await projector.projectSource(candidate)).toMatchObject({ kind: 'indexed' })
     } finally { database.close() }
   })
 

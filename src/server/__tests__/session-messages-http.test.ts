@@ -398,8 +398,10 @@ describe('GET /api/sessions/:id/messages — runningAgentUsage counts a live gen
       const response = await api('GET', `/api/sessions/${sessionId}/messages`)
       expect(response.status).toBe(200)
       const body = await response.json() as { runningAgentUsage?: Record<string, unknown> }
+      // 400 Latin characters at the four-class density (1/3.5) ≈ 114 tokens —
+      // a flat ÷4 would have said 100 and undercounted Chinese by ~4x.
       expect(body.runningAgentUsage).toEqual({
-        call_00_live: { taskId: 'a74ce8', toolUseId: 'call_00_live', totalTokens: 100 },
+        call_00_live: { taskId: 'a74ce8', toolUseId: 'call_00_live', totalTokens: 114 },
       })
     } finally {
       rollup.mockRestore()

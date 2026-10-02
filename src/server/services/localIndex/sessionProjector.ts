@@ -139,9 +139,11 @@ type SourceProjectionBundle = {
 export const MAX_PROJECTION_RECORD_BYTES = 8 * 1024 * 1024
 export const MAX_PROJECTION_RECORDS = 50_000
 export const MAX_PROJECTION_METADATA_BYTES = 32 * 1024 * 1024
-// Per-retained-string cap. Malformed transcripts can carry thinking text
-// mis-parsed into a tool_use name; 4KB was too tight (observed 12KB outlier).
-export const MAX_PROJECTION_METADATA_VALUE_BYTES = 16 * 1024
+// Per-retained-string cap. A malformed transcript can carry thinking text
+// mis-parsed into a tool_use name (a ~12K-character outlier was observed), and
+// one such value must not cost the whole session its index — so an over-long
+// retained string is clamped to this cap in place rather than rejected.
+export const MAX_PROJECTION_METADATA_VALUE_BYTES = 4096
 const projectionMetadataBytes = new WeakMap<TranscriptProjection, number>()
 const projectionRecordCounts = new WeakMap<TranscriptProjection, number>()
 const MAX_CACHED_PROJECTIONS = 8
@@ -424,34 +426,50 @@ async function streamProjection(options: {
               'cwd', 'workDir', 'runtimeProviderId', 'runtimeModelId', 'customTitle', 'aiTitle',
               'repository', 'worktreeSession', 'requestId', 'version', 'sessionId']
             const message = entry.message as Record<string, unknown> | undefined
-            const values: unknown[] = fields.map(field => entry[field])
-            values.push(message?.id, message?.role, message?.model)
+            // Each slot is addressed as (container, key) so an over-long string can
+            // be clamped in place. `entry` is what `applyEntry`/the locators read
+            // next, so clamping here is what actually bounds what gets retained.
+            type Slot = [Record<string, unknown> | undefined, string]
+            const values: Slot[] = fields.map(field => [entry, field] as Slot)
+            values.push([message, 'id'], [message, 'role'], [message, 'model'])
             const content = message?.content
             if (Array.isArray(content)) for (const block of content) {
               if (block?.type !== 'tool_use') continue
-              values.push(block.name, block.name === 'Skill' ? block.input?.skill : undefined)
+              const tool = block as Record<string, unknown>
+              values.push([tool, 'name'])
+              if (tool.name === 'Skill') values.push([tool.input as Record<string, unknown> | undefined, 'skill'])
               if (values.length > 16_384) throw new ProjectionLimitError()
             }
             const iterations = (message?.usage as { iterations?: unknown } | undefined)?.iterations
             if (Array.isArray(iterations)) for (const iteration of iterations) {
-              if (iteration?.type === 'advisor_message') values.push(iteration.model)
+              if ((iteration as { type?: unknown }).type === 'advisor_message') {
+                values.push([iteration as Record<string, unknown>, 'model'])
+              }
               if (values.length > 16_384) throw new ProjectionLimitError()
             }
             // Charge only metadata that the reducer/locators can retain. Large text
             // and tool bodies are deliberately excluded from this lifetime budget.
             let visited = 0
             while (values.length) {
-              const value = values.pop()
+              const slot = values.pop()!
+              const [container, key] = slot
+              if (!container) continue
+              const value = container[key]
               if (value === undefined || value === null) continue
               if (++visited > 16_384) throw new ProjectionLimitError()
               metadataBytes += 64
               if (typeof value === 'string') {
-                if (value.length > 4096) throw new ProjectionLimitError()
-                metadataBytes += Buffer.byteLength(value)
+                if (value.length > MAX_PROJECTION_METADATA_VALUE_BYTES) {
+                  const clamped = value.slice(0, MAX_PROJECTION_METADATA_VALUE_BYTES)
+                  container[key] = clamped
+                  metadataBytes += Buffer.byteLength(clamped)
+                } else {
+                  metadataBytes += Buffer.byteLength(value)
+                }
               } else if (typeof value === 'object') {
-                for (const key in value) {
-                  metadataBytes += Buffer.byteLength(key)
-                  values.push((value as Record<string, unknown>)[key])
+                for (const childKey in value) {
+                  metadataBytes += Buffer.byteLength(childKey)
+                  values.push([value as Record<string, unknown>, childKey])
                   if (values.length > 16_384) throw new ProjectionLimitError()
                 }
               }
