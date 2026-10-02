@@ -10,6 +10,7 @@
  */
 
 import { getOpenAIPolicyError } from '../../services/openaiAuth/policyError.js'
+import { isLocalEngineHost, isPrivateNetworkUrl } from '../services/api/localEngineHost.js'
 import { buildOpenaiEndpoint } from './openaiEndpoint.js'
 import { normalizeAnthropicBaseUrl } from '../../services/api/anthropicBaseUrl.js'
 import { createGunzip, createInflate } from 'node:zlib'
@@ -29,6 +30,7 @@ import { openaiChatStreamToAnthropic } from './streaming/openaiChatStreamToAnthr
 import { emitTpsTokens } from './tpsTokenSink.js'
 import { TOKEN_CHUNK_KINDS, type TokenChunkKind } from './streaming/openaiChatStreamToAnthropic.js'
 import { openaiResponsesStreamToAnthropic } from './streaming/openaiResponsesStreamToAnthropic.js'
+import { anthropicTokenTap } from './streaming/anthropicTokenTap.js'
 import type { AnthropicRequest } from './transform/types.js'
 import { getProxyFetchOptions } from '../../utils/proxy.js'
 import { shouldSendThinkingToAPI } from '../../utils/thinking.js'
@@ -188,6 +190,33 @@ export async function handleProxyRequest(req: Request, url: URL): Promise<Respon
   const providerId = providerMatch ? decodeURIComponent(providerMatch[1]!) : undefined
   const isActiveProxyPath = url.pathname === '/proxy/v1/messages'
 
+  // The Messages surface is wider than /v1/messages: token counting is its own
+  // endpoint, and a client whose base URL now points at this proxy (see
+  // providerRuntimeEnv) must still reach it. Forwarded verbatim — there is no
+  // event stream here, so nothing to tap.
+  const countTokensMatch = url.pathname.match(
+    /^\/proxy\/(?:providers\/([^/]+)\/)?v1\/messages\/count_tokens$/,
+  )
+  if (countTokensMatch && (req.method === 'POST' || req.method === 'HEAD')) {
+    const scopedId = countTokensMatch[1] ? decodeURIComponent(countTokensMatch[1]) : undefined
+    const config = await providerService.getProviderForProxy(scopedId)
+    if (!config) {
+      return Response.json(
+        {
+          type: 'error',
+          error: {
+            type: 'invalid_request_error',
+            message: scopedId
+              ? `Provider "${scopedId}" is not configured for proxy`
+              : 'No active provider configured for proxy',
+          },
+        },
+        { status: 400 },
+      )
+    }
+    return await forwardAnthropicCountTokens(req, config)
+  }
+
   // Only handle POST /proxy/v1/messages or POST /proxy/providers/:providerId/v1/messages
   if (req.method !== 'POST' || (!isActiveProxyPath && !providerMatch)) {
     return Response.json(
@@ -254,16 +283,22 @@ export async function handleProxyRequest(req: Request, url: URL): Promise<Respon
   try {
     if (apiFormat === 'anthropic') {
       // Anthropic-format providers normally connect directly to the upstream
-      // endpoint (see providerRuntimeEnv). Only providers that explicitly opt out
-      // of nested tool-result media (supportsNestedToolResultMedia=false) route
-      // through the proxy so images/documents can be lifted out of tool_result
-      // before the request reaches an endpoint that would drop them.
+      // endpoint (see providerRuntimeEnv). Two cases route through the proxy
+      // instead: a provider that explicitly opts out of nested tool-result media
+      // (supportsNestedToolResultMedia=false), so images/documents can be lifted
+      // out of tool_result before the request reaches an endpoint that would
+      // drop them; and a LAN/local engine (see providerRuntimeEnv), so the TPS
+      // meter can read the per-chunk token ids only this layer can tap.
       //
       // That reasoning is about the provider's *own* format, so the guard only
       // applies without a per-model override: an OpenAI-format provider whose
       // model routes to anthropic still reaches the proxy, and its upstream is a
       // native Messages endpoint that accepts nested media unchanged.
-      if (modelApiFormat === undefined && config.supportsNestedToolResultMedia) {
+      if (
+        modelApiFormat === undefined &&
+        config.supportsNestedToolResultMedia &&
+        !isPrivateNetworkUrl(baseUrl)
+      ) {
         return Response.json(
           {
             type: 'error',
@@ -459,6 +494,64 @@ function stripHopByHopHeaders(headers: Headers): Headers {
 }
 
 /**
+ * Forward `POST|HEAD /v1/messages/count_tokens` to the upstream unchanged. No
+ * transformation and no tapping: the request never streams and carries no token
+ * ids. Auth and protocol headers are rebuilt the same way the Messages path
+ * builds them so a gateway sees one consistent client.
+ */
+async function forwardAnthropicCountTokens(
+  req: Request,
+  config: { baseUrl: string; apiKey: string; authStrategy: ProviderAuthStrategy },
+): Promise<Response> {
+  const url = `${normalizeAnthropicBaseUrl(config.baseUrl.replace(/\/+$/, ''))}/v1/messages/count_tokens`
+  const networkSettings = await loadNetworkSettings()
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+    ...buildAnthropicAuthHeaders(config.apiKey, config.authStrategy),
+  }
+  const deny = hopByHopDenySet(req.headers)
+  for (const [name, value] of req.headers.entries()) {
+    const lower = name.toLowerCase()
+    if (deny.has(lower) || isInternalClientHeader(lower, value)) continue
+    if (lower === 'host' || lower === 'content-type' || lower === 'content-length') continue
+    if (lower === 'x-api-key' || lower === 'authorization') continue
+    if (value) headers[name] = value
+  }
+
+  const body = req.method === 'HEAD' ? undefined : await req.arrayBuffer()
+  try {
+    const upstream = await fetchUpstreamWithTimeout(
+      url,
+      {
+        method: req.method,
+        headers,
+        body,
+        // Forward the raw bytes; the upstream's framing headers stay accurate.
+        decompress: false,
+        ...getNetworkProxyFetchOptions(networkSettings, url),
+      },
+      networkSettings.aiRequestTimeoutMs,
+      false,
+    )
+    return new Response(upstream.body, {
+      status: upstream.status,
+      headers: stripHopByHopHeaders(upstream.headers),
+    })
+  } catch (err) {
+    return Response.json(
+      {
+        type: 'error',
+        error: {
+          type: 'api_error',
+          message: err instanceof Error ? err.message : String(err),
+        },
+      },
+      { status: 502 },
+    )
+  }
+}
+
+/**
  * Forward an Anthropic Messages request to an anthropic-format upstream after
  * lifting media out of nested tool results (provider opted out of nested media).
  * The wire format stays Anthropic; only the media placement changes. Protocol
@@ -635,8 +728,16 @@ async function handleAnthropicCompatible(
       responseHeaders.set('Cache-Control', 'no-cache')
       responseHeaders.set('Connection', 'keep-alive')
       const anthropicStream = withStreamIdleTimeout(upstream.body, networkSettings.aiRequestTimeoutMs)
+      // Real token counts for the TPS meter ride a side channel: the Anthropic
+      // passthrough is read through so the ids a local engine attaches to each
+      // content_block_delta can be counted without altering the bytes a client
+      // receives (see anthropicTokenTap).
+      const tappedStream = anthropicTokenTap(anthropicStream, {
+        onTokenIds: createTpsTokenRelay(traceContext?.sessionId ?? null, baseUrl).onTokenIds,
+        contentEncoding: upstream.headers.get('content-encoding') ?? undefined,
+      })
       const tracedStream = traceContext
-        ? captureTraceStream(anthropicStream, async (bodySnapshot, error, protocolTraceEnd) => {
+        ? captureTraceStream(tappedStream, async (bodySnapshot, error, protocolTraceEnd) => {
             await recordProxyTrace({
               callId: traceCallId,
               context: traceContext,
@@ -653,7 +754,7 @@ async function handleAnthropicCompatible(
               ...(error ? { error } : {}),
             })
           }, upstream.headers.get('content-encoding') ?? undefined)
-        : anthropicStream
+        : tappedStream
       return new Response(tracedStream, {
         status: 200,
         headers: responseHeaders,
@@ -929,19 +1030,6 @@ function shouldRequestTokenIds(baseUrl: string): boolean {
     return false
   }
   return isLocalEngineHost(hostname)
-}
-
-function isLocalEngineHost(hostname: string): boolean {
-  const host = hostname.toLowerCase().replace(/^\[|\]$/g, '')
-  if (host === 'localhost' || host === '::1' || host.endsWith('.local')) return true
-  if (host === '0.0.0.0' || host === '127.0.0.1' || host.startsWith('127.')) return true
-  const octets = host.split('.')
-  if (octets.length !== 4 || octets.some((part) => !/^\d{1,3}$/.test(part))) return false
-  const [a, b] = octets.map(Number) as [number, number, number, number]
-  if (a === 10) return true
-  if (a === 192 && b === 168) return true
-  if (a === 172 && b >= 16 && b <= 31) return true
-  return false
 }
 
 /**

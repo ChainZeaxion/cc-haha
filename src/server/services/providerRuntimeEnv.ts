@@ -10,6 +10,7 @@ import {
   type ModelApiFormatRule,
 } from '../../shared/modelApiFormats.js'
 import { MODEL_CONTEXT_WINDOWS_ENV_KEY } from '../../utils/model/modelContextWindows.js'
+import { isPrivateNetworkUrl } from './api/localEngineHost.js'
 import { PROVIDER_MAX_OUTPUT_TOKENS_ENV_KEY } from '../../utils/managedEnvConstants.js'
 import {
   IMAGE_GENERATION_API_KEY_ENV_KEY,
@@ -506,7 +507,13 @@ export function buildProviderManagedEnv(
   // so images/documents are lifted out of tool_result before forwarding. A
   // preset with per-model rules resolves to an OpenAI format here, which also
   // forces the proxy — the only place those rules are applied.
-  const needsProxy = providerNeedsProxy(apiFormat, provider.supportsNestedToolResultMedia)
+  //
+  // A LAN/local engine is routed through the proxy as well: the proxy is the
+  // only layer that can tap the per-chunk token ids the TPS meter samples. A
+  // public anthropic endpoint keeps connecting straight through.
+  const needsProxy =
+    providerNeedsProxy(apiFormat, provider.supportsNestedToolResultMedia) ||
+    (apiFormat === 'anthropic' && isPrivateNetworkUrl(provider.baseUrl))
   const proxyPath = options?.proxyPath ?? '/proxy'
   const serverPort = options?.serverPort ?? 3456
   const baseUrl = needsProxy
@@ -600,10 +607,12 @@ export function activeProviderNeedsProxy(configDir: string): boolean {
 
     // Keep in sync with buildProviderManagedEnv: anthropic-format providers
     // that opt out of nested tool-result media also route through the proxy,
-    // and a preset with per-model rules resolves to an OpenAI format.
-    return providerNeedsProxy(
-      resolveProviderApiFormat(provider),
-      provider.supportsNestedToolResultMedia,
+    // and a preset with per-model rules resolves to an OpenAI format — as does
+    // an anthropic provider pointed at a LAN engine.
+    const apiFormat = resolveProviderApiFormat(provider)
+    return (
+      providerNeedsProxy(apiFormat, provider.supportsNestedToolResultMedia) ||
+      (apiFormat === 'anthropic' && isPrivateNetworkUrl(provider.baseUrl))
     )
   } catch {
     return false

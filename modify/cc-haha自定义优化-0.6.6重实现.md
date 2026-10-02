@@ -47,6 +47,8 @@
 >
 > **当前链规模（2026-09-29）**：共 **61 patch**（**全部实体，无空补丁**）。链位 61 = `subagent-live-metrics`（二十一章 子优化⑤：子代理运行中用量/耗时爬升 + 移动端紧凑 + **TPS 汇聚子代理读数修复**；**保留链尾、未与链位 21 融合**，理由见二十一章子优化⑤的链位说明）。**同时重生成链位 54 `tps-batched-delivery`**（187→316 行）：把 `sliceRate()` 的可行性过滤从「全局间隔」改为「同一流的间隔」——多流交织时前者误杀约 70% 样本，使 4 子代理并发下 UI 读数只有引擎真值的 1/3。两条均经**反向应用旧补丁 → 正向应用新补丁 → 逐字节比对工作区**往返验证（10/10 文件一致）。
 >
+> **当前链规模（2026-10-02）**：共 **65 patch**。最新链位 **65** = `tps-anthropic-token-ids`（二十八 28.5：**Anthropic 协议 token ids 采集端**——私网 anthropic provider 走代理 + `anthropicTokenTap` 旁路采 ids + `count_tokens` 透传；6 文件 542 行）。相对链终态 `a6276429` 生成，**#1..#64 无需重生成、无级联**。
+>
 > **（历史，2026-09-28）链规模 60 patch**（**全部实体，无空补丁**）。最新三位：`chapter-27-test-env-isolation` / `chapter-27-vcc-calibration-scripts` / `chapter-27-residual-hunks`（**链位 58–60**，二十七章：把此前「只登记不产补丁」的既有改动全部补成补丁）。**至此「基线 + 全链」100% 复现工作树**——实测干净 worktree@`068b3ebd` 按 1→60 依次 apply **60/60 成功**，终态与工作树差异**仅剩 2 个有意排除项**：`bun.lock`（锁文件随依赖解析变化）与 `desktop/src-tauri/resources/preview-agent.js`（构建产物，纳入补丁会在每次构建后失效）。前一位（性能三连）：`transcript-metadata-durable`（元数据投影落盘 10.24s→0.016s，链位 57）、`session-find-bounded-read`（findSessionFile 4345ms→2ms，链位 56）、`session-history-context-durable`（归属投影索引落盘，链位 55）。完整链位见上表。
 >
 > **全链验证（2026-09-28 复核，最新口径）**：干净 worktree@`068b3ebd` 上按上表顺序 `git apply --index` **57 个 patch → 失败 0 个**，且**无需 `--allow-empty`**（两个空补丁已移除，见下）。终态 vs 工作树（仅 `src`/`desktop`）剩余 **19 个文件的「非章 delta」**——这些改动来自未纳入章节体系的提交，**属预期内**，清单与原因见下节。
@@ -137,6 +139,7 @@
 | 60 | `patches/chapter-27-residual-hunks.patch` | 二十七 27.3：**章内残余 hunk**——`api/claude.ts` bound-thinking 模型（Fable 5.1）需回放思考块（`modelUsesBoundThinking`，剥离会破坏 system 变更后的重放）；`providerModels` 排序固定 `'en'`（宿主 zh 会把 CJK 排到拉丁之前，「其他」组顶到真实 provider 名之上）；`TerminalSettings` 的 `createTerminalRequestId()` 在非安全上下文（H5 经 LAN IP）无 `crypto.randomUUID` 故回退时间戳+随机串；`package.json` 去掉与 `build`/`tsc -b` 口径重复的两个脚本；`PermissionUpdate` require 环改 **Proxy getter**（顶层 require 在环中拿到的是空命名空间且会一直返回它）。与 58/59 合计补齐 21 个「无补丁触及」的文件（5 文件） | ✅ 已实施 |
 | 59 | `patches/chapter-27-vcc-calibration-scripts.patch` | 二十七 27.2：**vcc 片段模式校准/判分脚本**——`scripts/vcc-slice-calibration.ts`(1076 行) + `scripts/vcc-slice-judge.ts`(439 行)，随「局部压缩接入 vcc 片段模式 + 语料校准」引入；`.gitignore` 排除**机器生成的报告**（含会话原文与真实语料，入库的是手写版）。属**测量工具**而非产品代码，故原未纳入章节（3 文件） | ✅ 已实施 |
 | 58 | `patches/chapter-27-test-env-isolation.patch` | 二十七 27.1：**测试环境隔离与遗留失败清零**——新增 `src/testUtils/modelEnv.ts`（`isolateModelDefaultsEnv()` 存/剥离/还原模型相关 env），并接入 12 个用例（模型 4 个 + `effort.agent` + `thinking` + `print.sessionMessage` + `client` + `computerUse` + `builtInAgentOverrides` + `system` + `coreSchemas.modelInfo`）。根因＝**桌面 dev 会把 `CLAUDE_CODE_*` 导出进进程**，致同一批用例**单跑失败、官方 runner 全绿**——是环境泄漏不是真缺陷（13 文件） | ✅ 已实施 |
+| 65 | `patches/tps-anthropic-token-ids.patch` | 二十八 子优化：**Anthropic 协议 token ids 采集端**——引擎 `/v1/messages` 响应带每 `content_block_delta` 的 `token_ids`（引擎侧补丁 `opt21-anthropic-token-ids-v1`，见 `1cat-vllm-v130/patches/`）；cc-haha 侧①私网 anthropic provider 自动经代理（`isPrivateNetworkUrl`，**排除 loopback**）②`anthropicTokenTap` 旁路解析 SSE 取 ids 喂 `tps_tokens`（**字节不变**）③`count_tokens` 端点透传。修「真实客户端 CLI 直连 bc ⇒ cc-haha 服务端不在链路 ⇒ `ids` 档不可达」（6 文件 542 行，均 `src/server/**`） | ✅ 已实施 |
 
 > **已知非章 delta（有意不入 patch，链终态与工作树的结构性差值）**：`#83` 测试修复族（`src/testUtils/modelEnv.ts` 及 11 个 `*.test.ts`：`print.sessionMessage`/`constants/system`/`coreSchemas.modelInfo`/`api/client`/`skills/bundled/computerUse`/`builtInAgentOverrides`/`effort.agent`/`model/{agent,fable,opus55,opus5}`/`__tests__/thinking`/`permissions/PermissionUpdate`）、`MessageList.test.tsx`（flaky 超时放宽，见附录）、`TerminalSettings.tsx`、`lib/providerModels.ts`、`services/api/claude.ts`（bound-thinking WIP）、`desktop/package.json`（本轮新增 `build:renderer`/`typecheck` 两条 **dev 脚本**，electron-builder 打包时会剥离 `scripts`，故不影响产物）、`bun.lock`。
 >
@@ -2591,17 +2594,54 @@ if (gapMs > 0 && tokens / (gapMs / 1000) <= MAX_INSTANT_TPS) { /* 计入 */ }   
 
 **验证（28.5）**：`tpsMeter.test.ts` 27 → **31**（+4）；`TpsIndicator.test.tsx` 11 → **12**（+1）；相关 6 套件（tpsMeter / TpsIndicator / tpsCalibration / chatStore / MessageList / ActiveSession）**669/669**；`tsc --noEmit` 与 `npm run lint` 绿；`src/` **零改动**（故服务端 `check:server` 不受影响）；链复现度 **64/64 apply 0 失败**，终态与工作树仅差 2 个既定排除项。
 
-### 28.5 链复现度：64/64（2026-09-29 实测）
+### 28.5 Anthropic 协议（`/v1/messages`）token ids 采集端（链位 65，2026-10-02）
+
+**需求（用户 verbatim）**：「修bc中间件anthropic协议透传token ids」。
+
+**关键发现（推翻了「改 bc 中间件」的预设）**
+
+- **bc 不是缺口**：`billion-context` bundle 里 `token_ids` / `reasoning_tokens` 各 **0 处引用**；bc 按协议路由但**不做协议转换、不改路径**（`/v1/messages` → 上游 `/v1/messages`），纯转发（`resolveUpstream` / `buildForwardTarget`；日志自称 "forwarding unchanged"）。
+- **引擎侧原来没有字段可放**：`entrypoints/anthropic/protocol.py` 的响应模型里 `token_ids` **0 处**、`serving.py` 也不产出 ⇒ 即便算了也无处承载。（对比同引擎 OpenAI 协议 `chat_completion/protocol.py` 明确有 `choices[].token_ids` 与顶层 `prompt_token_ids`。）→ **引擎侧**按 vLLM 范式补齐：`1cat-vllm-v130/patches/opt21-anthropic-token-ids-v1.patch`（输出 ids **常开**、`prompt_token_ids` 走请求 opt-in，因后者体积大）。
+- **决定性事实**：真实客户端（dev 7787）`settings.json` 的 `ANTHROPIC_BASE_URL = http://192.168.10.43:8878/bili/http://192.168.10.43:8000` ⇒ **CLI 直连 bc，cc-haha 服务端不在 HTTP 链路上**。cc-haha 的 ids 采集通道（`tpsTokenSink` → `tps_tokens` WS → TPS 表）**只在请求经 cc-haha 代理时才有数据**；而链位 35 的 `providerRuntimeEnv` 对 anthropic provider 一律「直连、不过代理」。这正是「cc-haha 当初设计 ids 时假设请求会经它代理」的缺口。
+
+**做法（6 文件，均 `src/server/**`）**
+
+1. **私网 anthropic provider 自动经代理**（`services/providerRuntimeEnv.ts` 的 `buildProviderManagedEnv` + `activeProviderNeedsProxy` 两处）：新增分支 `apiFormat === 'anthropic' && isPrivateNetworkUrl(baseUrl)` ⇒ `ANTHROPIC_BASE_URL` 指向 cc-haha `/proxy`；公网 anthropic provider（deepseek/zhipu/minimax）不受影响。
+2. **共享判定模块** `services/api/localEngineHost.ts`（新增）：把 `handler.ts` 私有的 `isLocalEngineHost` 提出，另加 `isPrivateNetworkHost/Url`。
+3. **退守放宽**（`proxy/handler.ts` 的 anthropic 400 守卫）：原「anthropic + `supportsNestedToolResultMedia=true` ⇒ 400 `proxy not needed`」改为**仅当上游非本机/私网时才 400**。
+4. **SSE 采集 tap** `proxy/streaming/anthropicTokenTap.ts`（新增）：仿 `captureTraceStream` 的 tee —— `pipeThrough` 里**先转发原始字节**再旁路解析 SSE，取每个 `content_block_delta` 顶层的 `token_ids`，按 `delta.type` 映射 kind（thinking/content/tool），喂既有 `createTpsTokenRelay`（200ms 合批 + 负缓存）。压缩体（`content-encoding` 非 identity）原样转发、不解析。
+5. **`count_tokens` 端点透传**（`handler.ts` 新增 `forwardAnthropicCountTokens`）：`/proxy/v1/messages/count_tokens` 原样转发（无事件流、无 ids 可采）。
+6. **测试**：`anthropicTokenTap.test.ts`（5 例：字节不变 + 按 kind 计数 + 跨 chunk 边界重组 + 无 ids/空数组/坏 JSON 忽略 + 压缩体不解析）、`provider-presets.test.ts`（+3 例：私网→走代理、公网→直连、**loopback→仍直连**）。
+
+#### 踩坑记录（28.5）
+
+1. **⚠️⚠️「修 bc」是错的落点**：最初预设改 bc 中间件，实测 bundle 里 `token_ids`/`reasoning_tokens` **零引用**且 bc 只按协议路由、不改路径 ⇒ 缺的是**引擎协议字段**，不是中间件。**看到「中间件在链路上」不等于「缺口在中间件」**。
+2. **⚠️⚠️「引擎改造已生效」与「UI 拿到值」是两件事**：客户端 base URL 直指 bc ⇒ cc-haha 服务端**不在链路上**，引擎发了 ids 也没人读。必须先确认流量确实过 cc-haha（本项即靠「私网自动经代理」把 anthropic 流引回代理）。
+3. **loopback 必须排除出路由门控**：`127.0.0.1` 更可能是 cc-haha 自己的 `/proxy`（`http://127.0.0.1:3456/proxy`）或测试替身；把它也路由进代理会**自环**并改掉其 auth 与非 Messages 路径。故**路由用 `isPrivateNetworkUrl`（RFC1918，不含 loopback）**，而「是否发 `return_token_ids`」仍用 `isLocalEngineHost`（含 loopback）——两个判定**故意不同**。
+4. **tap 必须「先转发后解析」**：客户端字节不能等旁路解析（`controller.enqueue(chunk)` 在 `reader.push` 之前）；且用 `pipeThrough` 而非自建 reader，才能保持「可原样交给 Response」的流形态。
+5. **压缩体不解析**：本地引擎 SSE 不压缩；遇 `content-encoding` 非 identity 只原样转发并报 0 ids，避免把二进制当文本切行。
+
+**验证**
+
+- **引擎直连探针（阶段①）**：`curl /v1/messages`（流式 + 非流式）断言 `content_block_delta.token_ids` 与顶层 `token_ids` 存在，取值与同引擎 OpenAI 路径一致。
+- **经 bc（阶段②）**：`8878/bili/…:8000` 转发后**逐字段对比原始 SSE**，bc 原样透传 `token_ids`（bc 注入 kernel 标签后事件结构不变）。
+- **cc-haha**：目标 2 测试文件 `28 pass / 0 fail`；服务端基线 `check:server` 见 §28.6；`check:policy` 除**既有** `scripts/vcc-slice-judge.ts` 未用导入外无新增失败（该 2 条与本改动无关）。
+- **7787（align 树）**：本链位已同步移植到 `/tmp/align`，`git apply` 直落（仅 `providerRuntimeEnv.ts` 偏移 14 行）。
+
+**入库**：链位 **65** `patches/tps-anthropic-token-ids.patch`（542 行，6 文件）。相对链终态 `a6276429` 生成 ⇒ **#1..#64 无需重生成、无级联**（改动不落在这 64 条的 hunk 上下文里；`handler.ts` 虽被链位 11/35/44 触及，但本项新增/放宽的均为独立区域）。
+
+### 28.6 链复现度：65/65（2026-10-02 实测）
 
 | 链位 | patch | 内容 | 文件数 |
 |---|---|---|---|
 | 62 | `tps-bucket-engine-rewrite.patch` | 28.1：TPS 速率引擎重写为 125ms 分桶（`e4b737dc`） | 19 |
 | 63 | `subagent-usage-cross-client.patch` | 28.2：子代理跨客户端用量一致性（身份对齐 + 服务端在飞外推 + 基准记账修复 + 轮次页脚字号） | 11 |
 | 64 | `tps-background-freeze.patch` | 28.4：后台标签页切回后 TPS 飙高/卡住的根因修复（积压桶丢弃 + 丢弃桶不进分母 + 跨静默保留读数 + 指示器保持改为有界） | 4 |
+| 65 | `tps-anthropic-token-ids.patch` | 28.5：Anthropic 协议 token ids 采集端（私网 anthropic 走代理 + SSE tap + `count_tokens` 透传） | 6 |
 
 > ⚠️ **本表故意不写 `patches/` 前缀**（与 §27.4 同）：链位表用的是 `` `patches/xxx.patch` `` 形式，若此处也带前缀，任何「按 `| 链位 | `patches/…`` 抽取链序」的脚本都会把这两行**当成第二个同号条目**（重复命中）。表格写法保持与链位表可区分。
 
-**验证口径**：干净 worktree@`068b3ebd` 按链序（链位 1→64）`git apply --allow-empty` ⇒ **64/64 失败 0**；随后 `git add -A && git write-tree` 与工作树 `write-tree` 比对，差异**仅** `bun.lock`、`desktop/src-tauri/resources/preview-agent.js`（2 个有意排除项）与 `modify/`（链自身的元数据）。
+**验证口径（2026-10-02 实测）**：干净 worktree@`068b3ebd` 按链序（链位 **1→65**）`git apply --allow-empty --index` ⇒ **65/65 失败 0**；终态与工作树比对，`src/server` **逐字节一致**，全树剩余差异**仅**构建产物与非源码目录（`node_modules` / `desktop/{dist,electron-dist,build-artifacts}` / `desktop/src-tauri/binaries` / `tsconfig.tsbuildinfo` / `runtime/__pycache__`）以及 `bun.lock`、`desktop/src-tauri/resources/preview-agent.js`、`modify/`、`pr-prepare/`、`.claude/`。
 
 ⚠️ **两个易踩的操作坑**（本轮都踩了）：
 1. **顺序表末尾缺换行**：`printf ... >> order.txt` 会把新行**粘到上一行**，导致链位 61 被跳过、后续补丁因缺基底而失败（现象像是「补丁坏了」，其实是表坏了）。

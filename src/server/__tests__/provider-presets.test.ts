@@ -465,3 +465,33 @@ describe('provider presets API', () => {
     }
   })
 })
+
+describe('anthropic providers pointed at a local engine', () => {
+  const localEngineProvider = (baseUrl: string) => ({
+    id: 'zxsv-ai',
+    name: 'ZXSV-AI',
+    baseUrl,
+    apiFormat: 'anthropic' as const,
+    authStrategy: 'auth_token' as const,
+    apiKey: 'dummy',
+    supportsNestedToolResultMedia: true,
+    models: { main: 'zxsv-ai', haiku: 'zxsv-ai', sonnet: 'zxsv-ai', opus: 'zxsv-ai' },
+  })
+
+  test('a LAN engine routes through the proxy so the TPS meter can read token ids', () => {
+    const env = buildProviderManagedEnv(
+      localEngineProvider('http://192.168.10.43:8878/bili/http://192.168.10.43:8000'),
+    )
+    expect(env.ANTHROPIC_BASE_URL).toBe('http://127.0.0.1:3456/proxy')
+  })
+
+  test('a public anthropic endpoint still connects straight through', () => {
+    const env = buildProviderManagedEnv(localEngineProvider('https://api.deepseek.com/anthropic'))
+    expect(env.ANTHROPIC_BASE_URL).toBe('https://api.deepseek.com/anthropic')
+  })
+
+  test('a loopback base keeps connecting directly (local gateways and test doubles)', () => {
+    const env = buildProviderManagedEnv(localEngineProvider('http://127.0.0.1:3456'))
+    expect(env.ANTHROPIC_BASE_URL).toBe('http://127.0.0.1:3456')
+  })
+})
