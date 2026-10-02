@@ -31,7 +31,6 @@ import { Button } from '@/components/ui/Button'
 import { TpsIndicator } from '../components/chat/TpsIndicator'
 import { SessionCostBadge } from '../components/chat/SessionCostBadge'
 import { MobileQuickActions } from '../components/chat/MobileQuickActions'
-import { IconButton } from '@/components/ui/IconButton'
 
 import { LoadingState } from '@/components/ui/LoadingState'
 import { Tooltip } from '@/components/ui/Tooltip'

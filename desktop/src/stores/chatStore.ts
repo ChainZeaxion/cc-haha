@@ -193,6 +193,8 @@ export type PerSessionState = {
   streamingFallback?: StreamingFallbackState | null
   slashCommands: SlashCommandOption[]
   agentTaskNotifications: Record<string, AgentTaskNotification>
+  /** Suppress the next task-notification echo once it has been rendered. */
+  suppressNextTaskNotificationResponse?: boolean
   backgroundAgentTasks?: Record<string, BackgroundAgentTask>
   stoppingBackgroundTaskIds?: Record<string, boolean>
   pendingBackgroundTaskStopFailures?: Record<string, string>
@@ -248,6 +250,7 @@ const DEFAULT_SESSION_STATE: PerSessionState = {
   streamingFallback: null,
   slashCommands: [],
   agentTaskNotifications: {},
+  suppressNextTaskNotificationResponse: false,
   backgroundAgentTasks: {},
   stoppingBackgroundTaskIds: {},
   pendingBackgroundTaskStopFailures: {},

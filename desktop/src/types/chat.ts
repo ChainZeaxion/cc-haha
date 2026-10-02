@@ -363,7 +363,7 @@ export type UIMessage =
    * the user's own prompt render identically, which is what flattened the
    * member transcript.
    */
-  | { id: string; type: 'user_text'; content: string; sessionReferences?: Array<{ sessionId: string }>; collaboration?: { sourceSessionId: string; messageId?: string }; modelContent?: string; transcriptMessageId?: string; timestamp: number; attachments?: UIAttachment[]; pending?: boolean; optimisticQueued?: boolean; teammateFrom?: string }
+  | { id: string; type: 'user_text'; content: string; sessionReferences?: Array<{ sessionId: string }>; collaboration?: { sourceSessionId: string; messageId?: string }; modelContent?: string; transcriptMessageId?: string; timestamp: number; attachments?: UIAttachment[]; pending?: boolean; optimisticQueued?: boolean; awaitingReplay?: boolean; teammateFrom?: string }
   /**
    * `usage` is the token counts the API call that produced this row reported,
    * carried so a turn can total them. `usageKey` dedupes it: one reply is
