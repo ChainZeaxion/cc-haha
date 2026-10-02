@@ -15,6 +15,7 @@ import { MemorySettings } from '../MemorySettings'
 import { PetSettings } from '../../features/pets/PetSettings'
 import { ProviderSettings } from './ProviderSettings'
 import { TerminalSettings } from '../TerminalSettings'
+import { VoiceInputSettings } from './VoiceInputSettings'
 import { TraceList } from '../TraceList'
 import { AboutSettings } from './AboutSettings'
 import { AgentManager } from '../../components/settings/AgentManager'
@@ -35,16 +36,13 @@ export function H5Settings() {
   const t = useTranslation()
   const active = useUIStore((state) => state.activeSettingsTab)
   const pending = useUIStore((state) => state.pendingSettingsTab)
-  // Voice is a desktop-only capability (microphone capture). H5 filters it out
-  // of the pill list; a stale/programmatic 'voice' selection falls back to
-  // providers so the panel renders something sensible.
+  // Voice is reachable from H5 too (its preferences are server-side; microphone
+  // capture degrades in-browser when getUserMedia is unavailable, e.g. non-HTTPS).
   const rawSelected = pending ?? active
-  const selected = rawSelected === 'voice' ? 'providers' : rawSelected
   useEffect(() => {
     if (pending) useUIStore.getState().setActiveSettingsTab(pending)
     if (pending) useUIStore.getState().setPendingSettingsTab(null)
-    if (rawSelected === 'voice' && !pending) useUIStore.getState().setActiveSettingsTab('providers')
-  }, [pending, rawSelected])
+  }, [pending])
 
   const navRef = useRef<HTMLDivElement>(null)
   useEffect(() => {
@@ -52,7 +50,7 @@ export function H5Settings() {
     navRef.current
       ?.querySelector<HTMLButtonElement>('button[aria-pressed="true"]')
       ?.scrollIntoView?.({ inline: 'nearest', block: 'nearest' })
-  }, [selected])
+  }, [rawSelected])
 
   return (
     <div className="flex min-h-0 min-w-0 flex-1 flex-col bg-[var(--color-surface)]">
@@ -62,10 +60,10 @@ export function H5Settings() {
         role="navigation"
         className="flex min-w-0 shrink-0 flex-nowrap gap-2 overflow-x-auto border-b border-[var(--color-border)] p-3 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden [&_button]:min-h-11 [&_button]:shrink-0"
       >
-        {SETTINGS_TABS.filter((tab) => tab.id !== 'voice').map((tab) => (
+        {SETTINGS_TABS.map((tab) => (
           <SettingsPill
             key={tab.id}
-            selected={selected === tab.id}
+            selected={rawSelected === tab.id}
             onClick={() => useUIStore.getState().setActiveSettingsTab(tab.id)}
           >
             {t(`settings.tab.${tab.id}`)}
@@ -73,28 +71,29 @@ export function H5Settings() {
         ))}
         <SettingsPill
           className="ml-1 shrink-0"
-          selected={selected === 'about'}
+          selected={rawSelected === 'about'}
           onClick={() => useUIStore.getState().setActiveSettingsTab('about')}
         >          {t('settings.tab.about')}
         </SettingsPill>
       </div>
-      <div className={selected === 'trace' ? 'flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden' : 'min-h-0 min-w-0 flex-1 overflow-y-auto overflow-x-hidden px-4 py-5 sm:px-6'}>
-        {selected === 'providers' && <ProviderSettings browserMode />}
-        {selected === 'activity' && <ActivitySettings />}
-        {selected === 'general' && <GeneralSettings />}
-        {selected === 'h5Access' && <H5AccessSettings />}
-        {selected === 'adapters' && <AdapterSettings />}
-        {selected === 'terminal' && <H5TerminalSettings />}
-        {selected === 'mcp' && <McpSettings />}
-        {selected === 'agents' && <AgentManager />}
-        {selected === 'skills' && <H5SkillSettings />}
-        {selected === 'memory' && <MemorySettings />}
-        {selected === 'plugins' && <H5PluginSettings />}
-        {selected === 'pets' && <PetSettings />}
-        {selected === 'computerUse' && <ComputerUseSettings />}
-        {selected === 'trace' && <TraceList />}
-        {selected === 'diagnostics' && <DiagnosticsSettings />}
-        {selected === 'about' && <AboutSettings />}
+      <div className={rawSelected === 'trace' ? 'flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden' : 'min-h-0 min-w-0 flex-1 overflow-y-auto overflow-x-hidden px-4 py-5 sm:px-6'}>
+        {rawSelected === 'providers' && <ProviderSettings browserMode />}
+        {rawSelected === 'activity' && <ActivitySettings />}
+        {rawSelected === 'general' && <GeneralSettings />}
+        {rawSelected === 'voice' && <VoiceInputSettings />}
+        {rawSelected === 'h5Access' && <H5AccessSettings />}
+        {rawSelected === 'adapters' && <AdapterSettings />}
+        {rawSelected === 'terminal' && <H5TerminalSettings />}
+        {rawSelected === 'mcp' && <McpSettings />}
+        {rawSelected === 'agents' && <AgentManager />}
+        {rawSelected === 'skills' && <H5SkillSettings />}
+        {rawSelected === 'memory' && <MemorySettings />}
+        {rawSelected === 'plugins' && <H5PluginSettings />}
+        {rawSelected === 'pets' && <PetSettings />}
+        {rawSelected === 'computerUse' && <ComputerUseSettings />}
+        {rawSelected === 'trace' && <TraceList />}
+        {rawSelected === 'diagnostics' && <DiagnosticsSettings />}
+        {rawSelected === 'about' && <AboutSettings />}
       </div>
     </div>
   )

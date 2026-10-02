@@ -81,14 +81,13 @@ describe('Voice Input settings tab wiring', () => {
     expect(fresh.useUIStore.getState().activeSettingsTab).toBe('voice')
   })
 
-  it('keeps voice out of the browser shell: a stored voice tab falls back to model settings', async () => {
+  it('opens the voice panel in the browser shell: a stored voice tab renders it from the phone', async () => {
     useUIStore.setState({ activeSettingsTab: 'voice' })
     render(<H5Settings />)
 
-    expect(await screen.findByText('provider-panel')).toBeInTheDocument()
-    expect(screen.queryByRole('heading', { name: 'Voice Input' })).not.toBeInTheDocument()
-    // The H5 shell shows the full desktop section list (voice filtered out).
-    expect(within(screen.getByRole('navigation', { name: 'Settings' })).getAllByRole('button')).toHaveLength(16)
-    await waitFor(() => expect(useUIStore.getState().activeSettingsTab).toBe('providers'))
+    expect(await screen.findByRole('heading', { level: 2, name: 'Voice Input' })).toBeInTheDocument()
+    // The H5 shell shows the same full desktop section list as the desktop rail (voice included).
+    expect(within(screen.getByRole('navigation', { name: 'Settings' })).getAllByRole('button')).toHaveLength(17)
+    await waitFor(() => expect(useUIStore.getState().activeSettingsTab).toBe('voice'))
   })
 })

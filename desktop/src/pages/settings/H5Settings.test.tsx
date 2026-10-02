@@ -51,7 +51,7 @@ afterEach(() => { cleanup(); vi.restoreAllMocks() })
 it('exposes the same full section list as the desktop rail', async () => {
   render(<H5Settings />)
   const nav = within(screen.getByRole('navigation', { name: 'Settings' }))
-  expect(nav.getAllByRole('button')).toHaveLength(16)
+  expect(nav.getAllByRole('button')).toHaveLength(17)
   expect(nav.getByRole('button', { name: 'H5 Access' })).toBeInTheDocument()
   expect(nav.getByRole('button', { name: 'Terminal' })).toBeInTheDocument()
   expect(nav.getByRole('button', { name: 'About' })).toBeInTheDocument()
@@ -109,7 +109,7 @@ it('activates and deletes providers through the existing API without connection 
 it('routes the actual Settings page to the full browser tab list', async () => {
   render(<Settings />)
   const nav = within(screen.getByRole('navigation', { name: 'Settings' }))
-  expect(nav.getAllByRole('button')).toHaveLength(16)
+  expect(nav.getAllByRole('button')).toHaveLength(17)
   expect(screen.queryByTestId('settings-navigation')).not.toBeInTheDocument()
   expect(await screen.findByTestId('provider-fixture-provider')).toBeInTheDocument()
 })
