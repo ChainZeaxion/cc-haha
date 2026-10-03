@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { RefreshCw } from 'lucide-react'
 import { Badge } from '@/components/ui/Badge'
-import { useChatStore } from '../../stores/chatStore'
+import { estimateStreamingTokens, useChatStore } from '../../stores/chatStore'
 import { useTabStore } from '../../stores/tabStore'
 import { useTranslation, type TranslationKey } from '../../i18n'
 import { formatTokenCount } from '../../lib/formatTokenCount'
@@ -64,8 +64,11 @@ export function StreamingIndicator() {
   const apiRetry = sessionState?.apiRetry ?? null
   const streamingFallback = sessionState?.streamingFallback ?? null
   const elapsedSeconds = sessionState?.elapsedSeconds ?? 0
-  // chars ÷ 4 estimates output tokens for this turn, mirroring the CLI spinner.
-  const streamingTokens = Math.round((sessionState?.streamingResponseChars ?? 0) / 4)
+  // Four-class estimate of this turn's output tokens so far — the same estimator
+  // the subagent rows and panels use, so every in-flight figure agrees. Re-renders
+  // ride the sibling `streamingResponseChars` field, which advances on the same
+  // deltas the estimate counts.
+  const streamingTokens = activeTabId ? estimateStreamingTokens(activeTabId) : 0
 
   useEffect(() => {
     if (!apiRetry) return undefined

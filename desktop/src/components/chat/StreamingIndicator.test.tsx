@@ -45,6 +45,7 @@ function makeSession(overrides: Partial<PerSessionState> = {}): PerSessionState 
     pendingComputerUsePermission: null,
     tokenUsage: { input_tokens: 0, output_tokens: 0 },
     streamingResponseChars: 0,
+    streamingResponseCounts: { cjk: 0, latin: 0, digit: 0, sym: 0 },
     elapsedSeconds: 0,
     statusVerb: '',
     apiRetry: null,
@@ -76,14 +77,31 @@ describe('StreamingIndicator', () => {
   it('renders the current turn token estimate as "↓ N tokens"', () => {
     useChatStore.setState({
       sessions: {
-        // 8976 streamed chars ÷ 4 = 2244 tokens → "2.2k tokens"
-        [ACTIVE_TAB]: makeSession({ streamingResponseChars: 8976 }),
+        // Four-class estimate: 8976 Latin characters × 1/3.5 ≈ 2565 → "2.6k tokens"
+        [ACTIVE_TAB]: makeSession({
+          streamingResponseCounts: { cjk: 0, latin: 8976, digit: 0, sym: 0 },
+        }),
       },
     })
 
     render(<StreamingIndicator />)
 
-    expect(screen.getByText(/↓ 2\.2k tokens/)).toBeTruthy()
+    expect(screen.getByText(/↓ 2\.6k tokens/)).toBeTruthy()
+  })
+
+  it('counts Chinese at its real density rather than a flat ÷4', () => {
+    useChatStore.setState({
+      sessions: {
+        // 2050 Chinese characters cost ~2056 tokens; ÷4 would have said 512.
+        [ACTIVE_TAB]: makeSession({
+          streamingResponseCounts: { cjk: 2050, latin: 0, digit: 0, sym: 0 },
+        }),
+      },
+    })
+
+    render(<StreamingIndicator />)
+
+    expect(screen.getByText(/↓ 2\.1k tokens/)).toBeTruthy()
   })
 
   it('hides the token estimate until this turn has streamed output', () => {

@@ -47,6 +47,8 @@
 >
 > **当前链规模（2026-09-29）**：共 **61 patch**（**全部实体，无空补丁**）。链位 61 = `subagent-live-metrics`（二十一章 子优化⑤：子代理运行中用量/耗时爬升 + 移动端紧凑 + **TPS 汇聚子代理读数修复**；**保留链尾、未与链位 21 融合**，理由见二十一章子优化⑤的链位说明）。**同时重生成链位 54 `tps-batched-delivery`**（187→316 行）：把 `sliceRate()` 的可行性过滤从「全局间隔」改为「同一流的间隔」——多流交织时前者误杀约 70% 样本，使 4 子代理并发下 UI 读数只有引擎真值的 1/3。两条均经**反向应用旧补丁 → 正向应用新补丁 → 逐字节比对工作区**往返验证（10/10 文件一致）。
 >
+> **当前链规模（2026-10-02）**：共 **66 patch**。最新两位：链位 **65** = `tps-anthropic-token-ids`（二十八 28.5：**Anthropic 协议 token ids 采集端**——私网 anthropic provider 走代理 + `anthropicTokenTap` 旁路采 ids + `count_tokens` 透传 + **代理对私网 origin 注入 `x-return-token-ids` 触发头**；6 文件 559 行）；链位 **66** = `tps-density-estimation`（二十九 29.1：**TPS 估算方案重做（B 路径）+ 在飞用量 A 优先**——4 类密度 + 20 条样本池 + 岭回归收缩；10 文件 1149 行）。两者均相对链终态 `a6276429` 生成，**#1..#64 无需重生成、无级联**。
+>
 > **（历史，2026-09-28）链规模 60 patch**（**全部实体，无空补丁**）。最新三位：`chapter-27-test-env-isolation` / `chapter-27-vcc-calibration-scripts` / `chapter-27-residual-hunks`（**链位 58–60**，二十七章：把此前「只登记不产补丁」的既有改动全部补成补丁）。**至此「基线 + 全链」100% 复现工作树**——实测干净 worktree@`068b3ebd` 按 1→60 依次 apply **60/60 成功**，终态与工作树差异**仅剩 2 个有意排除项**：`bun.lock`（锁文件随依赖解析变化）与 `desktop/src-tauri/resources/preview-agent.js`（构建产物，纳入补丁会在每次构建后失效）。前一位（性能三连）：`transcript-metadata-durable`（元数据投影落盘 10.24s→0.016s，链位 57）、`session-find-bounded-read`（findSessionFile 4345ms→2ms，链位 56）、`session-history-context-durable`（归属投影索引落盘，链位 55）。完整链位见上表。
 >
 > **全链验证（2026-09-28 复核，最新口径）**：干净 worktree@`068b3ebd` 上按上表顺序 `git apply --index` **57 个 patch → 失败 0 个**，且**无需 `--allow-empty`**（两个空补丁已移除，见下）。终态 vs 工作树（仅 `src`/`desktop`）剩余 **19 个文件的「非章 delta」**——这些改动来自未纳入章节体系的提交，**属预期内**，清单与原因见下节。
@@ -137,6 +139,9 @@
 | 60 | `patches/chapter-27-residual-hunks.patch` | 二十七 27.3：**章内残余 hunk**——`api/claude.ts` bound-thinking 模型（Fable 5.1）需回放思考块（`modelUsesBoundThinking`，剥离会破坏 system 变更后的重放）；`providerModels` 排序固定 `'en'`（宿主 zh 会把 CJK 排到拉丁之前，「其他」组顶到真实 provider 名之上）；`TerminalSettings` 的 `createTerminalRequestId()` 在非安全上下文（H5 经 LAN IP）无 `crypto.randomUUID` 故回退时间戳+随机串；`package.json` 去掉与 `build`/`tsc -b` 口径重复的两个脚本；`PermissionUpdate` require 环改 **Proxy getter**（顶层 require 在环中拿到的是空命名空间且会一直返回它）。与 58/59 合计补齐 21 个「无补丁触及」的文件（5 文件） | ✅ 已实施 |
 | 59 | `patches/chapter-27-vcc-calibration-scripts.patch` | 二十七 27.2：**vcc 片段模式校准/判分脚本**——`scripts/vcc-slice-calibration.ts`(1076 行) + `scripts/vcc-slice-judge.ts`(439 行)，随「局部压缩接入 vcc 片段模式 + 语料校准」引入；`.gitignore` 排除**机器生成的报告**（含会话原文与真实语料，入库的是手写版）。属**测量工具**而非产品代码，故原未纳入章节（3 文件） | ✅ 已实施 |
 | 58 | `patches/chapter-27-test-env-isolation.patch` | 二十七 27.1：**测试环境隔离与遗留失败清零**——新增 `src/testUtils/modelEnv.ts`（`isolateModelDefaultsEnv()` 存/剥离/还原模型相关 env），并接入 12 个用例（模型 4 个 + `effort.agent` + `thinking` + `print.sessionMessage` + `client` + `computerUse` + `builtInAgentOverrides` + `system` + `coreSchemas.modelInfo`）。根因＝**桌面 dev 会把 `CLAUDE_CODE_*` 导出进进程**，致同一批用例**单跑失败、官方 runner 全绿**——是环境泄漏不是真缺陷（13 文件） | ✅ 已实施 |
+| 65 | `patches/tps-anthropic-token-ids.patch` | 二十八 子优化：**Anthropic 协议 token ids 采集端**——引擎 `/v1/messages` 响应带每 `content_block_delta` 的 `token_ids`（引擎侧补丁 `opt21-anthropic-token-ids-v1`，见 `1cat-vllm-v130/patches/`）；cc-haha 侧①私网 anthropic provider 自动经代理（`isPrivateNetworkUrl`，**排除 loopback**）②`anthropicTokenTap` 旁路解析 SSE 取 ids 喂 `tps_tokens`（**字节不变**）③`count_tokens` 端点透传。修「真实客户端 CLI 直连 bc ⇒ cc-haha 服务端不在链路 ⇒ `ids` 档不可达」（6 文件 559 行；**2026-10-02 修订**：引擎改「触发才发」后，代理对**本机/私网 origin** 注入 `x-return-token-ids: 1`） | ✅ 已实施 |
+| 66 | `patches/tps-density-estimation.patch` | 二十九 29.1：**TPS 估算方案重做（B 路径）+ 在飞用量 A 优先**——① 字符→token 折由「单一 `/4` 常数」改 **4 类互斥密度**（CJK/拉丁/数字/符号）+ **20 条样本池** + **岭回归收缩**（先验表兜底、无「每类 N 条」门槛 ⇒ 不死锁；修中文被 `/4` 低算约 **4×**）② 样本**只存整数计数**（免存文本、免策展）③ **在飞用量 A 优先**（`tps_tokens` 真实计数）→ B 兜底，落盘由 `usage` 校正（10 文件 1149 行） | ✅ 已实施 |
+| 67 | `patches/tps-readout-cadence-and-live-gap.patch` | 二十八 28.7：**TPS 读数节拍改 4 次/秒 + 静默阈值统一**——「067 每秒才变一次」的根因**不是轮询**（本就 4–8 Hz）而是**1 秒均值把起伏抹平**（每个新 125ms 桶只替换窗口 1/8 ⇒ 取整后几乎不动）⇒ `READ_BUCKETS` 8→**2**（250ms 窗）+ 轮询双档改单一 **`POLL_MS=250`**；并**删掉我误引入的重复常量 `LIVE_MS`**（它只是「窗口长度」的别名 ⇒ 缩窗口会静默缩短 live→held）⇒ live→held 统一用 `LIVE_GAP_MS=1500`（设计本就是 1.5s）。实测（抖动喂法）**4.0 次/秒**；静默 1200ms→读数 0（如实凹陷）、≥1490ms→切 held（3 文件） | ✅ 已实施 |
 
 > **已知非章 delta（有意不入 patch，链终态与工作树的结构性差值）**：`#83` 测试修复族（`src/testUtils/modelEnv.ts` 及 11 个 `*.test.ts`：`print.sessionMessage`/`constants/system`/`coreSchemas.modelInfo`/`api/client`/`skills/bundled/computerUse`/`builtInAgentOverrides`/`effort.agent`/`model/{agent,fable,opus55,opus5}`/`__tests__/thinking`/`permissions/PermissionUpdate`）、`MessageList.test.tsx`（flaky 超时放宽，见附录）、`TerminalSettings.tsx`、`lib/providerModels.ts`、`services/api/claude.ts`（bound-thinking WIP）、`desktop/package.json`（本轮新增 `build:renderer`/`typecheck` 两条 **dev 脚本**，electron-builder 打包时会剥离 `scripts`，故不影响产物）、`bun.lock`。
 >
@@ -2591,21 +2596,206 @@ if (gapMs > 0 && tokens / (gapMs / 1000) <= MAX_INSTANT_TPS) { /* 计入 */ }   
 
 **验证（28.5）**：`tpsMeter.test.ts` 27 → **31**（+4）；`TpsIndicator.test.tsx` 11 → **12**（+1）；相关 6 套件（tpsMeter / TpsIndicator / tpsCalibration / chatStore / MessageList / ActiveSession）**669/669**；`tsc --noEmit` 与 `npm run lint` 绿；`src/` **零改动**（故服务端 `check:server` 不受影响）；链复现度 **64/64 apply 0 失败**，终态与工作树仅差 2 个既定排除项。
 
-### 28.5 链复现度：64/64（2026-09-29 实测）
+### 28.5 Anthropic 协议（`/v1/messages`）token ids 采集端（链位 65，2026-10-02）
+
+**需求（用户 verbatim）**：「修bc中间件anthropic协议透传token ids」。
+
+> **⚠️ 2026-10-02 修订：引擎侧由「常开」改「触发才发」，本侧补触发头。**
+> 初版引擎无条件常开输出 ids。对照 vLLM 自家 OpenAI 协议（`return_token_ids` **默认 off**）后改为 opt-in：引擎认**请求头 `x-return-token-ids`** ∨ **请求体 `return_token_ids: true`**，无触发则不发（并修掉无请求时 `"token_ids":null` 泄漏）。
+> 本侧随之在 `handleAnthropicCompatible` 对**本机/私网 origin**（`shouldRequestTokenIds`）注入 **`x-return-token-ids: 1`** ⇒ 保字节透传（不改 body）、公网 provider 不注入。
+> **影响**：引擎一旦触发化，**未注入触发头的消费端（如未同步的 7787/桌面打包版）将拿不到 ids ⇒ TPS 退到 B 估算档**。
+
+**关键发现（推翻了「改 bc 中间件」的预设）**
+
+- **bc 不是缺口**：`billion-context` bundle 里 `token_ids` / `reasoning_tokens` 各 **0 处引用**；bc 按协议路由但**不做协议转换、不改路径**（`/v1/messages` → 上游 `/v1/messages`），纯转发（`resolveUpstream` / `buildForwardTarget`；日志自称 "forwarding unchanged"）。
+- **引擎侧原来没有字段可放**：`entrypoints/anthropic/protocol.py` 的响应模型里 `token_ids` **0 处**、`serving.py` 也不产出 ⇒ 即便算了也无处承载。（对比同引擎 OpenAI 协议 `chat_completion/protocol.py` 明确有 `choices[].token_ids` 与顶层 `prompt_token_ids`。）→ **引擎侧**按 vLLM 范式补齐：`1cat-vllm-v130/patches/opt21-anthropic-token-ids-v1.patch`（输出 ids **触发才发**〔见开头修订〕、`prompt_token_ids` 走请求 opt-in，因后者体积大）。
+- **决定性事实**：真实客户端（dev 7787）`settings.json` 的 `ANTHROPIC_BASE_URL = http://192.168.10.43:8878/bili/http://192.168.10.43:8000` ⇒ **CLI 直连 bc，cc-haha 服务端不在 HTTP 链路上**。cc-haha 的 ids 采集通道（`tpsTokenSink` → `tps_tokens` WS → TPS 表）**只在请求经 cc-haha 代理时才有数据**；而链位 35 的 `providerRuntimeEnv` 对 anthropic provider 一律「直连、不过代理」。这正是「cc-haha 当初设计 ids 时假设请求会经它代理」的缺口。
+
+**做法（6 文件，均 `src/server/**`）**
+
+1. **私网 anthropic provider 自动经代理**（`services/providerRuntimeEnv.ts` 的 `buildProviderManagedEnv` + `activeProviderNeedsProxy` 两处）：新增分支 `apiFormat === 'anthropic' && isPrivateNetworkUrl(baseUrl)` ⇒ `ANTHROPIC_BASE_URL` 指向 cc-haha `/proxy`；公网 anthropic provider（deepseek/zhipu/minimax）不受影响。
+2. **共享判定模块** `services/api/localEngineHost.ts`（新增）：把 `handler.ts` 私有的 `isLocalEngineHost` 提出，另加 `isPrivateNetworkHost/Url`。
+3. **退守放宽**（`proxy/handler.ts` 的 anthropic 400 守卫）：原「anthropic + `supportsNestedToolResultMedia=true` ⇒ 400 `proxy not needed`」改为**仅当上游非本机/私网时才 400**。
+4. **SSE 采集 tap** `proxy/streaming/anthropicTokenTap.ts`（新增）：仿 `captureTraceStream` 的 tee —— `pipeThrough` 里**先转发原始字节**再旁路解析 SSE，取每个 `content_block_delta` 顶层的 `token_ids`，按 `delta.type` 映射 kind（thinking/content/tool），喂既有 `createTpsTokenRelay`（200ms 合批 + 负缓存）。压缩体（`content-encoding` 非 identity）原样转发、不解析。
+5. **`count_tokens` 端点透传**（`handler.ts` 新增 `forwardAnthropicCountTokens`）：`/proxy/v1/messages/count_tokens` 原样转发（无事件流、无 ids 可采）。
+6. **测试**：`anthropicTokenTap.test.ts`（5 例：字节不变 + 按 kind 计数 + 跨 chunk 边界重组 + 无 ids/空数组/坏 JSON 忽略 + 压缩体不解析）、`provider-presets.test.ts`（+3 例：私网→走代理、公网→直连、**loopback→仍直连**）。
+
+#### 踩坑记录（28.5）
+
+1. **⚠️⚠️「修 bc」是错的落点**：最初预设改 bc 中间件，实测 bundle 里 `token_ids`/`reasoning_tokens` **零引用**且 bc 只按协议路由、不改路径 ⇒ 缺的是**引擎协议字段**，不是中间件。**看到「中间件在链路上」不等于「缺口在中间件」**。
+2. **⚠️⚠️「引擎改造已生效」与「UI 拿到值」是两件事**：客户端 base URL 直指 bc ⇒ cc-haha 服务端**不在链路上**，引擎发了 ids 也没人读。必须先确认流量确实过 cc-haha（本项即靠「私网自动经代理」把 anthropic 流引回代理）。
+3. **loopback 必须排除出路由门控**：`127.0.0.1` 更可能是 cc-haha 自己的 `/proxy`（`http://127.0.0.1:3456/proxy`）或测试替身；把它也路由进代理会**自环**并改掉其 auth 与非 Messages 路径。故**路由用 `isPrivateNetworkUrl`（RFC1918，不含 loopback）**，而「是否发 `return_token_ids`」仍用 `isLocalEngineHost`（含 loopback）——两个判定**故意不同**。
+4. **tap 必须「先转发后解析」**：客户端字节不能等旁路解析（`controller.enqueue(chunk)` 在 `reader.push` 之前）；且用 `pipeThrough` 而非自建 reader，才能保持「可原样交给 Response」的流形态。
+5. **压缩体不解析**：本地引擎 SSE 不压缩；遇 `content-encoding` 非 identity 只原样转发并报 0 ids，避免把二进制当文本切行。
+
+**验证**
+
+- **引擎直连探针（阶段①）**：`curl /v1/messages`（流式 + 非流式）断言 `content_block_delta.token_ids` 与顶层 `token_ids` 存在，取值与同引擎 OpenAI 路径一致。
+- **经 bc（阶段②）**：`8878/bili/…:8000` 转发后**逐字段对比原始 SSE**，bc 原样透传 `token_ids`（bc 注入 kernel 标签后事件结构不变）。
+- **cc-haha**：目标 2 测试文件 `28 pass / 0 fail`；服务端基线 `check:server` 见 §28.6；`check:policy` 除**既有** `scripts/vcc-slice-judge.ts` 未用导入外无新增失败（该 2 条与本改动无关）。
+- **7787（align 树）**：本链位已同步移植到 `/home/zeaxion/myproject/cchaha-067scode`，`git apply` 直落（仅 `providerRuntimeEnv.ts` 偏移 14 行）。
+
+**入库**：链位 **65** `patches/tps-anthropic-token-ids.patch`（**559 行**，6 文件；含触发头注入与私网路由）。相对链终态 `a6276429` 生成 ⇒ **#1..#64 无需重生成、无级联**（改动不落在这 64 条的 hunk 上下文里；`handler.ts` 虽被链位 11/35/44 触及，但本项新增/放宽的均为独立区域）。
+
+### 28.6 链复现度：67/67（2026-10-02 实测）
 
 | 链位 | patch | 内容 | 文件数 |
 |---|---|---|---|
 | 62 | `tps-bucket-engine-rewrite.patch` | 28.1：TPS 速率引擎重写为 125ms 分桶（`e4b737dc`） | 19 |
 | 63 | `subagent-usage-cross-client.patch` | 28.2：子代理跨客户端用量一致性（身份对齐 + 服务端在飞外推 + 基准记账修复 + 轮次页脚字号） | 11 |
 | 64 | `tps-background-freeze.patch` | 28.4：后台标签页切回后 TPS 飙高/卡住的根因修复（积压桶丢弃 + 丢弃桶不进分母 + 跨静默保留读数 + 指示器保持改为有界） | 4 |
+| 65 | `tps-anthropic-token-ids.patch` | 28.5：Anthropic 协议 token ids 采集端（私网 anthropic 走代理 + SSE tap + `count_tokens` 透传 + 私网 origin 注入触发头） | 6 |
+| 66 | `tps-density-estimation.patch` | 29.1：TPS 估算方案重做（4 类密度 + 20 条样本池 + 岭回归收缩）+ 在飞用量 A 优先 | 10 |
+| 67 | `tps-readout-cadence-and-live-gap.patch` | 28.7：TPS 读数节拍改 4 次/秒（`READ_BUCKETS` 8→2 + 单一 `POLL_MS=250`）+ 删 `LIVE_MS`、静默阈值统一 `LIVE_GAP_MS=1500` | 3 |
 
 > ⚠️ **本表故意不写 `patches/` 前缀**（与 §27.4 同）：链位表用的是 `` `patches/xxx.patch` `` 形式，若此处也带前缀，任何「按 `| 链位 | `patches/…`` 抽取链序」的脚本都会把这两行**当成第二个同号条目**（重复命中）。表格写法保持与链位表可区分。
 
-**验证口径**：干净 worktree@`068b3ebd` 按链序（链位 1→64）`git apply --allow-empty` ⇒ **64/64 失败 0**；随后 `git add -A && git write-tree` 与工作树 `write-tree` 比对，差异**仅** `bun.lock`、`desktop/src-tauri/resources/preview-agent.js`（2 个有意排除项）与 `modify/`（链自身的元数据）。
+**验证口径（2026-10-02 实测）**：干净 worktree@`068b3ebd` 按链序（链位 **1→67**）`git apply --allow-empty --index` ⇒ **67/67 失败 0**；终态与工作树比对，**`src/**` 与 `desktop/src/**` 逐字节一致**，全树剩余差异**仅**构建产物与非源码目录（`node_modules` / `desktop/{dist,electron-dist,build-artifacts}` / `desktop/src-tauri/binaries` / `tsconfig.tsbuildinfo` / `runtime/__pycache__`）以及 `bun.lock`、`desktop/src-tauri/resources/preview-agent.js`、`modify/`、`pr-prepare/`、`.claude/`。
 
 ⚠️ **两个易踩的操作坑**（本轮都踩了）：
 1. **顺序表末尾缺换行**：`printf ... >> order.txt` 会把新行**粘到上一行**，导致链位 61 被跳过、后续补丁因缺基底而失败（现象像是「补丁坏了」，其实是表坏了）。
 2. **比对要用 tree 对 tree**（`git write-tree` + `git diff-tree`），不要用 `git diff <commit>`：后者看不见未跟踪文件，会把新增文件**误报成缺失**（见 28.2 踩坑 7）。
+
+### 28.7 TPS 读数节拍改 4 次/秒 + 静默阈值统一为 `LIVE_GAP_MS`（链位 67，2026-10-02）
+
+**用户报**：066 时读数每秒多次变化，067 却「每秒才变一次」。
+
+**真因＝不是轮询，是「1 秒均值把起伏抹平」**。轮询本来就是 4–8 Hz（`POLL_SLOW_MS=250` / `POLL_FAST_MS=125`，≥50 t/s 走快档），从来不是每秒一次。`READ_BUCKETS=8`（1 秒均值）下，每个新 125ms 桶只替换窗口的 1/8 ⇒ 稳态流下取整后的数字**几乎不动** ⇒ 观感「每秒才跳一次」甚至冻住。
+
+**改法**：`READ_BUCKETS` 8 → **2**（读数窗 250ms）；轮询双档 → 单一 **`POLL_MS=250`**（4 次/秒）。实测（抖动喂法）**4.0 次/秒**；对照 RB=8 + poll=250 仅 3.4/秒。
+
+**同时纠正一处我引入的重复常量**：缩窗口时我顺手把 live→held 换成 `LIVE_MS = 8 × BUCKET_MS`（1000ms）——**错**。设计里这个阈值本就是 `LIVE_GAP_MS = 1500`（§28.1「静默 **>1.5s 清空窗口**并重新计时」；其 docstring 原文即 *"the reading switches to its held value, and the bucket grid is dropped"*）。`LIVE_MS` 只是「窗口长度」的别名 ⇒ **缩窗口会静默地把交接阈值一起缩短**。**正解＝删 `LIVE_MS`，`value()` 直接用 `LIVE_GAP_MS`**：一个阈值、一个名字，`value()` 的 live→held 与 `placeFrame` 的清格同门。实测边界：静默 **1200ms → 读数 0**（如实凹陷，由指示器有界 1.5s 防闪保证显示不回弹）；**≥1490ms → 切 held**。
+
+**文件**：`desktop/src/lib/tpsMeter.ts`、`desktop/src/lib/tpsMeter.test.ts`、`desktop/src/components/chat/TpsIndicator.tsx`（3 文件）。
+
+#### 踩坑记录（28.7）
+1. ⭐ **「显示冻结」≠「读数频率低」**：先怀疑「窗口太长把起伏抹平」，别先怪轮询频率（轮询本就够快）。
+2. ⭐ **仿真必须用抖动喂法**：我第一版用**匀速**喂法，得出「改窗口几乎没用」的**错误结论**——匀速流在**任何**窗口下都是常量。真实流在 125ms 尺度上是起伏的（思考/正文/工具参数交替）。
+3. ⭐ **改一个由推导式定义的常量前，先看它推导自什么、被谁引用**：`READ_BUCKETS` 同时喂了「读数窗」与「静默阈值」两个语义，改一个动了两个——这正是 `LIVE_MS` 陷阱的成因。
+4. 短窗口的代价＝平滑变少、数字更跳（读的是最近 250ms 速率而非 1 秒均值）；2↔4 桶间可调。
+5. **本轮走「新增链位 67」而非改链位 62/64**：改老 patch 会级联（62 有 **16** 个、64 有 **9** 个 hunk 都落在 `tpsMeter.ts`），按文档「新增链位」规范零级联追加（先例＝链位 65/66）。
+
+
+## 二十九、TPS 双路径架构：A 引擎真值优先 → B 智能估算兜底（✅ 2026-10-02，链位 66）
+
+> **本章 1 个 patch**：链位 **66**（`tps-density-estimation.patch`，10 文件）。配合链位 65（Anthropic ids 采集）。
+
+### 29.1 TPS 估算方案重做（B 路径）+ 在飞用量 A 优先（链位 66）
+
+**需求（用户 verbatim 汇总）**
+
+1. **两条独立路径**：① 从引擎取 **token ids** 作第一优先级（准确 TPS）；② cc-haha **自身智能估算** 作次级兜底。**A 不可用 ⇒ 启用 B**。
+2. A 的取法要**启发式**（不要求前端声明）；先查清「行业标准里 ids 是否默认带」。
+3. B：先设**尽量靠近准确的初始比例**兜底 → 以**历史消息为范本自动学习**；**池 20 条轮换**；**达 10 条后以学习值优先**；池恒 20。
+4. 范本覆盖 **纯英 / 纯中 / 中英混合 / 单纯字符** 四类，「通杀几乎所有模型服务商」。
+5. **会话扩展信息里所有 token 用量**：未落盘前**按新方式爬升**（A 优先、B 兜底），**落盘由 `usage` 校正**（例：爬升收尾 12.3k → 落盘 11.7k，相差不大）。
+
+**调研结论：token ids 不是行业标准**（§0 判据的依据）
+
+| 来源 | 响应含 token ids？ |
+|---|---|
+| OpenAI 标准 API | ❌ 仅 `usage` 计数 |
+| Anthropic 标准 API | ❌ 无任何该字段 |
+| vLLM 系（本引擎 OpenAI 协议） | ✅ 扩展 `return_token_ids`（**默认 off**） |
+| vLLM 系（本引擎 Anthropic 协议） | ✅ 本项目新增（`opt21-anthropic-token-ids-v1`，**触发才发**） |
+
+⇒ **必须启发式**（探测 + 按 origin 记忆），不能假定「流式/非流式默认带」。
+
+**A 路径（第一优先级）**
+
+- **触发**：cc-haha 仅对**本机/私网 origin**（`shouldRequestTokenIds`/`isLocalEngineHost`）注入请求头 `x-return-token-ids: 1`（链位 65）；引擎认头出 ids。
+- **可用性状态机**（按 origin）：`unknown --发触发--> 有 ids ⇒ A-active`；**连续 2 次无 ids（10s 窗）⇒ A-unsupported**（停探测，只用 B）。复用既有 `tokenIdUnsupportedOrigins`/`tokenIdProbeMisses`。
+- **公网服务商**：非私网 ⇒ **永不注入** ⇒ 天然 A 不可用 ⇒ B。
+
+**B 路径（次级兜底）——核心：样本只存「计数」，不存文本**
+
+估算是**字符数的线性函数** ⇒ 学习只需计数：
+
+```ts
+type DensitySample = { cjk: number; latin: number; digit: number; sym: number; tokens: number }
+// 池 = 最近 20 条（每 model 一个环形缓冲，FIFO）
+```
+
+- **4 类互斥**（每个字符恰属一类）：CJK（表意/假名/谚文）≈1.003 tok/字、拉丁 a-zA-Z ≈0.286、数字 0-9、符号/标点/其它。「中英混合」是**样本形态**（由回归自然处理），**不是第 5 类**（否则矩阵共线）。
+- **免策展、不死锁**：真实会话本就混合 ⇒ 谁常出现谁学得准；**不需要「每类至少 N 条」**（离散门槛会让某类缺样本时**整条学习路径永不开启**，把已学好的类也拖死）。
+- **收缩（岭回归）**：`k_c = (n_c·k̂_c + λ·k_c⁰)/(n_c+λ)`，先验 `k_c⁰` 用**实测值**（非中性 1.0）⇒ 某类 0 样本退回先验（可用，不是垃圾）、1~2 样本不震荡、放宽总数也无害。
+- **门槛保留为全局成熟门**：样本数 ≥10 后以学习值优先（管「先验表 vs 学习值」），与逐维收缩不冲突。
+- **半持久化**：`localStorage['cc-haha.tpsDensity']`，样本池（20×5 整数）+ 版本号 + 按 model 分桶 + 节流写 + 坏数据回退先验表。
+
+**在飞用量：A 优先（用户明确）**
+
+三源成链：`在飞 A（真实 ids 累加）──不可用──> B（学习估计）──落盘──> usage（权威，覆盖）`。
+
+- **数据面统一**：A 通道 = **`tps_tokens`**（tap 产出的真实计数，带 `kind`）= 既是 **TPS 速率的分子**、也是 **所有在飞用量（轮次/子代理/收纳栏/后台任务）的分子** ⇒ 二者读**同一份**计数，天然自洽。
+- 服务端 `agentRunUsageProjection.ts` 与客户端 `subagentLiveChars` 的「单一 `/4` 常数」**全部移除**（见 29.1 踩坑 a）⇒ 改 A 优先、B 兜底。
+- 落盘由既有「完成通知/边界帧带权威 `usage` 二次校正」骨架（链位 49/63）覆盖，只升级分子。
+
+**验证**
+
+- 单测：`tokenDensity.test`、`tpsDensityStore.test`、`agentRunUsageProjection.test`、`StreamingIndicator.test`、`session-messages-http.test` 全绿；服务端全量 **498 文件 / 5994 通过 / 0 失败**。
+- **7788 端到端**：13 个 delta 带真实 ids、0 个 null、**3 条 `tps_tokens`**（thinking 36/6 + content 18）。
+- 桌面 `vitest`：`tpsDensityStore`+`StreamingIndicator` **14 通过**；`tsc` 无新错误（仅既有 `compact.test.ts` 损坏）。
+- **7787（align 树）同步后**：同款端到端 **3 条 `tps_tokens`** 复现。
+
+**踩坑记录（本项）**
+
+| # | 坑 | 一句话 |
+|---|---|---|
+| a | **`/4` 对中文低算约 4×** | 服务端 `agentRunUsageProjection` 与客户端 `subagentLiveChars` 都用常数 `CHARS_PER_TOKEN=4`（≈0.25 tok/char = **拉丁**密度）折 token，而**中文≈1.0** ⇒ 中文在飞用量被低算约 4 倍。**「两处一致」不等于「正确」**——一致地错也是一种错。 |
+| b | **离散门槛会饿死学习** | 若按「每类至少 2 条」才启用，某类（如纯英文）长期缺样本 ⇒ **整条学习路径永不开启**，已学好的类也停在中性值；放宽为「总数达标」又让稀疏类出垃圾系数。正解是**收缩**（先验兜底，有多少数据用多少），门槛只保留「全局成熟」一层。 |
+| c | **4 类必须互斥** | 「纯英/纯中/中英混合/纯字符」若当 4 个子池，**混合与前两者不互斥**（它=中+英同时出现）⇒ 回归矩阵共线。正解：4 个**互斥字符类** + 混合作为**样本形态**由回归处理。 |
+| d | **样本不必存文本** | 估算是字符数的线性函数 ⇒ 只需 `{4 类计数, tokens}` 五个整数；存文本既臃肿又有隐私问题。「范本」的精巧化 = **存计数不存文本**。 |
+| e | **「引擎改造已生效」≠「UI 拿到值」** | A 通道要求请求**经过 cc-haha 代理**；客户端 base URL 直连 bc 时，引擎发了 ids 也没人读 ⇒ 必须先做私网自动经代理（链位 65）。 |
+| f | **工作树在制品瑕疵会原样进补丁** | 首版 patch 里 `chatStore.ts` 会话复位块 4 行（`streamingText`…`statusVerb`）是 **14 空格缩进**（正确 12）——工作树当时就带着这瑕疵生成，patch 忠实复刻了它。修法=修工作树缩进后**重新生成**（1155→1149 行），并以 `git apply -R --check` 反向校验「工作树恰含补丁内容」闭环。跨树核对时 align 树同处缩进正常 ⇒ 差异纯属本树工作树，非逻辑分歧。 |
+### 29.2 deb 产物与核验（2026-10-02）
+
+含链位 **65 + 66** 的安装包：
+
+| 项 | 值 |
+|---|---|
+| 产物 | `desktop/build-artifacts/linux-x64/Claude-Code-Haha-0.6.6-linux-amd64.deb` |
+| 大小 / 时间 | **201,452,948 B** / **2026-10-02 21:09:53** |
+| 构建命令 | `LINUX_TARGETS=deb SKIP_INSTALL=1 bash desktop/scripts/build-linux.sh` |
+| package-smoke | **PASS**（12 项检查全过：deb / app.asar / app-update.yml / node-pty / ripgrep / 侧车二进制 …） |
+
+**制品新鲜度核验**（防「修法只在工作区、没进包」）：
+
+| 层 | 指纹 | 位置 |
+|---|---|---|
+| 侧车（服务端） | `x-return-token-ids` ✓、`tps_tokens` ✓ | `app.asar.unpacked/src-tauri/binaries/claude-sidecar-*` |
+| 前端（渲染） | `cc-haha.tpsDensity` ✓、`tps_tokens` ✓ | `app.asar.unpacked/dist/assets/PetRenderer-*.js` |
+
+> ⚠️ **前端 bundle 在 `app.asar.unpacked/dist/assets/`，不在 `app.asar` 里**（grep `app.asar` 会得 0，误判「改动没进包」）。
+
+> ⚠️ **package-smoke 在本环境会因 bun cwd 钉死而假失败**（`ENOENT …/gov-managerment-plan/desktop/package.json`）。绕过：`CCHAHA_CWD=<repo> bun --preload /tmp/bun-cwd-shim.js scripts/quality-gate/package-smoke/index.ts --platform linux --package-kind release --artifacts-dir desktop/build-artifacts/linux-x64` ⇒ **PASS**（不能 `bun run`，须直跑脚本文件）。
+
+### 29.3 补丁与文档状态（2026-10-02）
+
+- **链位 65 / 66 均为新鲜补丁**：重生成后与工作树**逐字节一致**（65 = 559 行 / 6 文件；66 = 1125 行 / 10 文件）⇒ **无需修正、无遗漏**。
+- 链清单 `patch-chain-manifest.md`：链位总数 **66**，65/66 行齐；交付包 `modify/patches/` 同步 **66** 个。
+- 优化文档三处（`cchaha-06scode` / `/home/zeaxion/myproject/cchaha-067scode` / 交付包）**md5 一致**。
+- 引擎侧增量补丁 `1cat-vllm-v130/patches/opt21-anthropic-token-ids-v1.patch` 已更新为**触发式**（300 行）。
+
+### 29.4 修正：`chatStore.ts` 四处「+2 缩进」污染（2026-10-02 晚）
+
+**现象**：`chatStore.ts` 有 **4 组共 20 行**被多缩进 2 格（14 应为 12、16 应为 14、18 应为 16），与同层兄弟不一致；且**补丁是从该坏状态生成的**（把原行删掉、以 +2 缩进重插），使补丁与「正确的原状」不符。
+
+**四处**（06scode 行号；align 对应处偏移 +28）：`5144-5150`（`streamingResponseChars/Counts + streamAttemptStart*`，16/18→14/16）、`5292-5295`（`msg.attemptStart` 三元对象，16→14 且闭括号 14→12）、`5486-5492`（同第一处、`session.*` 版）、`6302-6305`（`session_cleared` 重置对象的 `tokenUsage/streamingResponseChars/streamingResponseCounts/slashCommands`，14→12）。
+
+**根因**：新增 `streamingResponseCounts` / `streamAttemptStartResponseCounts` 字段时，**误把整组一起缩进了 2 格**（4 处各一次）；补丁随之捕获该状态。
+
+**修法**：两树各自把那 4 组缩进**回调 2 格**（脚本带内容断言），重生成链位 66 补丁 ⇒ 补丁由「删 3 行 + 插 4 行（+2）」变为**保留原行、仅新增 `...Counts` 行**的干净形态（1149 → 1125 行）。三处补丁 md5 一致（`2f699b5a`）；链复现 **66/66、`src/server`+`desktop/src` 逐字节一致**；desktop 测试 **388/388**、服务端相关 **146/146**。
+
+**踩坑**：
+
+| # | 坑 | 一句话 |
+|---|---|---|
+| a | **「行号 + 缩进」才是可复现的坏状态指纹** | 只看内容改没改会漏判；用「同层兄弟缩进对照」+「括号深度」才能定位（本次即靠「邻居 12、这 4 行 14 且无开括号」筛出） |
+| b | **纯缩进错误骗过所有常规门禁** | 编译/类型/单测**全绿**（JS 语义与空白无关），只有**逐行缩进审计**能发现；补丁评审时要专门看 `-N → +(N+2)` 的重缩进 hunk 是否有包裹层支撑 |
+| c | **补丁「删了又加同样的行」是危险信号** | 正常新增只在原行旁插 `+`；若出现「同内容 `-`/`+` 仅缩进不同」，说明生成时的源已漂移 |
+| d | **临时补丁文件是坏状态的温床** | `/tmp/new66.patch`（21:07 生成）残留了旧坏形态；已删。**以 `modify/patches/` 为准**，temp 不作为依据 |
+
+**遗留**：21:09 构建的 deb 来自修正前源码（**影响仅空白，不影响行为**）；已按修正后源码**重建**（见 §29.2 更新）。
 
 ## 附录：交接备注（2026-09-27 更新）
 
@@ -2633,3 +2823,20 @@ if (gapMs > 0 && tokens / (gapMs / 1000) <= MAX_INSTANT_TPS) { /* 计入 */ }   
 **由此捞出的 2 处真缺陷**（已修，patch 第 29 位）：
 1. `src/server/index.ts` **TS2502**——`const serverFetch = (req, server: typeof server)`：参数名 `server` 遮蔽外层同名变量，类型注解里的 `typeof server` 解析成**它自己** → 循环自引用（最小复现：只改参数名即消失）。后果**不止一行报错**：该参数类型退化为循环引用，函数体内 4 处 `server.requestIP` / `server.upgrade` **全部丢失类型检查**。修法=提取具名 `type ServerHandle`。
 2. `src/vendor/computer-use-mcp/toolCalls.test.ts` → **4 条 TS2300** 重复导入（`bindSessionContext` ×2、`ComputerUseSessionContext` ×2）。
+
+---
+
+## 三十 会话 TPS 读数 = 会话总量（去子代理重复计，2026-10-03）
+
+**症状**：4 子代理并发时主会话 TPS 显示远超引擎真实吞吐（实测峰值 2124 vs 引擎 324 ⇒ **6.5×**；主会话空闲、子代理活跃时约 **3.3×**）。
+
+**根因**：会话 meter（`own`）收到的是 `tps_tokens` —— 引擎按 **session id** 报的**总量**（子代理的调用复用父 sessionId，其 token 也计入该 id）。但旧聚合又在 `own` 之上 `+ Σ子代理meter`，于是同一批 token 被计两次。
+
+**修法（统一「own = 会话总量」）**：显示恒 = `own`，子代理 meter 只用于运行页与计数：
+- **ids 模式**：`own` ← `tps_tokens`（引擎总量，**已含**全部子代理）；
+- **非 ids 模式**：`own` ← 主会话正文 **+** 每个子代理正文（`ingestSubagentTps` 把子代理文本也喂入会话 meter；`external` 标记使其不进调用对账）；
+- `aggregateMeterReadings` **不再相加**子代理 meter（只统计 `activeSubs` 数量）。
+
+**验证**：`tpsMeter`/`TpsIndicator`/`chatStore` 单测 **472/472**（并修掉一条假绿：`picks up subagents…` 原用 `vi.useFakeTimers()` 连 `performance.now` 一起 mock，读数恒 0 ⇒ 断言空过；改为只 fake 定时器）；7787 实测 4 子代理写长文：**显示均值 141 vs 引擎 139.7 ⇒ 1.01×**（旧口径 6.5×）。
+
+**patch**：067 = `patches/tps/tps-session-total-patch1.patch`；06 = `patches/tps-session-total-fix.patch`。

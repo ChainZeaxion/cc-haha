@@ -28,17 +28,20 @@ import { useSettingsStore } from '../../stores/settingsStore'
  * orange, <80 green, >=80 purple. Meters are per-session / per-run, so parallel
  * sessions and runs never cross-talk.
  *
- * The readout refreshes 4–8 times a second (250 ms, or 125 ms while the stream
- * is fast enough for the shorter cadence to keep up with the meter's own bucket
- * grid) and only redraws when the digit the user reads actually changes — the
- * value moves by fractions of a token on every poll, and re-rendering for those
- * made the number look like it was churning dozens of times a second.
+ * The readout refreshes four times a second, against the meter's own 250 ms
+ * reading window, and only redraws when the digit the user reads actually
+ * changes.
  */
 
-const POLL_SLOW_MS = 250
-const POLL_FAST_MS = 125
-/** At or above this speed, refresh on the fast cadence. */
-const FAST_CADENCE_TPS = 50
+/**
+ * Poll cadence: one read per 250 ms — four updates a second.
+ *
+ * Matched to the meter's 250 ms reading window (two 125 ms buckets). Polling
+ * faster only re-reads a window that has advanced by one bucket, so the rounded
+ * digit rarely moved and the extra renders were wasted; the old "fast" 125 ms
+ * cadence is therefore gone.
+ */
+const POLL_MS = 250
 const LOW_TIER = 27
 const MED_TIER = 53
 const HIGH_TIER = 80
@@ -164,12 +167,11 @@ export function TpsIndicator({
       schedule()
     }
 
-    // 4–8 Hz: the shorter cadence only while there is speed to show, so a slow
-    // stream reads as steady instead of flickering.
+    // A steady 4 Hz, matching the reading window, so the digits move at a
+    // readable pace rather than sitting still between eighth-of-a-window steps.
     const schedule = () => {
       if (stopped) return
-      const cadence = own.value() >= FAST_CADENCE_TPS ? POLL_FAST_MS : POLL_SLOW_MS
-      timer = setTimeout(tick, cadence)
+      timer = setTimeout(tick, POLL_MS)
     }
 
     tick()

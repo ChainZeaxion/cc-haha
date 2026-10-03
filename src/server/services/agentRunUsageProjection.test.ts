@@ -5,6 +5,7 @@ import {
   projectAgentRunUsage,
   resetAgentRunUsageForTests,
 } from './agentRunUsageProjection.js'
+import { PRIOR_DENSITY, tokensFromCounts } from '../../shared/tokenDensity.js'
 
 const SESSION = 'projection-session'
 const RUN = 'a74ce8'
@@ -14,7 +15,7 @@ function taskStarted(taskId = RUN, toolUseId = TOOL_CALL): any {
   return { type: 'system', subtype: 'task_started', task_id: taskId, tool_use_id: toolUseId }
 }
 
-function delta(runAgentId: string, delta: Record<string, unknown>): any {
+function delta(runAgentId: string, delta: Record<string, unknown>, extra: Record<string, unknown> = {}): any {
   return {
     type: 'system',
     subtype: 'agent_run_message',
@@ -22,7 +23,7 @@ function delta(runAgentId: string, delta: Record<string, unknown>): any {
     stream_id: 'stream-1',
     target_agent_id: runAgentId,
     event_kind: 'message',
-    message: { type: 'stream_event', event: { type: 'content_block_delta', delta } },
+    message: { type: 'stream_event', event: { type: 'content_block_delta', delta, ...extra } },
   }
 }
 
@@ -50,6 +51,14 @@ function assistantMessage(runAgentId: string, id: string, blocks: unknown[]): an
   }
 }
 
+/** The shared estimator's own arithmetic, so these cases pin the counting, not the density. */
+function est(counts: { cjk?: number; latin?: number; digit?: number; sym?: number }): number {
+  return Math.round(
+    tokensFromCounts({ cjk: 0, latin: 0, digit: 0, sym: 0, ...counts }, PRIOR_DENSITY),
+  )
+}
+const LATIN = (n: number) => est({ latin: n })
+
 function run(taskId = RUN) {
   return projectAgentRunUsage(SESSION).find(entry => entry.taskId === taskId)
 }
@@ -64,14 +73,37 @@ describe('agent run usage projection', () => {
     observeAgentRunUsage(SESSION, delta(RUN, { type: 'text_delta', text: 'x'.repeat(400) }))
     observeAgentRunUsage(SESSION, delta(RUN, { type: 'thinking_delta', thinking: 'y'.repeat(80) }))
 
-    // 480 characters over the client's divisor.
-    expect(run()).toMatchObject({ taskId: RUN, toolUseId: TOOL_CALL, totalTokens: 120, thinkTokens: 20 })
+    expect(run()).toMatchObject({
+      taskId: RUN,
+      toolUseId: TOOL_CALL,
+      totalTokens: LATIN(400) + LATIN(80),
+      thinkTokens: LATIN(80),
+    })
+  })
+
+  test('counts Chinese at its real density, not at the Latin one', () => {
+    // The point of the four-class estimator: 40 Chinese characters cost ~40
+    // tokens, while 40 Latin characters cost ~11 — the old flat /4 called both 10.
+    observeAgentRunUsage(SESSION, delta(RUN, { type: 'text_delta', text: '思'.repeat(40) }))
+
+    expect(run()?.totalTokens).toBe(est({ cjk: 40 }))
+    expect(run()?.totalTokens).toBeGreaterThan(LATIN(40) * 3)
   })
 
   test('counts tool-argument JSON as generation, alongside the text', () => {
     observeAgentRunUsage(SESSION, delta(RUN, { type: 'input_json_delta', partial_json: '{"a":1}' }))
 
-    expect(run()?.totalTokens).toBe(2)
+    // 1 latin, 1 digit, 5 symbols.
+    expect(run()?.totalTokens).toBe(est({ latin: 1, digit: 1, sym: 5 }))
+  })
+
+  test('prefers the engine’s real token ids when the delta carries them', () => {
+    // The Anthropic passthrough relays the engine's per-chunk ids verbatim, so a
+    // run that reports them is measured exactly rather than estimated.
+    observeAgentRunUsage(SESSION, delta(RUN, { type: 'text_delta', text: 'x'.repeat(400) }, { token_ids: [1, 2, 3] }))
+    observeAgentRunUsage(SESSION, delta(RUN, { type: 'thinking_delta', thinking: 'y'.repeat(80) }, { token_ids: [4, 5] }))
+
+    expect(run()).toMatchObject({ totalTokens: 5, thinkTokens: 2 })
   })
 
   test('carries both ids, which is the point of the exercise', () => {
@@ -100,7 +132,7 @@ describe('agent run usage projection', () => {
     // Same message arriving whole afterward: its text was counted delta by delta.
     observeAgentRunUsage(SESSION, assistantMessage(RUN, 'msg-1', [{ type: 'text', text: 'x'.repeat(40) }]))
 
-    expect(run()?.totalTokens).toBe(10)
+    expect(run()?.totalTokens).toBe(LATIN(40))
   })
 
   test('counts an assistant message that never streamed', () => {
@@ -108,7 +140,7 @@ describe('agent run usage projection', () => {
     // only record of the content.
     observeAgentRunUsage(SESSION, assistantMessage(RUN, 'msg-2', [{ type: 'text', text: 'x'.repeat(40) }]))
 
-    expect(run()?.totalTokens).toBe(10)
+    expect(run()?.totalTokens).toBe(LATIN(40))
   })
 
   test('ignores a whole-message thinking block, which the deltas already covered', () => {
@@ -125,19 +157,19 @@ describe('agent run usage projection', () => {
     observeAgentRunUsage(SESSION, delta('run-b', { type: 'text_delta', text: 'x'.repeat(120) }))
 
     expect(projectAgentRunUsage(SESSION).map(entry => [entry.taskId, entry.totalTokens]))
-      .toEqual([['run-b', 30], ['run-a', 10]])
+      .toEqual([['run-b', LATIN(120)], ['run-a', LATIN(40)]])
   })
 
   test('keeps sessions apart, and forgets one on clear', () => {
     observeAgentRunUsage(SESSION, delta(RUN, { type: 'text_delta', text: 'x'.repeat(40) }))
     observeAgentRunUsage('other-session', delta(RUN, { type: 'text_delta', text: 'x'.repeat(80) }))
 
-    expect(projectAgentRunUsage(SESSION)[0]?.totalTokens).toBe(10)
-    expect(projectAgentRunUsage('other-session')[0]?.totalTokens).toBe(20)
+    expect(projectAgentRunUsage(SESSION)[0]?.totalTokens).toBe(LATIN(40))
+    expect(projectAgentRunUsage('other-session')[0]?.totalTokens).toBe(LATIN(80))
 
     clearAgentRunUsage(SESSION)
     expect(projectAgentRunUsage(SESSION)).toEqual([])
-    expect(projectAgentRunUsage('other-session')[0]?.totalTokens).toBe(20)
+    expect(projectAgentRunUsage('other-session')[0]?.totalTokens).toBe(LATIN(80))
   })
 
   test('ignores everything that is not part of a subagent run', () => {

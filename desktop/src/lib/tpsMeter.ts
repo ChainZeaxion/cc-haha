@@ -58,10 +58,9 @@
  *  - **End**: the closing bucket is partial, so it is balanced with the one
  *    before it (see settle()).
  *  - **Pauses**: a bucket with no tokens counts as zero, so a real pause reads as
- *    the dip it is. A silence long enough to empty the reading window switches
- *    the display to the held value; a silence past LIVE_GAP_MS also drops the
- *    grid, so the reading after a tool finishes is this burst's speed and not an
- *    average polluted by the seconds of zeros before it.
+ *    the dip it is. A silence past LIVE_GAP_MS switches the display to the held
+ *    value and drops the grid, so the reading after a tool finishes is this
+ *    burst's speed and not an average polluted by the seconds of zeros before it.
  *  - **After it stops**: the held value stays readable for as long as the
  *    indicator's idle-hide allows. It is the real `output_tokens / decode span`
  *    when endCall() saw one (the engine's own account of the turn), and the
@@ -85,14 +84,15 @@
  * means the grid never has to know when a stream stopped mid-bucket.
  */
 const BUCKET_MS = 125
-/** Buckets averaged for the live reading: 8 × 125 ms = 1 s. */
-const READ_BUCKETS = 8
 /**
- * How long a silence may last while the reading is still called "live". Once it
- * empties the whole reading window there is nothing left to average, so the
- * indicator switches to the held value rather than decaying toward zero.
+ * Buckets averaged for the live reading: 2 × 125 ms = 250 ms.
+ *
+ * Deliberately short so the digits move about four times a second, matching the
+ * indicator's poll. A full-second mean barely shifts while a stream holds its
+ * rate — each new 125 ms bucket replaces only an eighth of the window — so the
+ * rounded value sits still and the indicator looks stuck rather than live.
  */
-const LIVE_MS = READ_BUCKETS * BUCKET_MS
+const READ_BUCKETS = 2
 /** Buckets averaged for the value held after a stream ends: 12 × 125 ms = 1.5 s. */
 const HOLD_BUCKETS = 12
 /**
@@ -113,6 +113,12 @@ const MIN_BUCKETS_FOR_READ = 2
  * measurement. Without the drop, a frame arriving after a tool ran for ten
  * seconds would be averaged together with the zeros of those ten seconds and
  * read far below the truth for the whole first second after it resumed.
+ *
+ * The one silence threshold, shared by `value()`'s live→held hand-off and the
+ * grid drop — the design's "silence > 1.5 s clears the window and re-times".
+ * (It used to be split: a separate, shorter `LIVE_MS` handed off earlier than
+ * the grid dropped. That earlier value was just the reading window's own length
+ * — 8 buckets — so shortening the window silently shortened the hand-off too.)
  */
 const LIVE_GAP_MS = 1500
 /**
@@ -885,7 +891,8 @@ export class TpsMeter {
   }
 
   /**
-   * The reading: mean tokens/second over the last second, in 125 ms steps.
+   * The reading: mean tokens/second over the last READ_BUCKETS (250 ms), in
+   * 125 ms steps.
    *
    * Four things decide which number that is.
    *
@@ -907,13 +914,13 @@ export class TpsMeter {
   value(): number {
     if (!this.everStreamed) return 0
     const now = performance.now()
-    // A silence long enough to empty the whole reading window means there is no
-    // live speed left to report — show what the last one was. (The grid itself
-    // survives until LIVE_GAP_MS; only this hand-off is earlier.) Settling here
-    // as well as in endStream() is what makes the implicit end a real one: a
+    // A silence past LIVE_GAP_MS means the stream has stopped, so there is no
+    // live speed left to report — show what the last one was. Settling here as
+    // well as in endStream() is what makes the implicit end a real one: a
     // finished run's terminal notice arrives as a task event, not as a frame, so
-    // this read is the only close its meter ever sees.
-    if (this.ended || (this.lastPushAt > 0 && now - this.lastPushAt > LIVE_MS)) {
+    // this read is the only close its meter ever sees. This is the same
+    // threshold at which placeFrame drops the grid, so the two agree.
+    if (this.ended || (this.lastPushAt > 0 && now - this.lastPushAt > LIVE_GAP_MS)) {
       if (!this.settled) this.settle()
       return this.held()
     }
@@ -985,6 +992,19 @@ export class TpsMeter {
     return ids > 0 ? ids : text
   }
 
+  /**
+   * Token total measured for the call in flight (diagnostics/tests).
+   *
+   * Call-scoped, unlike `windowTokens`: the reading window is deliberately short
+   * (it only feeds the live display), whereas a figure that stands for a whole
+   * call — what the calibration reconciles against the engine's usage — has to
+   * cover everything since `beginCall()`. Empty once the call closes.
+   */
+  callTokens(): number {
+    const estimated = this.callCjk * this.kCjk + this.callAscii * this.kAscii
+    return this.callIds > 0 ? this.callIds : estimated
+  }
+
   private noteCallFrame(now: number, cjk = 0, ascii = 0, ids = 0): void {
     if (!this.callOpen) return
     if (this.callFirstAt === 0) this.callFirstAt = now
@@ -1009,18 +1029,22 @@ export type TpsAggregate = {
 }
 
 /**
- * Build the session's reading as the sum of every stream decoding for it: the
- * session's own output plus each running subagent's.
+ * Build the session's reading.
  *
- *  - Each meter rates **its own stream only** — chatStore feeds the parent's
- *    meter the parent's own prose and each run's meter that run's deltas (see
- *    ingestSubagentTps) — so the text behind the meters is disjoint and adding
- *    the rates adds concurrent decoders rather than double-counting tokens.
- *    A run that has finished stops contributing the moment its window drains,
- *    which is what keeps the total from sitting above the truth.
- *  - While nothing is decoding the reading falls back to the own session's
- *    held speed — identical to the pre-aggregation single-session behavior,
- *    so a lone main session is unaffected.
+ * The session meter holds the whole session's output — its own stream plus every
+ * subagent's — so its value *is* the reading, in both token modes:
+ *  - engine ids: `tps_tokens` carries the engine's count for the session id,
+ *    which a subagent's calls use too, so it already sums the group;
+ *  - text: the readout's own prose and each run's prose are both fed to it (see
+ *    ingestSubagentTps).
+ * The per-run meters are therefore **not** added here — doing so was the double
+ * count that read the indicator at nearly twice the engine's throughput. They
+ * are consulted only to say how many runs are decoding and to keep the session
+ * indicator alive while one is.
+ *
+ *  - While nothing is decoding the reading falls back to the session's held
+ *    speed — identical to the pre-aggregation single-session behavior, so a
+ *    lone main session is unaffected.
  *  - Visibility / the 5-min idle hide rule considers the newest data from
  *    the whole group, so a busy subagent keeps the main indicator alive.
  */
@@ -1041,13 +1065,13 @@ export function aggregateMeterReadings(
     return { visible: false, tps: 0, activeSubs: 0 }
   }
 
-  let tps = own.hasLiveSamples() ? own.value() : 0
-  let activeSubs = 0
-  for (const meter of subordinates) {
-    if (!meter.hasLiveSamples()) continue
-    activeSubs += 1
-    tps += meter.value()
-  }
+    // The runs are counted, never summed: the session meter already carries
+    // their output (engine total under ids, fed prose under text).
+    let activeSubs = 0
+    for (const meter of subordinates) {
+      if (meter.hasLiveSamples()) activeSubs += 1
+    }
+    let tps = own.hasLiveSamples() ? own.value() : 0
   if (tps <= 0) {
     // Nothing is decoding this instant. Hold the session's own last speed (the
     // turn-ending rate) so a lone session reads exactly as it did before

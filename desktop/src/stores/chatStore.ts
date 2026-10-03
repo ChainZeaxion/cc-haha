@@ -21,6 +21,14 @@ import { createAsyncRefreshCoalescer } from '../lib/asyncRefreshCoalescer'
 import { deriveSessionTitle, isPlaceholderSessionTitle } from '../lib/sessionTitle'
 import { TpsMeter, isTpsEnabled, setEstimationCalibration } from '../lib/tpsMeter'
 import { loadTpsCalibration, saveTpsCalibration } from '../lib/tpsCalibration'
+import { currentTpsDensity, recordTpsSample } from '../lib/tpsDensityStore'
+import {
+  addCounts,
+  classifyChars,
+  emptyCounts,
+  tokensFromCounts,
+  type CharCounts,
+} from '../../../src/shared/tokenDensity'
 import { t } from '../i18n'
 import {
   VISUAL_SELECTION_BATCH_PROMPT_HEADER,
@@ -170,13 +178,20 @@ export type PerSessionState = {
   runtimeConfigReadyCount?: number
   /**
    * Characters streamed by the assistant during the current turn (text,
-   * thinking, tool input). ÷4 approximates output tokens for the streaming
-   * indicator — same estimation the CLI spinner uses. Reset on each send.
+   * thinking, tool input). Kept as the stream-attempt boundary; the token
+   * estimate itself now comes from `streamingResponseCounts`.
    */
   streamingResponseChars: number
+  /**
+   * The same streamed output, counted by character class. The four-class
+   * estimator turns it into output tokens for the streaming indicator — a flat
+   * ÷4 undercounts Chinese by ~4x and lumps digits and symbols in with Latin.
+   */
+  streamingResponseCounts?: CharCounts
   /** Boundary used to discard one failed, side-effect-free stream attempt. */
   streamAttemptStartIndex?: number
   streamAttemptStartResponseChars?: number
+  streamAttemptStartResponseCounts?: CharCounts
   elapsedSeconds: number
   statusVerb: string
   apiRetry?: ApiRetryState | null
@@ -234,6 +249,7 @@ const DEFAULT_SESSION_STATE: PerSessionState = {
   compactCount: 0,
   runtimeConfigReadyCount: 0,
   streamingResponseChars: 0,
+  streamingResponseCounts: { cjk: 0, latin: 0, digit: 0, sym: 0 },
   elapsedSeconds: 0,
   statusVerb: '',
   apiRetry: null,
@@ -1147,9 +1163,10 @@ function clearAgentRunTpsMeters(parentSessionId: string): void {
  * meter is touched — the text never reaches streamingText, so subagent prose
  * cannot leak into the main conversation.
  *
- * The meter is per run, so its window holds one decoder's samples and needs no
- * stream tag; the parent's meter is left alone and now carries only the
- * parent's own prose.
+ * The run meter is per run, so its window holds one decoder's samples and needs
+ * no stream tag — it is what a run page shows. The same prose also feeds the
+ * session meter (text-measured path only; see push), so the session reading is
+ * the whole session's output rather than the parent's prose alone.
  *
  * Whole-block `thinking` hand-overs (complete === true) are skipped: their
  * fragments already arrived as deltas, so counting both would double the
@@ -1164,15 +1181,29 @@ function ingestSubagentTps(
   // `external` keeps these frames out of any call accounting: they belong to
   // the subagent's own API calls, whose real usage never reaches this socket,
   // so they may only contribute samples to the sliding window.
-  const meter = getAgentRunTpsMeter(parentSessionId, runAgentId)
+  const run = getAgentRunTpsMeter(parentSessionId, runAgentId)
+  // The session's reading is the whole session's output. Under engine token ids
+  // the session meter is fed `tps_tokens`, whose count for the session id
+  // already includes every subagent, so the text must not be added again. The
+  // text-measured path has no such total — a subagent arrives only as this
+  // event — so its prose feeds the session meter here, keeping `own` the
+  // session total in both modes.
+  const feedOwn = !tpsIdsModeBySession.get(parentSessionId)
+  // Only the stamped stream events carry `serverTs`; read it under the union's
+  // narrowing (it is what the original per-branch pushes did).
+  const generatedAt = event.type === 'content_delta' || event.type === 'thinking'
+    ? event.serverTs
+    : undefined
+  const push = (text: string): void => {
+    run.push(text, { external: true, generatedAt })
+    if (feedOwn) getSessionTpsMeter(parentSessionId).push(text, { external: true, generatedAt })
+  }
   if (event.type === 'content_delta') {
-    if (event.text) meter.push(event.text, { external: true, generatedAt: event.serverTs })
-    if (event.toolInput) meter.push(event.toolInput, { external: true, generatedAt: event.serverTs })
+    if (event.text) push(event.text)
+    if (event.toolInput) push(event.toolInput)
     return
   }
-  if (event.type === 'thinking' && event.complete !== true && event.text) {
-    meter.push(event.text, { external: true, generatedAt: event.serverTs })
-  }
+  if (event.type === 'thinking' && event.complete !== true && event.text) push(event.text)
 }
 
 /**
@@ -1196,8 +1227,8 @@ function ingestSubagentTps(
 const subagentLiveChars = new Map<
   string,
   {
-    text: number
-    thinking: number
+    text: CharCounts
+    thinking: CharCounts
     baseTokens: number
     /**
      * The total this accumulator last wrote to the task. Written back into
@@ -1211,6 +1242,28 @@ const subagentLiveChars = new Map<
     createdAt: number
   }
 >()
+
+/** A zeroed accumulator; shared so the optional session field needs no fallback object each call. */
+const EMPTY_RESPONSE_COUNTS: CharCounts = { cjk: 0, latin: 0, digit: 0, sym: 0 }
+
+/** Immutably fold a streamed fragment into a character-class accumulator. */
+function mergeCounts(base: CharCounts | undefined, text: string): CharCounts {
+  return addCounts({ ...(base ?? EMPTY_RESPONSE_COUNTS) }, classifyChars(text))
+}
+
+/**
+ * The current turn's output tokens so far, estimated from what has streamed.
+ *
+ * The same four-class density as every other in-flight figure, so the spinner,
+ * the subagent rows and the panels all measure text the same way.
+ */
+export function estimateStreamingTokens(sessionId: string): number {
+  const counts = useChatStore.getState().sessions[sessionId]?.streamingResponseCounts
+  if (!counts) return 0
+  const density = currentTpsDensity(tpsCalibrationModelBySession.get(sessionId))
+  return Math.round(tokensFromCounts(counts, density))
+}
+
 /**
  * How often a running subagent's projected usage is written back to its row.
  *
@@ -1287,13 +1340,23 @@ function ingestSubagentLiveUsage(
   const key = `${sessionId}\u0000${agentId}`
   let acc = subagentLiveChars.get(key)
   if (!acc) {
-    acc = { text: 0, thinking: 0, baseTokens: 0, lastWritten: 0, wroteAt: 0, createdAt: Date.now() }
+    acc = {
+      text: emptyCounts(),
+      thinking: emptyCounts(),
+      baseTokens: 0,
+      lastWritten: 0,
+      wroteAt: 0,
+      createdAt: Date.now(),
+    }
     subagentLiveChars.set(key, acc)
   }
   if (event.type === 'content_delta') {
-    acc.text += (event.text?.length ?? 0) + (event.toolInput?.length ?? 0)
+    // Count by character class rather than raw length: a Chinese character costs
+    // ~3.5x a Latin one, so a flat divisor undercounts Chinese runs by ~4x.
+    if (event.text) addCounts(acc.text, classifyChars(event.text))
+    if (event.toolInput) addCounts(acc.text, classifyChars(event.toolInput))
   } else if (event.type === 'thinking' && event.complete !== true && event.text) {
-    acc.thinking += event.text.length
+    addCounts(acc.thinking, classifyChars(event.text))
   } else {
     return
   }
@@ -1350,8 +1413,8 @@ function ingestSubagentLiveUsage(
   const reported = task.usage?.totalTokens ?? 0
   if (reported > acc.lastWritten) {
     acc.baseTokens = reported
-    acc.text = 0
-    acc.thinking = 0
+    acc.text = emptyCounts()
+    acc.thinking = emptyCounts()
     // Record the baseline as taken, here rather than only on the write below.
     // When the reported total is exactly what the counters would recompute to —
     // which is the normal case for a row seeded from the server, and any row
@@ -1367,8 +1430,12 @@ function ingestSubagentLiveUsage(
   // reasoning first — measured on the local engine, `thinking` is what arrives
   // and `content_delta` is rare — and a zero total is rendered as "no usage",
   // which is how a working subagent ended up showing nothing at all.
-  const thinkTokens = Math.round(acc.thinking / 4)
-  const totalTokens = acc.baseTokens + Math.round((acc.text + acc.thinking) / 4)
+  // Learned four-class density (falls back to the measured prior until the pool
+  // is mature). The same estimator the server projection uses, so the two agree.
+  const density = currentTpsDensity(tpsCalibrationModelBySession.get(sessionId))
+  const thinkTokens = Math.round(tokensFromCounts(acc.thinking, density))
+  const totalTokens =
+    acc.baseTokens + Math.round(tokensFromCounts(acc.text, density) + tokensFromCounts(acc.thinking, density))
   const previous = task.usage
   if (!rowChanged && totalTokens === (previous?.totalTokens ?? 0) && thinkTokens === (previous?.thinkTokens ?? 0)) return
   acc.lastWritten = totalTokens
@@ -3727,6 +3794,7 @@ export const useChatStore = create<ChatStore>((setState, get) => {
             replaceHistoryOnCompletion: false,
             streamingText: '',
             streamingResponseChars: 0,
+            streamingResponseCounts: { cjk: 0, latin: 0, digit: 0, sym: 0 },
             statusVerb: isDirectAgentSession ? '' : randomSpinnerVerb(),
             apiRetry: null,
             streamingFallback: null,
@@ -5090,8 +5158,11 @@ export const useChatStore = create<ChatStore>((setState, get) => {
               activeToolName: null,
               streamingResponseChars:
                 current.streamAttemptStartResponseChars ?? current.streamingResponseChars,
+              streamingResponseCounts:
+                current.streamAttemptStartResponseCounts ?? current.streamingResponseCounts,
               streamAttemptStartIndex: undefined,
               streamAttemptStartResponseChars: undefined,
+              streamAttemptStartResponseCounts: undefined,
               apiRetry: null,
               streamingFallback: null,
               statusVerb: '',
@@ -5235,6 +5306,7 @@ export const useChatStore = create<ChatStore>((setState, get) => {
             ...(msg.attemptStart ? {
               streamAttemptStartIndex: session.messages.length,
               streamAttemptStartResponseChars: session.streamingResponseChars,
+              streamAttemptStartResponseCounts: session.streamingResponseCounts,
             } : {}),
             ...(nextMessages !== session.messages ? { messages: nextMessages } : {}),
             ...(shouldFlush ? {
@@ -5428,8 +5500,11 @@ export const useChatStore = create<ChatStore>((setState, get) => {
               activeThinkingId: null,
               streamingResponseChars:
                 session.streamAttemptStartResponseChars ?? session.streamingResponseChars,
+              streamingResponseCounts:
+                session.streamAttemptStartResponseCounts ?? session.streamingResponseCounts,
               streamAttemptStartIndex: undefined,
               streamAttemptStartResponseChars: undefined,
+              streamAttemptStartResponseCounts: undefined,
               streamingFallback: null,
               apiRetry: null,
               chatState: 'thinking',
@@ -5476,6 +5551,7 @@ export const useChatStore = create<ChatStore>((setState, get) => {
               update((s) => ({
                 streamingText: s.streamingText + text,
                 streamingResponseChars: s.streamingResponseChars + text.length,
+                streamingResponseCounts: mergeCounts(s.streamingResponseCounts, text),
               }))
             }, 50)
             flushTimerBySession.set(sessionId, timer)
@@ -5494,6 +5570,7 @@ export const useChatStore = create<ChatStore>((setState, get) => {
                 return {
                   streamingToolInput: partialInput,
                   streamingResponseChars: s.streamingResponseChars + text.length,
+                  streamingResponseCounts: mergeCounts(s.streamingResponseCounts, text),
                   ...(activeToolUseId
                     ? {
                         messages: upsertToolUseMessage(s.messages, activeToolUseId, (existing) => {
@@ -5568,6 +5645,7 @@ export const useChatStore = create<ChatStore>((setState, get) => {
               activeThinkingId: last.id,
               streamingText: '',
               streamingResponseChars: s.streamingResponseChars + msg.text.length,
+              streamingResponseCounts: mergeCounts(s.streamingResponseCounts, msg.text),
             }
           }
           const id = nextId()
@@ -5581,6 +5659,7 @@ export const useChatStore = create<ChatStore>((setState, get) => {
             activeThinkingId: id,
             streamingText: '',
             streamingResponseChars: s.streamingResponseChars + msg.text.length,
+            streamingResponseCounts: mergeCounts(s.streamingResponseCounts, msg.text),
           }        })
         if (!skippedThinkingBlock) {
           // thinking 流式片段同样是 decode 输出 token，必须喂 TPS 米表：不喂的话
@@ -5923,6 +6002,19 @@ export const useChatStore = create<ChatStore>((setState, get) => {
             setEstimationCalibration(calibration)
           }
         }
+        // Feed the four-class density pool: this call's streamed content by class,
+        // paired with the real token count `usage` just reported. That pairing is
+        // what teaches the estimator "what a character costs" — kept outside the
+        // TPS gate because the live usage estimate needs it whether or not the
+        // speed indicator is on.
+        {
+          const counts = session.streamingResponseCounts
+          const outputTokens = msg.usage?.output_tokens
+          const anyCounted = counts && counts.cjk + counts.latin + counts.digit + counts.sym > 0
+          if (anyCounted && typeof outputTokens === 'number' && outputTokens > 0) {
+            recordTpsSample(tpsCalibrationModelBySession.get(sessionId), counts, outputTokens)
+          }
+        }
         if (consumeAllPendingTaskToolUseIds(sessionId)) {
           const cliTaskStore = useCLITaskStore.getState()
           if (cliTaskStore.sessionId === sessionId) {
@@ -6224,6 +6316,7 @@ export const useChatStore = create<ChatStore>((setState, get) => {
             streamingFallback: null,
             tokenUsage: { input_tokens: 0, output_tokens: 0 },
             streamingResponseChars: 0,
+            streamingResponseCounts: { cjk: 0, latin: 0, digit: 0, sym: 0 },
             slashCommands: [],
             activeGoal: null,
             backgroundAgentTasks: {},
