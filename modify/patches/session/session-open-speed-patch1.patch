@@ -1,0 +1,688 @@
+diff --git a/src/server/__tests__/session-metadata-projection-durable.test.ts b/src/server/__tests__/session-metadata-projection-durable.test.ts
+new file mode 100644
+index 00000000..58e0140c
+--- /dev/null
++++ b/src/server/__tests__/session-metadata-projection-durable.test.ts
+@@ -0,0 +1,93 @@
++import { afterEach, beforeEach, describe, expect, it } from 'bun:test'
++import * as fs from 'node:fs/promises'
++import * as os from 'node:os'
++import * as path from 'node:path'
++import { SessionService } from '../services/sessionService.js'
++import { sanitizePath } from '../../utils/sessionStoragePortable.js'
++
++/**
++ * A fresh process used to rescan every transcript it touched to build the
++ * metadata projection (measured 9.6 s on the first open of a 139 MB session).
++ * The projection is a few KB of scalars, so it is kept on disk and reused when
++ * its signature still matches.
++ */
++const SESSION_ID = '12870000-1111-2222-3333-444444444444'
++let configDir: string
++let cacheDir: string
++let previousConfigDir: string | undefined
++let previousCacheDir: string | undefined
++
++beforeEach(async () => {
++  previousConfigDir = process.env.CLAUDE_CONFIG_DIR
++  previousCacheDir = process.env.CC_HAHA_TRANSCRIPT_METADATA_DIR
++  configDir = await fs.mkdtemp(path.join(os.tmpdir(), 'projection-durable-'))
++  cacheDir = await fs.mkdtemp(path.join(os.tmpdir(), 'projection-cache-'))
++  process.env.CLAUDE_CONFIG_DIR = configDir
++  process.env.CC_HAHA_TRANSCRIPT_METADATA_DIR = cacheDir
++})
++
++afterEach(async () => {
++  if (previousConfigDir === undefined) delete process.env.CLAUDE_CONFIG_DIR
++  else process.env.CLAUDE_CONFIG_DIR = previousConfigDir
++  if (previousCacheDir === undefined) delete process.env.CC_HAHA_TRANSCRIPT_METADATA_DIR
++  else process.env.CC_HAHA_TRANSCRIPT_METADATA_DIR = previousCacheDir
++  await fs.rm(configDir, { recursive: true, force: true })
++  await fs.rm(cacheDir, { recursive: true, force: true })
++})
++
++async function seedSession() {
++  const workDir = path.join(configDir, 'project')
++  await fs.mkdir(workDir, { recursive: true })
++  const directory = path.join(configDir, 'projects', sanitizePath(workDir))
++  await fs.mkdir(directory, { recursive: true })
++  const filePath = path.join(directory, `${SESSION_ID}.jsonl`)
++  await fs.writeFile(filePath, [
++    { type: 'session-meta', workDir, permissionMode: 'plan' },
++    { type: 'user', uuid: 'm1', timestamp: '2020-01-01T00:00:00.000Z', message: { role: 'user', content: 'first' } },
++    { type: 'assistant', uuid: 'm2', timestamp: '2020-01-02T00:00:00.000Z', message: { role: 'assistant', content: 'reply' } },
++  ].map(entry => JSON.stringify(entry)).join('\n') + '\n')
++  return { filePath, workDir }
++}
++
++function dropMemoryProjection(service: SessionService) {
++  ;(service as unknown as { metadataProjectionCache: Map<string, unknown> }).metadataProjectionCache.clear()
++}
++
++describe('durable metadata projection', () => {
++  it('serves a cold read from disk instead of rescanning the transcript', async () => {
++    if (typeof process.getuid === 'function' && process.getuid() === 0) return // chmod cannot block root
++    const { filePath } = await seedSession()
++
++    const first = await new SessionService().getSessionSummary(SESSION_ID)
++    expect(first?.messageCount).toBe(2)
++    await new Promise(resolve => setTimeout(resolve, 50)) // let the write settle
++
++    // Prove the second read came from disk: with the transcript unreadable, a
++    // rescan fails while a stored entry (stat still works) answers.
++    await fs.chmod(filePath, 0o000)
++    try {
++      const service = new SessionService()
++      dropMemoryProjection(service)
++      const second = await service.getSessionSummary(SESSION_ID)
++      expect(second?.messageCount).toBe(2)
++      expect(second?.workDir).toBe(first?.workDir)
++    } finally {
++      await fs.chmod(filePath, 0o644)
++    }
++  })
++
++  it('ignores a stored projection whose signature no longer matches', async () => {
++    const { filePath } = await seedSession()
++    await new SessionService().getSessionSummary(SESSION_ID)
++    await new Promise(resolve => setTimeout(resolve, 50))
++
++    // Same size, new mtime: the signature changes, so the stored entry is not
++    // trusted and the transcript is scanned again.
++    await fs.writeFile(filePath, (await fs.readFile(filePath, 'utf8'))
++      .replace('"first"', '"other"'))
++    const service = new SessionService()
++    dropMemoryProjection(service)
++    const summary = await service.getSessionSummary(SESSION_ID)
++    expect(summary?.messageCount).toBe(2)
++  })
++})
+diff --git a/src/server/__tests__/session-transcript-presence.test.ts b/src/server/__tests__/session-transcript-presence.test.ts
+new file mode 100644
+index 00000000..065de570
+--- /dev/null
++++ b/src/server/__tests__/session-transcript-presence.test.ts
+@@ -0,0 +1,77 @@
++import { afterEach, beforeEach, describe, expect, it } from 'bun:test'
++import * as fs from 'node:fs/promises'
++import * as os from 'node:os'
++import * as path from 'node:path'
++import { SessionService } from '../services/sessionService.js'
++
++/**
++ * The presence check answers "real transcript or placeholder?", which drives only
++ * the ordering of several matches for one session id. It used to read and parse
++ * the entire file for that answer — 4-6 s per `findSessionFile` on a 139 MB
++ * session that also had a 184 MB copy under another root, and `findSessionFile`
++ * sits on nearly every session endpoint. These tests pin the answer it must
++ * still give, and the bound it now reads within.
++ */
++let configDir: string
++let previousConfigDir: string | undefined
++
++beforeEach(async () => {
++  previousConfigDir = process.env.CLAUDE_CONFIG_DIR
++  configDir = await fs.mkdtemp(path.join(os.tmpdir(), 'transcript-presence-'))
++  process.env.CLAUDE_CONFIG_DIR = configDir
++})
++
++afterEach(async () => {
++  if (previousConfigDir === undefined) delete process.env.CLAUDE_CONFIG_DIR
++  else process.env.CLAUDE_CONFIG_DIR = previousConfigDir
++  await fs.rm(configDir, { recursive: true, force: true })
++})
++
++const PRESENCE_SCAN_BYTES = 8 * 1024 * 1024
++
++function presenceCheck(sessionService: SessionService) {
++  return (filePath: string): Promise<boolean> =>
++    (sessionService as unknown as {
++      hasConversationTranscriptInFile(p: string): Promise<boolean>
++    }).hasConversationTranscriptInFile(filePath)
++}
++
++const line = (entry: Record<string, unknown>) => JSON.stringify(entry) + '\n'
++const meta = () => line({ type: 'session-meta', workDir: '/tmp/x' })
++const snapshot = () => line({ type: 'file-history-snapshot', snapshot: { trackedFileBackups: {} } })
++const userTurn = (uuid: string) =>
++  line({ type: 'user', uuid, message: { role: 'user', content: 'hello' } })
++
++/** Padding that is neither conversation nor tiny, used to push past the cap. */
++function snapshotPadding(bytes: number): string {
++  const unit = snapshot()
++  return unit.repeat(Math.ceil(bytes / unit.length))
++}
++
++describe('transcript presence check', () => {
++  it('finds a conversation at the head without needing the rest of the file', async () => {
++    const file = path.join(configDir, 'head.jsonl')
++    await fs.writeFile(file, meta() + userTurn('m1') + snapshotPadding(1024 * 1024))
++    await expect(presenceCheck(new SessionService()).call(null, file)).resolves.toBe(true)
++  })
++
++  it('reports a metadata-only transcript as a placeholder', async () => {
++    const file = path.join(configDir, 'placeholder.jsonl')
++    await fs.writeFile(file, meta() + snapshot() + snapshot())
++    await expect(presenceCheck(new SessionService()).call(null, file)).resolves.toBe(false)
++  })
++
++  it('stops at its cap, so a conversation past it is not found', async () => {
++    // This is the deliberate limit of the bounded read: it is what makes the
++    // common case cheap, and the flag only orders matches, so a transcript whose
++    // first 8 MB carries no message is treated as a placeholder.
++    const file = path.join(configDir, 'late.jsonl')
++    await fs.writeFile(file, snapshotPadding(PRESENCE_SCAN_BYTES + 64 * 1024) + userTurn('m1'))
++    await expect(presenceCheck(new SessionService()).call(null, file)).resolves.toBe(false)
++  })
++
++  it('returns false for a transcript that does not exist', async () => {
++    const file = path.join(configDir, 'absent.jsonl')
++    await expect(presenceCheck(new SessionService()).call(null, file)).resolves.toBe(false)
++  })
++})
+diff --git a/src/server/services/sessionHistoryContext.test.ts b/src/server/services/sessionHistoryContext.test.ts
+index d7c8fe60..95a5e091 100644
+--- a/src/server/services/sessionHistoryContext.test.ts
++++ b/src/server/services/sessionHistoryContext.test.ts
+@@ -2,12 +2,20 @@ import { afterEach, beforeEach, expect, test } from 'bun:test'
+ import { appendFile, mkdtemp, rename, rm, stat, writeFile } from 'node:fs/promises'
+ import { tmpdir } from 'node:os'
+ import { join } from 'node:path'
+-import { readHistoryContexts } from './sessionHistoryContext.js'
++import { __resetHistoryContextCacheForTests, readHistoryContexts } from './sessionHistoryContext.js'
+ 
+ let directory: string
+ let file: string
+-beforeEach(async () => { directory = await mkdtemp(join(tmpdir(), 'history-context-test-')); file = join(directory, 'session.jsonl') })
+-afterEach(async () => { await rm(directory, { recursive: true, force: true }) })
++beforeEach(async () => {
++  directory = await mkdtemp(join(tmpdir(), 'history-context-test-'))
++  file = join(directory, 'session.jsonl')
++  // Keep the durable index out of the real config dir: this test writes one.
++  process.env.CC_HAHA_HISTORY_CONTEXT_DIR = join(directory, 'context-index')
++})
++afterEach(async () => {
++  delete process.env.CC_HAHA_HISTORY_CONTEXT_DIR
++  await rm(directory, { recursive: true, force: true })
++})
+ const row = (id: string, fields: object = {}) => JSON.stringify({ uuid: id, ...fields })
+ const version = async (filePath = file) => { const info = await stat(filePath, { bigint: true }); return `${info.dev}:${info.ino}:${info.size}:${info.mtimeNs}` }
+ const classify = (entry: Record<string, unknown>) => ({ notification: entry.notification === true, reset: entry.reset === true, agentToolId: typeof entry.agent === 'string' ? entry.agent : undefined })
+@@ -90,3 +98,31 @@ test('rebuilds scalar context after an in-place rewrite grows beyond the cached
+   expect(rebuilt.contexts.get(0)?.suppressed).toBe(false)
+   expect(rebuilt.scannedBytes).toBe(Number((await stat(file)).size))
+ })
++
++test('an index built once survives a cold start instead of rescanning the transcript', async () => {
++  // The build streams the whole transcript, which is seconds on a large session,
++  // so it has to outlive the process. Dropping the in-memory handles stands in
++  // for a restart: the on-disk index must still answer without rescanning.
++  const first = row('notice', { notification: true }) + '\n'
++  await writeFile(file, first + row('after', { reset: true }) + '\n')
++  const sourceVersion = await version()
++  const offsets = [0, Buffer.byteLength(first)]
++  const built = await readHistoryContexts({ filePath: file, sourceVersion, offsets, classify })
++  expect(built.scannedBytes).toBeGreaterThan(0)
++
++  __resetHistoryContextCacheForTests()
++  const reopened = await readHistoryContexts({ filePath: file, sourceVersion, offsets, classify })
++  expect(reopened.scannedBytes).toBe(0)
++  expect([...reopened.contexts.values()].map(context => context.suppressed)).toEqual([true, false])
++})
++
++test('a cold start still rejects an index whose transcript was replaced', async () => {
++  await writeFile(file, row('notice', { notification: true }) + '\n')
++  await readHistoryContexts({ filePath: file, sourceVersion: await version(), offsets: [0], classify })
++  __resetHistoryContextCacheForTests()
++  await writeFile(file + '.new', row('replacement') + '\n')
++  await rename(file + '.new', file)
++  const rebuilt = await readHistoryContexts({ filePath: file, sourceVersion: await version(), offsets: [0], classify })
++  expect(rebuilt.contexts.get(0)?.suppressed).toBe(false)
++  expect(rebuilt.scannedBytes).toBe(Number((await stat(file)).size))
++})
+diff --git a/src/server/services/sessionHistoryContext.ts b/src/server/services/sessionHistoryContext.ts
+index bf6c6443..c17e4538 100644
+--- a/src/server/services/sessionHistoryContext.ts
++++ b/src/server/services/sessionHistoryContext.ts
+@@ -1,18 +1,139 @@
+ import { createHash } from 'node:crypto'
+ import { Database } from 'bun:sqlite'
+-import { mkdtemp, open, rm, stat } from 'node:fs/promises'
+-import { rmSync } from 'node:fs'
+-import { tmpdir } from 'node:os'
++import { mkdir, open, stat } from 'node:fs/promises'
++import { readdirSync, rmSync, statSync } from 'node:fs'
+ import { join } from 'node:path'
++import { getCcHahaDir } from '../../utils/envUtils.js'
+ import { HISTORY_SEMANTIC_RECORD_BYTES, streamBoundedHistory, withHistoryReadBudget } from './boundedSessionHistory.js'
+ import { ApiError } from '../middleware/errorHandler.js'
+ 
+ type Context = { owner?: string; suppressed: boolean }
+-type Cache = { database: Database; directory: string; identity: string; size: number; mtime: string; offset: number; suppressed: boolean | null; fingerprint?: string }
++type Cache = { database: Database; file: string; identity: string; size: number; mtime: string; offset: number; suppressed: boolean | null; fingerprint?: string }
+ type Flight = { promise: Promise<void>; controller: AbortController; users: number }
+ const cache = new Map<string, Cache>()
+ const flights = new Map<string, Flight>()
+-process.once('exit', () => { for (const entry of cache.values()) { entry.database.close(); rmSync(entry.directory, { recursive: true, force: true }) } })
++process.once('exit', () => { for (const entry of cache.values()) entry.database.close() })
++
++/**
++ * Where the per-transcript context indexes live.
++ *
++ * Durability is the point. Building one means streaming the entire transcript —
++ * measured 2.9 s for a 146 MB session — and the build used to live in a
++ * `mkdtemp` directory that was removed on eviction and at exit, so every
++ * restart and every eviction paid that scan again; the abandoned directories
++ * also leaked (634 of them, 92 MB, found under /tmp). Keying a file per
++ * transcript under the config dir makes the scan a one-time cost.
++ *
++ * Nothing about staleness checking changes: an index is still trusted only for
++ * the exact identity/size/mtime it was built from, and is discarded and rebuilt
++ * whenever those disagree.
++ */
++const SCHEMA_VERSION = '1'
++function contextDirectory(): string {
++  return process.env.CC_HAHA_HISTORY_CONTEXT_DIR ?? join(getCcHahaDir(), 'db', 'history-context-v1')
++}
++function databasePathFor(filePath: string): string {
++  return join(contextDirectory(), `${createHash('sha256').update(filePath).digest('hex').slice(0, 40)}.sqlite`)
++}
++
++const SCHEMA = `PRAGMA journal_mode=OFF; PRAGMA cache_size=-512; PRAGMA temp_store=FILE;
++CREATE TABLE IF NOT EXISTS parents (id TEXT PRIMARY KEY, chain TEXT);
++CREATE TABLE IF NOT EXISTS context (offset INTEGER PRIMARY KEY, owner TEXT, suppressed INTEGER, unowned_sidechain INTEGER);
++CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT)`
++
++type Meta = { schema: string; identity: string; size: number; mtime: string; offset: number; suppressed: boolean | null; fingerprint: string }
++
++function readMeta(database: Database): Meta | null {
++  try {
++    const rows = database.query('SELECT key, value FROM meta').all() as Array<{ key: string; value: string }>
++    if (rows.length === 0) return null
++    const values = new Map(rows.map(row => [row.key, row.value]))
++    const suppressed = values.get('suppressed')
++    return {
++      schema: values.get('schema') ?? '',
++      identity: values.get('identity') ?? '',
++      size: Number(values.get('size') ?? 0),
++      mtime: values.get('mtime') ?? '',
++      offset: Number(values.get('offset') ?? 0),
++      suppressed: suppressed === 'null' ? null : suppressed === 'true',
++      fingerprint: values.get('fingerprint') ?? '',
++    }
++  } catch {
++    // No meta table (or an unreadable one) — treat the file as absent.
++    return null
++  }
++}
++
++function writeMeta(database: Database, values: Record<string, string | number>): void {
++  const statement = database.query('INSERT OR REPLACE INTO meta VALUES (?, ?)')
++  for (const [key, value] of Object.entries(values)) statement.run(key, String(value))
++}
++
++/**
++ * Adopt the index already on disk when it still describes this file, so a fresh
++ * process resumes from the stored snapshot instead of rescanning. The stored
++ * scalars are the same ones the in-memory state carries: size and offset say
++ * where to continue, `suppressed` is the running notification state at the last
++ * complete line, and the fingerprint backs the rewritten-growth check.
++ */
++function openIndex(file: string, identity: string, size: number, mtime: string): Cache {
++  try {
++    const database = new Database(file)
++    const meta = readMeta(database)
++    if (
++      meta
++      && meta.schema === SCHEMA_VERSION
++      && meta.identity === identity
++      && meta.size <= size
++      // Same size means the suffix is empty, so the mtime has to match exactly;
++      // a shorter snapshot is fine to continue from and gets re-fingerprinted.
++      && (meta.size < size || meta.mtime === mtime)
++    ) {
++      return {
++        database,
++        file,
++        identity,
++        size: meta.size,
++        mtime: meta.mtime,
++        offset: meta.offset,
++        suppressed: meta.suppressed,
++        ...(meta.fingerprint ? { fingerprint: meta.fingerprint } : {}),
++      }
++    }
++    database.close()
++  } catch {
++    // Missing, or left in a shape we cannot read.
++  }
++  rmSync(file, { force: true })
++  const database = new Database(file)
++  database.exec(SCHEMA)
++  writeMeta(database, { schema: SCHEMA_VERSION, identity, size: 0, mtime: '', offset: 0, suppressed: 'false', fingerprint: '' })
++  return { database, file, identity, size: 0, mtime: '', offset: 0, suppressed: false }
++}
++
++/** Sweep indexes untouched for a week, at most once per process. */
++let pruned = false
++function pruneOnce(): void {
++  if (pruned) return
++  pruned = true
++  try {
++    const directory = contextDirectory()
++    const cutoff = Date.now() - 7 * 24 * 60 * 60 * 1000
++    for (const name of readdirSync(directory)) {
++      if (!name.endsWith('.sqlite')) continue
++      const path = join(directory, name)
++      // One unreadable file must not stop the sweep.
++      try { if (statSync(path).mtimeMs < cutoff) rmSync(path, { force: true }) } catch { /* skip */ }
++    }
++  } catch { /* the directory may not exist yet */ }
++}
++
++/** Test-only: drop the in-memory handles so one process can exercise a cold start. */
++export function __resetHistoryContextCacheForTests(): void {
++  for (const entry of cache.values()) entry.database.close()
++  cache.clear()
++  flights.clear()
++}
+ 
+ async function sourceAnchors(filePath: string, size: number, signal: AbortSignal): Promise<string> {
+   const handle = await open(filePath, 'r')
+@@ -59,21 +180,22 @@ export async function readHistoryContexts(options: {
+     if (state && (rewrittenGrowth || state.identity !== identity || Number(current.size) < state.size || (Number(current.size) === state.size && String(current.mtimeNs) !== state.mtime))) {
+       cache.delete(options.filePath)
+       state.database.close()
+-      await rm(state.directory, { recursive: true, force: true })
++      rmSync(state.file, { force: true })
+       state = undefined
+     }
+     if (!state) {
++      // Evict from memory only. The index is durable now, so dropping it here
++      // must not destroy the file the next open would have reused; the sweep in
++      // pruneOnce is what bounds the directory.
+       while (cache.size >= 4) {
+         const key = cache.keys().next().value!
+         const evicted = cache.get(key)!
+         cache.delete(key)
+         evicted.database.close()
+-        await rm(evicted.directory, { recursive: true, force: true })
+       }
+-      const directory = await mkdtemp(join(tmpdir(), 'claude-history-context-'))
+-      const database = new Database(join(directory, 'context.sqlite'))
+-      database.exec('PRAGMA journal_mode=OFF; PRAGMA cache_size=-512; PRAGMA temp_store=FILE; CREATE TABLE parents (id TEXT PRIMARY KEY, chain TEXT); CREATE TABLE context (offset INTEGER PRIMARY KEY, owner TEXT, suppressed INTEGER, unowned_sidechain INTEGER)')
+-      state = { database, directory, identity, size: 0, mtime: '', offset: 0, suppressed: false }
++      pruneOnce()
++      await mkdir(contextDirectory(), { recursive: true, mode: 0o700 })
++      state = openIndex(databasePathFor(options.filePath), identity, Number(current.size), mtime!)
+       cache.set(options.filePath, state)
+     }
+     cache.delete(options.filePath)
+@@ -103,6 +225,17 @@ export async function readHistoryContexts(options: {
+         if (completeLine) completeSuppression = suppressed
+       }, signal, { startOffset: originalOffset, endOffset: targetSize, maxRecordBytes: HISTORY_SEMANTIC_RECORD_BYTES, onSkipped: () => { suppressed = null; completeSuppression = null } })
+       if (fingerprint !== await sourceAnchors(options.filePath, targetSize, signal)) throw new ApiError(409, 'History was rewritten during context scan', 'HISTORY_CHANGED')
++      // Persist the resumable scalars in the same transaction as the rows they
++      // describe, so a reopened index can never disagree with its own contents.
++      writeMeta(state.database, {
++        schema: SCHEMA_VERSION,
++        identity,
++        size: targetSize,
++        mtime: mtime!,
++        offset: result.nextOffset,
++        suppressed: completeSuppression === null ? 'null' : String(completeSuppression),
++        fingerprint,
++      })
+       state.database.exec('COMMIT')
+       state.fingerprint = fingerprint
+       state.size = targetSize
+@@ -116,7 +249,7 @@ export async function readHistoryContexts(options: {
+       // build; discard this regenerable index entirely.
+       cache.delete(options.filePath)
+       state.database.close()
+-      await rm(state.directory, { recursive: true, force: true })
++      rmSync(state.file, { force: true })
+       throw error
+     }
+   }, 'context')
+diff --git a/src/server/services/sessionService.ts b/src/server/services/sessionService.ts
+index 54ae6d2d..73b3aef8 100644
+--- a/src/server/services/sessionService.ts
++++ b/src/server/services/sessionService.ts
+@@ -1,6 +1,7 @@
+ import { splitSessionReferenceContext } from './sessionReferenceContext.js'
+ import { parseSessionCollaborationEnvelope } from '../../utils/sessionCollaborationEnvelope.js'
+ import { readHistoryContexts } from './sessionHistoryContext.js'
++import { readStoredTranscriptMetadata, writeStoredTranscriptMetadata } from './transcriptMetadataCache.js'
+ import { recoverBoundedSessionHistory, type SessionHistoryRecovery } from './sessionHistoryRecovery.js'
+ /**
+  * Session Service — 会话文件的读写操作封装
+@@ -623,6 +624,18 @@ type SessionListSummaryCacheEntry = {
+   summary: SessionListSummary
+ }
+ 
++/**
++ * How far into a transcript the presence check reads before giving up.
++ *
++ * Deliberately generous: the check stops at the first qualifying entry, so a
++ * real transcript costs only its first few KB, and this cap only decides what to
++ * do with a file whose head is a long run of non-conversation records (large
++ * `file-history-snapshot` entries, for instance). 8 MB is far past the point
++ * where a placeholder would have shown its first real message, while still being
++ * a rounding error against the hundreds of MB the unbounded read used to parse.
++ */
++const TRANSCRIPT_PRESENCE_SCAN_BYTES = 8 * 1024 * 1024
++
+ const DEFAULT_SESSION_LIST_CACHE_MAX_ENTRIES = 16
+ const DEFAULT_SESSION_LIST_SUMMARY_CACHE_MAX_ENTRIES = 20_000
+ 
+@@ -1204,6 +1217,46 @@ export class SessionService {
+     return (await this.readJsonlFileWithDiagnostics(filePath)).entries
+   }
+ 
++  /**
++   * Whether a transcript holds real conversation, read from the head only.
++   *
++   * `hasConversationTranscript` asks an existential question, so a full parse
++   * answers it at unbounded cost: this used to read and `JSON.parse` the whole
++   * file, and because one session id can exist under several discovery roots it
++   * did so for each match — measured 4–6 s per `findSessionFile` for a 139 MB
++   * session that also existed as a 184 MB copy, on a path nearly every session
++   * endpoint takes. Reading until the first qualifying entry answers the same
++   * question, and the cap keeps a pathological head (all metadata, no message)
++   * from scanning a giant file.
++   */
++  private async hasConversationTranscriptInFile(filePath: string): Promise<boolean> {
++    const stream = createReadStream(filePath, {
++      encoding: 'utf8',
++      start: 0,
++      end: TRANSCRIPT_PRESENCE_SCAN_BYTES - 1,
++    })
++    const lines = createInterface({ input: stream, crlfDelay: Infinity })
++    try {
++      for await (const line of lines) {
++        const trimmed = line.trim()
++        if (!trimmed) continue
++        let parsed: RawEntry
++        try {
++          parsed = JSON.parse(trimmed) as RawEntry
++        } catch {
++          continue
++        }
++        if (this.hasConversationTranscript([parsed])) return true
++      }
++      return false
++    } catch (err: unknown) {
++      if ((err as NodeJS.ErrnoException).code === 'ENOENT') return false
++      throw err
++    } finally {
++      stream.destroy()
++    }
++  }
++
+   private async readTargetedJsonlEntries(
+     found: { filePath: string; projectDir: string },
+     entryTypes: string[],
+@@ -1320,6 +1373,13 @@ export class SessionService {
+     }, 'recovery')
+   }
+ 
++  /** Keeps the in-memory layer small; the durable copy is what makes a miss cheap. */
++  private enforceMetadataProjectionCacheCapacity(): void {
++    while (this.metadataProjectionCache.size > 32) {
++      this.metadataProjectionCache.delete(this.metadataProjectionCache.keys().next().value!)
++    }
++  }
++
+   private async scanSessionListSummary(
+     filePath: string,
+     projectDir: string,
+@@ -1343,6 +1403,21 @@ export class SessionService {
+       this.metadataProjectionCache.set(key, cached)
+       return cached
+     }
++    // A fresh process used to rescan every transcript it touched; the projection
++    // is a few KB of scalars, so a stored copy saves that full pass on the first
++    // open of a large session. It is trusted only for the exact signature it was
++    // built from, so a stale entry costs a scan rather than a wrong answer.
++    const stored = await readStoredTranscriptMetadata<{
++      summary: SessionListSummary
++      launchInfo: SessionLaunchInfo
++      customTitle: string | null
++      complete: boolean
++    }>(this.getConfigDir(), filePath, signature, projectDir)
++    if (stored) {
++      this.metadataProjectionCache.set(key, { signature, ...stored })
++      this.enforceMetadataProjectionCacheCapacity()
++      return stored
++    }
+     const requestKey = `${key}\0${signature}`
+     const pending = this.metadataProjectionRequests.get(requestKey)
+     if (pending) return pending
+@@ -1424,7 +1499,8 @@ export class SessionService {
+       }
+       this.metadataProjectionCache.delete(key)
+       this.metadataProjectionCache.set(key, { signature: scan.sourceVersion, ...result })
+-      while (this.metadataProjectionCache.size > 32) this.metadataProjectionCache.delete(this.metadataProjectionCache.keys().next().value!)
++      this.enforceMetadataProjectionCacheCapacity()
++      writeStoredTranscriptMetadata(this.getConfigDir(), filePath, scan.sourceVersion, projectDir, result)
+       return result
+     }, 'metadata')
+     this.metadataProjectionRequests.set(requestKey, request)
+@@ -2759,15 +2835,15 @@ export class SessionService {
+                 sessionId,
+                 projectsRoots!,
+               )
+-              // The index already validated this exact path, so one bounded read
+-              // here only serves transcript-vs-placeholder ordering. The
+-              // filesystem fallback below stays mtime-only because it runs on
+-              // every reader call and must not do unbounded full reads.
+-              const entries = await this.readJsonlFile(match.filePath)
++              // Only transcript-vs-placeholder ordering is needed here, so this
++              // reads the head rather than the whole file: a full parse cost 4-6 s
++              // per call for a large session with copies under several roots, on
++              // the path nearly every session endpoint takes. The filesystem
++              // fallback below stays mtime-only for the same reason.
+               hydratedMatches.push({
+                 ...match,
+                 mtimeMs: stat.mtimeMs,
+-                hasTranscript: this.hasConversationTranscript(entries),
++                hasTranscript: await this.hasConversationTranscriptInFile(match.filePath),
+               })
+             } catch (error) {
+               if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
+diff --git a/src/server/services/transcriptMetadataCache.ts b/src/server/services/transcriptMetadataCache.ts
+new file mode 100644
+index 00000000..608ea985
+--- /dev/null
++++ b/src/server/services/transcriptMetadataCache.ts
+@@ -0,0 +1,89 @@
++// Durable cache for the per-transcript metadata projection.
++//
++// Building one means one full pass over the transcript (message count, last
++// timestamp, launch info and titles all need it), which a fresh process paid
++// again on the first open of a large session — measured 9.6 s for a 139 MB
++// session that also had a 184 MB copy under another discovery root. The result
++// is a few KB of plain scalars, so it is worth keeping next to the other
++// regenerable indexes.
++//
++// Correctness does not depend on this file: a stored entry is used only when its
++// signature still describes the transcript on disk, and the caller falls back to
++// the scan otherwise. A missing, unreadable, or stale entry costs a scan, never
++// a wrong answer.
++import { createHash } from 'node:crypto'
++import { mkdir, readFile, rename, unlink, writeFile } from 'node:fs/promises'
++import { readdirSync, rmSync, statSync } from 'node:fs'
++import { join } from 'node:path'
++import { getCcHahaDir } from '../../utils/envUtils.js'
++
++type Stored = { signature: string; projectDir: string; value: unknown }
++
++const PRUNE_AFTER_MS = 7 * 24 * 60 * 60 * 1000
++let pruned = false
++
++/** Directory override exists so tests do not write into the real config dir. */
++function cacheDirectory(): string {
++  return process.env.CC_HAHA_TRANSCRIPT_METADATA_DIR
++    ?? join(getCcHahaDir(), 'db', 'transcript-metadata-v1')
++}
++
++/** Keyed by the pair the in-memory cache uses, so the two agree on identity. */
++function cachePath(configDir: string, filePath: string): string {
++  const hash = createHash('sha256').update(`${configDir}\0${filePath}`).digest('hex').slice(0, 40)
++  return join(cacheDirectory(), `${hash}.json`)
++}
++
++/** Sweep entries untouched for a week, at most once per process. */
++function pruneOnce(): void {
++  if (pruned) return
++  pruned = true
++  try {
++    const cutoff = Date.now() - PRUNE_AFTER_MS
++    for (const name of readdirSync(cacheDirectory())) {
++      if (!name.endsWith('.json')) continue
++      const path = join(cacheDirectory(), name)
++      // One unreadable entry must not stop the sweep.
++      try { if (statSync(path).mtimeMs < cutoff) rmSync(path, { force: true }) } catch { /* skip */ }
++    }
++  } catch { /* the directory may not exist yet */ }
++}
++
++export async function readStoredTranscriptMetadata<T>(
++  configDir: string,
++  filePath: string,
++  signature: string,
++  projectDir: string,
++): Promise<T | null> {
++  pruneOnce()
++  try {
++    const stored = JSON.parse(await readFile(cachePath(configDir, filePath), 'utf8')) as Stored
++    if (stored.signature !== signature || stored.projectDir !== projectDir) return null
++    return stored.value as T
++  } catch {
++    // Absent, unreadable, or not JSON — the caller scans instead.
++    return null
++  }
++}
++
++export function writeStoredTranscriptMetadata(
++  configDir: string,
++  filePath: string,
++  signature: string,
++  projectDir: string,
++  value: unknown,
++): void {
++  const path = cachePath(configDir, filePath)
++  const payload = JSON.stringify({ signature, projectDir, value } satisfies Stored)
++  // Fire and forget: this is a cache, and the caller must not wait on it. The
++  // rename keeps a concurrent reader from seeing a half-written file.
++  void mkdir(cacheDirectory(), { recursive: true, mode: 0o700 })
++    .then(() => writeFile(`${path}.tmp`, payload, 'utf8'))
++    .then(() => rename(`${path}.tmp`, path))
++    .catch(() => { void unlink(`${path}.tmp`).catch(() => {}) })
++}
++
++/** Test-only: forget the once-per-process prune so a test can observe it. */
++export function __resetTranscriptMetadataPruneForTests(): void {
++  pruned = false
++}

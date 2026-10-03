@@ -1,0 +1,541 @@
+diff --git a/desktop/src/api/sessions.test.ts b/desktop/src/api/sessions.test.ts
+index 7e674d28..90af5bc4 100644
+--- a/desktop/src/api/sessions.test.ts
++++ b/desktop/src/api/sessions.test.ts
+@@ -349,6 +349,33 @@ describe('full session history assembly', () => {
+     expect(fetchMock).toHaveBeenCalledTimes(2)
+   })
+ 
++  it('bounds the walk and hands the rest back through nextCursor', async () => {
++    // An endless transcript: every continuation offers another cursor. The walk
++    // must still terminate and leave the remainder reachable through the
++    // existing "load more" path, rather than stitching until the request times
++    // out — which is how a large session previously failed to open at all.
++    let oldest = 0
++    const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async url => {
++      if (String(url).includes('mode=full')) return response(page('newest', 'cursor-0'))
++      oldest += 1
++      return response(page(`older-${oldest}`, `cursor-${oldest}`))
++    })
++
++    const result = await sessionsApi.getFullHistory('fixture')
++    const resultPage = result.page
++    if (!resultPage) throw new Error('expected page metadata')
++
++    expect(resultPage.hasMore).toBe(true)
++    expect(resultPage.nextCursor).toBeTruthy()
++    expect(resultPage.historyComplete).toBe(false)
++    // Bounded: it stopped instead of walking the whole (endless) transcript.
++    expect(result.messages.length).toBeGreaterThan(1)
++    expect(result.messages.length).toBeLessThan(100)
++    // The cursor still points at the oldest page actually retrieved.
++    expect(resultPage.nextCursor).toBe(`cursor-${oldest}`)
++    expect(fetchMock).toHaveBeenCalledTimes(oldest + 1)
++  })
++
+   it('rejects a failed continuation without exposing its successfully loaded tail', async () => {
+     vi.spyOn(globalThis, 'fetch')
+       .mockResolvedValueOnce(response(page('new', 'older')))
+diff --git a/desktop/src/api/sessions.ts b/desktop/src/api/sessions.ts
+index 8d7ee9a7..7c0ba3f3 100644
+--- a/desktop/src/api/sessions.ts
++++ b/desktop/src/api/sessions.ts
+@@ -1,5 +1,16 @@
+ import { api, type ApiRequestOptions } from './client'
+ import type { SlashCommandOption } from '../types/slashCommand'
++
++/**
++ * Bounds on the first history paint. The timeline renders nothing until the
++ * whole stitch resolves, so a deep transcript must not hold it hostage: past
++ * either bound the walk stops and returns what it has, leaving `nextCursor`
++ * for the user-driven "load more" path. 40 pages is well clear of any ordinary
++ * session (which fits in the single `mode=full` response and never enters the
++ * loop at all).
++ */
++const HISTORY_STITCH_MAX_PAGES = 40
++const HISTORY_STITCH_DEADLINE_MS = 12_000
+ import type { AgentTaskNotification } from '../types/chat'
+ import type { LocalIndexStatus, SessionListItem, MessageEntry } from '../types/session'
+ import type { PermissionMode } from '../types/settings'
+@@ -443,6 +454,12 @@ export const sessionsApi = {
+ 
+   // The timeline receives one assembled transcript. Ordinary sessions fit in
+   // `mode=full`; larger sessions continue within the server's request budgets.
++  //
++  // A deep transcript is walked one page per request and nothing renders until
++  // this resolves, so the walk is bounded and the remaining `nextCursor` is
++  // handed back for the existing "load more" affordance to continue. Stitching
++  // without a bound is what made a large session appear never to open: the
++  // client was still on page N long after the reader had given up on it.
+   async getFullHistory(sessionId: string, options?: ApiRequestOptions): Promise<SessionHistoryPage> {
+     const newest = await api.get<SessionHistoryPage>(`/api/sessions/${sessionId}/messages?mode=full`, options)
+     if (!newest.page?.nextCursor) return newest
+@@ -455,9 +472,19 @@ export const sessionsApi = {
+     let omitted = newest.page.omittedOversizedEntries
+     let truncated = Boolean(newest.page.contentTruncated)
+     let scannedBytes = newest.page.scannedBytes
++    const startedAt = Date.now()
+     while (cursor) {
+       if (options?.signal?.aborted) throw options.signal.reason ?? new DOMException('Aborted', 'AbortError')
+       if (seen.has(cursor)) throw new Error('Session history cursor did not advance')
++      // Stop well before the request timeout. `hasMore` below stays true and
++      // `nextCursor` is preserved, which is exactly the state the timeline
++      // already interprets as "history is windowed — offer to load more".
++      if (
++        pages.length >= HISTORY_STITCH_MAX_PAGES ||
++        Date.now() - startedAt >= HISTORY_STITCH_DEADLINE_MS
++      ) {
++        break
++      }
+       seen.add(cursor)
+       const query: URLSearchParams = new URLSearchParams({ cursor })
+       const older: SessionHistoryPage = await api.get<SessionHistoryPage>(`/api/sessions/${sessionId}/messages?${query}`, options)
+@@ -472,14 +499,18 @@ export const sessionsApi = {
+       cursor = older.page.nextCursor
+     }
+     pages.reverse()
++    // `cursor === null` means the walk reached the head of the transcript, in
++    // which case every field below matches the previous unconditional-`null`
++    // behaviour — early exit is the only new path.
++    const exhausted = cursor === null
+     return {
+       messages: pages.flatMap(page => page.messages),
+       taskNotifications: pages.flatMap(page => page.taskNotifications ?? []),
+       page: {
+         ...newest.page,
+-        nextCursor: null,
+-        hasMore: false,
+-        historyComplete: omitted === 0 && !truncated && !newest.page.previousCursor,
++        nextCursor: cursor,
++        hasMore: !exhausted,
++        historyComplete: exhausted && omitted === 0 && !truncated && !newest.page.previousCursor,
+         contentTruncated: truncated,
+         omittedOversizedEntries: omitted,
+         scannedBytes,
+diff --git a/src/server/services/boundedSessionHistory.test.ts b/src/server/services/boundedSessionHistory.test.ts
+index b1ec4b63..cacdcdf9 100644
+--- a/src/server/services/boundedSessionHistory.test.ts
++++ b/src/server/services/boundedSessionHistory.test.ts
+@@ -3,7 +3,7 @@ import { mkdtemp, rm, writeFile, appendFile, open, rename } from 'node:fs/promis
+ import { tmpdir } from 'node:os'
+ import { join } from 'node:path'
+ import sharp from 'sharp'
+-import { readBoundedHistoryPage, streamBoundedHistory, withHistoryReadBudget, HISTORY_SCAN_BYTES, HISTORY_FULL_SCAN_BYTES, HISTORY_RECORD_BYTES, HISTORY_SEMANTIC_RECORD_BYTES, HISTORY_PAGE_BYTES, HISTORY_PAGE_ROWS } from './boundedSessionHistory.js'
++import { readBoundedHistoryPage, streamBoundedHistory, withHistoryReadBudget, boundToolUseResultPreview, TOOL_USE_RESULT_STRING_LIMIT, HISTORY_SCAN_BYTES, HISTORY_FULL_SCAN_BYTES, HISTORY_RECORD_BYTES, HISTORY_SEMANTIC_RECORD_BYTES, HISTORY_PAGE_BYTES, HISTORY_PAGE_ROWS } from './boundedSessionHistory.js'
+ 
+ let directory: string
+ let file: string
+@@ -282,3 +282,40 @@ describe('bounded history pages', () => {
+     expect(await replacement).toBe('replacement')
+   })
+ })
++
++describe('toolUseResult transport projection', () => {
++  test('clips oversized strings and keeps every key and container type', () => {
++    const originalFile = 'x'.repeat(500_000)
++    const result = boundToolUseResultPreview({
++      filePath: '/tmp/big.js',
++      originalFile,
++      structuredPatch: [{ lines: ['+one'] }],
++      replaceAll: false,
++    }) as Record<string, unknown>
++
++    // FileEdit's schema requires a string, and the CLI renderer calls
++    // `.split('\n')` on it unguarded — a null/undefined here would blank the
++    // result entirely.
++    expect(typeof result.originalFile).toBe('string')
++    expect((result.originalFile as string).length).toBeLessThan(originalFile.length)
++    expect((result.originalFile as string)).toStartWith('x'.repeat(TOOL_USE_RESULT_STRING_LIMIT))
++    // Diff rendering and turn stats read these; they must survive intact.
++    expect(result.filePath).toBe('/tmp/big.js')
++    expect(result.structuredPatch).toEqual([{ lines: ['+one'] }])
++    expect(result.replaceAll).toBe(false)
++  })
++
++  test('leaves ordinary results byte-identical', () => {
++    const small = { filePath: '/tmp/a.txt', originalFile: 'tiny\n', replaceAll: false }
++    expect(boundToolUseResultPreview(small)).toEqual(small)
++  })
++
++  test('does not flag truncation, so historyComplete cannot flip', () => {
++    const result = boundToolUseResultPreview({
++      originalFile: 'y'.repeat(200_000),
++    }) as Record<string, unknown>
++    // A truncated *body* marks the transcript incomplete; this is a transport
++    // clip of a display-only field, so it must stay silent.
++    expect(result.bodyTruncated).toBeUndefined()
++  })
++})
+diff --git a/src/server/services/boundedSessionHistory.ts b/src/server/services/boundedSessionHistory.ts
+index 5da62344..bceb4c42 100644
+--- a/src/server/services/boundedSessionHistory.ts
++++ b/src/server/services/boundedSessionHistory.ts
+@@ -6,8 +6,12 @@ export const HISTORY_SCAN_BYTES = 16 * 1024 * 1024
+ /** Scan ceiling for the full-history read. It may walk much further than a
+  * single page because its output budget is `HISTORY_FULL_BYTES`, but the I/O
+  * per request still needs a hard cap: one bounded read is a synchronous walk
+- * with no other yield point. */
+-export const HISTORY_FULL_SCAN_BYTES = 64 * 1024 * 1024
++ * with no other yield point.
++ * Kept at 3x `HISTORY_FULL_BYTES` to absorb records skipped by
++ * `HISTORY_SEMANTIC_RECORD_BYTES`. The scan budget — not the output budget — is
++ * what actually bounds a request's latency and (on the remote path) the
++ * synchronous gzip, so lowering the output budget alone would change nothing. */
++export const HISTORY_FULL_SCAN_BYTES = 24 * 1024 * 1024
+ export const HISTORY_SEMANTIC_RECORD_BYTES = 8 * 1024 * 1024
+ export const HISTORY_RECORD_BYTES = 1024 * 1024
+ export const HISTORY_PAGE_BYTES = 256 * 1024
+@@ -16,8 +20,11 @@ export const HISTORY_PAGE_ROWS = 500
+ /** Single-request ceiling for the "load the whole transcript at once" path.
+  * The desktop timeline reads this in one shot so it never has to stitch pages
+  * together; past the budget the reader still returns the newest slice and
+- * reports `historyComplete: false` instead of failing with 413. */
+-export const HISTORY_FULL_BYTES = 32 * 1024 * 1024
++ * reports `historyComplete: false` instead of failing with 413.
++ * Deliberately small: one response must not spike renderer memory or block the
++ * event loop in `gzipSync` for a transcript whose individual records are
++ * already bounded by the tool-result preview. */
++export const HISTORY_FULL_BYTES = 8 * 1024 * 1024
+ /** Row ceiling for the full-history path. The byte budget is the real bound;
+  * this only stops pathological all-tiny-record transcripts from building a
+  * six-figure-entry array. */
+@@ -93,6 +100,50 @@ function decodeCursor(value: string): Cursor {
+ 
+ /** Produce a display preview without dropping a message's identity. Durable
+  * replay and semantic state reducers always receive the original record. */
++/** Per-string clip for the `toolUseResult` projection that ships with history.
++ * `toolUseResult` echoes tool *inputs* back to the client — notably FileEdit's
++ * `originalFile`, the entire pre-edit file. It is display-only (the model sees
++ * `mapToolResultToToolResultBlockParam` output, and turn diffs read
++ * `structuredPatch`), so clipping long strings cannot change what the model was
++ * told or what a diff shows. */
++export const TOOL_USE_RESULT_STRING_LIMIT = 16 * 1024
++const TOOL_USE_RESULT_ITEM_LIMIT = 2048
++const TOOL_USE_RESULT_DEPTH_LIMIT = 12
++
++/**
++ * Bound `toolUseResult` for transport. Keys and container types are preserved
++ * so consumers keep working; only oversized strings (and pathologically long
++ * arrays/objects) are trimmed.
++ *
++ * Deliberately reports nothing: setting `bodyTruncated` here would propagate to
++ * `contentTruncated` and then `historyComplete`, making the client treat a
++ * complete transcript as incomplete and re-enter recovery for a field that was
++ * only ever a transport concern.
++ */
++export function boundToolUseResultPreview(value: unknown): unknown {
++  const visit = (input: unknown, depth: number): unknown => {
++    if (typeof input === 'string') {
++      return input.length <= TOOL_USE_RESULT_STRING_LIMIT
++        ? input
++        : `${input.slice(0, TOOL_USE_RESULT_STRING_LIMIT)}\n… [truncated preview]`
++    }
++    if (!input || typeof input !== 'object') return input
++    if (depth >= TOOL_USE_RESULT_DEPTH_LIMIT) return input
++    if (Array.isArray(input)) {
++      const kept = input.length > TOOL_USE_RESULT_ITEM_LIMIT
++        ? input.slice(0, TOOL_USE_RESULT_ITEM_LIMIT)
++        : input
++      return kept.map(item => visit(item, depth + 1))
++    }
++    const entries = Object.entries(input)
++    const kept = entries.length > TOOL_USE_RESULT_ITEM_LIMIT
++      ? entries.slice(0, TOOL_USE_RESULT_ITEM_LIMIT)
++      : entries
++    return Object.fromEntries(kept.map(([key, child]) => [key, visit(child, depth + 1)]))
++  }
++  return visit(value, 0)
++}
++
+ export function displayPreview(entry: Record<string, unknown>): Record<string, unknown> {
+   let truncated = false
+   let remaining = 48 * 1024
+diff --git a/src/server/services/sessionService.ts b/src/server/services/sessionService.ts
+index fbaf9261..16eed030 100644
+--- a/src/server/services/sessionService.ts
++++ b/src/server/services/sessionService.ts
+@@ -9,7 +9,7 @@ import { recoverBoundedSessionHistory, type SessionHistoryRecovery } from './ses
+  * 确保 Desktop App 与 CLI 的数据完全互通。
+  */
+ 
+-import { HISTORY_SEMANTIC_RECORD_BYTES, HISTORY_PAGE_BYTES, displayPreview, readBoundedHistoryPage, streamBoundedHistory, withHistoryReadBudget, type HistoryPageInfo } from './boundedSessionHistory.js'
++import { HISTORY_SEMANTIC_RECORD_BYTES, HISTORY_PAGE_BYTES, boundToolUseResultPreview, displayPreview, readBoundedHistoryPage, streamBoundedHistory, withHistoryReadBudget, type HistoryPageInfo } from './boundedSessionHistory.js'
+ import { constants, createReadStream, createWriteStream, type Stats } from 'node:fs'
+ import { createHash } from 'node:crypto'
+ import * as fs from 'node:fs/promises'
+@@ -1923,7 +1923,13 @@ export class SessionService {
+       ...(sessionReferences ? { sessionReferences } : {}),
+       ...(collaboration ? { collaboration } : {}),
+       ...(entry.bodyTruncated === true ? { bodyTruncated: true } : {}),
+-      ...(entry.toolUseResult !== undefined ? { toolUseResult: entry.toolUseResult } : {}),
++      // Tool results echo tool *inputs* back (FileEdit's `originalFile` is the
++      // whole pre-edit file). Ship a bounded projection so one edited file
++      // cannot dominate the transport; the field itself is kept because
++      // consumers use its presence to tell tool results from human turns.
++      ...(entry.toolUseResult !== undefined
++        ? { toolUseResult: boundToolUseResultPreview(entry.toolUseResult) }
++        : {}),
+       timestamp: entry.timestamp || new Date().toISOString(),
+       model: msg.model,
+       ...(usage ? { usage } : {}),
+diff --git a/src/utils/fileHistory.security.test.ts b/src/utils/fileHistory.security.test.ts
+index f8ad608a..3f426f55 100644
+--- a/src/utils/fileHistory.security.test.ts
++++ b/src/utils/fileHistory.security.test.ts
+@@ -553,6 +553,57 @@ describe('completed turn checkpoint persistence', () => {
+     await fileHistoryCompleteSnapshot(updateState, randomUUID() as UUID)
+     expect(getState().snapshots[0]?.completedFileBackups).toBeUndefined()
+   })
++
++  test('reuses the previous end-of-turn copy when the file is untouched', async () => {
++    const firstTurn = randomUUID() as UUID
++    const secondTurn = randomUUID() as UUID
++    const trackedPath = join(getOriginalCwd(), 'stable.txt')
++    await writeFile(trackedPath, 'turn one\n')
++    const { getState, updateState } = createHistoryState(firstTurn)
++    await fileHistoryTrackEdit(updateState, trackedPath, firstTurn)
++
++    await fileHistoryCompleteSnapshot(updateState, firstTurn)
++    const firstBackup =
++      getState().snapshots.find(s => s.messageId === firstTurn)!
++        .completedFileBackups!['stable.txt']!
++
++    // Next turn starts, the tracked file set is inherited, and the file is not
++    // touched. Copying again here is what made the backup directory grow with
++    // turns rather than with edits.
++    await fileHistoryMakeSnapshot(updateState, secondTurn)
++    await fileHistoryCompleteSnapshot(updateState, secondTurn)
++    const secondBackup =
++      getState().snapshots.find(s => s.messageId === secondTurn)!
++        .completedFileBackups!['stable.txt']!
++
++    expect(secondBackup.backupFileName).toBe(firstBackup.backupFileName)
++    expect((await readBackupFileSafely(secondBackup.backupFileName!)).content.toString()).toBe('turn one\n')
++  })
++
++  test('still copies when the file changed, and the copy holds the new bytes', async () => {
++    const firstTurn = randomUUID() as UUID
++    const secondTurn = randomUUID() as UUID
++    const trackedPath = join(getOriginalCwd(), 'changing.txt')
++    await writeFile(trackedPath, 'turn one\n')
++    const { getState, updateState } = createHistoryState(firstTurn)
++    await fileHistoryTrackEdit(updateState, trackedPath, firstTurn)
++    await fileHistoryCompleteSnapshot(updateState, firstTurn)
++    const firstBackup =
++      getState().snapshots.find(s => s.messageId === firstTurn)!
++        .completedFileBackups!['changing.txt']!
++
++    await fileHistoryMakeSnapshot(updateState, secondTurn)
++    await writeFile(trackedPath, 'turn two\n')
++    await fileHistoryCompleteSnapshot(updateState, secondTurn)
++    const secondBackup =
++      getState().snapshots.find(s => s.messageId === secondTurn)!
++        .completedFileBackups!['changing.txt']!
++
++    expect(secondBackup.backupFileName).not.toBe(firstBackup.backupFileName)
++    expect((await readBackupFileSafely(secondBackup.backupFileName!)).content.toString()).toBe('turn two\n')
++    // The earlier turn's bytes must survive for rewind.
++    expect((await readBackupFileSafely(firstBackup.backupFileName!)).content.toString()).toBe('turn one\n')
++  })
+ })
+ 
+ 
+diff --git a/src/utils/fileHistory.ts b/src/utils/fileHistory.ts
+index c3701c62..297bdaa1 100644
+--- a/src/utils/fileHistory.ts
++++ b/src/utils/fileHistory.ts
+@@ -382,8 +382,20 @@ export async function fileHistoryCompleteSnapshot(
+ ): Promise<void> {
+   if (!fileHistoryEnabled()) return
+   let captured: FileHistorySnapshot | undefined
++  const priorCompletedByPath = new Map<string, FileHistoryBackup>()
+   updateFileHistoryState(state => {
+-    captured = state.snapshots.find(snapshot => snapshot.messageId === messageId)
++    const index = state.snapshots.findIndex(snapshot => snapshot.messageId === messageId)
++    captured = index >= 0 ? state.snapshots[index] : undefined
++    // Only snapshots *before* this one can hold an earlier end-of-turn copy, so
++    // a path the user has not touched since can reuse that copy instead of
++    // accumulating an identical one per turn.
++    for (let i = 0; i < index; i++) {
++      const prior = state.snapshots[i]?.completedFileBackups
++      if (!prior) continue
++      for (const [trackingPath, backup] of Object.entries(prior)) {
++        if (backup.backupFileName) priorCompletedByPath.set(trackingPath, backup)
++      }
++    }
+     return state
+   })
+   if (!captured || captured.completedFileBackups) return
+@@ -392,13 +404,28 @@ export async function fileHistoryCompleteSnapshot(
+   // cannot collide with the next turn's incrementing before-backup version.
+   for (const [trackingPath, before] of Object.entries(captured.trackedFileBackups)) {
+     try {
+-      completedFileBackups[trackingPath] = await createBackup(maybeExpandFilePath(trackingPath), before.version, `completed-${messageId}-${randomUUID()}`)
++      const expandedPath = maybeExpandFilePath(trackingPath)
++      // This loop runs for every tracked file every turn, and a tracked set only
++      // grows — copying unconditionally made the backup directory O(files x
++      // turns), with the overwhelming majority of copies byte-identical. Reuse
++      // the previous end-of-turn copy when the file is unchanged (same check
++      // `fileHistoryMakeSnapshot` uses), keeping the `-completed-` filename so
++      // rewind's after-boundary semantics are untouched.
++      const prior = priorCompletedByPath.get(trackingPath)
++      if (prior?.backupFileName) {
++        const changed = await checkOriginFileChanged(expandedPath, prior.backupFileName)
++        if (!changed) {
++          completedFileBackups[trackingPath] = prior
++          continue
++        }
++      }
++      completedFileBackups[trackingPath] = await createBackup(expandedPath, before.version, `completed-${messageId}-${randomUUID()}`)
+     } catch (error) { logError(error) }
+   }
+   let completed: FileHistorySnapshot | undefined
+-  updateFileHistoryState(state => ({ ...state, snapshots: state.snapshots.map(snapshot => {
+-    if (snapshot.messageId !== messageId || snapshot.completedFileBackups) return snapshot
+-    completed = { ...migrateFileHistorySnapshot(snapshot), completedFileBackups }
++  updateFileHistoryState(state => ({ ...state, snapshots: state.snapshots.map(s => {
++    if (s.messageId !== messageId || s.completedFileBackups) return s
++    completed = { ...migrateFileHistorySnapshot(s), completedFileBackups }
+     return completed
+   }) }))
+   if (completed) await recordFileHistorySnapshot(messageId, completed, true)
+diff --git a/src/utils/sessionStorage.originalFileBound.test.ts b/src/utils/sessionStorage.originalFileBound.test.ts
+new file mode 100644
+index 00000000..9e598e92
+--- /dev/null
++++ b/src/utils/sessionStorage.originalFileBound.test.ts
+@@ -0,0 +1,68 @@
++import { describe, expect, test } from 'bun:test'
++import type { Message } from '../types/message.js'
++
++/**
++ * 章二十二「优化膨胀源」: storage must not keep the whole pre-edit file in
++ * `toolUseResult.originalFile`. It is display-only (the model never sees it, and
++ * the turn diff reads `structuredPatch`), and the client is only ever sent a
++ * 16KB preview — so bounding at the source is invisible to readers while
++ * removing the 67% of transcript bytes it accounted for.
++ */
++const MODULE = '../utils/sessionStorage.js'
++
++async function loadHelper() {
++  const mod = await import(MODULE)
++  return mod as {
++    boundOriginalFileForStorage: (message: Message) => Message
++    ORIGINAL_FILE_STRING_LIMIT: number
++  }
++}
++
++function toolResultMessage(toolUseResult: unknown): Message {
++  return {
++    type: 'user',
++    uuid: '00000000-0000-4000-8000-000000000001',
++    message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: 't1', content: 'ok' }] },
++    toolUseResult,
++  } as unknown as Message
++}
++
++describe('boundOriginalFileForStorage', () => {
++  test('clips an oversized originalFile to the transport bound and records its size', async () => {
++    const { boundOriginalFileForStorage, ORIGINAL_FILE_STRING_LIMIT } = await loadHelper()
++    const originalFile = 'x'.repeat(ORIGINAL_FILE_STRING_LIMIT + 5_000)
++    const saved = boundOriginalFileForStorage(
++      toolResultMessage({ filePath: '/a.ts', originalFile, structuredPatch: [{ oldStart: 1 }] }),
++    )
++    const result = saved.toolUseResult as Record<string, unknown>
++    expect((result.originalFile as string).length).toBe(ORIGINAL_FILE_STRING_LIMIT)
++    expect(result.originalFileTruncated).toBe(true)
++    expect(result.originalFileBytes).toBe(originalFile.length)
++    // The diff and the rest of the payload survive untouched.
++    expect(result.filePath).toBe('/a.ts')
++    expect(result.structuredPatch).toEqual([{ oldStart: 1 }])
++  })
++
++  test('leaves a small originalFile byte-identical', async () => {
++    const { boundOriginalFileForStorage } = await loadHelper()
++    const message = toolResultMessage({ filePath: '/a.ts', originalFile: 'small' })
++    expect(boundOriginalFileForStorage(message)).toBe(message)
++  })
++
++  test('is a no-op when there is no toolUseResult or no originalFile', async () => {
++    const { boundOriginalFileForStorage } = await loadHelper()
++    const bare = toolResultMessage(undefined)
++    expect(boundOriginalFileForStorage(bare)).toBe(bare)
++    const noFile = toolResultMessage({ filePath: '/a.ts', originalFile: null })
++    expect(boundOriginalFileForStorage(noFile)).toBe(noFile)
++  })
++
++  test('does not touch an oversized string in a sibling field', async () => {
++    const { boundOriginalFileForStorage, ORIGINAL_FILE_STRING_LIMIT } = await loadHelper()
++    // Only originalFile is display-only; other fields may be read back by
++    // recovery, so they must keep the original record.
++    const big = 'y'.repeat(ORIGINAL_FILE_STRING_LIMIT + 1)
++    const message = toolResultMessage({ originalFile: 'small', newString: big })
++    expect(boundOriginalFileForStorage(message)).toBe(message)
++  })
++})
+diff --git a/src/utils/sessionStorage.ts b/src/utils/sessionStorage.ts
+index bc6f9454..4911514f 100644
+--- a/src/utils/sessionStorage.ts
++++ b/src/utils/sessionStorage.ts
+@@ -4713,11 +4713,60 @@ function transformMessagesForExternalTranscript(
+   }) as Transcript
+ }
+ 
++/** A transcript message may carry the raw tool output alongside it. */
++type MessageWithToolUseResult = Message & { toolUseResult?: unknown }
++
++/**
++ * Storage-side bound on `toolUseResult.originalFile` (章二十二「优化膨胀源」).
++ *
++ * `originalFile` is the pre-edit file, kept only so the edit card can render a
++ * diff: the model never sees it (`mapToolResultToToolResultBlockParam` is what
++ * goes to the API) and the turn diff itself is read from `structuredPatch`.
++ * Storage nevertheless kept the whole file on every edit, which made transcripts
++ * ~3x larger than the conversation they describe (2.1GB of 3.1GB measured).
++ *
++ * This mirrors the transport clip (`TOOL_USE_RESULT_STRING_LIMIT`, 16KB, in
++ * `src/server/services/boundedSessionHistory.ts`) — the same bound the client
++ * has always been sent — so bounding at the source changes nothing anyone can
++ * see. Only `originalFile` is touched: other `toolUseResult` fields can be
++ * read back by recovery/semantic paths, which must keep the original record.
++ */
++export const ORIGINAL_FILE_STRING_LIMIT = 16 * 1024
++
++/** Trim an oversized `originalFile` to the preview bound, recording the original
++ * length so the record explains its own truncation. */
++export function boundOriginalFileForStorage(
++  message: MessageWithToolUseResult,
++): MessageWithToolUseResult {
++  const result = message.toolUseResult
++  if (!result || typeof result !== 'object' || Array.isArray(result)) {
++    return message
++  }
++  const originalFile = (result as Record<string, unknown>).originalFile
++  if (
++    typeof originalFile !== 'string' ||
++    originalFile.length <= ORIGINAL_FILE_STRING_LIMIT
++  ) {
++    return message
++  }
++  return {
++    ...message,
++    toolUseResult: {
++      ...(result as Record<string, unknown>),
++      originalFile: originalFile.slice(0, ORIGINAL_FILE_STRING_LIMIT),
++      originalFileTruncated: true,
++      originalFileBytes: originalFile.length,
++    },
++  }
++}
++
+ export function cleanMessagesForLogging(
+   messages: Message[],
+   allMessages: readonly Message[] = messages,
+ ): Transcript {
+-  const filtered = messages.filter(isLoggableMessage) as Transcript
++  const filtered = messages
++    .filter(isLoggableMessage)
++    .map(message => boundOriginalFileForStorage(message)) as Transcript
+   return getUserType() !== 'ant'
+     ? transformMessagesForExternalTranscript(
+         filtered,

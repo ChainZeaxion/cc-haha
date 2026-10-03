@@ -65,83 +65,60 @@
 > ⚠️ **必须按表顺序应用，不是「任意顺序」**：patch 之间存在**同文件重叠**——`turn-usage` 与 `thinking-tool-timing`（均改 `chatStore.ts`/`types/chat.ts`）、`tps-indicator`（`chatStore.ts`）、`h5-require-token`（`i18n/locales/*`）共享文件。重叠 patch 的 hunk 上下文取自各自上游状态，乱序应用可能失败。早期「各 patch 文件互不重叠、可任意顺序」的说明仅对当时较小的链成立，**现已作废**。
 >
 > ⚠️ **生效方式不同**：服务端 4 个 patch 由 bun 直跑源码，重启 sidecar 即生效；`history-first-paint-bound` 是**前端**（`desktop/src/api/sessions.ts`），**必须 `vite build` 重建 dist** 才生效（H5 与桌面共用 `desktop/dist`）。
-### 命名与存放约定
-- 存放：`modify/patches/`（patch 文件统一子目录）
-- 命名：**按优化项语义归类，不用数字编号**——`<优化项短名>.patch`，短名直接取自该优化项的英文关键词（如 `h5-require-token.patch`、`session-export.patch`），一眼可读、与章节标题对应
-- 生成（2026-09-26 起重基法）：`git diff <上一章链 commit> <本章链 commit> > patch`，链起点=`068b3ebd`，每章 patch 相对上一章终态
-- 每章完成后在此表登记状态；冲突时以「该章节最新实施记录」为准重新出 patch
+### 命名与存放约定（**2026-10-03 重组：按 PR 主题两层**）
+- 存放：`modify/patches/<主题>/<主题>-<优化项>-patch<N>.patch` —— **主题目录 = 上游 PR 的 8 个功能域；一个优化项一个 patch，拆不开才 `patch2`/`patch3`**
+- 主题：`h5` / `session` / `tps` / `usage` / `test` / `vcc` / `computer-use` / `thinking-subagent`
+- **应用顺序 = `modify/patches/ORDER.md` 自上而下**（34 个 patch）：
 
-### Patch 清单
+```bash
+cd <repo>
+while read -r p; do git apply -p1 "$p"; done < modify/patches/ORDER.md
+```
 
-| # | Patch 文件 | 对应优化项（章节） | 状态 |
-|---|---|---|---|
-| 1 | `patches/h5-require-token.patch` | 一 H5 令牌开关 + 免令牌豁免 | ✅ |
-| 2 | `patches/h5-auto-mode-optin.patch` | 一 H5 选「自动模式」400 修复（1.1） | ✅ |
-| 3 | `patches/session-export.patch` | 二 会话导出 | ✅ |
-| 4 | `patches/h5-settings-parity.patch` | 九 H5 设置全 tab 对齐 | ✅ |
-| 5 | `patches/h5-terminal-bridge.patch` | 一 H5 终端桥接（1.2） | ✅ |
-| 6 | `patches/session-refresh.patch` | 三 会话刷新按钮 | ✅ |
-| 7 | `patches/tps-indicator.patch` | 四 TPS 指示器 + 两行 + 子代理汇聚 + 展示格式/4 位封顶（#90） | ✅ |
-| 8 | `patches/file-download.patch` | 五 文件下载桥接（含右键/菜单下载 + H5 内置浏览器提示） | ✅ |
-| 9 | `patches/disable-updates.patch` | 六 禁止更新开关 | ✅ |
-| 10 | `patches/cache-billing.patch` | 七 上下文缓存与计费显示 | ✅ |
-| 11 | `patches/thinking-switch.patch` | 八 思考模式二级开关 | ✅ |
-| 12 | `patches/server-test-baseline-zeroing.patch` | 十二 src/server 既有 22 条测试失败清零 | ✅ |
-| 13 | `patches/h5-mobile-quick-actions.patch` | 十一 H5 悬浮快捷入口（任务/终端/文件/审查） | ✅ |
-| 14 | `patches/vcc-compactor.patch` | 十三 pi-vcc 算法压缩移植 + 双后端热切换 + vcc_recall | ✅ |
-| 15 | `patches/h5-mobile-scheduled.patch` | 十五 H5/移动端支持打开计划任务（定时任务）页 | ✅ |
-| 16 | `patches/connector-linux-platform.patch` | 十六 连接器目录 Linux 平台支持（x64/arm64） | ✅ |
-| 17 | `patches/h5-mobile-market-layout.patch` | 十七 H5/移动端 技能市场页 header 布局适配 | ✅ |
-| 18 | `patches/computer-use-linux-x11.patch` | 十八 Computer Use 解锁 Linux（X11） | ✅ |
-| 19 | `patches/context-usage-anchor.patch` | 十九 bc 压缩后 context usage 不收敛（显示总量 usage 锚口径 + projector metadata 上限加固） | ✅ |
-| 20 | `patches/h5-gzip-transport.patch` | 二十 H5 远端 API 响应 gzip 压缩传输 | ✅ |
-| 21 | `patches/thinking-tool-timing.patch` | 二十一 思考计时与工具计时综合优化（思考 badge+收纳栏总计时+token） | ✅ |
-| 22 | `patches/autocompact-window-tiers.patch` | 二十四 上下文压缩阈值按窗口分档（软触发百分比 + 硬触发绝对下限） | ✅ 已实施 |
-| 23 | `patches/history-transport-bounds.patch` | 二十二 历史传输裁剪（`toolUseResult` 有界投影）+ 读取预算收紧 | 🔍 部分（A+H） |
-| 24 | `patches/file-history-dedup.patch` | 二十二 E file-history `-completed-*` 重复消除（变动才建） | ✅ 已实施 |
-| 25 | `patches/gzip-transport.patch` | 二十二 G gzip 传输改造：同步→异步（移出事件循环）+ 会话大小门控（<10MB 不压缩） | ✅ 已实施 |
-| 26 | `patches/history-first-paint-bound.patch` | 二十二 B 首屏翻页上限（提前返回并保留 `nextCursor`，打通既有「加载更早」） | ✅ 已实施 |
-| 27 | `patches/baseline-typecheck-fixes.patch` | 基线真缺陷修复：`index.ts` TS2502（参数遮蔽致类型自引用）+ vendor 重复导入 TS2300 | ✅ 已实施 |
-| 28 | `patches/thinking-badge-order-and-duration.patch` | 二十一 子优化①：收纳栏「token 在前、耗时在后」+ `+` 间隔收紧 + 零耗时按未测处理 | ✅ 已实施 |
-| 29 | `patches/turn-usage.patch` | 二十一 子优化②：轮次用量（每轮总消耗 token，口径=真实 `output_tokens`，`usageKey` 去重） | ✅ 已实施 |
-| 30 | `patches/tps-centered-second-line.patch` | 四 费用/TPS **保持上下两行**，TPS 由右对齐改**第二行居中**（桌面 `ActiveSession.tsx` + H5 `AppShell.tsx`） | ✅ 已实施 |
-| 31 | `patches/storage-original-file-bound.patch` | 二十二 F **存量瘦身**：写入侧对 `toolUseResult.originalFile` 做 16KB 有界裁剪（+ `originalFileTruncated/Bytes` 标记，含新测试文件） | ✅ 已实施 |
-| 32 | `patches/computer-use-platform-components.patch` | 十八 平台化组件选择：`pythonRuntimeFor()` 显式平台表（macOS/未知平台无 Python 组件），修复「二元三目」把 win 依赖清单发给 mac | ✅ 已实施 |
-| 33 | `patches/computer-use-python-path-fallback.patch` | 十八 无原生文件选择器时**回退填入已探测解释器路径**（+ 5 语言 i18n 键 + 测试） | ✅ 已实施 |
-| 34 | `patches/h5-mobile-run-records.patch` | 二十五 **H5 打不开子代理运行记录**：移动端 tab 守卫白名单补 `subagent`/`team-member`（+ 2 测试） | ✅ 已实施 |
-| 35 | `patches/tps-real-token-accounting.patch` | 四 子优化：**TPS 采样改真实 token 口径**——自适应三层源（ids/chunk/char）+ 真实 `output_tokens` 对账校准 + 按模型分桶持久化 + 引擎 `return_token_ids` 旁路（20 文件 1717 行） | ✅ 已实施 |
-| 36 | `patches/compact-dead-import-cleanup.patch` | 策略门禁 `check:policy` 的 **dead-imports 清零**（十三章 vcc 移植遗留的 3 处未引用导入；该规则口径是「删」而非白名单） | ✅ 已实施 |
-| 37 | `patches/session-speed-and-usage-pairing.patch` | 四 子优化：**面板「生成速度」分子分母配对**（decode 只除「同批被测到 span 的 token」，非流式回退不再抬高速度）+ **transcript usage 去重改保留末行**（首行 `output_tokens: 0` 曾致 output/cache_read 全丢，13 文件 1183 行） | ✅ 已实施 |
-| 38 | `patches/tps-content-accounting.patch` | 四 子优化：**TPS 计量改为按内容度量**（CJK/latin 两系数最小二乘 + `ids` 独占；废弃按帧计数的 chunk 层——6 并发子代理下它把读数抬到真实值 2~3 倍的根因） | ✅ 已实施 |
-| 39 | `patches/subagent-background-task-durations.patch` | 二十一 子优化④：**子代理耗时 + 子代理收纳栏总耗时 + 后台任务耗时**（汇总栏取**区间并集跨度**而非求和——子代理是并发派发；`agentRunInterval`/`agentGroupSpanMs` 另立，因全 Agent 组不进 `ActivityGroup`；新建 `ToolCallGroup.test`） | ✅ 已实施 |
-| 40 | `patches/vcc-compact-fallback.patch` | 十三 vcc 失败降级兜底（抛错/空摘要 → 回落既有 LLM 摘要路径，避免自动压缩熔断静默停摆） | ✅ 已实施 |
-| 41 | `patches/background-task-duration-restore.patch` | 二十一 子优化④ 补记二：后台任务耗时**恢复三层根因**（①`historyComplete=false` 时窗口被整空 → 跨度类重建改用已加载窗口；②通知型任务无起点 → 用其 `toolUseId` 的工具调用时刻回填；③**merge 把 restored `startedAt` 取成 `now`** → 保留调用方起点）+ 显示改紧凑 ASCII（`4m1s`）+ 消息列表内联卡耗时纳入「会话扩展信息」开关（6 文件 464 行） | ✅ 已实施 |
-| 42 | `patches/tps-burst-anchor.patch` | 四 子优化⑤：**TPS 脉冲修复**——`value()` 缺「刚滑出窗口的样本」锚（`preWindowAt`），流切换处窗口塌缩时积压 token 被 400ms 地板除 ⇒ 生产实测爆到 1000-2000 t/s（真值 230-280，4-7×）；附估算校准接线 `setEstimationCalibration`（2 文件 175 增） | ✅ 已实施 |
-| 43 | `patches/think-token-truth-chain.patch` | 二十一 子优化⑤：**思考 token 走引擎真值**——代理透传 `reasoning_tokens` → usage 保活强转 → `ProgressTracker` 逐轮「真值否则估算」→ `AgentTaskNotification` 带 `output_tokens`/`think_tokens` → 桌面拆分渲染；契约=**发射方决定形态**（21 文件 669 增） | ✅ 已实施 |
-| 44 | `patches/tps-tokens-kind-and-reasoning-passthrough.patch` | 四 子优化⑥：`tps_tokens` 带 **kind**（thinking/content/tool）供思考徽章取**精确单块** token（转录无此字段，只能估）；代理层透传 `reasoning_tokens`（兼容 vLLM `completion_tokens_details` 与 Responses `output_tokens_details`，12 文件 232 增） | ✅ 已实施 |
-| 45 | `patches/file-download-attr.patch` | 五 子优化：`downloadLocalFile` 补 `anchor.download`——缺它则点击是**导航**而非下载，打包版渲染进程 `file://` 下该请求即跨站、被来源门控拒掉（「点了没反应」）；该入口此前**零测试**（2 文件 75 增，含 4 条测试） | ✅ 已实施 |
-| 46 | `patches/local-index-extra-project-roots.patch` | 十 补记：`CC_HAHA_EXTRA_PROJECT_ROOTS` **额外索引根**——dev 实例用自己的 `CLAUDE_CONFIG_DIR` ⇒ 发现根随之变成自己的，真实目录的会话永不出现；该配置可额外索引真实 `projects/`（3 文件 222 增） | ✅ 已实施 |
-| 47 | `patches/test-model-env-isolation.patch` | 十二 补记：三处模型 env 敏感用例接入 `isolateModelDefaultsEnv`——本机导出的 `CLAUDE_CODE_MODEL_CONTEXT_WINDOWS` 等泄漏致 `modelContextWindows`/`ultracode`/`processSlashCommand` **单跑也失败**；官方 runner 逐文件独立进程 + env 白名单故免疫（3 文件 20 增） | ✅ 已实施 |
-| 48 | `patches/session-list-multi-root-validation.patch` | 十 补记二：会话列表**逐行校验改按全部索引根**——只认本配置目录的根时，额外根来的行被判越界并被 `catch` **静默丢弃**（于是 `total` 报得对、行数只剩 2）；平铺 2 → 84、侧边栏分组恢复（1 文件 70 增） | ✅ 已实施 |
-| 49 | `patches/subagent-usage-split-live.patch` | 二十一 子优化⑥：**还原会话的 think/非think 拆分 + 组栏运行中实时跟进**——服务端 `sessionUsageRollup` 按 `toolUseId` 从子代理转录推导 usage 随通知下发（完成态权威）；组栏改读**运行中记录**（`agentTaskLiveUsage`）并以完成通知**二次校正**；实时节奏对齐思考徽章 3s（13 文件 781 增） | ✅ 已实施 |
-| 50 | `patches/tps-phase-switch-steady-window.patch` | 四 子优化⑦：**TPS 相位切换脉冲真根因**——`total` 与 `span` 不是同一批 token 的时间：锚的条件太窄（停滞冲刷恰落在 `span==400ms` 地板故不进锚）、无前置样本时 `Math.max(span, 400ms)` 凭空造分母（整块交付读 22500）、`computeFallbackTps` 同病。收敛为一条规则：**一批 token 生成于它与前一批之间**（`sliceRate()`：原点取切片前一样本；无前置则丢弃最旧那批；不可计时则持有）。顺带修正稳态读数**系统性偏高 11%**（10 批除 9 个间隔） | ✅ 已实施 |
-| 51 | `patches/file-download-blob.patch` | 五 子优化：**下载改走 `apiGetBlob`+blob**——`file://` 下 DOM 自发的下载请求其 Origin 序列化为 `null`（非 `file://`），服务端 403 `CORS origin not allowed` ⇒ 「无法从网站上提取文件」。**不放行 `null`**（那是所有不透明来源的值，恶意页面的 sandbox iframe 即是 ⇒ 等于给本地 API 开后门），改修调用方；同 app icon 的既有解法（4 文件 133 增） | ✅ 已实施 |
-| 52 | `patches/split-no-double-count.patch` | 二十六 补记：**拆分「真实用量 0」**——一轮响应拆成两条记录（思考一条、正文一条，**共享 `message.id`**），只有带 usage 的那条能报 reasoning ⇒ 估算又叠真值（think 15.7k > total 9.3k）⇒ `max(0,total-think)` 恒 0。按响应 id 归组，真值胜过估算；**两处同病同修**（实时 tracker + 还原会话），实测 6/6 一致（4 文件 166 增） | ✅ 已实施 |
-| 53 | `patches/file-download-anchor.patch` | 五 补记（定稿）：**下载必须走 anchor 导航**——anchor 点击不带 Origin，服务端放行并给 `Content-Disposition`；我误把「`Origin: null` → 403」当成「DOM 下载会被拒」，改 fetch+blob 反而把它推进被拒路径且静默失败。回到初版写法，文件浏览/文件预览一处修好；删掉上一轮的 IPC 机件（2 文件，净 −282 行） | ✅ 已实施 |
-| 54 | `patches/tps-batched-delivery.patch` | 四 补记二：**TPS 上千读数真因＝打包投递被当成生成节奏**——重放/整块交付/页面忙时排队的中转帧，其 token 生成时刻远早于投递时刻；逐样本只计入「到达间隔能支撑其实时速率」的样本（上限 5000），延迟交付的首批保留自身间隔故积压仍按其真实停顿评级。实测 7153→250、3603→383（4 文件）。**2026-09-29 修订（187→316 行）**：原过滤按「距**上一个样本**的间隔」判定，隐含**单流前提**；子代理文本折进父米表同一 `samples` 数组后多流交织（帧间隔中位数 0.246ms、66.5% <1ms），正常的 5 单位分片落在别的流之后 0.5ms 即算出 10000 t/s 而被当作「批量投递」丢弃，**实测丢弃 70–73%**，4 子代理并发时 UI 读数仅引擎真值的 1/3。改为**按流间隔**（`Sample.stream` + `ingestSubagentTps` 传 `runAgentId`；窗口内首样本回退 `origin` 保守保留），离线重放 74.7 → **244.5**（无过滤上限 252.7），端到端逐秒对齐。防「批量重放」的原意完整保留。4 文件 | ✅ 已实施 |
-| 55 | `patches/session-history-context-durable.patch` | 五 补记：**打开大会话「一直转圈」＝归属投影全量扫盘**——为一个 40,119 条消息的会话取一页要**扫 193MB / 2,949ms**（跳过投影仅 6ms）；索引原存 `mkdtemp`+内存 4 项+exit 即删 ⇒ 每次重启/淘汰重扫，还泄漏 634 目录/92MB。改为**索引落盘**（meta 表同事务存 identity/size/mtime/offset/suppressed/指纹，稳定路径 + 每周清理），**跨进程 2,949ms→37ms**（2 文件） | ✅ 已实施 |
-| 56 | `patches/session-find-bounded-read.patch` | 五 补记二：**大会话一直转圈＝`findSessionFile` 全量解析转录**——判定「有没有真实对话」时把整个文件读完+逐行 JSON.parse，而同一 id 在多个发现根下各有一份（139.7MB+184.5MB）⇒ 每次解析约 320MB，**单次 4–6 秒**，且几乎每个会话端点都走它。改为只读文件头、命中即停（8MB 上限）。findSessionFile **4345→2ms**，大会话热态打开 **6.9s→0.010s**（2 文件） | ✅ 已实施 |
-| 57 | `patches/transcript-metadata-durable.patch` | 五 补记三：**元数据投影落盘**——冷进程首开大会话仍要 9.6s（该投影本就需要一次全量遍历算 messageCount/最后时间戳，且两份拷贝各建一次）；投影是几 KB 纯标量 ⇒ 落盘 + 只认同 signature，**10.24s → 0.016s**（链位 57/58 治重复开销，本条治冷启动）（3 文件） | ✅ 已实施 |
-| 61 | `patches/subagent-live-metrics.patch` | 二十一 子优化⑤：**子代理运行中用量/耗时真正爬升 + 移动端紧凑 + TPS 汇聚子代理读数修复**——（a）`subagentLiveChars` 累积器 + 3s 节流把在飞子代理的用量写进 `backgroundAgentTasks`，收纳栏数字**运行中就爬升**而非末尾跳变；（b）`useCompactMetrics()`（新增）驱动紧凑形态，本次进一步收紧 `gap-px tracking-tighter`，并修掉内层 `data-agent-group-usage` **硬编码 `gap-[3px]` 不随 compact 收敛**的问题；（c）**TPS 主修复**：`tpsMeter` 的 `Sample` 加 `stream` 标记、`ingestSubagentTps` 传 `runAgentId`，使可行性过滤按**同一流**的间隔判定——多流交织下原「全局间隔」判定误杀约 70% 样本，4 子代理并发时 UI 只有引擎真值的 **1/3**（实测 80 vs 250；修后逐秒对齐 346/331、387/387、381/382）。**⚠️ 本条保留链尾（链位 61），未与链位 21 融合**（详见二十一章子优化⑤）（5 文件） | ✅ 已实施 |
-| 63 | `patches/subagent-usage-cross-client.patch` | 二十八 28.2：**子代理跨客户端用量一致性**——① **身份对齐**（真根因）：`runAgentId` 与「派发它的 Agent 工具调用 id」被混用（UI 按 `toolUseId` 读、实时写入方却填成 runAgentId）⇒ 后加入的客户端把数字写进一张**永远读不到**的行，直到跨过工具轮次边界才「突然出现」；服务端 `activeSubagentRuns` 改为返回 `{taskId, toolUseId}[]` 且**身份无总量也下发**（长生成期才是身份最要紧的时候）。② **服务端在飞外推**（新增 `agentRunUsageProjection.ts`）：在 `notifyOutputCallbacks` 之前按 run 计数（镜像客户端的 delta 规则**及「哪些不计」**），种子取 `max(rollup, projection)` ⇒ 后加入者不再从 0 起，且**估计绝不盖过终局真值**。③ 基准被采用后**必须记账**（`lastWritten = reported`），否则「无变化的写入被跳过」会让数字永远爬不动。④ 轮次页脚补 `text-[11px]`（5 文件→11 文件） | ✅ 已实施 |
-| 64 | `patches/tps-background-freeze.patch` | 二十八 28.4：**后台标签页切回后 TPS 飙高 / 卡着不动**——浏览器后台节流 JS，切回时整段积压**在同一瞬间交付**，落进同一个到达 125ms 桶（60s 冻结 ⇒ 6240 token/桶 ≈ 单桶 50k t/s）；而摊平只在**环内能找到更早有内容桶**时才做 ⇒ 长静默清环后 `previous === -1` 被当成「run 起点」**不摊平** ⇒ 整段按一个桶计费。实测读数序列 **0 → 25,012 → 16,709 → … → 6,331 → 104**：**「卡住」＝先读出 0 而被指示器的防闪规则无限期冻结，「飙高」＝紧随其后的巨桶**，同源。修法：无可归属区间的积压桶**丢弃**（并粘性化，防几单位几单位重建）+ 丢弃桶**不进分母**（是「没测到」不是「空 125ms」）+ 跨静默**保留最后读数**（`settle()` 不再用 0 覆盖）+ 指示器防闪保持**改为有界 1.5s**（无界会让任何持续 <0.5 t/s 的真实慢速冻住数字）（4 文件） | ✅ 已实施 |
-| 62 | `patches/tps-bucket-engine-rewrite.patch` | 二十八 28.1：**TPS 速率引擎重写为 125ms 分桶**——按用户 5 条规格推倒旧连续滑窗（`sliceRate`/`SETTLE_MS`/`BURST_FLOOR_MS`/`MAX_INSTANT_TPS`/`preWindowAt` 等**整块删除**）：每 125ms 一桶、显示＝最近 8 桶均值（每秒 8 次，**只读已完成桶**，不足 8 桶除以已过桶数）、首桶不单独显示、末桶与倒数第二桶 50/50、结束后保持 5 分钟（**引擎真值优先**，否则 ≤1500ms 桶平均）、**生成钟优先到达钟兜底**。⚠️ 两钟**绝不可混算**（`serverTs` epoch vs `performance.now`），且时钟选择对每个米表**粘性**（收到无戳帧即永久降级）。实测：稳定 104 若把进行中的桶计入会被读成 **91**；环宽（64×125ms）才能让积压摊平生效（1200 单桶 9600→~1210）（19 文件） | ✅ 已实施 |
-| 60 | `patches/chapter-27-residual-hunks.patch` | 二十七 27.3：**章内残余 hunk**——`api/claude.ts` bound-thinking 模型（Fable 5.1）需回放思考块（`modelUsesBoundThinking`，剥离会破坏 system 变更后的重放）；`providerModels` 排序固定 `'en'`（宿主 zh 会把 CJK 排到拉丁之前，「其他」组顶到真实 provider 名之上）；`TerminalSettings` 的 `createTerminalRequestId()` 在非安全上下文（H5 经 LAN IP）无 `crypto.randomUUID` 故回退时间戳+随机串；`package.json` 去掉与 `build`/`tsc -b` 口径重复的两个脚本；`PermissionUpdate` require 环改 **Proxy getter**（顶层 require 在环中拿到的是空命名空间且会一直返回它）。与 58/59 合计补齐 21 个「无补丁触及」的文件（5 文件） | ✅ 已实施 |
-| 59 | `patches/chapter-27-vcc-calibration-scripts.patch` | 二十七 27.2：**vcc 片段模式校准/判分脚本**——`scripts/vcc-slice-calibration.ts`(1076 行) + `scripts/vcc-slice-judge.ts`(439 行)，随「局部压缩接入 vcc 片段模式 + 语料校准」引入；`.gitignore` 排除**机器生成的报告**（含会话原文与真实语料，入库的是手写版）。属**测量工具**而非产品代码，故原未纳入章节（3 文件） | ✅ 已实施 |
-| 58 | `patches/chapter-27-test-env-isolation.patch` | 二十七 27.1：**测试环境隔离与遗留失败清零**——新增 `src/testUtils/modelEnv.ts`（`isolateModelDefaultsEnv()` 存/剥离/还原模型相关 env），并接入 12 个用例（模型 4 个 + `effort.agent` + `thinking` + `print.sessionMessage` + `client` + `computerUse` + `builtInAgentOverrides` + `system` + `coreSchemas.modelInfo`）。根因＝**桌面 dev 会把 `CLAUDE_CODE_*` 导出进进程**，致同一批用例**单跑失败、官方 runner 全绿**——是环境泄漏不是真缺陷（13 文件） | ✅ 已实施 |
-| 65 | `patches/tps-anthropic-token-ids.patch` | 二十八 子优化：**Anthropic 协议 token ids 采集端**——引擎 `/v1/messages` 响应带每 `content_block_delta` 的 `token_ids`（引擎侧补丁 `opt21-anthropic-token-ids-v1`，见 `1cat-vllm-v130/patches/`）；cc-haha 侧①私网 anthropic provider 自动经代理（`isPrivateNetworkUrl`，**排除 loopback**）②`anthropicTokenTap` 旁路解析 SSE 取 ids 喂 `tps_tokens`（**字节不变**）③`count_tokens` 端点透传。修「真实客户端 CLI 直连 bc ⇒ cc-haha 服务端不在链路 ⇒ `ids` 档不可达」（6 文件 559 行；**2026-10-02 修订**：引擎改「触发才发」后，代理对**本机/私网 origin** 注入 `x-return-token-ids: 1`） | ✅ 已实施 |
-| 66 | `patches/tps-density-estimation.patch` | 二十九 29.1：**TPS 估算方案重做（B 路径）+ 在飞用量 A 优先**——① 字符→token 折由「单一 `/4` 常数」改 **4 类互斥密度**（CJK/拉丁/数字/符号）+ **20 条样本池** + **岭回归收缩**（先验表兜底、无「每类 N 条」门槛 ⇒ 不死锁；修中文被 `/4` 低算约 **4×**）② 样本**只存整数计数**（免存文本、免策展）③ **在飞用量 A 优先**（`tps_tokens` 真实计数）→ B 兜底，落盘由 `usage` 校正（10 文件 1149 行） | ✅ 已实施 |
-| 67 | `patches/tps-readout-cadence-and-live-gap.patch` | 二十八 28.7：**TPS 读数节拍改 4 次/秒 + 静默阈值统一**——「067 每秒才变一次」的根因**不是轮询**（本就 4–8 Hz）而是**1 秒均值把起伏抹平**（每个新 125ms 桶只替换窗口 1/8 ⇒ 取整后几乎不动）⇒ `READ_BUCKETS` 8→**2**（250ms 窗）+ 轮询双档改单一 **`POLL_MS=250`**；并**删掉我误引入的重复常量 `LIVE_MS`**（它只是「窗口长度」的别名 ⇒ 缩窗口会静默缩短 live→held）⇒ live→held 统一用 `LIVE_GAP_MS=1500`（设计本就是 1.5s）。实测（抖动喂法）**4.0 次/秒**；静默 1200ms→读数 0（如实凹陷）、≥1490ms→切 held（3 文件） | ✅ 已实施 |
+### 📦 优化项分组（8 主题 / 34 项 / 原 67 个平铺补丁）
+
+> 重组前：`modify/patches/*.patch` 共 **67 个**平铺文件（按开发史顺序）。
+> 重组后：**8 个主题目录 / 34 个优化项 patch**（含 2026-10-03 新增的 `tps-session-total`）。
+> **终态树与重组前逐字节一致**：前 33 项应用后 = 参考树 `580c2991`；第 34 项在其上仅动 5 个 TPS 文件 ⇒ 全 34 项 = `56923871`（已验证）。
+> 优化项与链位的对应依据 `pr-prepare/00-overview.md` 的「链位→PR 组」表。
+> 原 67 个平铺补丁归档于 `modify/archive/patches-flat-20261003/`。
+
+| # | Patch（相对 `modify/`） | 优化项 |
+|---|---|---|
+| 1 | `patches/h5/h5-access-token-patch1.patch` | h5 / access-token-patch1 |
+| 2 | `patches/session/session-export-patch1.patch` | session / export-patch1 |
+| 3 | `patches/h5/h5-settings-parity-patch1.patch` | h5 / settings-parity-patch1 |
+| 4 | `patches/session/session-refresh-patch1.patch` | session / refresh-patch1 |
+| 5 | `patches/tps/tps-indicator-patch1.patch` | tps / indicator-patch1 |
+| 6 | `patches/session/session-file-download-patch1.patch` | session / file-download-patch1 |
+| 7 | `patches/session/session-disable-updates-patch1.patch` | session / disable-updates-patch1 |
+| 8 | `patches/usage/usage-cache-billing-patch1.patch` | usage / cache-billing-patch1 |
+| 9 | `patches/session/session-thinking-switch-patch1.patch` | session / thinking-switch-patch1 |
+| 10 | `patches/test/test-server-test-baseline-patch1.patch` | test / server-test-baseline-patch1 |
+| 11 | `patches/h5/h5-mobile-quick-actions-patch1.patch` | h5 / mobile-quick-actions-patch1 |
+| 12 | `patches/vcc/vcc-compactor-patch1.patch` | vcc / compactor-patch1 |
+| 13 | `patches/h5/h5-mobile-scheduled-patch1.patch` | h5 / mobile-scheduled-patch1 |
+| 14 | `patches/computer-use/computer-use-connector-linux-patch1.patch` | computer-use / connector-linux-patch1 |
+| 15 | `patches/h5/h5-mobile-market-layout-patch1.patch` | h5 / mobile-market-layout-patch1 |
+| 16 | `patches/computer-use/computer-use-linux-patch1.patch` | computer-use / linux-patch1 |
+| 17 | `patches/usage/usage-context-usage-anchor-patch1.patch` | usage / context-usage-anchor-patch1 |
+| 18 | `patches/session/session-gzip-transport-patch1.patch` | session / gzip-transport-patch1 |
+| 19 | `patches/thinking-subagent/thinking-subagent-thinking-tool-timing-patch1.patch` | thinking-subagent / thinking-tool-timing-patch1 |
+| 20 | `patches/vcc/vcc-autocompact-window-tiers-patch1.patch` | vcc / autocompact-window-tiers-patch1 |
+| 21 | `patches/session/session-history-transport-patch1.patch` | session / history-transport-patch1 |
+| 22 | `patches/session/session-baseline-typecheck-patch1.patch` | session / baseline-typecheck-patch1 |
+| 23 | `patches/h5/h5-mobile-run-records-patch1.patch` | h5 / mobile-run-records-patch1 |
+| 24 | `patches/vcc/vcc-compact-dead-import-patch1.patch` | vcc / compact-dead-import-patch1 |
+| 25 | `patches/usage/usage-session-speed-usage-pairing-patch1.patch` | usage / session-speed-usage-pairing-patch1 |
+| 26 | `patches/h5/h5-local-index-multi-root-patch1.patch` | h5 / local-index-multi-root-patch1 |
+| 27 | `patches/thinking-subagent/thinking-subagent-split-no-double-count-patch1.patch` | thinking-subagent / split-no-double-count-patch1 |
+| 28 | `patches/session/session-open-speed-patch1.patch` | session / open-speed-patch1 |
+| 29 | `patches/test/test-chapter-27-tests-patch1.patch` | test / chapter-27-tests-patch1 |
+| 30 | `patches/vcc/vcc-calibration-scripts-patch1.patch` | vcc / calibration-scripts-patch1 |
+| 31 | `patches/tps/tps-engine-rewrite-patch1.patch` | tps / engine-rewrite-patch1 |
+| 32 | `patches/thinking-subagent/thinking-subagent-subagent-usage-cross-client-patch1.patch` | thinking-subagent / subagent-usage-cross-client-patch1 |
+| 33 | `patches/tps/tps-density-estimation-patch1.patch` | tps / density-estimation-patch1 |
+| 34 | `patches/tps/tps-session-total-patch1.patch` | tps / session-total-patch1 |
 
 > **已知非章 delta（有意不入 patch，链终态与工作树的结构性差值）**：`#83` 测试修复族（`src/testUtils/modelEnv.ts` 及 11 个 `*.test.ts`：`print.sessionMessage`/`constants/system`/`coreSchemas.modelInfo`/`api/client`/`skills/bundled/computerUse`/`builtInAgentOverrides`/`effort.agent`/`model/{agent,fable,opus55,opus5}`/`__tests__/thinking`/`permissions/PermissionUpdate`）、`MessageList.test.tsx`（flaky 超时放宽，见附录）、`TerminalSettings.tsx`、`lib/providerModels.ts`、`services/api/claude.ts`（bound-thinking WIP）、`desktop/package.json`（本轮新增 `build:renderer`/`typecheck` 两条 **dev 脚本**，electron-builder 打包时会剥离 `scripts`，故不影响产物）、`bun.lock`。
 >

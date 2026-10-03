@@ -1,0 +1,348 @@
+diff --git a/desktop/src/components/chat/TpsIndicator.test.tsx b/desktop/src/components/chat/TpsIndicator.test.tsx
+index 445142a1..4687d02a 100644
+--- a/desktop/src/components/chat/TpsIndicator.test.tsx
++++ b/desktop/src/components/chat/TpsIndicator.test.tsx
+@@ -54,25 +54,25 @@ function shownTps(container: HTMLElement): number {
+   return Number(text.replace(/[^0-9.]/g, ''))
+ }
+ 
+-it('shows the session and its subagents added together, with no badge', async () => {
+-  pump(ownMeter)
+-  pump(subMeter)
++it('shows the session meter, which already totals the group, with no badge', async () => {
++  pumpConcurrent([ownMeter, subMeter])
+ 
+   const { container } = render(<TpsIndicator sessionId="main" />)
+   // The mount effect runs tick() synchronously, so the indicator has a reading.
+   const indicator = container.querySelector('[data-testid="tps-indicator"]')
+   expect(indicator).not.toBeNull()
+-  // The Σ badge is gone: the reading is already the team total, and the count
++  // The Σ badge is gone: the reading is already the session total, and the count
+   // it used to show was permanently zero for background runs.
+   expect(container.querySelector('[data-testid="tps-subagent-badge"]')).toBeNull()
+-  // Two live streams of equal rate, so the total is twice one of them.
+   const shown = shownTps(container)
+   expect(shown).toBeGreaterThan(0)
+-  expect(shown).toBeCloseTo(ownMeter.value() + subMeter.value(), 0)
+-  expect(shown).toBeGreaterThan(ownMeter.value())
++  // The session reading is the session meter alone — a subagent's output is
++  // already in it (engine total under ids, fed prose under text) — so the run
++  // meters are not added on top.
++  expect(shown).toBeCloseTo(ownMeter.value(), 0)
+ })
+ 
+-it('adds each live subagent, and the count shows in the tooltip only', async () => {
++it('counts each live subagent in the tooltip without adding it', async () => {
+   const extras = [new TpsMeter('arrival'), new TpsMeter('arrival'), new TpsMeter('arrival')]
+   const runs = [subMeter, ...extras]
+   pumpConcurrent([ownMeter, ...runs])
+@@ -82,10 +82,7 @@ it('adds each live subagent, and the count shows in the tooltip only', async ()
+   const indicator = container.querySelector('[data-testid="tps-indicator"]')!
+   expect(container.querySelector('[data-testid="tps-subagent-badge"]')).toBeNull()
+   expect(indicator.getAttribute('title')).toContain('4')
+-  expect(shownTps(container)).toBeCloseTo(
+-    ownMeter.value() + runs.reduce((sum, meter) => sum + meter.value(), 0),
+-    0,
+-  )
++  expect(shownTps(container)).toBeCloseTo(ownMeter.value(), 0)
+ })
+ 
+ it('drops a finished subagent out of the total once its window drains', async () => {
+@@ -109,22 +106,28 @@ it('run mode shows one run own speed, ignoring its siblings', () => {
+ })
+ 
+ it('picks up subagents dispatched after the indicator mounted', async () => {
+-  vi.useFakeTimers()
++  // Fake only the timers: the indicator polls on setTimeout, but the meter reads
++  // performance.now() (driven by the beforeEach spy). Faking performance too
++  // would freeze every reading at zero and make this assertion vacuous.
++  vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+   try {
+     pump(ownMeter)
+     // The common case: the indicator mounts with the session and the agents are
+     // dispatched afterwards. A subordinate list resolved once at mount would be
+-    // permanently empty here, so the total would never include the runs.
++    // permanently empty here, so the count would never include the runs.
+     vi.spyOn(chatStore, 'getAgentRunTpsMeters').mockReturnValue([])
+     const { container } = render(<TpsIndicator sessionId="main" />)
+     expect(shownTps(container)).toBeCloseTo(ownMeter.value(), 0)
++    expect(ownMeter.value()).toBeGreaterThan(0)
+ 
+-    // A run starts decoding; the next poll has to see it.
++    // A run starts decoding; the next poll has to count it (the per-tick
++    // resolution is what makes a run dispatched after mount visible at all).
+     pumpConcurrent([ownMeter, subMeter])
+     vi.spyOn(chatStore, 'getAgentRunTpsMeters').mockReturnValue([subMeter])
+     await act(async () => { await vi.advanceTimersByTimeAsync(400) })
+ 
+-    expect(shownTps(container)).toBeCloseTo(ownMeter.value() + subMeter.value(), 0)
++    const indicator = container.querySelector('[data-testid="tps-indicator"]')!
++    expect(indicator.getAttribute('title')).toContain('1')
+   } finally {
+     vi.useRealTimers()
+   }
+diff --git a/desktop/src/lib/tpsMeter.test.ts b/desktop/src/lib/tpsMeter.test.ts
+index b38d3562..c706c5e6 100644
+--- a/desktop/src/lib/tpsMeter.test.ts
++++ b/desktop/src/lib/tpsMeter.test.ts
+@@ -500,10 +500,14 @@ describe('aggregateMeterReadings', () => {
+ 
+   const meter = (clock: TpsClock = 'arrival') => new TpsMeter(clock)
+ 
+-  it('adds a live subagent to the session own speed and counts it', () => {
++  it('reports the session total and only counts a live subagent', () => {
+     const h = harness()
+     const own = meter()
+     const sub = meter()
++    // In production the subagent's prose also feeds the session meter (see
++    // ingestSubagentTps), so that meter — not own + sub — is the session
++    // reading. Adding the run meters is the double count the engine saw as
++    // nearly twice its throughput.
+     h.pumpAll([own, sub])
+ 
+     const single = aggregateMeterReadings(own, [], h.clock.now, 5 * 60 * 1000)
+@@ -511,12 +515,12 @@ describe('aggregateMeterReadings', () => {
+     expect(single.tps).toBeGreaterThan(0)
+     expect(r.visible).toBe(true)
+     expect(r.activeSubs).toBe(1)
+-    // Each meter rates its own stream, so the team speed is the sum.
+-    expect(r.tps).toBeCloseTo(single.tps + sub.value(), 5)
+-    expect(r.tps).toBeCloseTo(single.tps * 2, 5)
++    expect(r.tps).toBeCloseTo(own.value(), 5)
++    expect(r.tps).toBeCloseTo(single.tps, 5)
++    expect(r.tps).toBeLessThan(own.value() + sub.value())
+   })
+ 
+-  it('sums four concurrent subagents (the four-agent dispatch case)', () => {
++  it('counts four concurrent subagents without adding their meters (the four-agent case)', () => {
+     const h = harness()
+     const own = meter()
+     const subs = [0, 1, 2, 3].map(() => meter())
+@@ -524,42 +528,64 @@ describe('aggregateMeterReadings', () => {
+ 
+     const r = aggregateMeterReadings(own, subs, h.clock.now, 5 * 60 * 1000)
+     expect(r.activeSubs).toBe(4)
+-    const expected = own.value() + subs.reduce((sum, sub) => sum + sub.value(), 0)
+-    expect(r.tps).toBeCloseTo(expected, 5)
+-    // Five concurrent decoders, so about five times one stream's rate.
+-    expect(r.tps).toBeGreaterThan(own.value() * 4.5)
++    // The session reading is the session meter alone; every subagent's output is
++    // already in it (engine total under ids, fed prose under text).
++    expect(r.tps).toBeCloseTo(own.value(), 5)
++    expect(r.tps).toBeLessThan(own.value() + subs.reduce((sum, sub) => sum + sub.value(), 0))
+   })
+ 
+-  it('shows the subagents alone while the session itself has not streamed', () => {
++    it('does not add subagents when the session meter already holds the engine total', () => {
++      const h = harness()
++      const own = meter()
++      const sub = meter()
++      // `tps_tokens` is the engine's count for the whole session id — a
++      // subagent's calls carry the parent's id, so this total already includes
++      // it. Adding the subagent meter again is the double count that read the
++      // indicator at nearly twice the engine's real throughput.
++      for (let i = 0; i < 10; i++) {
++        h.clock.advance(100)
++        own.pushTokens(24, {})
++      }
++      expect(own.source()).toBe('ids')
++      h.pump(sub, 10)
++
++      const r = aggregateMeterReadings(own, [sub], h.clock.now, 5 * 60 * 1000)
++      expect(r.visible).toBe(true)
++      expect(r.activeSubs).toBe(1)
++      expect(r.tps).toBeCloseTo(own.value(), 5)
++      expect(r.tps).toBeLessThan(own.value() + sub.value())
++    })
++
++  it('counts the subagents a lone main session dispatched', () => {
+     const h = harness()
+     const own = meter()
+     const sub = meter()
+-    h.pump(sub)
++    // The subagent's prose reaches the session meter (ingestSubagentTps), so the
++    // session still reads a positive speed while only the run decodes.
++    h.pumpAll([own, sub])
+ 
+-    // The session is idle waiting on its subagents; their speed is still the
+-    // honest team reading, so it is shown rather than masked.
+     const r = aggregateMeterReadings(own, [sub], h.clock.now, 5 * 60 * 1000)
+     expect(r.visible).toBe(true)
+     expect(r.activeSubs).toBe(1)
+-    expect(r.tps).toBeCloseTo(sub.value(), 5)
++    expect(r.tps).toBeCloseTo(own.value(), 5)
++    expect(r.tps).toBeGreaterThan(0)
+   })
+ 
+-  it('drops a finished subagent out of the sum once it has gone quiet', () => {
++  it('drops a finished subagent from the count once it has gone quiet', () => {
+     const h = harness()
+     const own = meter()
+     const sub = meter()
+-    h.pump(sub)
++    h.pumpAll([own, sub])
+ 
+-    // The subagent stops. Past the liveness gap it no longer feeds the sum,
+-    // though its own value() still serves the held reading.
++    // The subagent stops. Past the liveness gap it is no longer counted as
++    // active; the reading itself is the session meter's, which already held it.
+     h.clock.advance(10_000)
+     h.pump(own)
+ 
+     const r = aggregateMeterReadings(own, [sub], h.clock.now, 5 * 60 * 1000)
+     expect(r.visible).toBe(true)
+     expect(r.activeSubs).toBe(0)
+-    const single = aggregateMeterReadings(own, [], h.clock.now, 5 * 60 * 1000)
+-    expect(r.tps).toBeCloseTo(single.tps, 5)
++    expect(r.tps).toBeCloseTo(own.value(), 5)
+   })
+ 
+   it('is unchanged for a lone main session (no subordinates)', () => {
+diff --git a/desktop/src/lib/tpsMeter.ts b/desktop/src/lib/tpsMeter.ts
+index 3ca48e8d..722a5118 100644
+--- a/desktop/src/lib/tpsMeter.ts
++++ b/desktop/src/lib/tpsMeter.ts
+@@ -1029,18 +1029,22 @@ export type TpsAggregate = {
+ }
+ 
+ /**
+- * Build the session's reading as the sum of every stream decoding for it: the
+- * session's own output plus each running subagent's.
++ * Build the session's reading.
+  *
+- *  - Each meter rates **its own stream only** — chatStore feeds the parent's
+- *    meter the parent's own prose and each run's meter that run's deltas (see
+- *    ingestSubagentTps) — so the text behind the meters is disjoint and adding
+- *    the rates adds concurrent decoders rather than double-counting tokens.
+- *    A run that has finished stops contributing the moment its window drains,
+- *    which is what keeps the total from sitting above the truth.
+- *  - While nothing is decoding the reading falls back to the own session's
+- *    held speed — identical to the pre-aggregation single-session behavior,
+- *    so a lone main session is unaffected.
++ * The session meter holds the whole session's output — its own stream plus every
++ * subagent's — so its value *is* the reading, in both token modes:
++ *  - engine ids: `tps_tokens` carries the engine's count for the session id,
++ *    which a subagent's calls use too, so it already sums the group;
++ *  - text: the readout's own prose and each run's prose are both fed to it (see
++ *    ingestSubagentTps).
++ * The per-run meters are therefore **not** added here — doing so was the double
++ * count that read the indicator at nearly twice the engine's throughput. They
++ * are consulted only to say how many runs are decoding and to keep the session
++ * indicator alive while one is.
++ *
++ *  - While nothing is decoding the reading falls back to the session's held
++ *    speed — identical to the pre-aggregation single-session behavior, so a
++ *    lone main session is unaffected.
+  *  - Visibility / the 5-min idle hide rule considers the newest data from
+  *    the whole group, so a busy subagent keeps the main indicator alive.
+  */
+@@ -1061,13 +1065,13 @@ export function aggregateMeterReadings(
+     return { visible: false, tps: 0, activeSubs: 0 }
+   }
+ 
+-  let tps = own.hasLiveSamples() ? own.value() : 0
+-  let activeSubs = 0
+-  for (const meter of subordinates) {
+-    if (!meter.hasLiveSamples()) continue
+-    activeSubs += 1
+-    tps += meter.value()
+-  }
++    // The runs are counted, never summed: the session meter already carries
++    // their output (engine total under ids, fed prose under text).
++    let activeSubs = 0
++    for (const meter of subordinates) {
++      if (meter.hasLiveSamples()) activeSubs += 1
++    }
++    let tps = own.hasLiveSamples() ? own.value() : 0
+   if (tps <= 0) {
+     // Nothing is decoding this instant. Hold the session's own last speed (the
+     // turn-ending rate) so a lone session reads exactly as it did before
+diff --git a/desktop/src/stores/chatStore.test.ts b/desktop/src/stores/chatStore.test.ts
+index 56a6648d..57e4a74d 100644
+--- a/desktop/src/stores/chatStore.test.ts
++++ b/desktop/src/stores/chatStore.test.ts
+@@ -10833,12 +10833,11 @@ describe('chatStore history mapping', () => {
+     send({ type: 'content_delta', text: 'x'.repeat(60) })
+ 
+     // Metered under the run's own id, so a run page opened later still finds a
+-    // warm meter, and the parent's meter is left alone — subagent prose must
+-    // never inflate the session's own reading (it is added separately, by the
+-    // indicator, from the run meters).
++    // warm meter — and also on the session meter, which is the whole session's
++    // reading in the text path (a subagent is fed there, never summed).
+     const meter = getAgentRunTpsMeter(parentSessionId, 'metered-agent')
+     expect(meter.hasStreamed()).toBe(true)
+-    expect(getSessionTpsMeter(parentSessionId).hasStreamed()).toBe(false)
++    expect(getSessionTpsMeter(parentSessionId).hasStreamed()).toBe(true)
+     // Metered, never rendered: the frame is buffered for a run page that may
+     // never open, and no session state is fabricated for the parent.
+     expect(useChatStore.getState().sessions[parentSessionId]).toBeUndefined()
+@@ -10897,10 +10896,11 @@ describe('chatStore history mapping', () => {
+         event: { type: 'content_delta', text: 'x'.repeat(6) },
+       })
+     }
+-    // The relayed text went to the run's own meter; the session's meter never
+-    // saw it, so no part of it can reach the call reconciliation below.
++    // The text went to the run's own meter and, for the session reading, to the
++    // session meter too — but as `external`, so it never enters the session's
++    // call accounting and cannot reach the reconciliation below.
+     expect(getAgentRunTpsMeter(sessionId, 'a1').hasStreamed()).toBe(true)
+-    expect(getSessionTpsMeter(sessionId).hasStreamed()).toBe(false)
++    expect(getSessionTpsMeter(sessionId).hasStreamed()).toBe(true)
+ 
+     useChatStore.getState().handleServerMessage(sessionId, {
+       type: 'message_complete',
+diff --git a/desktop/src/stores/chatStore.ts b/desktop/src/stores/chatStore.ts
+index 6b269b32..6d903e8e 100644
+--- a/desktop/src/stores/chatStore.ts
++++ b/desktop/src/stores/chatStore.ts
+@@ -1173,9 +1173,10 @@ function clearAgentRunTpsMeters(parentSessionId: string): void {
+  * meter is touched — the text never reaches streamingText, so subagent prose
+  * cannot leak into the main conversation.
+  *
+- * The meter is per run, so its window holds one decoder's samples and needs no
+- * stream tag; the parent's meter is left alone and now carries only the
+- * parent's own prose.
++ * The run meter is per run, so its window holds one decoder's samples and needs
++ * no stream tag — it is what a run page shows. The same prose also feeds the
++ * session meter (text-measured path only; see push), so the session reading is
++ * the whole session's output rather than the parent's prose alone.
+  *
+  * Whole-block `thinking` hand-overs (complete === true) are skipped: their
+  * fragments already arrived as deltas, so counting both would double the
+@@ -1190,15 +1191,29 @@ function ingestSubagentTps(
+   // `external` keeps these frames out of any call accounting: they belong to
+   // the subagent's own API calls, whose real usage never reaches this socket,
+   // so they may only contribute samples to the sliding window.
+-  const meter = getAgentRunTpsMeter(parentSessionId, runAgentId)
++  const run = getAgentRunTpsMeter(parentSessionId, runAgentId)
++  // The session's reading is the whole session's output. Under engine token ids
++  // the session meter is fed `tps_tokens`, whose count for the session id
++  // already includes every subagent, so the text must not be added again. The
++  // text-measured path has no such total — a subagent arrives only as this
++  // event — so its prose feeds the session meter here, keeping `own` the
++  // session total in both modes.
++  const feedOwn = !tpsIdsModeBySession.get(parentSessionId)
++  // Only the stamped stream events carry `serverTs`; read it under the union's
++  // narrowing (it is what the original per-branch pushes did).
++  const generatedAt = event.type === 'content_delta' || event.type === 'thinking'
++    ? event.serverTs
++    : undefined
++  const push = (text: string): void => {
++    run.push(text, { external: true, generatedAt })
++    if (feedOwn) getSessionTpsMeter(parentSessionId).push(text, { external: true, generatedAt })
++  }
+   if (event.type === 'content_delta') {
+-    if (event.text) meter.push(event.text, { external: true, generatedAt: event.serverTs })
+-    if (event.toolInput) meter.push(event.toolInput, { external: true, generatedAt: event.serverTs })
++    if (event.text) push(event.text)
++    if (event.toolInput) push(event.toolInput)
+     return
+   }
+-  if (event.type === 'thinking' && event.complete !== true && event.text) {
+-    meter.push(event.text, { external: true, generatedAt: event.serverTs })
+-  }
++  if (event.type === 'thinking' && event.complete !== true && event.text) push(event.text)
+ }
+ 
+ /**
