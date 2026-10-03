@@ -17,6 +17,9 @@ import * as os from 'node:os'
 import * as path from 'node:path'
 import { handleApiRequest } from '../router.js'
 import { sessionService } from '../services/sessionService.js'
+import { sessionUsageRollup } from '../services/sessionUsageRollup.js'
+import { activeAgentTasks, activeBackgroundTaskIds } from '../ws/agentTaskState.js'
+import { clearAgentRunUsage, observeAgentRunUsage } from '../services/agentRunUsageProjection.js'
 
 const SUBAGENT_SENTINEL = 'SUBPAGENT_ONLY_SENTINEL_read_alpha'
 
@@ -246,5 +249,126 @@ describe('session messages HTTP surface', () => {
     expect(body.messages.length).toBeGreaterThan(0)
     expect(JSON.stringify(body)).not.toContain(SUBAGENT_SENTINEL)
     expect(body.messages.some((message) => message.parentToolUseId === 'Agent:0')).toBe(false)
+  })
+})
+
+describe('GET /api/sessions/:id/messages — runningAgentUsage', () => {
+  it('is empty when no subagent run is active, so no finished run is re-opened', async () => {
+    const sessionId = await seedSessionWithSubagent()
+    const response = await api('GET', `/api/sessions/${sessionId}/messages`)
+    expect(response.status).toBe(200)
+    const body = await response.json() as { runningAgentUsage?: Record<string, unknown> }
+    expect(body.runningAgentUsage).toEqual({})
+  })
+
+  it('carries both ids of the in-flight runs, and their total when there is one', async () => {
+    const sessionId = await seedSessionWithSubagent()
+    // One run is live, another finished earlier in the same session. The run id
+    // and the spawning tool-call id are distinct, as they are in practice.
+    activeBackgroundTaskIds.set(sessionId, new Set(['a74ce8']))
+    activeAgentTasks.set(sessionId, new Map([['a74ce8', {
+      taskId: 'a74ce8',
+      taskType: 'local_agent' as const,
+      toolUseId: 'call_00_live',
+      stopIntent: false,
+      stopRequested: false,
+      localStopConfirmed: false,
+      bookendPending: false,
+      finalizationRetryCount: 0,
+    }]]))
+    const rollup = spyOn(sessionUsageRollup, 'byToolUseId').mockImplementation(async () => new Map([
+      ['call_00_live', { totalTokens: 4200, outputTokens: 4200, toolUses: 2 }],
+      ['call_00_done', { totalTokens: 999, outputTokens: 999, toolUses: 1 }],
+    ]))
+    try {
+      const response = await api('GET', `/api/sessions/${sessionId}/messages`)
+      expect(response.status).toBe(200)
+      const body = await response.json() as { runningAgentUsage?: Record<string, unknown> }
+      // Keyed by tool-use id (what the UI reads under), carrying the run id
+      // alongside it: a client that joined mid-run never saw `task_started` and
+      // cannot relate the two on its own.
+      expect(body.runningAgentUsage).toEqual({
+        call_00_live: { taskId: 'a74ce8', toolUseId: 'call_00_live', totalTokens: 4200, toolUses: 2 },
+      })
+      // The finished run is left out even though its transcript has a total:
+      // the client marks everything here as running.
+      expect(body.runningAgentUsage?.['call_00_done']).toBeUndefined()
+    } finally {
+      rollup.mockRestore()
+      activeBackgroundTaskIds.clear()
+      activeAgentTasks.clear()
+    }
+  })
+
+  it('reports a live run with no total yet, so a late client can still place it', async () => {
+    const sessionId = await seedSessionWithSubagent()
+    activeBackgroundTaskIds.set(sessionId, new Set(['a74ce8']))
+    activeAgentTasks.set(sessionId, new Map([['a74ce8', {
+      taskId: 'a74ce8',
+      taskType: 'local_agent' as const,
+      toolUseId: 'call_00_live',
+      stopIntent: false,
+      stopRequested: false,
+      localStopConfirmed: false,
+      bookendPending: false,
+      finalizationRetryCount: 0,
+    }]]))
+    // No transcript total yet: the run is inside its first, long generation, which
+    // is exactly when a client joining now would otherwise have nothing at all.
+    const rollup = spyOn(sessionUsageRollup, 'byToolUseId').mockImplementation(async () => new Map())
+    try {
+      const response = await api('GET', `/api/sessions/${sessionId}/messages`)
+      expect(response.status).toBe(200)
+      const body = await response.json() as { runningAgentUsage?: Record<string, unknown> }
+      expect(body.runningAgentUsage).toEqual({
+        call_00_live: { taskId: 'a74ce8', toolUseId: 'call_00_live' },
+      })
+    } finally {
+      rollup.mockRestore()
+      activeBackgroundTaskIds.clear()
+      activeAgentTasks.clear()
+    }
+  })
+})
+
+describe('GET /api/sessions/:id/messages — runningAgentUsage counts a live generation', () => {
+  it('answers with the in-flight estimate when the run has not crossed a boundary yet', async () => {
+    const sessionId = await seedSessionWithSubagent()
+    activeBackgroundTaskIds.set(sessionId, new Set(['a74ce8']))
+    activeAgentTasks.set(sessionId, new Map([['a74ce8', {
+      taskId: 'a74ce8',
+      taskType: 'local_agent' as const,
+      toolUseId: 'call_00_live',
+      stopIntent: false,
+      stopRequested: false,
+      localStopConfirmed: false,
+      bookendPending: false,
+      finalizationRetryCount: 0,
+    }]]))
+    // No transcript total: still inside the first generation. This is exactly the
+    // window in which a joining client used to start from zero.
+    const rollup = spyOn(sessionUsageRollup, 'byToolUseId').mockImplementation(async () => new Map())
+    try {
+      observeAgentRunUsage(sessionId, { type: 'system', subtype: 'task_started', task_id: 'a74ce8', tool_use_id: 'call_00_live' })
+      observeAgentRunUsage(sessionId, {
+        type: 'system', subtype: 'agent_run_message', run_agent_id: 'a74ce8',
+        event_kind: 'message',
+        message: { type: 'stream_event', event: { type: 'content_block_delta', delta: { type: 'text_delta', text: 'x'.repeat(400) } } },
+      })
+
+      const response = await api('GET', `/api/sessions/${sessionId}/messages`)
+      expect(response.status).toBe(200)
+      const body = await response.json() as { runningAgentUsage?: Record<string, unknown> }
+      // 400 Latin characters at the four-class density (1/3.5) ≈ 114 tokens —
+      // a flat ÷4 would have said 100 and undercounted Chinese by ~4x.
+      expect(body.runningAgentUsage).toEqual({
+        call_00_live: { taskId: 'a74ce8', toolUseId: 'call_00_live', totalTokens: 114 },
+      })
+    } finally {
+      rollup.mockRestore()
+      activeBackgroundTaskIds.clear()
+      activeAgentTasks.clear()
+      clearAgentRunUsage(sessionId)
+    }
   })
 })

@@ -234,7 +234,14 @@ export function emitTaskTerminatedSdk(
     summary?: string
     outputFile?: string
     workflowRunId?: string
-    usage?: { total_tokens: number; tool_uses: number; duration_ms: number }
+    usage?: {
+      total_tokens: number
+      tool_uses: number
+      duration_ms: number
+      /** Generated tokens; the thinking share is `think_tokens` when reported. */
+      output_tokens?: number
+      think_tokens?: number
+    }
     ownerAgentId?: string
   },
 ): void {

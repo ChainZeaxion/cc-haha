@@ -13,6 +13,8 @@ export function emitTaskProgress(params: {
   description: string
   startTime: number
   totalTokens: number
+  /** Thinking share of `totalTokens`; omitted when the engine reported none. */
+  reasoningTokens?: number
   toolUses: number
   lastToolName?: string
   summary?: string
@@ -30,6 +32,12 @@ export function emitTaskProgress(params: {
       total_tokens: params.totalTokens,
       tool_uses: params.toolUses,
       duration_ms: Date.now() - params.startTime,
+      ...(params.reasoningTokens != null
+        ? {
+            output_tokens: params.totalTokens,
+            think_tokens: params.reasoningTokens,
+          }
+        : {}),
     },
     last_tool_name: params.lastToolName,
     summary: params.summary,

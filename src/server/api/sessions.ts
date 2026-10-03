@@ -26,6 +26,9 @@
 
 import * as path from 'node:path'
 import { sessionService } from '../services/sessionService.js'
+import { enrichTaskNotificationsWithUsage, sessionUsageRollup } from '../services/sessionUsageRollup.js'
+import { activeSubagentRuns } from '../ws/agentTaskState.js'
+import { projectAgentRunUsage } from '../services/agentRunUsageProjection.js'
 import { conversationService } from '../services/conversationService.js'
 import { ApiError, errorResponse } from '../middleware/errorHandler.js'
 import {
@@ -499,13 +502,81 @@ async function getSessionMessages(req: Request, sessionId: string, url: URL): Pr
   // A full read always starts from the tail; mixing it with a cursor would
   // silently turn it back into a paged read with a larger budget.
   if (mode === 'full' && cursor) throw ApiError.badRequest('mode=full does not take a cursor')
-  return Response.json(await sessionService.getSessionHistoryPage(sessionId, {
+  const history = await sessionService.getSessionHistoryPage(sessionId, {
     cursor,
     // `mode=full` returns the whole transcript up to the reader's byte budget in
     // one response so the desktop timeline never stitches pages together.
     full: mode === 'full',
     signal: req.signal,
-  }))
+  })
+  return Response.json({
+    ...history,
+    // A run's tokens are recoverable from its own subagent transcript even when
+    // the parent's result text only kept the old context-based total.
+    taskNotifications: await enrichTaskNotificationsWithUsage(sessionId, history.taskNotifications),
+    runningAgentUsage: await runningAgentUsage(sessionId),
+  })
+}
+
+/**
+ * The in-flight subagent runs of a session, keyed by the Agent tool-call id the
+ * UI reads usage under.
+ *
+ * A client that opens the session while a run is in flight has no way to learn
+ * how much that run has already produced, and — because it missed the
+ * `task_started` that ties the run's own id to its spawning tool call — no way to
+ * even attribute what it sees. So each entry carries both ids, not just the key:
+ * the run id is what the client's live frames are addressed with, the tool-call id
+ * is what it must display the number under.
+ *
+ * Two sources answer how much, and neither alone is enough. The transcript rollup
+ * holds a run's *real* total, but states it only at a tool boundary; inside a long
+ * single generation — exactly where a client that just arrived notices the gap — it
+ * has nothing. The server-side projection counts that generation as it streams, so
+ * it is always current, but by characters rather than tokens. Taking whichever is
+ * further along means the figure is the real one once a boundary has passed, and an
+ * estimate only while the run is mid-flight. Both are superseded by the run's own
+ * completion, so an estimate can never outlive the number it stood in for.
+ *
+ * The identity is sent even with no total. A run that has only just started has
+ * nothing to report yet, and it is precisely then that a client joining now would
+ * otherwise have nothing to attach. `totalTokens` is therefore optional;
+ * `taskId`/`toolUseId` are not.
+ *
+ * Only in-flight runs are included, because the client marks whatever it finds
+ * here as running: sending every run would re-open finished ones whenever their
+ * terminal notification fell outside the loaded window.
+ */
+type RunningAgentUsage = {
+  /** The run's own id; the key live frames address it by. */
+  taskId: string
+  /** The Agent tool call that spawned it; the key the UI renders usage under. */
+  toolUseId: string
+  totalTokens?: number
+  thinkTokens?: number
+  toolUses?: number
+}
+
+async function runningAgentUsage(sessionId: string): Promise<Record<string, RunningAgentUsage>> {
+  const runs = activeSubagentRuns(sessionId)
+  if (runs.length === 0) return {}
+  const byToolUseId = await sessionUsageRollup.byToolUseId(sessionId)
+  const projected = new Map(projectAgentRunUsage(sessionId).map(run => [run.taskId, run]))
+  const usage: Record<string, RunningAgentUsage> = {}
+  for (const run of runs) {
+    const entry = byToolUseId.get(run.toolUseId)
+    const live = projected.get(run.taskId)
+    const totalTokens = Math.max(entry?.totalTokens ?? 0, live?.totalTokens ?? 0)
+    const thinkTokens = Math.max(entry?.thinkTokens ?? 0, live?.thinkTokens ?? 0)
+    usage[run.toolUseId] = {
+      taskId: run.taskId,
+      toolUseId: run.toolUseId,
+      ...(totalTokens > 0 ? { totalTokens } : {}),
+      ...(thinkTokens > 0 ? { thinkTokens } : {}),
+      ...(entry ? { toolUses: entry.toolUses } : {}),
+    }
+  }
+  return usage
 }
 
 async function getSessionTrace(req: Request, sessionId: string, url: URL): Promise<Response> {

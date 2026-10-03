@@ -175,6 +175,40 @@ export function hasActiveBackgroundTasks(sessionId: string): boolean {
   })
 }
 
+/** An in-flight subagent run, as the identity pair the rest of the system looks it up by. */
+export type ActiveSubagentRun = {
+  /** The run's own id. Live agent-run frames are addressed with this. */
+  taskId: string
+  /** The Agent tool call that spawned it. The UI and the usage rollup are keyed by this. */
+  toolUseId: string
+}
+
+/**
+ * The in-flight *subagent* runs of a session.
+ *
+ * Both ids are reported because they are not interchangeable and not derivable
+ * from each other: `taskId` is what live frames carry, `toolUseId` is what the UI
+ * renders the number under. A client that joined the session mid-run never saw the
+ * `task_started` frame that ties the two together, so without both it cannot
+ * present the run's usage at all — it would have to guess, and a guessed
+ * `toolUseId` is simply never looked up.
+ *
+ * Agent tasks only on purpose. `activeBackgroundTaskIds` also holds shell jobs,
+ * which have no subagent transcript and must not be looked up as if they had one.
+ */
+export function activeSubagentRuns(sessionId: string): ActiveSubagentRun[] {
+  const taskIds = activeBackgroundTaskIds.get(sessionId)
+  if (!taskIds || taskIds.size === 0) return []
+  const sessionAgentTasks = activeAgentTasks.get(sessionId)
+  const runs: ActiveSubagentRun[] = []
+  for (const taskId of taskIds) {
+    const agentTask = sessionAgentTasks?.get(taskId)
+    if (!agentTask) continue
+    runs.push({ taskId: agentTask.taskId, toolUseId: agentTask.toolUseId })
+  }
+  return runs
+}
+
 export function clearAgentStopFinalizationRetry(task: ActiveAgentTaskState): void {
   if (task.finalizationRetryTimer === undefined) return
   clearTimeout(task.finalizationRetryTimer)
