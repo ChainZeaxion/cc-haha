@@ -1,5 +1,12 @@
 import { describe, expect, test } from 'bun:test'
 
+import { isolateModelDefaultsEnv } from '../../testUtils/modelEnv.js'
+
+// This machine exports CLAUDE_CODE_MODEL_CONTEXT_WINDOWS, which otherwise leaks
+// in and changes the windows under test — the file failed even when run alone.
+// Same isolation the other model-env-sensitive suites use.
+isolateModelDefaultsEnv()
+
 import {
   getConfiguredOrBuiltInModelContextWindow,
   getModelContextWindowFromEnvValue,
