@@ -2,7 +2,7 @@
 
 结构：`patches/<主题>/<主题>-<优化项>-patch<N>.patch`（一个优化项一个 patch；拆不开才 patch2/3）。
 
-**应用顺序 = `ORDER.md` 自上而下**（33 个 patch；项按最小链位排序，见下）。
+**应用顺序 = `ORDER.md` 自上而下**（34 个 patch；项按最小链位排序，见下）。
 
 ```bash
 while read -r p; do git apply -p1 "$p"; done < modify/patches/ORDER.md
@@ -41,6 +41,7 @@ while read -r p; do git apply -p1 "$p"; done < modify/patches/ORDER.md
 | `tps-indicator-patch1.patch` | 7,7,30,35,38,42,44,50,54 |
 | `tps-engine-rewrite-patch1.patch` | 62,62,64,65,67 |
 | `tps-density-estimation-patch1.patch` | 66,66 |
+| `tps-session-total-patch1.patch` | 2026-10-03 新增（会话读数=会话总量，去子代理重复计） |
 
 ## usage/ — 上下文缓存计费与用量聚合显示（pr-5）
 

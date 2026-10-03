@@ -33,3 +33,4 @@ patches/vcc/vcc-calibration-scripts-patch1.patch
 patches/tps/tps-engine-rewrite-patch1.patch
 patches/thinking-subagent/thinking-subagent-subagent-usage-cross-client-patch1.patch
 patches/tps/tps-density-estimation-patch1.patch
+patches/tps/tps-session-total-patch1.patch

@@ -2816,3 +2816,20 @@ type DensitySample = { cjk: number; latin: number; digit: number; sym: number; t
 **由此捞出的 2 处真缺陷**（已修，patch 第 29 位）：
 1. `src/server/index.ts` **TS2502**——`const serverFetch = (req, server: typeof server)`：参数名 `server` 遮蔽外层同名变量，类型注解里的 `typeof server` 解析成**它自己** → 循环自引用（最小复现：只改参数名即消失）。后果**不止一行报错**：该参数类型退化为循环引用，函数体内 4 处 `server.requestIP` / `server.upgrade` **全部丢失类型检查**。修法=提取具名 `type ServerHandle`。
 2. `src/vendor/computer-use-mcp/toolCalls.test.ts` → **4 条 TS2300** 重复导入（`bindSessionContext` ×2、`ComputerUseSessionContext` ×2）。
+
+---
+
+## 三十 会话 TPS 读数 = 会话总量（去子代理重复计，2026-10-03）
+
+**症状**：4 子代理并发时主会话 TPS 显示远超引擎真实吞吐（实测峰值 2124 vs 引擎 324 ⇒ **6.5×**；主会话空闲、子代理活跃时约 **3.3×**）。
+
+**根因**：会话 meter（`own`）收到的是 `tps_tokens` —— 引擎按 **session id** 报的**总量**（子代理的调用复用父 sessionId，其 token 也计入该 id）。但旧聚合又在 `own` 之上 `+ Σ子代理meter`，于是同一批 token 被计两次。
+
+**修法（统一「own = 会话总量」）**：显示恒 = `own`，子代理 meter 只用于运行页与计数：
+- **ids 模式**：`own` ← `tps_tokens`（引擎总量，**已含**全部子代理）；
+- **非 ids 模式**：`own` ← 主会话正文 **+** 每个子代理正文（`ingestSubagentTps` 把子代理文本也喂入会话 meter；`external` 标记使其不进调用对账）；
+- `aggregateMeterReadings` **不再相加**子代理 meter（只统计 `activeSubs` 数量）。
+
+**验证**：`tpsMeter`/`TpsIndicator`/`chatStore` 单测 **472/472**（并修掉一条假绿：`picks up subagents…` 原用 `vi.useFakeTimers()` 连 `performance.now` 一起 mock，读数恒 0 ⇒ 断言空过；改为只 fake 定时器）；7787 实测 4 子代理写长文：**显示均值 141 vs 引擎 139.7 ⇒ 1.01×**（旧口径 6.5×）。
+
+**patch**：067 = `patches/tps/tps-session-total-patch1.patch`；06 = `patches/tps-session-total-fix.patch`。

@@ -10833,12 +10833,11 @@ describe('chatStore history mapping', () => {
     send({ type: 'content_delta', text: 'x'.repeat(60) })
 
     // Metered under the run's own id, so a run page opened later still finds a
-    // warm meter, and the parent's meter is left alone — subagent prose must
-    // never inflate the session's own reading (it is added separately, by the
-    // indicator, from the run meters).
+    // warm meter — and also on the session meter, which is the whole session's
+    // reading in the text path (a subagent is fed there, never summed).
     const meter = getAgentRunTpsMeter(parentSessionId, 'metered-agent')
     expect(meter.hasStreamed()).toBe(true)
-    expect(getSessionTpsMeter(parentSessionId).hasStreamed()).toBe(false)
+    expect(getSessionTpsMeter(parentSessionId).hasStreamed()).toBe(true)
     // Metered, never rendered: the frame is buffered for a run page that may
     // never open, and no session state is fabricated for the parent.
     expect(useChatStore.getState().sessions[parentSessionId]).toBeUndefined()
@@ -10897,10 +10896,11 @@ describe('chatStore history mapping', () => {
         event: { type: 'content_delta', text: 'x'.repeat(6) },
       })
     }
-    // The relayed text went to the run's own meter; the session's meter never
-    // saw it, so no part of it can reach the call reconciliation below.
+    // The text went to the run's own meter and, for the session reading, to the
+    // session meter too — but as `external`, so it never enters the session's
+    // call accounting and cannot reach the reconciliation below.
     expect(getAgentRunTpsMeter(sessionId, 'a1').hasStreamed()).toBe(true)
-    expect(getSessionTpsMeter(sessionId).hasStreamed()).toBe(false)
+    expect(getSessionTpsMeter(sessionId).hasStreamed()).toBe(true)
 
     useChatStore.getState().handleServerMessage(sessionId, {
       type: 'message_complete',

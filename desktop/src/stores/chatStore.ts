@@ -1173,9 +1173,10 @@ function clearAgentRunTpsMeters(parentSessionId: string): void {
  * meter is touched — the text never reaches streamingText, so subagent prose
  * cannot leak into the main conversation.
  *
- * The meter is per run, so its window holds one decoder's samples and needs no
- * stream tag; the parent's meter is left alone and now carries only the
- * parent's own prose.
+ * The run meter is per run, so its window holds one decoder's samples and needs
+ * no stream tag — it is what a run page shows. The same prose also feeds the
+ * session meter (text-measured path only; see push), so the session reading is
+ * the whole session's output rather than the parent's prose alone.
  *
  * Whole-block `thinking` hand-overs (complete === true) are skipped: their
  * fragments already arrived as deltas, so counting both would double the
@@ -1190,15 +1191,29 @@ function ingestSubagentTps(
   // `external` keeps these frames out of any call accounting: they belong to
   // the subagent's own API calls, whose real usage never reaches this socket,
   // so they may only contribute samples to the sliding window.
-  const meter = getAgentRunTpsMeter(parentSessionId, runAgentId)
+  const run = getAgentRunTpsMeter(parentSessionId, runAgentId)
+  // The session's reading is the whole session's output. Under engine token ids
+  // the session meter is fed `tps_tokens`, whose count for the session id
+  // already includes every subagent, so the text must not be added again. The
+  // text-measured path has no such total — a subagent arrives only as this
+  // event — so its prose feeds the session meter here, keeping `own` the
+  // session total in both modes.
+  const feedOwn = !tpsIdsModeBySession.get(parentSessionId)
+  // Only the stamped stream events carry `serverTs`; read it under the union's
+  // narrowing (it is what the original per-branch pushes did).
+  const generatedAt = event.type === 'content_delta' || event.type === 'thinking'
+    ? event.serverTs
+    : undefined
+  const push = (text: string): void => {
+    run.push(text, { external: true, generatedAt })
+    if (feedOwn) getSessionTpsMeter(parentSessionId).push(text, { external: true, generatedAt })
+  }
   if (event.type === 'content_delta') {
-    if (event.text) meter.push(event.text, { external: true, generatedAt: event.serverTs })
-    if (event.toolInput) meter.push(event.toolInput, { external: true, generatedAt: event.serverTs })
+    if (event.text) push(event.text)
+    if (event.toolInput) push(event.toolInput)
     return
   }
-  if (event.type === 'thinking' && event.complete !== true && event.text) {
-    meter.push(event.text, { external: true, generatedAt: event.serverTs })
-  }
+  if (event.type === 'thinking' && event.complete !== true && event.text) push(event.text)
 }
 
 /**

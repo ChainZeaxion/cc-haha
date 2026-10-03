@@ -500,10 +500,14 @@ describe('aggregateMeterReadings', () => {
 
   const meter = (clock: TpsClock = 'arrival') => new TpsMeter(clock)
 
-  it('adds a live subagent to the session own speed and counts it', () => {
+  it('reports the session total and only counts a live subagent', () => {
     const h = harness()
     const own = meter()
     const sub = meter()
+    // In production the subagent's prose also feeds the session meter (see
+    // ingestSubagentTps), so that meter — not own + sub — is the session
+    // reading. Adding the run meters is the double count the engine saw as
+    // nearly twice its throughput.
     h.pumpAll([own, sub])
 
     const single = aggregateMeterReadings(own, [], h.clock.now, 5 * 60 * 1000)
@@ -511,12 +515,12 @@ describe('aggregateMeterReadings', () => {
     expect(single.tps).toBeGreaterThan(0)
     expect(r.visible).toBe(true)
     expect(r.activeSubs).toBe(1)
-    // Each meter rates its own stream, so the team speed is the sum.
-    expect(r.tps).toBeCloseTo(single.tps + sub.value(), 5)
-    expect(r.tps).toBeCloseTo(single.tps * 2, 5)
+    expect(r.tps).toBeCloseTo(own.value(), 5)
+    expect(r.tps).toBeCloseTo(single.tps, 5)
+    expect(r.tps).toBeLessThan(own.value() + sub.value())
   })
 
-  it('sums four concurrent subagents (the four-agent dispatch case)', () => {
+  it('counts four concurrent subagents without adding their meters (the four-agent case)', () => {
     const h = harness()
     const own = meter()
     const subs = [0, 1, 2, 3].map(() => meter())
@@ -524,42 +528,64 @@ describe('aggregateMeterReadings', () => {
 
     const r = aggregateMeterReadings(own, subs, h.clock.now, 5 * 60 * 1000)
     expect(r.activeSubs).toBe(4)
-    const expected = own.value() + subs.reduce((sum, sub) => sum + sub.value(), 0)
-    expect(r.tps).toBeCloseTo(expected, 5)
-    // Five concurrent decoders, so about five times one stream's rate.
-    expect(r.tps).toBeGreaterThan(own.value() * 4.5)
+    // The session reading is the session meter alone; every subagent's output is
+    // already in it (engine total under ids, fed prose under text).
+    expect(r.tps).toBeCloseTo(own.value(), 5)
+    expect(r.tps).toBeLessThan(own.value() + subs.reduce((sum, sub) => sum + sub.value(), 0))
   })
 
-  it('shows the subagents alone while the session itself has not streamed', () => {
+    it('does not add subagents when the session meter already holds the engine total', () => {
+      const h = harness()
+      const own = meter()
+      const sub = meter()
+      // `tps_tokens` is the engine's count for the whole session id — a
+      // subagent's calls carry the parent's id, so this total already includes
+      // it. Adding the subagent meter again is the double count that read the
+      // indicator at nearly twice the engine's real throughput.
+      for (let i = 0; i < 10; i++) {
+        h.clock.advance(100)
+        own.pushTokens(24, {})
+      }
+      expect(own.source()).toBe('ids')
+      h.pump(sub, 10)
+
+      const r = aggregateMeterReadings(own, [sub], h.clock.now, 5 * 60 * 1000)
+      expect(r.visible).toBe(true)
+      expect(r.activeSubs).toBe(1)
+      expect(r.tps).toBeCloseTo(own.value(), 5)
+      expect(r.tps).toBeLessThan(own.value() + sub.value())
+    })
+
+  it('counts the subagents a lone main session dispatched', () => {
     const h = harness()
     const own = meter()
     const sub = meter()
-    h.pump(sub)
+    // The subagent's prose reaches the session meter (ingestSubagentTps), so the
+    // session still reads a positive speed while only the run decodes.
+    h.pumpAll([own, sub])
 
-    // The session is idle waiting on its subagents; their speed is still the
-    // honest team reading, so it is shown rather than masked.
     const r = aggregateMeterReadings(own, [sub], h.clock.now, 5 * 60 * 1000)
     expect(r.visible).toBe(true)
     expect(r.activeSubs).toBe(1)
-    expect(r.tps).toBeCloseTo(sub.value(), 5)
+    expect(r.tps).toBeCloseTo(own.value(), 5)
+    expect(r.tps).toBeGreaterThan(0)
   })
 
-  it('drops a finished subagent out of the sum once it has gone quiet', () => {
+  it('drops a finished subagent from the count once it has gone quiet', () => {
     const h = harness()
     const own = meter()
     const sub = meter()
-    h.pump(sub)
+    h.pumpAll([own, sub])
 
-    // The subagent stops. Past the liveness gap it no longer feeds the sum,
-    // though its own value() still serves the held reading.
+    // The subagent stops. Past the liveness gap it is no longer counted as
+    // active; the reading itself is the session meter's, which already held it.
     h.clock.advance(10_000)
     h.pump(own)
 
     const r = aggregateMeterReadings(own, [sub], h.clock.now, 5 * 60 * 1000)
     expect(r.visible).toBe(true)
     expect(r.activeSubs).toBe(0)
-    const single = aggregateMeterReadings(own, [], h.clock.now, 5 * 60 * 1000)
-    expect(r.tps).toBeCloseTo(single.tps, 5)
+    expect(r.tps).toBeCloseTo(own.value(), 5)
   })
 
   it('is unchanged for a lone main session (no subordinates)', () => {

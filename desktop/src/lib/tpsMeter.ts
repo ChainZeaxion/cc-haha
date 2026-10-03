@@ -1029,18 +1029,22 @@ export type TpsAggregate = {
 }
 
 /**
- * Build the session's reading as the sum of every stream decoding for it: the
- * session's own output plus each running subagent's.
+ * Build the session's reading.
  *
- *  - Each meter rates **its own stream only** — chatStore feeds the parent's
- *    meter the parent's own prose and each run's meter that run's deltas (see
- *    ingestSubagentTps) — so the text behind the meters is disjoint and adding
- *    the rates adds concurrent decoders rather than double-counting tokens.
- *    A run that has finished stops contributing the moment its window drains,
- *    which is what keeps the total from sitting above the truth.
- *  - While nothing is decoding the reading falls back to the own session's
- *    held speed — identical to the pre-aggregation single-session behavior,
- *    so a lone main session is unaffected.
+ * The session meter holds the whole session's output — its own stream plus every
+ * subagent's — so its value *is* the reading, in both token modes:
+ *  - engine ids: `tps_tokens` carries the engine's count for the session id,
+ *    which a subagent's calls use too, so it already sums the group;
+ *  - text: the readout's own prose and each run's prose are both fed to it (see
+ *    ingestSubagentTps).
+ * The per-run meters are therefore **not** added here — doing so was the double
+ * count that read the indicator at nearly twice the engine's throughput. They
+ * are consulted only to say how many runs are decoding and to keep the session
+ * indicator alive while one is.
+ *
+ *  - While nothing is decoding the reading falls back to the session's held
+ *    speed — identical to the pre-aggregation single-session behavior, so a
+ *    lone main session is unaffected.
  *  - Visibility / the 5-min idle hide rule considers the newest data from
  *    the whole group, so a busy subagent keeps the main indicator alive.
  */
@@ -1061,13 +1065,13 @@ export function aggregateMeterReadings(
     return { visible: false, tps: 0, activeSubs: 0 }
   }
 
-  let tps = own.hasLiveSamples() ? own.value() : 0
-  let activeSubs = 0
-  for (const meter of subordinates) {
-    if (!meter.hasLiveSamples()) continue
-    activeSubs += 1
-    tps += meter.value()
-  }
+    // The runs are counted, never summed: the session meter already carries
+    // their output (engine total under ids, fed prose under text).
+    let activeSubs = 0
+    for (const meter of subordinates) {
+      if (meter.hasLiveSamples()) activeSubs += 1
+    }
+    let tps = own.hasLiveSamples() ? own.value() : 0
   if (tps <= 0) {
     // Nothing is decoding this instant. Hold the session's own last speed (the
     // turn-ending rate) so a lone session reads exactly as it did before

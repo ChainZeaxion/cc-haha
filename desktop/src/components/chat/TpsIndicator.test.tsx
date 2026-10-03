@@ -54,25 +54,25 @@ function shownTps(container: HTMLElement): number {
   return Number(text.replace(/[^0-9.]/g, ''))
 }
 
-it('shows the session and its subagents added together, with no badge', async () => {
-  pump(ownMeter)
-  pump(subMeter)
+it('shows the session meter, which already totals the group, with no badge', async () => {
+  pumpConcurrent([ownMeter, subMeter])
 
   const { container } = render(<TpsIndicator sessionId="main" />)
   // The mount effect runs tick() synchronously, so the indicator has a reading.
   const indicator = container.querySelector('[data-testid="tps-indicator"]')
   expect(indicator).not.toBeNull()
-  // The Σ badge is gone: the reading is already the team total, and the count
+  // The Σ badge is gone: the reading is already the session total, and the count
   // it used to show was permanently zero for background runs.
   expect(container.querySelector('[data-testid="tps-subagent-badge"]')).toBeNull()
-  // Two live streams of equal rate, so the total is twice one of them.
   const shown = shownTps(container)
   expect(shown).toBeGreaterThan(0)
-  expect(shown).toBeCloseTo(ownMeter.value() + subMeter.value(), 0)
-  expect(shown).toBeGreaterThan(ownMeter.value())
+  // The session reading is the session meter alone — a subagent's output is
+  // already in it (engine total under ids, fed prose under text) — so the run
+  // meters are not added on top.
+  expect(shown).toBeCloseTo(ownMeter.value(), 0)
 })
 
-it('adds each live subagent, and the count shows in the tooltip only', async () => {
+it('counts each live subagent in the tooltip without adding it', async () => {
   const extras = [new TpsMeter('arrival'), new TpsMeter('arrival'), new TpsMeter('arrival')]
   const runs = [subMeter, ...extras]
   pumpConcurrent([ownMeter, ...runs])
@@ -82,10 +82,7 @@ it('adds each live subagent, and the count shows in the tooltip only', async () 
   const indicator = container.querySelector('[data-testid="tps-indicator"]')!
   expect(container.querySelector('[data-testid="tps-subagent-badge"]')).toBeNull()
   expect(indicator.getAttribute('title')).toContain('4')
-  expect(shownTps(container)).toBeCloseTo(
-    ownMeter.value() + runs.reduce((sum, meter) => sum + meter.value(), 0),
-    0,
-  )
+  expect(shownTps(container)).toBeCloseTo(ownMeter.value(), 0)
 })
 
 it('drops a finished subagent out of the total once its window drains', async () => {
@@ -109,22 +106,28 @@ it('run mode shows one run own speed, ignoring its siblings', () => {
 })
 
 it('picks up subagents dispatched after the indicator mounted', async () => {
-  vi.useFakeTimers()
+  // Fake only the timers: the indicator polls on setTimeout, but the meter reads
+  // performance.now() (driven by the beforeEach spy). Faking performance too
+  // would freeze every reading at zero and make this assertion vacuous.
+  vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
   try {
     pump(ownMeter)
     // The common case: the indicator mounts with the session and the agents are
     // dispatched afterwards. A subordinate list resolved once at mount would be
-    // permanently empty here, so the total would never include the runs.
+    // permanently empty here, so the count would never include the runs.
     vi.spyOn(chatStore, 'getAgentRunTpsMeters').mockReturnValue([])
     const { container } = render(<TpsIndicator sessionId="main" />)
     expect(shownTps(container)).toBeCloseTo(ownMeter.value(), 0)
+    expect(ownMeter.value()).toBeGreaterThan(0)
 
-    // A run starts decoding; the next poll has to see it.
+    // A run starts decoding; the next poll has to count it (the per-tick
+    // resolution is what makes a run dispatched after mount visible at all).
     pumpConcurrent([ownMeter, subMeter])
     vi.spyOn(chatStore, 'getAgentRunTpsMeters').mockReturnValue([subMeter])
     await act(async () => { await vi.advanceTimersByTimeAsync(400) })
 
-    expect(shownTps(container)).toBeCloseTo(ownMeter.value() + subMeter.value(), 0)
+    const indicator = container.querySelector('[data-testid="tps-indicator"]')!
+    expect(indicator.getAttribute('title')).toContain('1')
   } finally {
     vi.useRealTimers()
   }
