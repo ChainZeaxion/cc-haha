@@ -66,73 +66,59 @@
 >
 > ⚠️ **生效方式不同**：服务端 4 个 patch 由 bun 直跑源码，重启 sidecar 即生效；`history-first-paint-bound` 是**前端**（`desktop/src/api/sessions.ts`），**必须 `vite build` 重建 dist** 才生效（H5 与桌面共用 `desktop/dist`）。
 ### 命名与存放约定（**2026-10-03 重组：按 PR 主题两层**）
-- 存放：`modify/patches/<主题>/<主题>-<优化项>-patch<N>.patch` —— **主题目录（= 上游 PR 的 8 个功能域）；一个优化项一个 patch，拆不开才 `patch2`/`patch3`**
+- 存放：`modify/patches/<主题>/<主题>-<优化项>-patch<N>.patch` —— **主题目录 = 上游 PR 的 8 个功能域；一个优化项一个 patch，拆不开才 `patch2`/`patch3`**
 - 主题：`h5` / `session` / `tps` / `usage` / `test` / `vcc` / `computer-use` / `thinking-subagent`
-- **应用顺序 = `modify/patches/ORDER.md` 自上而下**（33 个 patch）：
+- **应用顺序 = `modify/patches/ORDER.md` 自上而下**（34 个 patch）：
 
 ```bash
 cd <repo>
 while read -r p; do git apply -p1 "$p"; done < modify/patches/ORDER.md
 ```
 
-### 📦 优化项分组（8 主题 / 33 项 / 原 67 个平铺补丁）
+### 📦 优化项分组（8 主题 / 34 项 / 原 67 个平铺补丁）
 
-> 重组前：`modify/patches/*.patch` 共 **67 个**平铺文件（按开发史顺序）。重组后：**8 个主题目录 / 33 个优化项 patch**。
-> **终态文件树与重组前逐字节一致**（干净 worktree@`068b3ebd` 按 `ORDER.md` 应用 **33/33 成功**，`git write-tree` = 参考树 `580c2991`）。
+> 重组前：`modify/patches/*.patch` 共 **67 个**平铺文件（按开发史顺序）。
+> 重组后：**8 个主题目录 / 34 个优化项 patch**（含 2026-10-03 新增的 `tps-session-total`）。
+> **终态树与重组前逐字节一致**：前 33 项应用后 = 参考树 `580c2991`；第 34 项在其上仅动 5 个 TPS 文件 ⇒ 全 34 项 = `56923871`（已验证）。
 > 优化项与链位的对应依据 `pr-prepare/00-overview.md` 的「链位→PR 组」表。
+> 原 67 个平铺补丁归档于 `modify/archive/patches-flat-20261003/`。
 
-| 主题 | 优化项 | 链位 | 原补丁数 |
-|---|---|---|---|
-| `h5` | h5-access-token / h5-settings-parity / h5-mobile-quick-actions / h5-mobile-scheduled / h5-mobile-market-layout / h5-mobile-run-records / local-index-multi-root | 1,2,5 / 4 / 13 / 15 / 17 / 34 / 46,48 | 10 |
-| `session` | session-export / session-refresh / file-download / disable-updates / thinking-switch / gzip-transport / history-transport / baseline-typecheck / open-speed | 3 / 6 / 8,45,51,53 / 9 / 11 / 20,25 / 23,24,26,31 / 27 / 55,56,57 | 18 |
-| `tps` | tps-indicator / tps-engine-rewrite / tps-density-estimation | 7,30,35,38,42,44,50,54 / 62,64,65,67 / 66 | 13 |
-| `usage` | cache-billing / context-usage-anchor / session-speed-usage-pairing | 10 / 19 / 37 | 3 |
-| `test` | server-test-baseline / chapter-27-tests | 12,47 / 58,60 | 4 |
-| `vcc` | vcc-compactor / autocompact-window-tiers / vcc-calibration-scripts / compact-dead-import | 14,40 / 22 / 59 / 36 | 5 |
-| `computer-use` | connector-linux / computer-use-linux | 16 / 18,32,33 | 4 |
-| `thinking-subagent` | thinking-tool-timing / split-no-double-count / subagent-usage-cross-client | 21,28,29,39,41,43,49,61 / 52 / 63 | 10 |
-
-> 三个原「按章」分组在主题下被**拆开**以对上 PR 功能域：`tps-indicator` 的 #37（速度配对）→ `usage`；`chapter-27-misc` 的 27.1/27.3 → `test`、27.2 → `vcc`；`baseline-typecheck` 的 #27 → `session`（原 pr-9）、#36 → `vcc`。`subagent-usage-cross-client`(#63) 从 `tps-engine-rewrite` 归入 `thinking-subagent`。
->
-> 归档：原 67 平铺补丁 → `modify/archive/patches-flat-20261003/`；上一版按章 28 组 → `modify/archive/patches-by-chapter-20261003/`。
-> 每个 patch 由「该优化项在链上的边界树」差分生成；**应用顺序的 7 处重排冲突已解**（详见 `modify/patches/README.md`）。
-### Patch 清单（**33 个优化项 = 8 主题**；应用顺序见 `modify/patches/ORDER.md`）
-
-| # | Patch（相对 `modify/`） | 优化项 | 链位 |
-|---|---|---|---|
-| 1 | `patches/h5/h5-access-token-patch1.patch` | h5 / access-token | 1,2,5 |
-| 2 | `patches/session/session-export-patch1.patch` | session / export | 3 |
-| 3 | `patches/h5/h5-settings-parity-patch1.patch` | h5 / settings-parity | 4 |
-| 4 | `patches/session/session-refresh-patch1.patch` | session / refresh | 6 |
-| 5 | `patches/tps/tps-indicator-patch1.patch` | tps / indicator | 7,30,35,38,42,44,50,54 |
-| 6 | `patches/session/session-file-download-patch1.patch` | session / file-download | 8,45,51,53 |
-| 7 | `patches/session/session-disable-updates-patch1.patch` | session / disable-updates | 9 |
-| 8 | `patches/usage/usage-cache-billing-patch1.patch` | usage / cache-billing | 10 |
-| 9 | `patches/session/session-thinking-switch-patch1.patch` | session / thinking-switch | 11 |
-| 10 | `patches/test/test-server-test-baseline-patch1.patch` | test / server-test-baseline | 12,47 |
-| 11 | `patches/h5/h5-mobile-quick-actions-patch1.patch` | h5 / mobile-quick-actions | 13 |
-| 12 | `patches/vcc/vcc-compactor-patch1.patch` | vcc / compactor | 14,40 |
-| 13 | `patches/h5/h5-mobile-scheduled-patch1.patch` | h5 / mobile-scheduled | 15 |
-| 14 | `patches/computer-use/computer-use-connector-linux-patch1.patch` | computer-use / connector-linux | 16 |
-| 15 | `patches/h5/h5-mobile-market-layout-patch1.patch` | h5 / mobile-market-layout | 17 |
-| 16 | `patches/computer-use/computer-use-linux-patch1.patch` | computer-use / linux | 18,32,33 |
-| 17 | `patches/usage/usage-context-usage-anchor-patch1.patch` | usage / context-usage-anchor | 19 |
-| 18 | `patches/session/session-gzip-transport-patch1.patch` | session / gzip-transport | 20,25 |
-| 19 | `patches/thinking-subagent/thinking-subagent-thinking-tool-timing-patch1.patch` | thinking-subagent / thinking-tool-timing | 21,28,29,39,41,43,49,61 |
-| 20 | `patches/vcc/vcc-autocompact-window-tiers-patch1.patch` | vcc / autocompact-window-tiers | 22 |
-| 21 | `patches/session/session-history-transport-patch1.patch` | session / history-transport | 23,24,26,31 |
-| 22 | `patches/session/session-baseline-typecheck-patch1.patch` | session / baseline-typecheck | 27 |
-| 23 | `patches/h5/h5-mobile-run-records-patch1.patch` | h5 / mobile-run-records | 34 |
-| 24 | `patches/vcc/vcc-compact-dead-import-patch1.patch` | vcc / compact-dead-import | 36 |
-| 25 | `patches/usage/usage-session-speed-usage-pairing-patch1.patch` | usage / session-speed-usage-pairing | 37 |
-| 26 | `patches/h5/h5-local-index-multi-root-patch1.patch` | h5 / local-index-multi-root | 46,48 |
-| 27 | `patches/thinking-subagent/thinking-subagent-split-no-double-count-patch1.patch` | thinking-subagent / split-no-double-count | 52 |
-| 28 | `patches/session/session-open-speed-patch1.patch` | session / open-speed | 55,56,57 |
-| 29 | `patches/test/test-chapter-27-tests-patch1.patch` | test / chapter-27-tests | 58,60 |
-| 30 | `patches/vcc/vcc-calibration-scripts-patch1.patch` | vcc / calibration-scripts | 59 |
-| 31 | `patches/tps/tps-engine-rewrite-patch1.patch` | tps / engine-rewrite | 62,64,65,67 |
-| 32 | `patches/thinking-subagent/thinking-subagent-subagent-usage-cross-client-patch1.patch` | thinking-subagent / subagent-usage-cross-client | 63 |
-| 33 | `patches/tps/tps-density-estimation-patch1.patch` | tps / density-estimation | 66 |
+| # | Patch（相对 `modify/`） | 优化项 |
+|---|---|---|
+| 1 | `patches/h5/h5-access-token-patch1.patch` | h5 / access-token-patch1 |
+| 2 | `patches/session/session-export-patch1.patch` | session / export-patch1 |
+| 3 | `patches/h5/h5-settings-parity-patch1.patch` | h5 / settings-parity-patch1 |
+| 4 | `patches/session/session-refresh-patch1.patch` | session / refresh-patch1 |
+| 5 | `patches/tps/tps-indicator-patch1.patch` | tps / indicator-patch1 |
+| 6 | `patches/session/session-file-download-patch1.patch` | session / file-download-patch1 |
+| 7 | `patches/session/session-disable-updates-patch1.patch` | session / disable-updates-patch1 |
+| 8 | `patches/usage/usage-cache-billing-patch1.patch` | usage / cache-billing-patch1 |
+| 9 | `patches/session/session-thinking-switch-patch1.patch` | session / thinking-switch-patch1 |
+| 10 | `patches/test/test-server-test-baseline-patch1.patch` | test / server-test-baseline-patch1 |
+| 11 | `patches/h5/h5-mobile-quick-actions-patch1.patch` | h5 / mobile-quick-actions-patch1 |
+| 12 | `patches/vcc/vcc-compactor-patch1.patch` | vcc / compactor-patch1 |
+| 13 | `patches/h5/h5-mobile-scheduled-patch1.patch` | h5 / mobile-scheduled-patch1 |
+| 14 | `patches/computer-use/computer-use-connector-linux-patch1.patch` | computer-use / connector-linux-patch1 |
+| 15 | `patches/h5/h5-mobile-market-layout-patch1.patch` | h5 / mobile-market-layout-patch1 |
+| 16 | `patches/computer-use/computer-use-linux-patch1.patch` | computer-use / linux-patch1 |
+| 17 | `patches/usage/usage-context-usage-anchor-patch1.patch` | usage / context-usage-anchor-patch1 |
+| 18 | `patches/session/session-gzip-transport-patch1.patch` | session / gzip-transport-patch1 |
+| 19 | `patches/thinking-subagent/thinking-subagent-thinking-tool-timing-patch1.patch` | thinking-subagent / thinking-tool-timing-patch1 |
+| 20 | `patches/vcc/vcc-autocompact-window-tiers-patch1.patch` | vcc / autocompact-window-tiers-patch1 |
+| 21 | `patches/session/session-history-transport-patch1.patch` | session / history-transport-patch1 |
+| 22 | `patches/session/session-baseline-typecheck-patch1.patch` | session / baseline-typecheck-patch1 |
+| 23 | `patches/h5/h5-mobile-run-records-patch1.patch` | h5 / mobile-run-records-patch1 |
+| 24 | `patches/vcc/vcc-compact-dead-import-patch1.patch` | vcc / compact-dead-import-patch1 |
+| 25 | `patches/usage/usage-session-speed-usage-pairing-patch1.patch` | usage / session-speed-usage-pairing-patch1 |
+| 26 | `patches/h5/h5-local-index-multi-root-patch1.patch` | h5 / local-index-multi-root-patch1 |
+| 27 | `patches/thinking-subagent/thinking-subagent-split-no-double-count-patch1.patch` | thinking-subagent / split-no-double-count-patch1 |
+| 28 | `patches/session/session-open-speed-patch1.patch` | session / open-speed-patch1 |
+| 29 | `patches/test/test-chapter-27-tests-patch1.patch` | test / chapter-27-tests-patch1 |
+| 30 | `patches/vcc/vcc-calibration-scripts-patch1.patch` | vcc / calibration-scripts-patch1 |
+| 31 | `patches/tps/tps-engine-rewrite-patch1.patch` | tps / engine-rewrite-patch1 |
+| 32 | `patches/thinking-subagent/thinking-subagent-subagent-usage-cross-client-patch1.patch` | thinking-subagent / subagent-usage-cross-client-patch1 |
+| 33 | `patches/tps/tps-density-estimation-patch1.patch` | tps / density-estimation-patch1 |
+| 34 | `patches/tps/tps-session-total-patch1.patch` | tps / session-total-patch1 |
 
 > **已知非章 delta（有意不入 patch，链终态与工作树的结构性差值）**：`#83` 测试修复族（`src/testUtils/modelEnv.ts` 及 11 个 `*.test.ts`：`print.sessionMessage`/`constants/system`/`coreSchemas.modelInfo`/`api/client`/`skills/bundled/computerUse`/`builtInAgentOverrides`/`effort.agent`/`model/{agent,fable,opus55,opus5}`/`__tests__/thinking`/`permissions/PermissionUpdate`）、`MessageList.test.tsx`（flaky 超时放宽，见附录）、`TerminalSettings.tsx`、`lib/providerModels.ts`、`services/api/claude.ts`（bound-thinking WIP）、`desktop/package.json`（本轮新增 `build:renderer`/`typecheck` 两条 **dev 脚本**，electron-builder 打包时会剥离 `scripts`，故不影响产物）、`bun.lock`。
 >
