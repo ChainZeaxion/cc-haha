@@ -272,6 +272,7 @@ describe('Settings > General tab', () => {
         publicBaseUrl: null,
         fixedPort: null,
         disconnectGraceSeconds: null,
+        requireToken: false,
       },
       h5AccessDiagnostics: null,
       h5AccessError: null,
@@ -1548,6 +1549,7 @@ describe('Settings > General tab', () => {
         publicBaseUrl: 'http://192.168.0.102:3456',
         fixedPort: null,
         disconnectGraceSeconds: null,
+        requireToken: false,
       },
     })
     render(<Settings />)
@@ -1578,6 +1580,7 @@ describe('Settings > General tab', () => {
         publicBaseUrl: 'http://192.168.0.102:3456',
         fixedPort: null,
         disconnectGraceSeconds: null,
+        requireToken: false,
       },
     })
     render(<Settings />)
@@ -1614,6 +1617,7 @@ describe('Settings > General tab', () => {
         publicBaseUrl: 'http://192.168.0.102:3456',
         fixedPort: null,
         disconnectGraceSeconds: null,
+        requireToken: false,
       },
     })
     render(<Settings />)
@@ -1643,6 +1647,7 @@ describe('Settings > General tab', () => {
         publicBaseUrl: 'http://192.168.0.102:3456',
         fixedPort: null,
         disconnectGraceSeconds: null,
+        requireToken: false,
       },
     })
     render(<Settings />)
@@ -1669,6 +1674,7 @@ describe('Settings > General tab', () => {
         publicBaseUrl: 'http://192.168.0.102:54064',
         fixedPort: null,
         disconnectGraceSeconds: null,
+        requireToken: false,
       },
     })
     render(<Settings />)
@@ -1700,6 +1706,7 @@ describe('Settings > General tab', () => {
         publicBaseUrl: 'http://192.168.0.102:54064',
         fixedPort: null,
         disconnectGraceSeconds: null,
+        requireToken: false,
       },
     })
     render(<Settings />)
@@ -1725,6 +1732,7 @@ describe('Settings > General tab', () => {
         publicBaseUrl: 'http://192.168.0.102:54064',
         fixedPort: null,
         disconnectGraceSeconds: null,
+        requireToken: false,
       },
     })
     render(<Settings />)
@@ -1749,6 +1757,7 @@ describe('Settings > General tab', () => {
         publicBaseUrl: 'http://192.168.0.102:54064',
         fixedPort: null,
         disconnectGraceSeconds: null,
+        requireToken: false,
       },
     })
     render(<Settings />)
@@ -1780,6 +1789,7 @@ describe('Settings > General tab', () => {
         publicBaseUrl: 'http://192.168.0.102:54064',
         fixedPort: null,
         disconnectGraceSeconds: null,
+        requireToken: false,
       },
     })
     render(<Settings />)
@@ -1805,6 +1815,7 @@ describe('Settings > General tab', () => {
         publicBaseUrl: 'http://192.168.0.102:54064',
         fixedPort: 28670,
         disconnectGraceSeconds: null,
+        requireToken: false,
       },
       h5AccessDiagnostics: {
         storedHostStaleness: 'ok',
@@ -1835,6 +1846,7 @@ describe('Settings > General tab', () => {
         publicBaseUrl: 'http://192.168.0.102:3456',
         fixedPort: null,
         disconnectGraceSeconds: null,
+        requireToken: false,
       },
     })
     render(<Settings />)
@@ -1862,6 +1874,7 @@ describe('Settings > General tab', () => {
         publicBaseUrl: 'https://phone.example/app',
         fixedPort: null,
         disconnectGraceSeconds: null,
+        requireToken: false,
       },
     })
     render(<Settings />)
@@ -1901,6 +1914,7 @@ describe('Settings > General tab', () => {
         publicBaseUrl: 'http://172.20.16.1:54064',
         fixedPort: null,
         disconnectGraceSeconds: null,
+        requireToken: false,
       },
     })
     render(<Settings />)
@@ -1934,6 +1948,7 @@ describe('Settings > General tab', () => {
         publicBaseUrl: null,
         fixedPort: null,
         disconnectGraceSeconds: null,
+        requireToken: false,
       },
     })
     render(<Settings />)
@@ -1966,6 +1981,7 @@ describe('Settings > General tab', () => {
         publicBaseUrl: 'http://192.168.1.207:55379',
         fixedPort: null,
         disconnectGraceSeconds: null,
+        requireToken: false,
       },
       h5AccessDiagnostics: {
         storedHostStaleness: 'unreachable',
@@ -2003,6 +2019,7 @@ describe('Settings > General tab', () => {
         publicBaseUrl: 'https://h5.mydomain.com',
         fixedPort: null,
         disconnectGraceSeconds: null,
+        requireToken: false,
       },
       h5AccessDiagnostics: {
         storedHostStaleness: 'proxy',
@@ -2030,6 +2047,7 @@ describe('Settings > General tab', () => {
         publicBaseUrl: 'http://192.168.0.105:55379',
         fixedPort: null,
         disconnectGraceSeconds: null,
+        requireToken: false,
       },
       h5AccessDiagnostics: {
         storedHostStaleness: 'ok',

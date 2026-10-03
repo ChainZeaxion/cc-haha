@@ -3,6 +3,7 @@ import { basename, join, relative, resolve, sep } from 'node:path'
 import { getClaudeConfigHomeDir } from '../../../utils/envUtils.js'
 import {
   getLocalIndexDatabasePath,
+  resolveExtraProjectRoots,
   resolveLocalIndexMode,
   type LocalIndexModeResolution,
 } from './config.js'
@@ -202,17 +203,10 @@ export async function discoverTranscriptSources(
   emit: SourceDiscoveryEmitter,
   fileSystem: DiscoveryFileSystem = defaultDiscoveryFileSystem,
 ): Promise<SourceDiscoveryResult> {
-  const projectsDir = join(scope, 'projects')
-  let projectEntries
-  try {
-    projectEntries = await fileSystem.readdirWithFileTypes(projectsDir)
-  } catch (error) {
-    if (isMissing(error)) return { complete: true, rootMissing: true }
-    throw error
-  }
-
+  const roots = [join(scope, 'projects'), ...resolveExtraProjectRoots()]
   let candidates: SessionSourceCandidate[] = []
   let complete = true
+  let sawRoot = false
   const flushCandidates = async (): Promise<void> => {
     if (candidates.length === 0) return
     candidates.sort((left, right) =>
@@ -222,29 +216,27 @@ export async function discoverTranscriptSources(
     candidates = []
     await emit(batch)
   }
-  for (const projectEntry of projectEntries) {
+  for (const projectsDir of roots) {
     if (signal.aborted) return { complete: false }
-    if (!projectEntry.isDirectory()) continue
-    const projectPath = projectEntry.name
-    const projectDir = join(projectsDir, projectPath)
-    let files
+    let projectEntries
     try {
-      files = await fileSystem.readdirWithFileTypes(projectDir)
+      projectEntries = await fileSystem.readdirWithFileTypes(projectsDir)
     } catch (error) {
-      if (isMissing(error)) {
-        complete = false
-        continue
-      }
+      // An extra root may legitimately not exist (or be unreadable) without
+      // making the whole discovery incomplete — only the absence of every root
+      // means there is nothing to index.
+      if (isMissing(error)) continue
       throw error
     }
-
-    for (const file of files) {
+    sawRoot = true
+    for (const projectEntry of projectEntries) {
       if (signal.aborted) return { complete: false }
-      if (!file.isFile() || !file.name.endsWith('.jsonl')) continue
-      const path = join(projectDir, file.name)
-      let snapshot
+      if (!projectEntry.isDirectory()) continue
+      const projectPath = projectEntry.name
+      const projectDir = join(projectsDir, projectPath)
+      let files
       try {
-        snapshot = await fileSystem.statPath(path)
+        files = await fileSystem.readdirWithFileTypes(projectDir)
       } catch (error) {
         if (isMissing(error)) {
           complete = false
@@ -252,19 +244,36 @@ export async function discoverTranscriptSources(
         }
         throw error
       }
-      candidates.push({
-        path,
-        sessionId: file.name.slice(0, -'.jsonl'.length),
-        projectPath,
-        fallbackCreatedAt: snapshot.birthtime.toISOString(),
-        fallbackModifiedAt: snapshot.mtime.toISOString(),
-        fallbackWorkDir: desanitizeProjectPath(projectPath),
-        modifiedAtMs: snapshot.mtimeMs,
-      })
-      if (candidates.length >= 25) await flushCandidates()
+
+      for (const file of files) {
+        if (signal.aborted) return { complete: false }
+        if (!file.isFile() || !file.name.endsWith('.jsonl')) continue
+        const path = join(projectDir, file.name)
+        let snapshot
+        try {
+          snapshot = await fileSystem.statPath(path)
+        } catch (error) {
+          if (isMissing(error)) {
+            complete = false
+            continue
+          }
+          throw error
+        }
+        candidates.push({
+          path,
+          sessionId: file.name.slice(0, -'.jsonl'.length),
+          projectPath,
+          fallbackCreatedAt: snapshot.birthtime.toISOString(),
+          fallbackModifiedAt: snapshot.mtime.toISOString(),
+          fallbackWorkDir: desanitizeProjectPath(projectPath),
+          modifiedAtMs: snapshot.mtimeMs,
+        })
+        if (candidates.length >= 25) await flushCandidates()
+      }
     }
   }
   await flushCandidates()
+  if (!sawRoot) return { complete: true, rootMissing: true }
   return { complete }
 }
 
@@ -315,82 +324,87 @@ export async function discoverActivityTranscriptSources(
   scope: string,
   signal: AbortSignal,
 ): Promise<ActivitySourceDiscoveryResult> {
-  const projectsDir = join(scope, 'projects')
-  let projectEntries
-  try {
-    projectEntries = await readdir(projectsDir, { withFileTypes: true })
-  } catch (error) {
-    if (isMissing(error)) {
-      return { complete: true, rootMissing: true, candidates: [] }
-    }
-    throw error
-  }
-
+  const roots = [join(scope, 'projects'), ...resolveExtraProjectRoots()]
   const candidates: ActivitySourceCandidate[] = []
   let complete = true
-  for (const projectEntry of projectEntries) {
+  let sawRoot = false
+  for (const projectsDir of roots) {
     if (signal.aborted) return { complete: false, candidates }
-    if (!projectEntry.isDirectory()) continue
-    const projectPath = projectEntry.name
-    const projectDir = join(projectsDir, projectPath)
-    let entries
+    let projectEntries
     try {
-      entries = await readdir(projectDir, { withFileTypes: true })
+      projectEntries = await readdir(projectsDir, { withFileTypes: true })
     } catch (error) {
-      if (isMissing(error)) {
-        complete = false
-        continue
-      }
+      // Optional extra root: skip it rather than failing the whole scan. Only
+      // "no root at all" means discovery has nothing to report.
+      if (isMissing(error)) continue
       throw error
     }
-
-    for (const entry of entries) {
+    sawRoot = true
+    for (const projectEntry of projectEntries) {
       if (signal.aborted) return { complete: false, candidates }
-      if (entry.isFile() && entry.name.endsWith('.jsonl')) {
-        const path = join(projectDir, entry.name)
-        try {
-          const snapshot = await stat(path)
-          candidates.push({
-            path,
-            sessionId: entry.name.slice(0, -'.jsonl'.length),
-            projectPath,
-            fallbackCreatedAt: snapshot.birthtime.toISOString(),
-            fallbackModifiedAt: snapshot.mtime.toISOString(),
-            fallbackWorkDir: desanitizeProjectPath(projectPath),
-            modifiedAtMs: snapshot.mtimeMs,
-            isSubagent: false,
-          })
-        } catch (error) {
-          if (isMissing(error)) complete = false
-          else throw error
+      if (!projectEntry.isDirectory()) continue
+      const projectPath = projectEntry.name
+      const projectDir = join(projectsDir, projectPath)
+      let entries
+      try {
+        entries = await readdir(projectDir, { withFileTypes: true })
+      } catch (error) {
+        if (isMissing(error)) {
+          complete = false
+          continue
         }
-        continue
+        throw error
       }
-      if (!entry.isDirectory()) continue
-      const subagentsDir = join(projectDir, entry.name, 'subagents')
-      const found = await collectSubagentPaths(subagentsDir, signal)
-      if (!found.complete) complete = false
-      for (const path of found.paths) {
+
+      for (const entry of entries) {
         if (signal.aborted) return { complete: false, candidates }
-        try {
-          const snapshot = await stat(path)
-          candidates.push({
-            path,
-            sessionId: entry.name,
-            projectPath,
-            fallbackCreatedAt: snapshot.birthtime.toISOString(),
-            fallbackModifiedAt: snapshot.mtime.toISOString(),
-            fallbackWorkDir: desanitizeProjectPath(projectPath),
-            modifiedAtMs: snapshot.mtimeMs,
-            isSubagent: true,
-          })
-        } catch (error) {
-          if (isMissing(error)) complete = false
-          else throw error
+        if (entry.isFile() && entry.name.endsWith('.jsonl')) {
+          const path = join(projectDir, entry.name)
+          try {
+            const snapshot = await stat(path)
+            candidates.push({
+              path,
+              sessionId: entry.name.slice(0, -'.jsonl'.length),
+              projectPath,
+              fallbackCreatedAt: snapshot.birthtime.toISOString(),
+              fallbackModifiedAt: snapshot.mtime.toISOString(),
+              fallbackWorkDir: desanitizeProjectPath(projectPath),
+              modifiedAtMs: snapshot.mtimeMs,
+              isSubagent: false,
+            })
+          } catch (error) {
+            if (isMissing(error)) complete = false
+            else throw error
+          }
+          continue
+        }
+        if (!entry.isDirectory()) continue
+        const subagentsDir = join(projectDir, entry.name, 'subagents')
+        const found = await collectSubagentPaths(subagentsDir, signal)
+        if (!found.complete) complete = false
+        for (const path of found.paths) {
+          if (signal.aborted) return { complete: false, candidates }
+          try {
+            const snapshot = await stat(path)
+            candidates.push({
+              path,
+              sessionId: entry.name,
+              projectPath,
+              fallbackCreatedAt: snapshot.birthtime.toISOString(),
+              fallbackModifiedAt: snapshot.mtime.toISOString(),
+              fallbackWorkDir: desanitizeProjectPath(projectPath),
+              modifiedAtMs: snapshot.mtimeMs,
+              isSubagent: true,
+            })
+          } catch (error) {
+            if (isMissing(error)) complete = false
+            else throw error
+          }
         }
       }
     }
   }
+  if (!sawRoot) return { complete: true, rootMissing: true, candidates }
   candidates.sort((left, right) =>
     right.modifiedAtMs - left.modifiedAtMs || left.path.localeCompare(right.path))
   return { complete, candidates }
