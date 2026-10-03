@@ -10,6 +10,7 @@
  */
 
 import { getOpenAIPolicyError } from '../../services/openaiAuth/policyError.js'
+import { isLocalEngineHost, isPrivateNetworkUrl } from '../services/api/localEngineHost.js'
 import { buildOpenaiEndpoint } from './openaiEndpoint.js'
 import { normalizeAnthropicBaseUrl } from '../../services/api/anthropicBaseUrl.js'
 import { createGunzip, createInflate } from 'node:zlib'
@@ -26,9 +27,13 @@ import { hoistToolResultMediaForCompatibility, shouldHoistNestedToolResultMedia 
 import { openaiChatToAnthropic } from './transform/openaiChatToAnthropic.js'
 import { openaiResponsesToAnthropic } from './transform/openaiResponsesToAnthropic.js'
 import { openaiChatStreamToAnthropic } from './streaming/openaiChatStreamToAnthropic.js'
+import { emitTpsTokens } from './tpsTokenSink.js'
+import { TOKEN_CHUNK_KINDS, type TokenChunkKind } from './streaming/openaiChatStreamToAnthropic.js'
 import { openaiResponsesStreamToAnthropic } from './streaming/openaiResponsesStreamToAnthropic.js'
+import { anthropicTokenTap } from './streaming/anthropicTokenTap.js'
 import type { AnthropicRequest } from './transform/types.js'
 import { getProxyFetchOptions } from '../../utils/proxy.js'
+import { shouldSendThinkingToAPI } from '../../utils/thinking.js'
 import {
   getNetworkProxyFetchOptions,
   loadNetworkSettings,
@@ -185,6 +190,33 @@ export async function handleProxyRequest(req: Request, url: URL): Promise<Respon
   const providerId = providerMatch ? decodeURIComponent(providerMatch[1]!) : undefined
   const isActiveProxyPath = url.pathname === '/proxy/v1/messages'
 
+  // The Messages surface is wider than /v1/messages: token counting is its own
+  // endpoint, and a client whose base URL now points at this proxy (see
+  // providerRuntimeEnv) must still reach it. Forwarded verbatim — there is no
+  // event stream here, so nothing to tap.
+  const countTokensMatch = url.pathname.match(
+    /^\/proxy\/(?:providers\/([^/]+)\/)?v1\/messages\/count_tokens$/,
+  )
+  if (countTokensMatch && (req.method === 'POST' || req.method === 'HEAD')) {
+    const scopedId = countTokensMatch[1] ? decodeURIComponent(countTokensMatch[1]) : undefined
+    const config = await providerService.getProviderForProxy(scopedId)
+    if (!config) {
+      return Response.json(
+        {
+          type: 'error',
+          error: {
+            type: 'invalid_request_error',
+            message: scopedId
+              ? `Provider "${scopedId}" is not configured for proxy`
+              : 'No active provider configured for proxy',
+          },
+        },
+        { status: 400 },
+      )
+    }
+    return await forwardAnthropicCountTokens(req, config)
+  }
+
   // Only handle POST /proxy/v1/messages or POST /proxy/providers/:providerId/v1/messages
   if (req.method !== 'POST' || (!isActiveProxyPath && !providerMatch)) {
     return Response.json(
@@ -251,16 +283,22 @@ export async function handleProxyRequest(req: Request, url: URL): Promise<Respon
   try {
     if (apiFormat === 'anthropic') {
       // Anthropic-format providers normally connect directly to the upstream
-      // endpoint (see providerRuntimeEnv). Only providers that explicitly opt out
-      // of nested tool-result media (supportsNestedToolResultMedia=false) route
-      // through the proxy so images/documents can be lifted out of tool_result
-      // before the request reaches an endpoint that would drop them.
+      // endpoint (see providerRuntimeEnv). Two cases route through the proxy
+      // instead: a provider that explicitly opts out of nested tool-result media
+      // (supportsNestedToolResultMedia=false), so images/documents can be lifted
+      // out of tool_result before the request reaches an endpoint that would
+      // drop them; and a LAN/local engine (see providerRuntimeEnv), so the TPS
+      // meter can read the per-chunk token ids only this layer can tap.
       //
       // That reasoning is about the provider's *own* format, so the guard only
       // applies without a per-model override: an OpenAI-format provider whose
       // model routes to anthropic still reaches the proxy, and its upstream is a
       // native Messages endpoint that accepts nested media unchanged.
-      if (modelApiFormat === undefined && config.supportsNestedToolResultMedia) {
+      if (
+        modelApiFormat === undefined &&
+        config.supportsNestedToolResultMedia &&
+        !isPrivateNetworkUrl(baseUrl)
+      ) {
         return Response.json(
           {
             type: 'error',
@@ -456,6 +494,64 @@ function stripHopByHopHeaders(headers: Headers): Headers {
 }
 
 /**
+ * Forward `POST|HEAD /v1/messages/count_tokens` to the upstream unchanged. No
+ * transformation and no tapping: the request never streams and carries no token
+ * ids. Auth and protocol headers are rebuilt the same way the Messages path
+ * builds them so a gateway sees one consistent client.
+ */
+async function forwardAnthropicCountTokens(
+  req: Request,
+  config: { baseUrl: string; apiKey: string; authStrategy: ProviderAuthStrategy },
+): Promise<Response> {
+  const url = `${normalizeAnthropicBaseUrl(config.baseUrl.replace(/\/+$/, ''))}/v1/messages/count_tokens`
+  const networkSettings = await loadNetworkSettings()
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+    ...buildAnthropicAuthHeaders(config.apiKey, config.authStrategy),
+  }
+  const deny = hopByHopDenySet(req.headers)
+  for (const [name, value] of req.headers.entries()) {
+    const lower = name.toLowerCase()
+    if (deny.has(lower) || isInternalClientHeader(lower, value)) continue
+    if (lower === 'host' || lower === 'content-type' || lower === 'content-length') continue
+    if (lower === 'x-api-key' || lower === 'authorization') continue
+    if (value) headers[name] = value
+  }
+
+  const body = req.method === 'HEAD' ? undefined : await req.arrayBuffer()
+  try {
+    const upstream = await fetchUpstreamWithTimeout(
+      url,
+      {
+        method: req.method,
+        headers,
+        body,
+        // Forward the raw bytes; the upstream's framing headers stay accurate.
+        decompress: false,
+        ...getNetworkProxyFetchOptions(networkSettings, url),
+      },
+      networkSettings.aiRequestTimeoutMs,
+      false,
+    )
+    return new Response(upstream.body, {
+      status: upstream.status,
+      headers: stripHopByHopHeaders(upstream.headers),
+    })
+  } catch (err) {
+    return Response.json(
+      {
+        type: 'error',
+        error: {
+          type: 'api_error',
+          message: err instanceof Error ? err.message : String(err),
+        },
+      },
+      { status: 502 },
+    )
+  }
+}
+
+/**
  * Forward an Anthropic Messages request to an anthropic-format upstream after
  * lifting media out of nested tool results (provider opted out of nested media).
  * The wire format stays Anthropic; only the media placement changes. Protocol
@@ -503,6 +599,16 @@ async function handleAnthropicCompatible(
   // would otherwise never reach a gateway that requires it. The resolver drops
   // anything that would shadow the request framing or its credential.
   applyUpstreamHeaders(headers, upstreamHeaders)
+
+  // Ask a local engine for the per-chunk token ids the TPS meter measures with.
+  // The engine attaches them only when asked (its Anthropic `return_token_ids` /
+  // `x-return-token-ids`), so the proxy — the only layer that reads the stream —
+  // has to ask. A header, not a body field, so this path stays byte-for-byte.
+  // Only a machine-local/LAN engine is asked: a public Messages endpoint would
+  // ignore it, and the meter falls back to estimation there anyway.
+  if (shouldRequestTokenIds(baseUrl)) {
+    headers['x-return-token-ids'] = '1'
+  }
 
   const traceHeaders = Object.fromEntries(
     Object.entries(headers).map(([name, value]) => {
@@ -632,8 +738,16 @@ async function handleAnthropicCompatible(
       responseHeaders.set('Cache-Control', 'no-cache')
       responseHeaders.set('Connection', 'keep-alive')
       const anthropicStream = withStreamIdleTimeout(upstream.body, networkSettings.aiRequestTimeoutMs)
+      // Real token counts for the TPS meter ride a side channel: the Anthropic
+      // passthrough is read through so the ids a local engine attaches to each
+      // content_block_delta can be counted without altering the bytes a client
+      // receives (see anthropicTokenTap).
+      const tappedStream = anthropicTokenTap(anthropicStream, {
+        onTokenIds: createTpsTokenRelay(traceContext?.sessionId ?? null, baseUrl).onTokenIds,
+        contentEncoding: upstream.headers.get('content-encoding') ?? undefined,
+      })
       const tracedStream = traceContext
-        ? captureTraceStream(anthropicStream, async (bodySnapshot, error, protocolTraceEnd) => {
+        ? captureTraceStream(tappedStream, async (bodySnapshot, error, protocolTraceEnd) => {
             await recordProxyTrace({
               callId: traceCallId,
               context: traceContext,
@@ -650,7 +764,7 @@ async function handleAnthropicCompatible(
               ...(error ? { error } : {}),
             })
           }, upstream.headers.get('content-encoding') ?? undefined)
-        : anthropicStream
+        : tappedStream
       return new Response(tracedStream, {
         status: 200,
         headers: responseHeaders,
@@ -703,7 +817,14 @@ async function handleOpenaiChat(
   const reasoningProfile = resolveModelReasoningProfile(body.model, 'openai_chat')
   const transformed = anthropicToOpenaiChat(body, {
     ...requestOptions,
-    roundTripReasoningContent: knownDeepSeekHost || reasoningProfile?.family === 'deepseek-v4',
+    // Only ask endpoints we believe are a local engine: the parameter is a
+    // vLLM extension, and a strict OpenAI endpoint would reject it outright.
+    passTokenIds: shouldRequestTokenIds(baseUrl),
+    // Only round-trip reasoning content back to the API when thinking is being
+    // sent back at all; otherwise the previous turn's reasoning is dropped.
+    roundTripReasoningContent:
+      (knownDeepSeekHost || reasoningProfile?.family === 'deepseek-v4') &&
+      shouldSendThinkingToAPI(),
     passThinkingToggle: knownDeepSeekHost,
     imageContentMode: shouldUseTextOnlyOpenAIChatContent(baseUrl, body.model) ? 'text_only' : 'vision',
   })
@@ -818,7 +939,15 @@ async function handleOpenaiChat(
     const upstreamBody = withStreamIdleTimeout(upstream.body, networkSettings.aiRequestTimeoutMs)
     const observedBody = traceContext?.protocolTrace
       ? observeProtocolStream(upstreamBody, traceContext.protocolTrace) : upstreamBody
-    const anthropicStream = openaiChatStreamToAnthropic(observedBody, body.model)
+    // Real token counts for the TPS meter ride a side channel: batched so the
+    // client is not woken per chunk, and dropped entirely when the request did
+    // not ask for token ids or no client is attached.
+    const tpsRelay = transformed.return_token_ids === true
+      ? createTpsTokenRelay(traceContext?.sessionId ?? null, baseUrl)
+      : null
+    const anthropicStream = openaiChatStreamToAnthropic(observedBody, body.model, {
+      onTokenIds: tpsRelay?.onTokenIds,
+    })
     const tracedStream = traceContext
       ? captureTraceStream(anthropicStream, async (bodySnapshot, error, protocolTraceEnd) => {
           await recordProxyTrace({
@@ -871,6 +1000,93 @@ async function handleOpenaiChat(
     })
   }
   return Response.json(anthropicResponse, { status: policyError ? 403 : 200 })
+}
+
+/** Coalescing window for the TPS token side channel (ms). */
+const TPS_TOKEN_FLUSH_MS = 200
+/** After this long without token ids, the endpoint is marked as not supporting them. */
+const TPS_TOKEN_PROBE_MS = 10_000
+const TPS_TOKEN_PROBE_MISSES = 2
+
+/**
+ * Endpoints that answered a `return_token_ids` request without ever sending
+ * token ids: they ignore the parameter, so stop asking. In-memory only — an
+ * engine upgrade mid-process is not worth persisting a negative about.
+ */
+const tokenIdUnsupportedOrigins = new Set<string>()
+const tokenIdProbeMisses = new Map<string, number>()
+
+function endpointOrigin(baseUrl: string): string {
+  try {
+    return new URL(baseUrl).origin
+  } catch {
+    return baseUrl
+  }
+}
+
+/**
+ * Whether to ask this endpoint for per-chunk token ids. Only engines on the
+ * machine or the local network are asked: that is where vLLM-family servers
+ * live, and where an unknown parameter is harmless, whereas a hosted OpenAI
+ * endpoint would reject the request outright.
+ */
+function shouldRequestTokenIds(baseUrl: string): boolean {
+  const origin = endpointOrigin(baseUrl)
+  if (tokenIdUnsupportedOrigins.has(origin)) return false
+  let hostname: string
+  try {
+    hostname = new URL(baseUrl).hostname
+  } catch {
+    return false
+  }
+  return isLocalEngineHost(hostname)
+}
+
+/**
+ * Batches the real per-chunk token counts of one streamed request and hands
+ * them to the TPS meter over the session's WebSocket. Also remembers when an
+ * endpoint never reported token ids, so the parameter is not asked for again.
+ */
+function createTpsTokenRelay(sessionId: string | null, baseUrl: string) {
+  // One counter per kind. A single total cannot be split after the fact, and
+  // the kinds are what a consumer attributes: the thought badge wants the
+  // reasoning count, which is only a fraction of the response.
+  const pending: Record<TokenChunkKind, number> = { thinking: 0, content: 0, tool: 0 }
+  let flushTimer: ReturnType<typeof setTimeout> | null = null
+  let sawTokenIds = false
+  const origin = endpointOrigin(baseUrl)
+  const probeTimer = setTimeout(() => {
+    if (sawTokenIds) return
+    const misses = (tokenIdProbeMisses.get(origin) ?? 0) + 1
+    tokenIdProbeMisses.set(origin, misses)
+    if (misses >= TPS_TOKEN_PROBE_MISSES) tokenIdUnsupportedOrigins.add(origin)
+  }, TPS_TOKEN_PROBE_MS)
+  // Never hold the process open for a diagnostic timer.
+  probeTimer.unref?.()
+
+  const flush = () => {
+    flushTimer = null
+    if (!sessionId) return
+    for (const kind of TOKEN_CHUNK_KINDS) {
+      const tokens = pending[kind]
+      if (tokens <= 0) continue
+      pending[kind] = 0
+      emitTpsTokens(sessionId, tokens, kind)
+    }
+  }
+
+  return {
+    onTokenIds(count: number, kind: TokenChunkKind) {
+      if (count <= 0) return
+      sawTokenIds = true
+      clearTimeout(probeTimer)
+      pending[kind] += count
+      if (flushTimer === null) {
+        flushTimer = setTimeout(flush, TPS_TOKEN_FLUSH_MS)
+        flushTimer.unref?.()
+      }
+    },
+  }
 }
 
 function shouldUseDeepSeekReasoningCompat(baseUrl: string): boolean {
