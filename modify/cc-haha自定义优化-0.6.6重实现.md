@@ -3184,8 +3184,7 @@ src/prompts/i18n/
 引擎反馈：非交互路径（H5/服务器）的身份前缀 `You are a Claude agent, built on Anthropic's Claude Agent SDK.` 在中文模式下仍英文。
 根因与 memdir 完全同型：`src/constants/system.ts` 的三个前缀常量是模块顶层 `const`，import 时固化；且 `CLI_SYSPROMPT_PREFIXES`（`splitSysPromptPrefix` 按内容识别前缀块以分配缓存作用域）也是顶层常量。只改 `getCLISyspromptPrefix` 而不改集合 ⇒ 中文前缀块认不出，缓存作用域分配错位。
 修法：三前缀改 `build` 函数（运行时 `localizedPrompt`）+ 集合改 `getCliSyspromptPrefixSet()` 运行时构建 + `api.ts` 三处 `.has()` 改局部常量 + zh.ts 新增 3 条 `system.cliPrefix.*` id（`默认` / `Agent SDK 预设` / `Agent SDK`）。
-链式 patch：`prompt-i18n-localization-patch3.patch`（基座 = patch2 后态），`cb7065b1e + patch1 + patch2 + patch3 ⇒ 3 文件与 8572193e9 逐字节一致`。
-
+补丁：三项增量已并入 `prompt-i18n-localization-patch1.patch`（合并版，基座 `cb7065b1e`），干净应用 ⇒ 28 个 src 文件与 `8572193e9` 逐字节一致（`a6131f029` 合并 commit）。
 ### 功能完整性评估（V22 中文提示词 vs 原版英文）
 
 | 功能域 | 检查项 | 结果 |
