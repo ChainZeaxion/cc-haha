@@ -1550,10 +1550,10 @@ index de5ea8465..4514fa234 100644
      ...buildSearchingPastContextSection(autoDir),
 diff --git a/src/prompts/i18n/i18n.test.ts b/src/prompts/i18n/i18n.test.ts
 new file mode 100644
-index 000000000..9e76fc318
+index 000000000..5647ec6d1
 --- /dev/null
 +++ b/src/prompts/i18n/i18n.test.ts
-@@ -0,0 +1,123 @@
+@@ -0,0 +1,129 @@
 +import { beforeEach, describe, expect, test } from 'bun:test'
 +
 +import { localizedPrompt, promptLanguageLead, resolvePromptLanguage, setPromptLanguage } from './index.js'
@@ -1642,6 +1642,12 @@ index 000000000..9e76fc318
 +    setPromptLanguage('zh')
 +    expect(promptLanguageLead()).toContain('英文')
 +  })
++
++  test('forces reasoning to stay Chinese, so English instructions do not pull thinking back to English', () => {
++    setPromptLanguage('zh')
++    expect(promptLanguageLead()).toContain('思考')
++    expect(promptLanguageLead()).toContain('不要切换成英文')
++  })
 +})
 +
 +describe('the Chinese bundle', () => {
@@ -1679,10 +1685,10 @@ index 000000000..9e76fc318
 +})
 diff --git a/src/prompts/i18n/index.ts b/src/prompts/i18n/index.ts
 new file mode 100644
-index 000000000..94adc5c92
+index 000000000..39c171ea7
 --- /dev/null
 +++ b/src/prompts/i18n/index.ts
-@@ -0,0 +1,85 @@
+@@ -0,0 +1,86 @@
 +// Single entry point for language-aware model prompts.
 +//
 +// The rule this exists to enforce: the English text stays the source of truth at
@@ -1755,7 +1761,8 @@ index 000000000..94adc5c92
 + * instructions below are English on purpose. The English detail then follows.
 + */
 +const PROMPT_LANGUAGE_LEAD_ZH = `# 语言说明
-+本次会话的界面语言为中文。为保持措辞与参数约定的精确，下列系统指令、工具说明与技能描述一律使用英文原文，不做翻译；请严格按原文遵循，并保持工具名、参数名与参数取值、命令、代码与文件路径原样。
++本次会话的界面语言为中文。思考（reasoning）、解释与对用户的回复一律优先使用中文，不要切换成英文。
++下列工具说明与部分系统指令保留英文原文，以保持参数约定精确；工具名、参数名与取值、命令、代码与文件路径保持原样。
 +与用户交流时使用中文。`
 +
 +/**
