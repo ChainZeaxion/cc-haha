@@ -3,7 +3,8 @@
 # 覆盖主系统提示词全节（intro/cyberRisk/env/language/outputStyle/会话指引/MCP/记忆段/toneAndStyle/outputEfficiency）+
 # 子代理（verification/guide/generalPurpose/explore/plan/default/statusline）+ compact/autoDream/review/team/extractMemories/toolUseSummary/chrome。
 # 含 locale 管道（desktop-ui.json.locale → 侧车）：src/server/* + desktop/src/api/desktopUiPreferences.ts + desktop/src/stores/settingsStore.ts。
-# v22 关键修复：① lead 首词规则泛化（穷举→通用禁令）+ 末尾 recency 重复注入（闲聊首词中文 50%→75%）；
+# v22 关键修复：① 头 lead + 尾部「首词模板」（promptLanguageTail，11 轮迭代约 700 次调用定出；尾位置是最大杠杆 19%→79%，
+#    具体开头模板 > 泛化禁令；根因＝32 个英文工具定义 ≈25k token 锚定英文思考）；
 # ② 「模块顶层 const = localizedPrompt」固化英文 bug 共 10 处（memdir 5 section + frontmatter 示例 + 3 个 CLI 身份前缀 +
 # CLI_SYSPROMPT_PREFIXES 集合 + SHUTDOWN_TEAM_PROMPT/BASE_CHROME_PROMPT/CLAUDE_IN_CHROME_SKILL_HINT(_WITH_WEBBROWSER)/
 # AGENT_CREATION_SYSTEM_PROMPT/AGENT_MEMORY_INSTRUCTIONS）。
@@ -278,14 +279,14 @@ index 04fd62453..b1c90eeb3 100644
    const response = await queryModelWithoutStreaming({
      messages: normalizeMessagesForAPI(messagesWithContext),
 diff --git a/src/constants/prompts.ts b/src/constants/prompts.ts
-index a51bd73aa..a0c85577a 100644
+index a51bd73aa..5369233e6 100644
 --- a/src/constants/prompts.ts
 +++ b/src/constants/prompts.ts
 @@ -7,6 +7,7 @@ import { getIsNonInteractiveSession } from '../bootstrap/state.js'
  import { getCurrentWorktreeSession } from '../utils/worktree.js'
  import { getSessionStartDate } from './common.js'
  import { getInitialSettings } from '../utils/settings/settings.js'
-+import { localizedPrompt, promptLanguageLead } from '../prompts/i18n/index.js'
++import { localizedPrompt, promptLanguageLead, promptLanguageTail } from '../prompts/i18n/index.js'
  import {
    AGENT_TOOL_NAME,
    VERIFICATION_AGENT_TYPE,
@@ -637,19 +638,20 @@ index a51bd73aa..a0c85577a 100644
      getSimpleIntroSection(outputStyleConfig),
      getSimpleSystemSection(),
      outputStyleConfig === null ||
-@@ -573,6 +609,11 @@ ${CYBER_RISK_INSTRUCTION}`,
+@@ -573,6 +609,12 @@ ${CYBER_RISK_INSTRUCTION}`,
      ...(shouldUseGlobalCacheScope() ? [SYSTEM_PROMPT_DYNAMIC_BOUNDARY] : []),
      // --- Dynamic content (registry-managed) ---
      ...resolvedDynamicSections,
 +    // Recency: the head lead sits ~11k tokens from the generation point and is
-+    // diluted by the English body between it and the turn. Repeating the rule at
-+    // the tail puts it immediately before the user's message — where the model
-+    // actually begins reasoning. Null for non-Chinese, so upstream is untouched.
-+    promptLanguageLead(),
++    // diluted by the English body (the 32 tool definitions alone are ~25k tokens)
++    // between it and the turn. Restating the rule at the tail puts it immediately
++    // before the user's message — where the model actually begins reasoning.
++    // Null for non-Chinese, so upstream is untouched.
++    promptLanguageTail(),
    ].filter(s => s !== null)
  }
  
-@@ -596,11 +637,15 @@ ${client.instructions}`
+@@ -596,11 +638,15 @@ ${client.instructions}`
      })
      .join('\n\n')
  
@@ -667,7 +669,7 @@ index a51bd73aa..a0c85577a 100644
  }
  
  export async function computeEnvInfo(
-@@ -623,21 +668,36 @@ export async function computeEnvInfo(
+@@ -623,21 +669,36 @@ export async function computeEnvInfo(
    } else {
      const marketingName = getMarketingNameForModel(modelId)
      modelDescription = marketingName
@@ -709,7 +711,7 @@ index a51bd73aa..a0c85577a 100644
  <env>
  Working directory: ${getCwd()}
  Is directory a git repo: ${isGit ? 'Yes' : 'No'}
-@@ -645,7 +705,18 @@ ${additionalDirsInfo}Platform: ${env.platform}
+@@ -645,7 +706,18 @@ ${additionalDirsInfo}Platform: ${env.platform}
  ${getShellInfoLine()}
  OS Version: ${unameSR}
  </env>
@@ -729,7 +731,7 @@ index a51bd73aa..a0c85577a 100644
  }
  
  export async function computeSimpleEnvInfo(
-@@ -662,49 +733,71 @@ export async function computeSimpleEnvInfo(
+@@ -662,49 +734,71 @@ export async function computeSimpleEnvInfo(
    } else {
      const marketingName = getMarketingNameForModel(modelId)
      modelDescription = marketingName
@@ -815,7 +817,7 @@ index a51bd73aa..a0c85577a 100644
      ...prependBullets(envItems),
    ].join(`\n`)
  }
-@@ -752,9 +845,13 @@ function getShellInfoLine(): string {
+@@ -752,9 +846,13 @@ function getShellInfoLine(): string {
        ? 'bash'
        : shell
    if (env.platform === 'win32') {
@@ -831,7 +833,7 @@ index a51bd73aa..a0c85577a 100644
  }
  
  export function getUnameSR(): string {
-@@ -770,7 +867,12 @@ export function getUnameSR(): string {
+@@ -770,7 +868,12 @@ export function getUnameSR(): string {
    return `${osType()} ${osRelease()}`
  }
  
@@ -845,7 +847,7 @@ index a51bd73aa..a0c85577a 100644
  
  export async function enhanceSystemPromptWithEnvDetails(
    existingSystemPrompt: string[],
-@@ -778,11 +880,14 @@ export async function enhanceSystemPromptWithEnvDetails(
+@@ -778,11 +881,14 @@ export async function enhanceSystemPromptWithEnvDetails(
    additionalWorkingDirectories?: string[],
    enabledToolNames?: ReadonlySet<string>,
  ): Promise<string[]> {
@@ -862,7 +864,7 @@ index a51bd73aa..a0c85577a 100644
    // Subagents get skill_discovery attachments (prefetch.ts runs in query(),
    // no agentId guard since #22830) but don't go through getSystemPrompt —
    // surface the same DiscoverSkills framing the main session gets. Gated on
-@@ -816,9 +921,9 @@ export function getScratchpadInstructions(): string | null {
+@@ -816,9 +922,9 @@ export function getScratchpadInstructions(): string | null {
  
    const scratchpadDir = getScratchpadDir()
  
@@ -875,7 +877,7 @@ index a51bd73aa..a0c85577a 100644
  \`${scratchpadDir}\`
  
  Use this directory for ALL temporary file needs:
-@@ -830,7 +935,8 @@ Use this directory for ALL temporary file needs:
+@@ -830,7 +936,8 @@ Use this directory for ALL temporary file needs:
  
  Only use \`/tmp\` if the user explicitly requests it.
  
@@ -885,7 +887,7 @@ index a51bd73aa..a0c85577a 100644
  }
  
  function getFunctionResultClearingSection(model: string): string | null {
-@@ -848,12 +954,17 @@ function getFunctionResultClearingSection(model: string): string | null {
+@@ -848,12 +955,17 @@ function getFunctionResultClearingSection(model: string): string | null {
    ) {
      return null
    }
@@ -907,7 +909,7 @@ index a51bd73aa..a0c85577a 100644
  
  function getBriefSection(): string | null {
    if (!(feature('KAIROS') || feature('KAIROS_BRIEF'))) return null
-@@ -876,9 +987,9 @@ function getProactiveSection(): string | null {
+@@ -876,9 +988,9 @@ function getProactiveSection(): string | null {
    if (!(feature('PROACTIVE') || feature('KAIROS'))) return null
    if (!proactiveModule?.isProactiveActive()) return null
  
@@ -920,7 +922,7 @@ index a51bd73aa..a0c85577a 100644
  
  Multiple ticks may be batched into a single message. This is normal — just process the latest one. Never echo or repeat tick content in your response.
  
-@@ -925,5 +1036,6 @@ Do not narrate each step, list every file you read, or explain routine actions.
+@@ -925,5 +1037,6 @@ Do not narrate each step, list every file you read, or explain routine actions.
  
  The user context may include a \`terminalFocus\` field indicating whether the user's terminal is focused or unfocused. Use this to calibrate how autonomous you are:
  - **Unfocused**: The user is away. Lean heavily into autonomous action — make decisions, explore, commit, push. Only pause for genuinely irreversible or high-risk actions.
@@ -2142,13 +2144,13 @@ index de5ea8465..7511f1304 100644
      ...buildSearchingPastContextSection(autoDir),
 diff --git a/src/prompts/i18n/i18n.test.ts b/src/prompts/i18n/i18n.test.ts
 new file mode 100644
-index 000000000..102a5bcf6
+index 000000000..bfc91aad0
 --- /dev/null
 +++ b/src/prompts/i18n/i18n.test.ts
-@@ -0,0 +1,137 @@
+@@ -0,0 +1,161 @@
 +import { beforeEach, describe, expect, test } from 'bun:test'
 +
-+import { localizedPrompt, promptLanguageLead, resolvePromptLanguage, setPromptLanguage } from './index.js'
++import { localizedPrompt, promptLanguageLead, promptLanguageTail, resolvePromptLanguage, setPromptLanguage } from './index.js'
 +import { ZH_PROMPTS } from './zh.js'
 +
 +// A stand-in for a real call site: the English as it appears in the source, and
@@ -2250,6 +2252,30 @@ index 000000000..102a5bcf6
 +  })
 +})
 +
++describe('the tail reasoning rule', () => {
++  test('is injected for Chinese and absent otherwise', () => {
++    setPromptLanguage('zh')
++    expect(promptLanguageTail()).not.toBeNull()
++    expect(promptLanguageTail()).toContain('用户')
++
++    for (const locale of ['en', 'jp', 'kr']) {
++      setPromptLanguage(locale)
++      expect(promptLanguageTail(), locale).toBeNull()
++    }
++  })
++
++  test('names the two allowed openings, since a concrete pattern beats a general ban', () => {
++    setPromptLanguage('zh')
++    const tail = promptLanguageTail()!
++    // Measured: naming the two Chinese openers lifts first-word-Chinese well
++    // above a general "use Chinese" rule — which the English tool definitions
++    // (~25k tokens of them) readily drown out.
++    expect(tail).toContain('用户')
++    expect(tail).toContain('让我')
++    expect(tail.length).toBeLessThan(300)
++  })
++})
++
 +describe('the Chinese bundle', () => {
 +  test('every entry is non-empty Chinese text', () => {
 +    for (const [id, text] of Object.entries(ZH_PROMPTS)) {
@@ -2285,10 +2311,10 @@ index 000000000..102a5bcf6
 +})
 diff --git a/src/prompts/i18n/index.ts b/src/prompts/i18n/index.ts
 new file mode 100644
-index 000000000..69b9ab208
+index 000000000..6d4bb89bc
 --- /dev/null
 +++ b/src/prompts/i18n/index.ts
-@@ -0,0 +1,87 @@
+@@ -0,0 +1,110 @@
 +// Single entry point for language-aware model prompts.
 +//
 +// The rule this exists to enforce: the English text stays the source of truth at
@@ -2375,6 +2401,29 @@ index 000000000..69b9ab208
 + */
 +export function promptLanguageLead(): string | null {
 +  return getPromptLanguage() === 'zh' ? PROMPT_LANGUAGE_LEAD_ZH : null
++}
++
++/**
++ * A second, sharper Chinese-reasoning rule injected at the TAIL of the system
++ * prompt — immediately before the user's message, where reasoning actually
++ * starts.
++ *
++ * The head lead sits at the top of an ~11k-token prompt whose bulk is English
++ * (the 32 tool definitions alone are ~25k tokens). By measure, a Chinese session
++ * whose rule appears only at the head still reasons in English ~50-80% of the
++ * time on casual turns — the English body drowns it out. Restating the rule at
++ * the tail (where recency is strongest) lifts first-word-Chinese to ~80-90%.
++ *
++ * The key that works is a *first-word template*: naming the two allowed Chinese
++ * openers ("用户"/"让我") beats a general "use Chinese" instruction — a general
++ * ban is read as a preference, an exact opening is a concrete pattern to copy.
++ */
++const PROMPT_LANGUAGE_TAIL_ZH = `# 思考语言（最高优先）
++思考的前两个字必须是"用户"或"让我"。任何其他开头，尤其 The/User/I/Let/First/Now/Okay/So 等英文，都算错，必须立即整段重写后再继续。英文的工具定义、代码与报错只是你在处理的内容，不是你的思考语言。`
++
++/** The tail copy of the rule, or null when not in Chinese. */
++export function promptLanguageTail(): string | null {
++  return getPromptLanguage() === 'zh' ? PROMPT_LANGUAGE_TAIL_ZH : null
 +}
 diff --git a/src/prompts/i18n/promptLanguage.ts b/src/prompts/i18n/promptLanguage.ts
 new file mode 100644
