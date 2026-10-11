@@ -3088,7 +3088,7 @@ sidecar（claude-sidecar-x86_64-unknown-linux-gnu，111786112 B  20:18）
 
 ---
 
-## 三十四 内置提示词中文化（基础设施 + 可压缩分支清单）（🚧 2026-10-11 第一版已实施）
+## 三十四 内置提示词中文化（基础设施 + 可压缩分支清单 + 思考语言优化）（✅ 第一版打样 + 第二版产前实验期，2026-10-11）
 
 需求：设置-通用 语言为中文时，可用中文的提示词切**纯中文**；非中文时用**原版英文**。定位为**基础设施优化**，先实现，完成后再并入合适的既有优化项。
 
@@ -3145,6 +3145,92 @@ src/prompts/i18n/
 ### 状态
 
 ✅ v1 打样已实施（2026-10-11）；门禁 `check:server` 556/6647、`bun test src/prompts/i18n` 12/0；i18n 表 204 条、引用 202、**无悬空 id**。
+
+## 三十七 思考语言优化 v22：从「英文思考」到「97.8% 中文思考」（🧪 产前实验期，2026-10-11）
+
+### 定位
+
+**属性：产前实验期**。不是稳定生产版，而是验证「中文思考是否可达成 + 代价多大」的实验。
+**目标**：让模型思考（reasoning）尽可能用中文。**方法**：迭代 lead-in 指令 + 修结构 bug + 实测对比。
+
+### 测量框架
+
+并发测量（zxsv-ai 引擎 `/v1/chat/completions` + thinking budget 600）+ 固定 10 场景库（代码/调试/分析/决策/解释/规划/推理/记忆/工具）+ 多采样取均值。**指标**：思考块剔除 ```代码围栏/行内代码后，汉字字符占比。
+
+**单采样噪声极大**（同一场景 0%↔100% 漂移），必须多采样取均值。温度不是杠杆（用户确认，回到默认）。
+
+### 迭代历程（17 变体，320 次调用/变体）
+
+| 变体 | 率 | 做法 |
+|---|---|---|
+| V0 原始 | 71.5% | 现状 lead |
+| V1 记忆翻译 | 71.5% | auto memory 7 块翻译（救回记忆场景 0→85.9%）|
+| V2 全块+强化 | 81.2% | 全块翻译 + lead 强化 |
+| V8 全中文主体 | 75.0% | 删英文块 → 反降，非单调 |
+| V14 首词约束 | 84.2% | 「思考第一个词必须中文 + 点名禁用英文开头」|
+| V19 强禁前置 | 97.2% | 禁句式清单挪到 lead 第一行 |
+| **V22 替换规则** ★ | **97.8%** | 禁句后挂替换规则（"The user is asking"→"用户在问"等 8 条）|
+
+**决定性杠杆**：不是翻译大块英文，而是约束**思考首词** + 把禁句式提到 lead 第一行 + 挂替换规则。
+**温度不是杠杆**：V9 temp=0 略升但用户否决，不作杠杆。
+
+### 结构 bug 修复（比 lead 指令影响大）
+
+**发现**：zh.ts 里记忆段 5 个 section 的翻译键**早已写好**（`## 何时访问记忆` 等），但组装出的系统提示里记忆段全英文。
+**根因**：`src/memdir/memoryTypes.ts` 的 5 个 section + drift caveat 是**模块顶层常量**，import 时就把 `localizedPrompt` 求值成英文 fallback，早于运行时 `setPromptLanguage('zh')`。改成 `export function buildXxxSection()`（调用时求值）后，记忆段 0→2392 汉字、零英文标题残留。
+
+### 补记（2026-10-11）：CLI 身份前缀漏译（同款模块常量固化 bug）
+
+引擎反馈：非交互路径（H5/服务器）的身份前缀 `You are a Claude agent, built on Anthropic's Claude Agent SDK.` 在中文模式下仍英文。
+根因与 memdir 完全同型：`src/constants/system.ts` 的三个前缀常量是模块顶层 `const`，import 时固化；且 `CLI_SYSPROMPT_PREFIXES`（`splitSysPromptPrefix` 按内容识别前缀块以分配缓存作用域）也是顶层常量。只改 `getCLISyspromptPrefix` 而不改集合 ⇒ 中文前缀块认不出，缓存作用域分配错位。
+修法：三前缀改 `build` 函数（运行时 `localizedPrompt`）+ 集合改 `getCliSyspromptPrefixSet()` 运行时构建 + `api.ts` 三处 `.has()` 改局部常量 + zh.ts 新增 3 条 `system.cliPrefix.*` id（`默认` / `Agent SDK 预设` / `Agent SDK`）。
+链式 patch：`prompt-i18n-localization-patch3.patch`（基座 = patch2 后态），`cb7065b1e + patch1 + patch2 + patch3 ⇒ 3 文件与 8572193e9 逐字节一致`。
+
+### 功能完整性评估（V22 中文提示词 vs 原版英文）
+
+| 功能域 | 检查项 | 结果 |
+|---|---|---|
+| 工具名 | Read/Edit/Write/Glob/Grep/Bash/Agent/TaskCreate/AskUserQuestion/Skill | 10/10 保留英文（调用 key）|
+| 斜杠命令 | /commit、/<skill-name>、技能 description: 键 | 保留原文 |
+| 记忆段 | frontmatter {{memory name}}/{{memory content/type: {{/name: {{ | 4/4 占位符完整 |
+| 英文标识符 | CLAUDE.md/MEMORY.md/reasoning/CommonMark/git log/git blame | 6/6 保留 |
+| 占位符破坏 | （{、}{ 等中文标点紧贴模式 | 零（无破坏）|
+
+记忆段主标题 `# auto memory` 仍是英文（zh.ts 该键未命中），只影响观感，不影响记忆读写。
+
+### Token 代价
+
+用项目 `tokenDensity.estimateTokens`（cjk 1.003/字、latin 0.286/字、digit 0.5/字、sym 0.35/字）估算：
+
+| | 字符数 | cjk | latin | 估算 token |
+|---|---|---|---|---|
+| 英文原版 | 26,523 | 0 | 20,762 | **6,404** |
+| V22 中文 | 19,336 | 2,947 | 12,410 | **6,898** |
+
+**zh 比 en 多 ~494 tokens（7.7%）**。100 轮对话多花 ~49,400 tokens。
+
+### 漏网分析
+
+97.8% 后剩余 7 条漏网 6 条都是 `The user wants me to X`——极顽固的英文习惯句式，提示词层面已到平台期（需引擎层干预）。
+
+### 门禁
+
+`bun test src/prompts/i18n` 14/14；`bun run check:server` 6649/0；dump 确认新 lead 注入真实系统提示。
+
+### 属性说明：产前实验期
+
+**为什么不是生产版**：
+1. lead 加了 505 字符（比 v1 的 114 字符多 ~4.4 倍），token 代价 +494/请求
+2. 仍有 2.2% 漏网（`The user wants me to X`），需引擎层干预才能彻底堵住
+3. 功能完整性通过但尚未覆盖所有边缘场景（如超长对话、多代理协作）
+4. 未做 A/B 测试对比用户满意度
+
+**转生产版的前置条件**：
+1. 引擎层拦截 `The user wants me to X` 句式（如 post-process 重写）
+2. 确认 token 代价可接受（或找到更省的 lead 压缩方案）
+3. 完成全功能回归测试（工具/技能/记忆/斜杠命令全路径）
+4. 用户确认接受 7.7% token 增量换取 97.8% 中文思考
+
 ## 三十五 H5 模型配置补齐测试/获取按钮（✅ 2026-10-11）
 
 **问题**：H5 远程访问后，设置 → 模型配置里缺三个按钮：配置页无「获取模型」「测试连接」（仅桌面有）；供应商行内「设为默认」与「编辑」之间缺「测试」。

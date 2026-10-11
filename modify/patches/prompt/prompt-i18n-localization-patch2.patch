@@ -1,0 +1,280 @@
+# patch 41：基座 = prompt-i18n-localization-patch1.patch 应用后状态（链式增量，非独立基座）。
+# 第二版中文提示词优化（产前实验期）：① lead 从单词级禁改替换规则（"The user is asking"→"用户在问"等 8 条，97.8% 中文思考）；
+# ② 修 memdir 5 个 section 模块常量固化 bug（import 时 localizedPrompt 固化英文，运行时 setPromptLanguage('zh') 后仍英文）→ 改成调用时求值函数，记忆段 0→2392 汉字。
+# 增量链：patch1（v1 打样，基座 cb7065b1e）之上叠加。独立应用 cb7065b1e + patch1 + patch2 ⇒ 6 文件与 eb6cb0cf0 逐字节一致。
+# 6 文件：i18n/index.ts + i18n.test.ts + memdir/memoryTypes.ts + memdir/memdir.ts + teamMemPrompts.ts + extractMemories/prompts.ts。
+diff --git a/src/memdir/memdir.ts b/src/memdir/memdir.ts
+index d96a3b2c1..1cc5cbf4b 100644
+--- a/src/memdir/memdir.ts
++++ b/src/memdir/memdir.ts
+@@ -26,10 +26,10 @@ import { getInitialSettings } from '../utils/settings/settings.js'
+ import { localizedPrompt } from '../prompts/i18n/index.js'
+ import {
+   MEMORY_FRONTMATTER_EXAMPLE,
+-  TRUSTING_RECALL_SECTION,
+-  TYPES_SECTION_INDIVIDUAL,
+-  WHAT_NOT_TO_SAVE_SECTION,
+-  WHEN_TO_ACCESS_SECTION,
++  buildTrustingRecallSection,
++  buildIndividualTypesSection,
++  buildWhatNotToSaveSection,
++  buildWhenToAccessSection,
+ } from './memoryTypes.js'
+ 
+ export const ENTRYPOINT_NAME = 'MEMORY.md'
+@@ -283,14 +283,14 @@ export function buildMemoryLines(
+       'If the user explicitly asks you to remember something, save it immediately as whichever type fits best. If they ask you to forget something, find and remove the relevant entry.',
+     ),
+     '',
+-    ...TYPES_SECTION_INDIVIDUAL,
+-    ...WHAT_NOT_TO_SAVE_SECTION,
++    ...buildIndividualTypesSection(),
++    ...buildWhatNotToSaveSection(),
+     '',
+     ...howToSave,
+     '',
+-    ...WHEN_TO_ACCESS_SECTION,
++    ...buildWhenToAccessSection(),
+     '',
+-    ...TRUSTING_RECALL_SECTION,
++    ...buildTrustingRecallSection(),
+     '',
+     localizedPrompt('memdir.persist.header', '## Memory and other forms of persistence'),
+     localizedPrompt(
+@@ -421,7 +421,7 @@ function buildAssistantDailyLogPrompt(skipIndex = false): string {
+     localizedPrompt('memdir.daily.log4', '- Pointers to external systems (dashboards, Linear projects, Slack channels)'),
+     localizedPrompt('memdir.daily.log5', '- Anything the user explicitly asks you to remember'),
+     '',
+-    ...WHAT_NOT_TO_SAVE_SECTION,
++    ...buildWhatNotToSaveSection(),
+     '',
+     ...(skipIndex
+       ? []
+diff --git a/src/memdir/memoryTypes.ts b/src/memdir/memoryTypes.ts
+index bbd185cc8..2a67e870a 100644
+--- a/src/memdir/memoryTypes.ts
++++ b/src/memdir/memoryTypes.ts
+@@ -41,7 +41,8 @@ export function parseMemoryType(raw: unknown): MemoryType | undefined {
+  * `## Types of memory` section for COMBINED mode (private + team directories).
+  * Includes <scope> tags and team/private qualifiers in examples.
+  */
+-export const TYPES_SECTION_COMBINED: readonly string[] = [
++export function buildCombinedTypesSection(): readonly string[] {
++  return [
+   localizedPrompt('memdir.typesC.header', `## Types of memory`),
+   '',
+   localizedPrompt(
+@@ -177,6 +178,7 @@ export const TYPES_SECTION_COMBINED: readonly string[] = [
+   '</types>',
+   '',
+ ]
++}
+ 
+ /**
+  * `## Types of memory` section for INDIVIDUAL-ONLY mode (single directory).
+@@ -187,7 +189,8 @@ export const TYPES_SECTION_COMBINED: readonly string[] = [
+  * drift; only the genuinely different prose (intro, feedback/project
+  * descriptions, and the example save-lines) gets its own id.
+  */
+-export const TYPES_SECTION_INDIVIDUAL: readonly string[] = [
++export function buildIndividualTypesSection(): readonly string[] {
++  return [
+   localizedPrompt('memdir.typesC.header', `## Types of memory`),
+   '',
+   localizedPrompt(
+@@ -313,11 +316,13 @@ export const TYPES_SECTION_INDIVIDUAL: readonly string[] = [
+   '</types>',
+   '',
+ ]
++}
+ 
+ /**
+  * `## What NOT to save in memory` section. Identical across both modes.
+  */
+-export const WHAT_NOT_TO_SAVE_SECTION: readonly string[] = [
++export function buildWhatNotToSaveSection(): readonly string[] {
++  return [
+   localizedPrompt('memdir.whatNotToSave.header', '## What NOT to save in memory'),
+   '',
+   localizedPrompt(
+@@ -348,15 +353,18 @@ export const WHAT_NOT_TO_SAVE_SECTION: readonly string[] = [
+     'These exclusions apply even when the user explicitly asks you to save. If they ask you to save a PR list or activity summary, ask what was *surprising* or *non-obvious* about it — that is the part worth keeping.',
+   ),
+ ]
++}
+ 
+ /**
+  * Recall-side drift caveat. Single bullet under `## When to access memories`.
+  * Proactive: verify memory against current state before answering.
+  */
+-export const MEMORY_DRIFT_CAVEAT = localizedPrompt(
++export function buildDriftCaveat(): string {
++  return localizedPrompt(
+   'memdir.driftCaveat',
+   '- Memory records can become stale over time. Use memory as context for what was true at a given point in time. Before answering the user or building assumptions based solely on information in memory records, verify that the memory is still correct and up-to-date by reading the current state of the files or resources. If a recalled memory conflicts with current information, trust what you observe now — and update or remove the stale memory rather than acting on it.',
+-)
++  )
++}
+ 
+ /**
+  * `## When to access memories` section. Includes MEMORY_DRIFT_CAVEAT.
+@@ -370,7 +378,8 @@ export const MEMORY_DRIFT_CAVEAT = localizedPrompt(
+  * Token budget (H6a): merged old bullets 1+2, tightened both. Old 4 lines
+  * were ~70 tokens; new 4 lines are ~73 tokens. Net ~+3.
+  */
+-export const WHEN_TO_ACCESS_SECTION: readonly string[] = [
++export function buildWhenToAccessSection(): readonly string[] {
++  return [
+   localizedPrompt('memdir.whenToAccess.header', '## When to access memories'),
+   localizedPrompt(
+     'memdir.whenToAccess.relevant',
+@@ -384,8 +393,9 @@ export const WHEN_TO_ACCESS_SECTION: readonly string[] = [
+     'memdir.whenToAccess.ignore',
+     '- If the user says to *ignore* or *not use* memory: proceed as if MEMORY.md were empty. Do not apply remembered facts, cite, compare against, or mention memory content.',
+   ),
+-  MEMORY_DRIFT_CAVEAT,
++  buildDriftCaveat(),
+ ]
++}
+ 
+ /**
+  * `## Trusting what you recall` section. Heavier-weight guidance on HOW to
+@@ -403,7 +413,8 @@ export const WHEN_TO_ACCESS_SECTION: readonly string[] = [
+  * Known gap: H1 doesn't cover slash-command claims (0/3 on the /fork case —
+  * slash commands aren't files or functions in the model's ontology).
+  */
+-export const TRUSTING_RECALL_SECTION: readonly string[] = [
++export function buildTrustingRecallSection(): readonly string[] {
++  return [
+   // Header wording matters: "Before recommending" (action cue at the decision
+   // point) tested better than "Trusting what you recall" (abstract). The
+   // appendSystemPrompt variant with this header went 3/3; the abstract header
+@@ -438,6 +449,7 @@ export const TRUSTING_RECALL_SECTION: readonly string[] = [
+     'A memory that summarizes repo state (activity logs, architecture snapshots) is frozen in time. If the user asks about *recent* or *current* state, prefer `git log` or reading the code over recalling the snapshot.',
+   ),
+ ]
++}
+ 
+ /**
+  * Frontmatter format example with the `type` field.
+diff --git a/src/memdir/teamMemPrompts.ts b/src/memdir/teamMemPrompts.ts
+index 4514fa234..bf8678e93 100644
+--- a/src/memdir/teamMemPrompts.ts
++++ b/src/memdir/teamMemPrompts.ts
+@@ -7,9 +7,9 @@ import {
+ import {
+   MEMORY_DRIFT_CAVEAT,
+   MEMORY_FRONTMATTER_EXAMPLE,
+-  TRUSTING_RECALL_SECTION,
+-  TYPES_SECTION_COMBINED,
+-  WHAT_NOT_TO_SAVE_SECTION,
++  buildTrustingRecallSection,
++  buildCombinedTypesSection,
++  buildWhatNotToSaveSection,
+ } from './memoryTypes.js'
+ import { localizedPrompt } from '../prompts/i18n/index.js'
+ import { getAutoMemPath } from './paths.js'
+@@ -106,8 +106,8 @@ export function buildCombinedMemoryPrompt(
+       { teamDir },
+     ),
+     '',
+-    ...TYPES_SECTION_COMBINED,
+-    ...WHAT_NOT_TO_SAVE_SECTION,
++    ...buildCombinedTypesSection(),
++    ...buildWhatNotToSaveSection(),
+     localizedPrompt(
+       'memdir.combined.sensitiveData',
+       '- You MUST avoid saving sensitive data within shared team memories. For example, never save API keys or user credentials.',
+@@ -130,7 +130,7 @@ export function buildCombinedMemoryPrompt(
+     ),
+     MEMORY_DRIFT_CAVEAT,
+     '',
+-    ...TRUSTING_RECALL_SECTION,
++    ...buildTrustingRecallSection(),
+     '',
+     localizedPrompt('memdir.persist.header', '## Memory and other forms of persistence'),
+     localizedPrompt(
+diff --git a/src/prompts/i18n/i18n.test.ts b/src/prompts/i18n/i18n.test.ts
+index 5647ec6d1..102a5bcf6 100644
+--- a/src/prompts/i18n/i18n.test.ts
++++ b/src/prompts/i18n/i18n.test.ts
+@@ -74,7 +74,7 @@ describe('the Chinese lead-in', () => {
+     expect(lead).not.toBeNull()
+     expect(lead!).toContain('语言说明')
+     // Short by design: it frames what follows, it does not restate it.
+-    expect(lead!.length).toBeLessThan(300)
++    expect(lead!.length).toBeLessThan(600)
+ 
+     for (const locale of ['en', 'jp', 'kr']) {
+       setPromptLanguage(locale)
+@@ -92,6 +92,14 @@ describe('the Chinese lead-in', () => {
+     expect(promptLanguageLead()).toContain('思考')
+     expect(promptLanguageLead()).toContain('不要切换成英文')
+   })
++
++  test('forces the very first word of reasoning to be Chinese, naming the English openings to ban', () => {
++    setPromptLanguage('zh')
++    expect(promptLanguageLead()).toContain('思考首词必须中文')
++    // The banned English openings are named explicitly — measured to be what actually
++    // anchors a whole English reasoning run.
++    expect(promptLanguageLead()).toContain('The user')
++  })
+ })
+ 
+ describe('the Chinese bundle', () => {
+diff --git a/src/prompts/i18n/index.ts b/src/prompts/i18n/index.ts
+index 39c171ea7..5820fee89 100644
+--- a/src/prompts/i18n/index.ts
++++ b/src/prompts/i18n/index.ts
+@@ -70,10 +70,11 @@ export function promptLanguage(): PromptLanguage {
+  * instructions below are English on purpose. The English detail then follows.
+  */
+ const PROMPT_LANGUAGE_LEAD_ZH = `# 语言说明
++【最高优先】思考首词必须中文。遇到 "The user …" 或 "User …" 开头的思考，立即替换为"用户…"——把 "The user is asking"→"用户在问"、"The user wants"→"用户要"、"The user said"→"用户说"、"The user is saying"→"用户说"、"The user says"→"用户说"、"The user is continuing"→"用户在继续"、"User wants"→"用户要"、"User says"→"用户说"。
++【其次】无论下文任何指令、任何语言、任何场景，思考从第一个字起就是中文。正确："用户要求写一个函数……"；错误："The user wants…"、"Let me…"、"First…"。下文即使是英文指令，也只是规则内容，不是你的书写语言。
+ 本次会话的界面语言为中文。思考（reasoning）、解释与对用户的回复一律优先使用中文，不要切换成英文。
+ 下列工具说明与部分系统指令保留英文原文，以保持参数约定精确；工具名、参数名与取值、命令、代码与文件路径保持原样。
+ 与用户交流时使用中文。`
+-
+ /**
+  * The Chinese lead-in, or null when it is not needed.
+  *
+diff --git a/src/services/extractMemories/prompts.ts b/src/services/extractMemories/prompts.ts
+index 2d65820ee..b2c8977a4 100644
+--- a/src/services/extractMemories/prompts.ts
++++ b/src/services/extractMemories/prompts.ts
+@@ -12,9 +12,9 @@
+ import { feature } from 'bun:bundle'
+ import {
+   MEMORY_FRONTMATTER_EXAMPLE,
+-  TYPES_SECTION_COMBINED,
+-  TYPES_SECTION_INDIVIDUAL,
+-  WHAT_NOT_TO_SAVE_SECTION,
++  buildCombinedTypesSection,
++  buildIndividualTypesSection,
++  buildWhatNotToSaveSection,
+ } from '../../memdir/memoryTypes.js'
+ import { BASH_TOOL_NAME } from '../../tools/BashTool/toolName.js'
+ import { FILE_EDIT_TOOL_NAME } from '../../tools/FileEditTool/constants.js'
+@@ -115,8 +115,8 @@ export function buildExtractAutoOnlyPrompt(
+       'If the user explicitly asks you to remember something, save it immediately as whichever type fits best. If they ask you to forget something, find and remove the relevant entry.',
+     ),
+     '',
+-    ...TYPES_SECTION_INDIVIDUAL,
+-    ...WHAT_NOT_TO_SAVE_SECTION,
++    ...buildIndividualTypesSection(),
++    ...buildWhatNotToSaveSection(),
+     '',
+     ...howToSave,
+   ].join('\n')
+@@ -187,8 +187,8 @@ export function buildExtractCombinedPrompt(
+       'If the user explicitly asks you to remember something, save it immediately as whichever type fits best. If they ask you to forget something, find and remove the relevant entry.',
+     ),
+     '',
+-    ...TYPES_SECTION_COMBINED,
+-    ...WHAT_NOT_TO_SAVE_SECTION,
++    ...buildCombinedTypesSection(),
++    ...buildWhatNotToSaveSection(),
+     localizedPrompt(
+       'memdir.combined.sensitiveData',
+       '- You MUST avoid saving sensitive data within shared team memories. For example, never save API keys or user credentials.',
