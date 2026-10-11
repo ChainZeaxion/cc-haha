@@ -49,22 +49,14 @@ patches/h5/h5-file-open-patch1.patch
 patches/vcc/vcc-compaction-retention-budget-patch1.patch
 
 # 39：⚠️ 基座同上（0.6.7 血缘）—— = `align-latest` 的 `cb7065b1e`，**同样独立应用**。
-# 内置提示词中文化基础设施（v1 打样）：zh 覆盖表 + localizedPrompt，主系统提示词/收尾/compact/autoDream/review/team/三个内置 agent；
-# 含 locale 管道（desktop-ui.json.locale → 侧车）。28 文件（24 改 + 4 新 src/prompts/i18n/*）。
-# 独立应用（干净 `cb7065b1e` 上 apply ⇒ 28 文件逐字节一致）。
+# 内置提示词中文化（第一版打样 + 第二版产前实验期，**合并版**）：zh 覆盖表 + localizedPrompt，主系统提示词/收尾/compact/autoDream/review/team/三个内置 agent；
+# 含 locale 管道（desktop-ui.json.locale → 侧车）。第二版产前实验期增量：① lead 替换规则（"The user is asking"→"用户在问"等 8 条，97.8% 中文思考）；
+# ② memdir 5 个 section 模块常量固化 bug 修复（改 buildXxxSection() 运行时求值，记忆段 0→2392 汉字）；
+# ③ CLI 身份前缀中文化（同型模块常量 bug，build 函数 + getCliSyspromptPrefixSet() + api.ts .has() 改局部常量 + zh.ts 3 条 system.cliPrefix.* id）。
+# 28 文件（24 改 + 4 新 src/prompts/i18n/*）。独立应用（干净 `cb7065b1e` 上 apply ⇒ 28 文件逐字节一致）。
 patches/prompt/prompt-i18n-localization-patch1.patch
 
 # 40：⚠️ 基座同上（0.6.7 血缘）—— = `align-latest`，**独立应用**。
 # H5 模型配置补齐测试/获取按钮：删 ProviderSettings 3 处 !browserMode 门控（行内 Test / 获取模型 / 测试连接）+ 测试。3 文件。
 patches/h5/h5-provider-test-buttons-patch1.patch
 
-# 41：⚠️ 基座 = `prompt-i18n-localization-patch1.patch` **应用之后**的状态（链式增量，**非**独立基座，必须紧跟 patch1 之后应用）。
-# 第二版中文提示词优化（产前实验期）：① lead 从单词级禁改替换规则（"The user is asking"→"用户在问"等 8 条，97.8% 中文思考，17 变体 320 次/变体实测）；
-# ② 修 memdir 5 个 section 模块顶层常量固化 bug（import 时 `localizedPrompt` 固化英文，运行时 `setPromptLanguage('zh')` 后记忆段仍全英文）→ 改 `buildXxxSection()` 调用时求值，记忆段 0→2392 汉字。
-# 增量链：`cb7065b1e` + patch1 + patch2 ⇒ 6 文件与 `eb6cb0cf0` 逐字节一致（i18n/index.ts + i18n.test.ts + memdir/memoryTypes.ts + memdir/memdir.ts + teamMemPrompts.ts + extractMemories/prompts.ts）。
-patches/prompt/prompt-i18n-localization-patch2.patch
-# 42：基座 = `prompt-i18n-localization-patch2.patch` 应用之后（链式增量，必须紧跟 patch2）。
-# CLI 系统提示词身份前缀中文化（memdir 同款模块常量固化 bug）：三前缀常量 + CLI_SYSPROMPT_PREFIXES 集合都是顶层 const，import 时固化英文。
-# 改 build 函数运行时求值 + 集合改 getCliSyspromptPrefixSet() + api.ts 三处 .has() 改局部常量 + zh.ts 新增 3 条 system.cliPrefix.* id。
-# 独立链：cb7065b1e + patch1 + patch2 + patch3 ⇒ 3 文件与 8572193e9 逐字节一致。
-patches/prompt/prompt-i18n-localization-patch3.patch

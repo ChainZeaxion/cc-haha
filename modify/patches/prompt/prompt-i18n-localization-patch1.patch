@@ -1,69 +1,9 @@
-diff --git a/desktop/src/api/desktopUiPreferences.ts b/desktop/src/api/desktopUiPreferences.ts
-index ee72d6d3d..a17884189 100644
---- a/desktop/src/api/desktopUiPreferences.ts
-+++ b/desktop/src/api/desktopUiPreferences.ts
-@@ -65,6 +65,20 @@ export const desktopUiPreferencesApi = {
-     return api.get<DesktopPetPreferencesResponse>('/api/desktop-ui/preferences/pet')
-   },
- 
-+  /**
-+   * Tell the server which UI language is set.
-+   *
-+   * The renderer's own storage is invisible to the sidecar that assembles the
-+   * model prompts, so the choice has to be sent over. Returns the resolved
-+   * prompt language so a caller (or a test) can see it took effect.
-+   */
-+  updateLocalePreference(locale: string | null) {
-+    return api.put<{ ok: true; locale: string | null; promptLanguage: 'en' | 'zh' }>(
-+      '/api/desktop-ui/preferences/locale',
-+      { locale },
-+    )
-+  },
-+
-   updateSidebarPreferences(sidebar: SidebarProjectPreferences) {
-     return api.put<{ ok: true; preferences: DesktopUiPreferences }>(
-       '/api/desktop-ui/preferences/sidebar',
-diff --git a/desktop/src/stores/settingsStore.ts b/desktop/src/stores/settingsStore.ts
-index 03d215292..aed00d60e 100644
---- a/desktop/src/stores/settingsStore.ts
-+++ b/desktop/src/stores/settingsStore.ts
-@@ -3,6 +3,7 @@ import { ApiError } from '../api/client'
- import { settingsApi } from '../api/settings'
- import { modelsApi } from '../api/models'
- import { h5AccessApi } from '../api/h5Access'
-+import { desktopUiPreferencesApi } from '../api/desktopUiPreferences'
- import { tracesApi } from '../api/traces'
- import {
-   type AppMode,
-@@ -212,6 +213,20 @@ const initialLocale = getInitialLocale()
- applyDocumentLocale(initialLocale)
- let autoQuestionUpdateQueue: Promise<unknown> = Promise.resolve()
- 
-+/**
-+ * Tell the server which language is set, since the sidecar assembles the model
-+ * prompts and cannot see this renderer's storage.
-+ *
-+ * Only sent on a change: the server reads the persisted value itself, so a
-+ * language that has been chosen once survives restarts without this call. No
-+ * boot push is needed, and the absence of one is deliberate.
-+ */
-+function publishLocaleToServer(locale: Locale) {
-+  void desktopUiPreferencesApi.updateLocalePreference(locale).catch((error) => {
-+    console.error('[desktop] Failed to publish locale to the server', error)
-+  })
-+}
-+
- export const useSettingsStore = create<SettingsStore>((set, get) => ({
-   permissionMode: 'default',
-   currentModel: null,
-@@ -489,6 +504,7 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
-     void getDesktopHost().app.setLocalePreference(locale).catch((error) => {
-       console.error('[desktop] Failed to persist locale preference', error)
-     })
-+    publishLocaleToServer(locale)
-   },
- 
-   // Kept as the Settings page's entry point; uiStore owns the state.
+# patch 39：⚠️ 基座同上（0.6.7 血缘）—— = `align-latest` 的 `cb7065b1e`，独立应用。
+# 内置提示词中文化（第一版打样 + 第二版产前实验期，合并版）：zh 覆盖表 + localizedPrompt，主系统提示词/收尾/compact/autoDream/review/team/三个内置 agent；
+# 含 locale 管道（desktop-ui.json.locale → 侧车）。第二版产前实验期增量：① lead 替换规则（"The user is asking"→"用户在问"等 8 条，97.8% 中文思考）；
+# ② memdir 5 个 section 模块常量固化 bug 修复（改 buildXxxSection() 运行时求值，记忆段 0→2392 汉字）；
+# ③ CLI 身份前缀中文化（同型模块常量 bug，build 函数 + getCliSyspromptPrefixSet() + api.ts .has() 改局部常量 + zh.ts 3 条 system.cliPrefix.* id）。
+# 28 文件（24 改 + 4 新 src/prompts/i18n/*）。独立应用（干净 `cb7065b1e` 上 apply ⇒ 28 文件逐字节一致）。
 diff --git a/src/commands/review.ts b/src/commands/review.ts
 index f86ada0b1..74aadec96 100644
 --- a/src/commands/review.ts
@@ -577,6 +517,86 @@ index a51bd73aa..6c2e6273e 100644
 +- **Focused**: The user is watching. Be more collaborative — surface choices, ask before committing to large changes, and keep your output concise so it's easy to follow in real time.`, { tick: TICK_TAG, sleep: SLEEP_TOOL_NAME }) + (BRIEF_PROACTIVE_SECTION && briefToolModule?.isBriefEnabled() ? `\n\n${BRIEF_PROACTIVE_SECTION}` : ''),
 +  ].join('\n\n')
  }
+diff --git a/src/constants/system.ts b/src/constants/system.ts
+index d6d3efe13..9ef334c92 100644
+--- a/src/constants/system.ts
++++ b/src/constants/system.ts
+@@ -5,44 +5,58 @@ import { logForDebugging } from '../utils/debug.js'
+ import { isEnvDefinedFalsy } from '../utils/envUtils.js'
+ import { getAPIProvider } from '../utils/model/providers.js'
+ import { getWorkload } from '../utils/workloadContext.js'
++import { localizedPrompt } from '../prompts/i18n/index.js'
+ import { formatClaudeCodeBillingHeader } from './claudeCodeCompatibility.js'
+ 
+-const DEFAULT_PREFIX = `You are Claude Code, Anthropic's official CLI for Claude.`
+-const AGENT_SDK_CLAUDE_CODE_PRESET_PREFIX = `You are Claude Code, Anthropic's official CLI for Claude, running within the Claude Agent SDK.`
+-const AGENT_SDK_PREFIX = `You are a Claude agent, built on Anthropic's Claude Agent SDK.`
++// English sources of truth; the Chinese override lives in zh.ts.
++const DEFAULT_PREFIX_EN = `You are Claude Code, Anthropic's official CLI for Claude.`
++const AGENT_SDK_CLAUDE_CODE_PRESET_PREFIX_EN = `You are Claude Code, Anthropic's official CLI for Claude, running within the Claude Agent SDK.`
++const AGENT_SDK_PREFIX_EN = `You are a Claude agent, built on Anthropic's Claude Agent SDK.`
+ 
+-const CLI_SYSPROMPT_PREFIX_VALUES = [
+-  DEFAULT_PREFIX,
+-  AGENT_SDK_CLAUDE_CODE_PRESET_PREFIX,
+-  AGENT_SDK_PREFIX,
+-] as const
++function buildDefaultPrefix(): string {
++  return localizedPrompt('system.cliPrefix.default', DEFAULT_PREFIX_EN)
++}
++
++function buildAgentSdkCchPresetPrefix(): string {
++  return localizedPrompt('system.cliPrefix.agentSdkCchPreset', AGENT_SDK_CLAUDE_CODE_PRESET_PREFIX_EN)
++}
+ 
+-export type CLISyspromptPrefix = (typeof CLI_SYSPROMPT_PREFIX_VALUES)[number]
++function buildAgentSdkPrefix(): string {
++  return localizedPrompt('system.cliPrefix.agentSdk', AGENT_SDK_PREFIX_EN)
++}
+ 
+ /**
+  * All possible CLI sysprompt prefix values, used by splitSysPromptPrefix
+  * to identify prefix blocks by content rather than position.
++ *
++ * Must be called at runtime (not at module import time) so that the prefix
++ * content reflects the current prompt language — the same fix applied to
++ * memdir sections (module-top-level const freezes localizedPrompt at import).
+  */
+-export const CLI_SYSPROMPT_PREFIXES: ReadonlySet<string> = new Set(
+-  CLI_SYSPROMPT_PREFIX_VALUES,
+-)
++export function getCliSyspromptPrefixSet(): ReadonlySet<string> {
++  return new Set([
++    buildDefaultPrefix(),
++    buildAgentSdkCchPresetPrefix(),
++    buildAgentSdkPrefix(),
++  ])
++}
+ 
+ export function getCLISyspromptPrefix(options?: {
+   isNonInteractive: boolean
+   hasAppendSystemPrompt: boolean
+-}): CLISyspromptPrefix {
++}): string {
+   const apiProvider = getAPIProvider()
+   if (apiProvider === 'vertex') {
+-    return DEFAULT_PREFIX
++    return buildDefaultPrefix()
+   }
+ 
+   if (options?.isNonInteractive) {
+     if (options.hasAppendSystemPrompt) {
+-      return AGENT_SDK_CLAUDE_CODE_PRESET_PREFIX
++      return buildAgentSdkCchPresetPrefix()
+     }
+-    return AGENT_SDK_PREFIX
++    return buildAgentSdkPrefix()
+   }
+-  return DEFAULT_PREFIX
++  return buildDefaultPrefix()
+ }
+ 
+ /**
 diff --git a/src/coordinator/coordinatorMode.ts b/src/coordinator/coordinatorMode.ts
 index a41b16a34..24d6c914c 100644
 --- a/src/coordinator/coordinatorMode.ts
@@ -658,17 +678,27 @@ index a41b16a34..24d6c914c 100644
 +  )
  }
 diff --git a/src/memdir/memdir.ts b/src/memdir/memdir.ts
-index 1e7e68b55..d96a3b2c1 100644
+index 1e7e68b55..1cc5cbf4b 100644
 --- a/src/memdir/memdir.ts
 +++ b/src/memdir/memdir.ts
-@@ -23,6 +23,7 @@ import { isEnvTruthy } from '../utils/envUtils.js'
+@@ -23,12 +23,13 @@ import { isEnvTruthy } from '../utils/envUtils.js'
  import { formatFileSize } from '../utils/format.js'
  import { getProjectDir } from '../utils/sessionStorage.js'
  import { getInitialSettings } from '../utils/settings/settings.js'
 +import { localizedPrompt } from '../prompts/i18n/index.js'
  import {
    MEMORY_FRONTMATTER_EXAMPLE,
-   TRUSTING_RECALL_SECTION,
+-  TRUSTING_RECALL_SECTION,
+-  TYPES_SECTION_INDIVIDUAL,
+-  WHAT_NOT_TO_SAVE_SECTION,
+-  WHEN_TO_ACCESS_SECTION,
++  buildTrustingRecallSection,
++  buildIndividualTypesSection,
++  buildWhatNotToSaveSection,
++  buildWhenToAccessSection,
+ } from './memoryTypes.js'
+ 
+ export const ENTRYPOINT_NAME = 'MEMORY.md'
 @@ -86,15 +87,31 @@ export function truncateEntrypointContent(raw: string): EntrypointTruncation {
  
    const reason =
@@ -705,7 +735,7 @@ index 1e7e68b55..d96a3b2c1 100644
      lineCount,
      byteCount,
      wasLineTruncated,
-@@ -204,43 +221,67 @@ export function buildMemoryLines(
+@@ -204,57 +221,90 @@ export function buildMemoryLines(
  ): string[] {
    const howToSave = skipIndex
      ? [
@@ -789,11 +819,18 @@ index 1e7e68b55..d96a3b2c1 100644
 +      'If the user explicitly asks you to remember something, save it immediately as whichever type fits best. If they ask you to forget something, find and remove the relevant entry.',
 +    ),
      '',
-     ...TYPES_SECTION_INDIVIDUAL,
-     ...WHAT_NOT_TO_SAVE_SECTION,
-@@ -251,10 +292,19 @@ export function buildMemoryLines(
+-    ...TYPES_SECTION_INDIVIDUAL,
+-    ...WHAT_NOT_TO_SAVE_SECTION,
++    ...buildIndividualTypesSection(),
++    ...buildWhatNotToSaveSection(),
      '',
-     ...TRUSTING_RECALL_SECTION,
+     ...howToSave,
+     '',
+-    ...WHEN_TO_ACCESS_SECTION,
++    ...buildWhenToAccessSection(),
+     '',
+-    ...TRUSTING_RECALL_SECTION,
++    ...buildTrustingRecallSection(),
      '',
 -    '## Memory and other forms of persistence',
 -    'Memory is one of several persistence mechanisms available to you as you assist the user in a given conversation. The distinction is often that memory can be recalled in future conversations and should not be used for persisting information that is only useful within the scope of the current conversation.',
@@ -828,7 +865,7 @@ index 1e7e68b55..d96a3b2c1 100644
      )
    }
  
-@@ -335,24 +389,37 @@ function buildAssistantDailyLogPrompt(skipIndex = false): string {
+@@ -335,32 +389,49 @@ function buildAssistantDailyLogPrompt(skipIndex = false): string {
    const logPathPattern = join(memoryDir, 'logs', 'YYYY', 'MM', 'YYYY-MM-DD.md')
  
    const lines: string[] = [
@@ -874,9 +911,10 @@ index 1e7e68b55..d96a3b2c1 100644
 +    localizedPrompt('memdir.daily.log4', '- Pointers to external systems (dashboards, Linear projects, Slack channels)'),
 +    localizedPrompt('memdir.daily.log5', '- Anything the user explicitly asks you to remember'),
      '',
-     ...WHAT_NOT_TO_SAVE_SECTION,
+-    ...WHAT_NOT_TO_SAVE_SECTION,
++    ...buildWhatNotToSaveSection(),
      '',
-@@ -360,7 +427,11 @@ function buildAssistantDailyLogPrompt(skipIndex = false): string {
+     ...(skipIndex
        ? []
        : [
            `## ${ENTRYPOINT_NAME}`,
@@ -890,7 +928,7 @@ index 1e7e68b55..d96a3b2c1 100644
          ]),
      ...buildSearchingPastContextSection(memoryDir),
 diff --git a/src/memdir/memoryTypes.ts b/src/memdir/memoryTypes.ts
-index 99b44830a..bbd185cc8 100644
+index 99b44830a..2a67e870a 100644
 --- a/src/memdir/memoryTypes.ts
 +++ b/src/memdir/memoryTypes.ts
 @@ -9,8 +9,15 @@
@@ -909,11 +947,14 @@ index 99b44830a..bbd185cc8 100644
  export const MEMORY_TYPES = [
    'user',
    'feedback',
-@@ -35,70 +42,136 @@ export function parseMemoryType(raw: unknown): MemoryType | undefined {
+@@ -34,172 +41,330 @@ export function parseMemoryType(raw: unknown): MemoryType | undefined {
+  * `## Types of memory` section for COMBINED mode (private + team directories).
   * Includes <scope> tags and team/private qualifiers in examples.
   */
- export const TYPES_SECTION_COMBINED: readonly string[] = [
+-export const TYPES_SECTION_COMBINED: readonly string[] = [
 -  '## Types of memory',
++export function buildCombinedTypesSection(): readonly string[] {
++  return [
 +  localizedPrompt('memdir.typesC.header', `## Types of memory`),
    '',
 -  'There are several discrete types of memory that you can store in your memory system. Each type below declares a <scope> of `private`, `team`, or guidance for choosing between the two.',
@@ -1084,7 +1125,11 @@ index 99b44830a..bbd185cc8 100644
    '    </examples>',
    '</type>',
    '</types>',
-@@ -109,68 +182,132 @@ export const TYPES_SECTION_COMBINED: readonly string[] = [
+   '',
+ ]
++}
+ 
+ /**
   * `## Types of memory` section for INDIVIDUAL-ONLY mode (single directory).
   * No <scope> tags. Examples use plain `[saves X memory: …]`. Prose that
   * only makes sense with a private/team split is reworded.
@@ -1093,8 +1138,10 @@ index 99b44830a..bbd185cc8 100644
 + * drift; only the genuinely different prose (intro, feedback/project
 + * descriptions, and the example save-lines) gets its own id.
   */
- export const TYPES_SECTION_INDIVIDUAL: readonly string[] = [
+-export const TYPES_SECTION_INDIVIDUAL: readonly string[] = [
 -  '## Types of memory',
++export function buildIndividualTypesSection(): readonly string[] {
++  return [
 +  localizedPrompt('memdir.typesC.header', `## Types of memory`),
    '',
 -  'There are several discrete types of memory that you can store in your memory system:',
@@ -1251,11 +1298,17 @@ index 99b44830a..bbd185cc8 100644
    '    </examples>',
    '</type>',
    '</types>',
-@@ -181,25 +318,45 @@ export const TYPES_SECTION_INDIVIDUAL: readonly string[] = [
+   '',
+ ]
++}
+ 
+ /**
   * `## What NOT to save in memory` section. Identical across both modes.
   */
- export const WHAT_NOT_TO_SAVE_SECTION: readonly string[] = [
+-export const WHAT_NOT_TO_SAVE_SECTION: readonly string[] = [
 -  '## What NOT to save in memory',
++export function buildWhatNotToSaveSection(): readonly string[] {
++  return [
 +  localizedPrompt('memdir.whatNotToSave.header', '## What NOT to save in memory'),
    '',
 -  '- Code patterns, conventions, architecture, file paths, or project structure — these can be derived by reading the current project state.',
@@ -1292,6 +1345,7 @@ index 99b44830a..bbd185cc8 100644
 +    'These exclusions apply even when the user explicitly asks you to save. If they ask you to save a PR list or activity summary, ask what was *surprising* or *non-obvious* about it — that is the part worth keeping.',
 +  ),
  ]
++}
  
  /**
   * Recall-side drift caveat. Single bullet under `## When to access memories`.
@@ -1299,21 +1353,27 @@ index 99b44830a..bbd185cc8 100644
   */
 -export const MEMORY_DRIFT_CAVEAT =
 -  '- Memory records can become stale over time. Use memory as context for what was true at a given point in time. Before answering the user or building assumptions based solely on information in memory records, verify that the memory is still correct and up-to-date by reading the current state of the files or resources. If a recalled memory conflicts with current information, trust what you observe now — and update or remove the stale memory rather than acting on it.'
-+export const MEMORY_DRIFT_CAVEAT = localizedPrompt(
++export function buildDriftCaveat(): string {
++  return localizedPrompt(
 +  'memdir.driftCaveat',
 +  '- Memory records can become stale over time. Use memory as context for what was true at a given point in time. Before answering the user or building assumptions based solely on information in memory records, verify that the memory is still correct and up-to-date by reading the current state of the files or resources. If a recalled memory conflicts with current information, trust what you observe now — and update or remove the stale memory rather than acting on it.',
-+)
++  )
++}
  
  /**
   * `## When to access memories` section. Includes MEMORY_DRIFT_CAVEAT.
-@@ -214,10 +371,19 @@ export const MEMORY_DRIFT_CAVEAT =
+@@ -213,13 +378,24 @@ export const MEMORY_DRIFT_CAVEAT =
+  * Token budget (H6a): merged old bullets 1+2, tightened both. Old 4 lines
   * were ~70 tokens; new 4 lines are ~73 tokens. Net ~+3.
   */
- export const WHEN_TO_ACCESS_SECTION: readonly string[] = [
+-export const WHEN_TO_ACCESS_SECTION: readonly string[] = [
 -  '## When to access memories',
 -  '- When memories seem relevant, or the user references prior-conversation work.',
 -  '- You MUST access memory when the user explicitly asks you to check, recall, or remember.',
 -  '- If the user says to *ignore* or *not use* memory: proceed as if MEMORY.md were empty. Do not apply remembered facts, cite, compare against, or mention memory content.',
+-  MEMORY_DRIFT_CAVEAT,
++export function buildWhenToAccessSection(): readonly string[] {
++  return [
 +  localizedPrompt('memdir.whenToAccess.header', '## When to access memories'),
 +  localizedPrompt(
 +    'memdir.whenToAccess.relevant',
@@ -1327,10 +1387,20 @@ index 99b44830a..bbd185cc8 100644
 +    'memdir.whenToAccess.ignore',
 +    '- If the user says to *ignore* or *not use* memory: proceed as if MEMORY.md were empty. Do not apply remembered facts, cite, compare against, or mention memory content.',
 +  ),
-   MEMORY_DRIFT_CAVEAT,
++  buildDriftCaveat(),
  ]
++}
  
-@@ -242,21 +408,43 @@ export const TRUSTING_RECALL_SECTION: readonly string[] = [
+ /**
+  * `## Trusting what you recall` section. Heavier-weight guidance on HOW to
+@@ -237,26 +413,50 @@ export const WHEN_TO_ACCESS_SECTION: readonly string[] = [
+  * Known gap: H1 doesn't cover slash-command claims (0/3 on the /fork case —
+  * slash commands aren't files or functions in the model's ontology).
+  */
+-export const TRUSTING_RECALL_SECTION: readonly string[] = [
++export function buildTrustingRecallSection(): readonly string[] {
++  return [
+   // Header wording matters: "Before recommending" (action cue at the decision
    // point) tested better than "Trusting what you recall" (abstract). The
    // appendSystemPrompt variant with this header went 3/3; the abstract header
    // went 0/3 in-place. Same body text — only the header differed.
@@ -1371,6 +1441,7 @@ index 99b44830a..bbd185cc8 100644
 +    'A memory that summarizes repo state (activity logs, architecture snapshots) is frozen in time. If the user asks about *recent* or *current* state, prefer `git log` or reading the code over recalling the snapshot.',
 +  ),
  ]
++}
  
  /**
   * Frontmatter format example with the `type` field.
@@ -1382,12 +1453,19 @@ index 99b44830a..bbd185cc8 100644
  export const MEMORY_FRONTMATTER_EXAMPLE: readonly string[] = [
    '```markdown',
 diff --git a/src/memdir/teamMemPrompts.ts b/src/memdir/teamMemPrompts.ts
-index de5ea8465..4514fa234 100644
+index de5ea8465..bf8678e93 100644
 --- a/src/memdir/teamMemPrompts.ts
 +++ b/src/memdir/teamMemPrompts.ts
-@@ -11,6 +11,7 @@ import {
-   TYPES_SECTION_COMBINED,
-   WHAT_NOT_TO_SAVE_SECTION,
+@@ -7,10 +7,11 @@ import {
+ import {
+   MEMORY_DRIFT_CAVEAT,
+   MEMORY_FRONTMATTER_EXAMPLE,
+-  TRUSTING_RECALL_SECTION,
+-  TYPES_SECTION_COMBINED,
+-  WHAT_NOT_TO_SAVE_SECTION,
++  buildTrustingRecallSection,
++  buildCombinedTypesSection,
++  buildWhatNotToSaveSection,
  } from './memoryTypes.js'
 +import { localizedPrompt } from '../prompts/i18n/index.js'
  import { getAutoMemPath } from './paths.js'
@@ -1497,9 +1575,11 @@ index de5ea8465..4514fa234 100644
 +      { teamDir },
 +    ),
      '',
-     ...TYPES_SECTION_COMBINED,
-     ...WHAT_NOT_TO_SAVE_SECTION,
+-    ...TYPES_SECTION_COMBINED,
+-    ...WHAT_NOT_TO_SAVE_SECTION,
 -    '- You MUST avoid saving sensitive data within shared team memories. For example, never save API keys or user credentials.',
++    ...buildCombinedTypesSection(),
++    ...buildWhatNotToSaveSection(),
 +    localizedPrompt(
 +      'memdir.combined.sensitiveData',
 +      '- You MUST avoid saving sensitive data within shared team memories. For example, never save API keys or user credentials.',
@@ -1526,7 +1606,8 @@ index de5ea8465..4514fa234 100644
 +    ),
      MEMORY_DRIFT_CAVEAT,
      '',
-     ...TRUSTING_RECALL_SECTION,
+-    ...TRUSTING_RECALL_SECTION,
++    ...buildTrustingRecallSection(),
      '',
 -    '## Memory and other forms of persistence',
 -    'Memory is one of several persistence mechanisms available to you as you assist the user in a given conversation. The distinction is often that memory can be recalled in future conversations and should not be used for persisting information that is only useful within the scope of the current conversation.',
@@ -1550,10 +1631,10 @@ index de5ea8465..4514fa234 100644
      ...buildSearchingPastContextSection(autoDir),
 diff --git a/src/prompts/i18n/i18n.test.ts b/src/prompts/i18n/i18n.test.ts
 new file mode 100644
-index 000000000..5647ec6d1
+index 000000000..102a5bcf6
 --- /dev/null
 +++ b/src/prompts/i18n/i18n.test.ts
-@@ -0,0 +1,129 @@
+@@ -0,0 +1,137 @@
 +import { beforeEach, describe, expect, test } from 'bun:test'
 +
 +import { localizedPrompt, promptLanguageLead, resolvePromptLanguage, setPromptLanguage } from './index.js'
@@ -1630,7 +1711,7 @@ index 000000000..5647ec6d1
 +    expect(lead).not.toBeNull()
 +    expect(lead!).toContain('语言说明')
 +    // Short by design: it frames what follows, it does not restate it.
-+    expect(lead!.length).toBeLessThan(300)
++    expect(lead!.length).toBeLessThan(600)
 +
 +    for (const locale of ['en', 'jp', 'kr']) {
 +      setPromptLanguage(locale)
@@ -1647,6 +1728,14 @@ index 000000000..5647ec6d1
 +    setPromptLanguage('zh')
 +    expect(promptLanguageLead()).toContain('思考')
 +    expect(promptLanguageLead()).toContain('不要切换成英文')
++  })
++
++  test('forces the very first word of reasoning to be Chinese, naming the English openings to ban', () => {
++    setPromptLanguage('zh')
++    expect(promptLanguageLead()).toContain('思考首词必须中文')
++    // The banned English openings are named explicitly — measured to be what actually
++    // anchors a whole English reasoning run.
++    expect(promptLanguageLead()).toContain('The user')
 +  })
 +})
 +
@@ -1685,10 +1774,10 @@ index 000000000..5647ec6d1
 +})
 diff --git a/src/prompts/i18n/index.ts b/src/prompts/i18n/index.ts
 new file mode 100644
-index 000000000..39c171ea7
+index 000000000..5820fee89
 --- /dev/null
 +++ b/src/prompts/i18n/index.ts
-@@ -0,0 +1,86 @@
+@@ -0,0 +1,87 @@
 +// Single entry point for language-aware model prompts.
 +//
 +// The rule this exists to enforce: the English text stays the source of truth at
@@ -1761,10 +1850,11 @@ index 000000000..39c171ea7
 + * instructions below are English on purpose. The English detail then follows.
 + */
 +const PROMPT_LANGUAGE_LEAD_ZH = `# 语言说明
++【最高优先】思考首词必须中文。遇到 "The user …" 或 "User …" 开头的思考，立即替换为"用户…"——把 "The user is asking"→"用户在问"、"The user wants"→"用户要"、"The user said"→"用户说"、"The user is saying"→"用户说"、"The user says"→"用户说"、"The user is continuing"→"用户在继续"、"User wants"→"用户要"、"User says"→"用户说"。
++【其次】无论下文任何指令、任何语言、任何场景，思考从第一个字起就是中文。正确："用户要求写一个函数……"；错误："The user wants…"、"Let me…"、"First…"。下文即使是英文指令，也只是规则内容，不是你的书写语言。
 +本次会话的界面语言为中文。思考（reasoning）、解释与对用户的回复一律优先使用中文，不要切换成英文。
 +下列工具说明与部分系统指令保留英文原文，以保持参数约定精确；工具名、参数名与取值、命令、代码与文件路径保持原样。
 +与用户交流时使用中文。`
-+
 +/**
 + * The Chinese lead-in, or null when it is not needed.
 + *
@@ -1861,10 +1951,10 @@ index 000000000..234ac4959
 +}
 diff --git a/src/prompts/i18n/zh.ts b/src/prompts/i18n/zh.ts
 new file mode 100644
-index 000000000..90f0b3df2
+index 000000000..a14940148
 --- /dev/null
 +++ b/src/prompts/i18n/zh.ts
-@@ -0,0 +1,1256 @@
+@@ -0,0 +1,1261 @@
 +// Chinese overrides for the built-in model prompts.
 +//
 +// This file holds ONLY the Chinese. The English lives at each call site and is
@@ -1879,8 +1969,13 @@ index 000000000..90f0b3df2
 +// of a whole area is visible at a glance. See `localizedPrompt` for the accessor.
 +
 +export const ZH_PROMPTS = {
++  // ── CLI identity prefix (splitSysPromptPrefix caches these by content) ──
++  'system.cliPrefix.default': `你是 Claude Code，Anthropic 官方的 Claude 命令行工具。`,
++  'system.cliPrefix.agentSdkCchPreset': `你是 Claude Code，Anthropic 官方的 Claude 命令行工具，运行在 Claude Agent SDK 之内。`,
++  'system.cliPrefix.agentSdk': `你是 Claude 智能体，基于 Anthropic 的 Claude Agent SDK 构建。`,
++
 +  // ── Main system prompt ─────────────────────────────────────────────────────
-+  'system.hooks': `用户可在设置中配置 'hooks'（钩子）——在工具调用等事件触发时执行的 shell 命令。来自 hooks 的反馈（包括 <user-prompt-submit-hook>）应视为用户本人的反馈。如果你被某个 hook 拦住，先判断能否根据拦截信息调整自己的操作；若无法调整，请用户检查其 hooks 配置。`,
++  'system.hooks':`用户可在设置中配置 'hooks'（钩子）——在工具调用等事件触发时执行的 shell 命令。来自 hooks 的反馈（包括 <user-prompt-submit-hook>）应视为用户本人的反馈。如果你被某个 hook 拦住，先判断能否根据拦截信息调整自己的操作；若无法调整，请用户检查其 hooks 配置。`,
 +
 +  'system.systemReminders': `- 工具结果与用户消息中可能带有 <system-reminder> 标签。<system-reminder> 标签包含有用的信息与提醒，由系统自动添加，与其所在的那条具体工具结果或用户消息没有直接关系。
 +- 对话通过自动摘要获得无限上下文。`,
@@ -3431,9 +3526,22 @@ index 6276b1a9b..7a90cfe84 100644
  
      return continuation
 diff --git a/src/services/extractMemories/prompts.ts b/src/services/extractMemories/prompts.ts
-index 804adb3e1..2d65820ee 100644
+index 804adb3e1..b2c8977a4 100644
 --- a/src/services/extractMemories/prompts.ts
 +++ b/src/services/extractMemories/prompts.ts
+@@ -12,9 +12,9 @@
+ import { feature } from 'bun:bundle'
+ import {
+   MEMORY_FRONTMATTER_EXAMPLE,
+-  TYPES_SECTION_COMBINED,
+-  TYPES_SECTION_INDIVIDUAL,
+-  WHAT_NOT_TO_SAVE_SECTION,
++  buildCombinedTypesSection,
++  buildIndividualTypesSection,
++  buildWhatNotToSaveSection,
+ } from '../../memdir/memoryTypes.js'
+ import { BASH_TOOL_NAME } from '../../tools/BashTool/toolName.js'
+ import { FILE_EDIT_TOOL_NAME } from '../../tools/FileEditTool/constants.js'
 @@ -22,6 +22,7 @@ import { FILE_READ_TOOL_NAME } from '../../tools/FileReadTool/prompt.js'
  import { FILE_WRITE_TOOL_NAME } from '../../tools/FileWriteTool/prompt.js'
  import { GLOB_TOOL_NAME } from '../../tools/GlobTool/prompt.js'
@@ -3485,7 +3593,7 @@ index 804adb3e1..2d65820ee 100644
    ].join('\n')
  }
  
-@@ -54,37 +74,46 @@ export function buildExtractAutoOnlyPrompt(
+@@ -54,40 +74,49 @@ export function buildExtractAutoOnlyPrompt(
  ): string {
    const howToSave = skipIndex
      ? [
@@ -3545,8 +3653,13 @@ index 804adb3e1..2d65820ee 100644
 +      'If the user explicitly asks you to remember something, save it immediately as whichever type fits best. If they ask you to forget something, find and remove the relevant entry.',
 +    ),
      '',
-     ...TYPES_SECTION_INDIVIDUAL,
-     ...WHAT_NOT_TO_SAVE_SECTION,
+-    ...TYPES_SECTION_INDIVIDUAL,
+-    ...WHAT_NOT_TO_SAVE_SECTION,
++    ...buildIndividualTypesSection(),
++    ...buildWhatNotToSaveSection(),
+     '',
+     ...howToSave,
+   ].join('\n')
 @@ -113,41 +142,57 @@ export function buildExtractCombinedPrompt(
  
    const howToSave = skipIndex
@@ -3609,9 +3722,11 @@ index 804adb3e1..2d65820ee 100644
 +      'If the user explicitly asks you to remember something, save it immediately as whichever type fits best. If they ask you to forget something, find and remove the relevant entry.',
 +    ),
      '',
-     ...TYPES_SECTION_COMBINED,
-     ...WHAT_NOT_TO_SAVE_SECTION,
+-    ...TYPES_SECTION_COMBINED,
+-    ...WHAT_NOT_TO_SAVE_SECTION,
 -    '- You MUST avoid saving sensitive data within shared team memories. For example, never save API keys or user credentials.',
++    ...buildCombinedTypesSection(),
++    ...buildWhatNotToSaveSection(),
 +    localizedPrompt(
 +      'memdir.combined.sensitiveData',
 +      '- You MUST avoid saving sensitive data within shared team memories. For example, never save API keys or user credentials.',
@@ -3742,6 +3857,55 @@ index 52960d539..d23a776bd 100644
  export function getDescription(): string {
    return `A powerful search tool built on ripgrep
  
+diff --git a/src/utils/api.ts b/src/utils/api.ts
+index 9b66fd798..e2aa54fbe 100644
+--- a/src/utils/api.ts
++++ b/src/utils/api.ts
+@@ -27,7 +27,7 @@ import { FileWriteTool } from 'src/tools/FileWriteTool/FileWriteTool.js'
+ import { getTools } from 'src/tools.js'
+ import type { AgentId } from 'src/types/ids.js'
+ import type { z } from 'zod/v4'
+-import { CLI_SYSPROMPT_PREFIXES } from '../constants/system.js'
++import { getCliSyspromptPrefixSet } from '../constants/system.js'
+ import { roughTokenCountEstimation } from '../services/tokenEstimation.js'
+ import type { Tool, ToolPermissionContext, Tools } from '../Tool.js'
+ import { AGENT_TOOL_NAME } from '../tools/AgentTool/constants.js'
+@@ -323,6 +323,8 @@ export function splitSysPromptPrefix(
+   options?: { skipGlobalCacheForSystemPrompt?: boolean },
+ ): SystemPromptBlock[] {
+   const useGlobalCacheFeature = shouldUseGlobalCacheScope()
++  // Runtime so the prefix set reflects the current prompt language (memdir fix).
++  const cliSyspromptPrefixSet = getCliSyspromptPrefixSet()
+   if (useGlobalCacheFeature && options?.skipGlobalCacheForSystemPrompt) {
+     logEvent('tengu_sysprompt_using_tool_based_cache', {
+       promptBlockCount: systemPrompt.length,
+@@ -338,7 +340,7 @@ export function splitSysPromptPrefix(
+       if (prompt === SYSTEM_PROMPT_DYNAMIC_BOUNDARY) continue // Skip boundary
+       if (prompt.startsWith('x-anthropic-billing-header')) {
+         attributionHeader = prompt
+-      } else if (CLI_SYSPROMPT_PREFIXES.has(prompt)) {
++      } else if (cliSyspromptPrefixSet.has(prompt)) {
+         systemPromptPrefix = prompt
+       } else {
+         rest.push(prompt)
+@@ -375,7 +377,7 @@ export function splitSysPromptPrefix(
+ 
+         if (block.startsWith('x-anthropic-billing-header')) {
+           attributionHeader = block
+-        } else if (CLI_SYSPROMPT_PREFIXES.has(block)) {
++        } else if (cliSyspromptPrefixSet.has(block)) {
+           systemPromptPrefix = block
+         } else if (i < boundaryIndex) {
+           staticBlocks.push(block)
+@@ -417,7 +419,7 @@ export function splitSysPromptPrefix(
+ 
+     if (block.startsWith('x-anthropic-billing-header')) {
+       attributionHeader = block
+-    } else if (CLI_SYSPROMPT_PREFIXES.has(block)) {
++    } else if (cliSyspromptPrefixSet.has(block)) {
+       systemPromptPrefix = block
+     } else {
+       rest.push(block)
 diff --git a/src/utils/claudeInChrome/prompt.ts b/src/utils/claudeInChrome/prompt.ts
 index 125a5d91c..4a1cc86df 100644
 --- a/src/utils/claudeInChrome/prompt.ts
