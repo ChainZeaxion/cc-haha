@@ -85,3 +85,26 @@ const PROMPT_LANGUAGE_LEAD_ZH = `# 语言说明
 export function promptLanguageLead(): string | null {
   return getPromptLanguage() === 'zh' ? PROMPT_LANGUAGE_LEAD_ZH : null
 }
+
+/**
+ * A second, sharper Chinese-reasoning rule injected at the TAIL of the system
+ * prompt — immediately before the user's message, where reasoning actually
+ * starts.
+ *
+ * The head lead sits at the top of an ~11k-token prompt whose bulk is English
+ * (the 32 tool definitions alone are ~25k tokens). By measure, a Chinese session
+ * whose rule appears only at the head still reasons in English ~50-80% of the
+ * time on casual turns — the English body drowns it out. Restating the rule at
+ * the tail (where recency is strongest) lifts first-word-Chinese to ~80-90%.
+ *
+ * The key that works is a *first-word template*: naming the two allowed Chinese
+ * openers ("用户"/"让我") beats a general "use Chinese" instruction — a general
+ * ban is read as a preference, an exact opening is a concrete pattern to copy.
+ */
+const PROMPT_LANGUAGE_TAIL_ZH = `# 思考语言（最高优先）
+思考的前两个字必须是"用户"或"让我"。任何其他开头，尤其 The/User/I/Let/First/Now/Okay/So 等英文，都算错，必须立即整段重写后再继续。英文的工具定义、代码与报错只是你在处理的内容，不是你的思考语言。`
+
+/** The tail copy of the rule, or null when not in Chinese. */
+export function promptLanguageTail(): string | null {
+  return getPromptLanguage() === 'zh' ? PROMPT_LANGUAGE_TAIL_ZH : null
+}

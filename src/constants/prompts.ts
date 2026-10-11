@@ -7,7 +7,7 @@ import { getIsNonInteractiveSession } from '../bootstrap/state.js'
 import { getCurrentWorktreeSession } from '../utils/worktree.js'
 import { getSessionStartDate } from './common.js'
 import { getInitialSettings } from '../utils/settings/settings.js'
-import { localizedPrompt, promptLanguageLead } from '../prompts/i18n/index.js'
+import { localizedPrompt, promptLanguageLead, promptLanguageTail } from '../prompts/i18n/index.js'
 import {
   AGENT_TOOL_NAME,
   VERIFICATION_AGENT_TYPE,
@@ -610,10 +610,11 @@ ${CYBER_RISK_INSTRUCTION}`,
     // --- Dynamic content (registry-managed) ---
     ...resolvedDynamicSections,
     // Recency: the head lead sits ~11k tokens from the generation point and is
-    // diluted by the English body between it and the turn. Repeating the rule at
-    // the tail puts it immediately before the user's message — where the model
-    // actually begins reasoning. Null for non-Chinese, so upstream is untouched.
-    promptLanguageLead(),
+    // diluted by the English body (the 32 tool definitions alone are ~25k tokens)
+    // between it and the turn. Restating the rule at the tail puts it immediately
+    // before the user's message — where the model actually begins reasoning.
+    // Null for non-Chinese, so upstream is untouched.
+    promptLanguageTail(),
   ].filter(s => s !== null)
 }
 

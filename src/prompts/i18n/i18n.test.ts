@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, test } from 'bun:test'
 
-import { localizedPrompt, promptLanguageLead, resolvePromptLanguage, setPromptLanguage } from './index.js'
+import { localizedPrompt, promptLanguageLead, promptLanguageTail, resolvePromptLanguage, setPromptLanguage } from './index.js'
 import { ZH_PROMPTS } from './zh.js'
 
 // A stand-in for a real call site: the English as it appears in the source, and
@@ -99,6 +99,30 @@ describe('the Chinese lead-in', () => {
     // The banned English openings are named explicitly — measured to be what actually
     // anchors a whole English reasoning run.
     expect(promptLanguageLead()).toContain('The user')
+  })
+})
+
+describe('the tail reasoning rule', () => {
+  test('is injected for Chinese and absent otherwise', () => {
+    setPromptLanguage('zh')
+    expect(promptLanguageTail()).not.toBeNull()
+    expect(promptLanguageTail()).toContain('用户')
+
+    for (const locale of ['en', 'jp', 'kr']) {
+      setPromptLanguage(locale)
+      expect(promptLanguageTail(), locale).toBeNull()
+    }
+  })
+
+  test('names the two allowed openings, since a concrete pattern beats a general ban', () => {
+    setPromptLanguage('zh')
+    const tail = promptLanguageTail()!
+    // Measured: naming the two Chinese openers lifts first-word-Chinese well
+    // above a general "use Chinese" rule — which the English tool definitions
+    // (~25k tokens of them) readily drown out.
+    expect(tail).toContain('用户')
+    expect(tail).toContain('让我')
+    expect(tail.length).toBeLessThan(300)
   })
 })
 
