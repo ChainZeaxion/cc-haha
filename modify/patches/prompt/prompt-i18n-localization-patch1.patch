@@ -1,9 +1,119 @@
 # patch 39：⚠️ 基座同上（0.6.7 血缘）—— = `align-latest` 的 `cb7065b1e`，独立应用。
-# 内置提示词中文化（第一版打样 + 第二版产前实验期，合并版）：zh 覆盖表 + localizedPrompt，主系统提示词/收尾/compact/autoDream/review/team/三个内置 agent；
-# 含 locale 管道（desktop-ui.json.locale → 侧车）。第二版产前实验期增量：① lead 替换规则（"The user is asking"→"用户在问"等 8 条，97.8% 中文思考）；
-# ② memdir 5 个 section 模块常量固化 bug 修复（改 buildXxxSection() 运行时求值，记忆段 0→2392 汉字）；
-# ③ CLI 身份前缀中文化（同型模块常量 bug，build 函数 + getCliSyspromptPrefixSet() + api.ts .has() 改局部常量 + zh.ts 3 条 system.cliPrefix.* id）。
-# 28 文件（24 改 + 4 新 src/prompts/i18n/*）。独立应用（干净 `cb7065b1e` 上 apply ⇒ 28 文件逐字节一致）。
+# 内置提示词中文化（第一版打样 + 第二版产前实验期 v22，合并版）：zh 覆盖表 + localizedPrompt。
+# 覆盖主系统提示词全节（intro/cyberRisk/env/language/outputStyle/会话指引/MCP/记忆段/toneAndStyle/outputEfficiency）+
+# 子代理（verification/guide/generalPurpose/explore/plan/default/statusline）+ compact/autoDream/review/team/extractMemories/toolUseSummary/chrome。
+# 含 locale 管道（desktop-ui.json.locale → 侧车）：src/server/* + desktop/src/api/desktopUiPreferences.ts + desktop/src/stores/settingsStore.ts。
+# v22 关键修复：① lead 首词替换规则；② 「模块顶层 const = localizedPrompt」固化英文 bug（10 处：memdir 5 section + frontmatter 示例 + 3 个 CLI 身份前缀 + CLI_SYSPROMPT_PREFIXES 集合 + SHUTDOWN_TEAM_PROMPT/BASE_CHROME_PROMPT/CLAUDE_IN_CHROME_SKILL_HINT(_WITH_WEBBROWSER)/AGENT_CREATION_SYSTEM_PROMPT/AGENT_MEMORY_INSTRUCTIONS）。
+# 40 文件（38 src/ + 2 desktop/）。独立应用（干净 `cb7065b1e` 上 apply ⇒ 40 文件逐字节一致）。
+diff --git a/desktop/src/api/desktopUiPreferences.ts b/desktop/src/api/desktopUiPreferences.ts
+index ee72d6d3d..a17884189 100644
+--- a/desktop/src/api/desktopUiPreferences.ts
++++ b/desktop/src/api/desktopUiPreferences.ts
+@@ -65,6 +65,20 @@ export const desktopUiPreferencesApi = {
+     return api.get<DesktopPetPreferencesResponse>('/api/desktop-ui/preferences/pet')
+   },
+ 
++  /**
++   * Tell the server which UI language is set.
++   *
++   * The renderer's own storage is invisible to the sidecar that assembles the
++   * model prompts, so the choice has to be sent over. Returns the resolved
++   * prompt language so a caller (or a test) can see it took effect.
++   */
++  updateLocalePreference(locale: string | null) {
++    return api.put<{ ok: true; locale: string | null; promptLanguage: 'en' | 'zh' }>(
++      '/api/desktop-ui/preferences/locale',
++      { locale },
++    )
++  },
++
+   updateSidebarPreferences(sidebar: SidebarProjectPreferences) {
+     return api.put<{ ok: true; preferences: DesktopUiPreferences }>(
+       '/api/desktop-ui/preferences/sidebar',
+diff --git a/desktop/src/stores/settingsStore.ts b/desktop/src/stores/settingsStore.ts
+index 03d215292..aed00d60e 100644
+--- a/desktop/src/stores/settingsStore.ts
++++ b/desktop/src/stores/settingsStore.ts
+@@ -3,6 +3,7 @@ import { ApiError } from '../api/client'
+ import { settingsApi } from '../api/settings'
+ import { modelsApi } from '../api/models'
+ import { h5AccessApi } from '../api/h5Access'
++import { desktopUiPreferencesApi } from '../api/desktopUiPreferences'
+ import { tracesApi } from '../api/traces'
+ import {
+   type AppMode,
+@@ -212,6 +213,20 @@ const initialLocale = getInitialLocale()
+ applyDocumentLocale(initialLocale)
+ let autoQuestionUpdateQueue: Promise<unknown> = Promise.resolve()
+ 
++/**
++ * Tell the server which language is set, since the sidecar assembles the model
++ * prompts and cannot see this renderer's storage.
++ *
++ * Only sent on a change: the server reads the persisted value itself, so a
++ * language that has been chosen once survives restarts without this call. No
++ * boot push is needed, and the absence of one is deliberate.
++ */
++function publishLocaleToServer(locale: Locale) {
++  void desktopUiPreferencesApi.updateLocalePreference(locale).catch((error) => {
++    console.error('[desktop] Failed to publish locale to the server', error)
++  })
++}
++
+ export const useSettingsStore = create<SettingsStore>((set, get) => ({
+   permissionMode: 'default',
+   currentModel: null,
+@@ -489,6 +504,7 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
+     void getDesktopHost().app.setLocalePreference(locale).catch((error) => {
+       console.error('[desktop] Failed to persist locale preference', error)
+     })
++    publishLocaleToServer(locale)
+   },
+ 
+   // Kept as the Settings page's entry point; uiStore owns the state.
+diff --git a/src/cli/print.ts b/src/cli/print.ts
+index dd8b4ecf0..c36664fef 100644
+--- a/src/cli/print.ts
++++ b/src/cli/print.ts
+@@ -355,7 +355,7 @@ import {
+   waitForTeammatesToBecomeIdle,
+ } from '../utils/teammate.js'
+ import { TEAM_LEAD_NAME } from '../utils/swarm/constants.js'
+-import { SHUTDOWN_TEAM_PROMPT } from '../utils/swarm/teamShutdownPrompt.js'
++import { getShutdownTeamPrompt } from '../utils/swarm/teamShutdownPrompt.js'
+ import {
+   readUnreadMessages,
+   markMessagesAsRead,
+@@ -418,7 +418,7 @@ export function hasTeammatesRequiringShutdown(state: AppState): boolean {
+ export function createShutdownTeamPrompt(): QueuedCommand {
+   return {
+     mode: 'prompt',
+-    value: SHUTDOWN_TEAM_PROMPT,
++    value: getShutdownTeamPrompt(),
+     uuid: randomUUID(),
+     isMeta: true,
+   }
+diff --git a/src/cli/teamShutdown.test.ts b/src/cli/teamShutdown.test.ts
+index c90faebc6..213668284 100644
+--- a/src/cli/teamShutdown.test.ts
++++ b/src/cli/teamShutdown.test.ts
+@@ -1,7 +1,7 @@
+ import { expect, test } from 'bun:test'
+ import { getDefaultAppState } from '../state/AppStateStore.js'
+ import { createShutdownTeamPrompt, hasTeammatesRequiringShutdown } from './print.js'
+-import { isShutdownTeamPrompt, SHUTDOWN_TEAM_PROMPT } from '../utils/swarm/teamShutdownPrompt.js'
++import { isShutdownTeamPrompt, getShutdownTeamPrompt } from '../utils/swarm/teamShutdownPrompt.js'
+ 
+ test('a draft team with only its leader does not trigger shutdown', () => {
+   const state = getDefaultAppState()
+@@ -19,6 +19,6 @@ test('shutdown instruction is model-visible but hidden from user history', () =>
+   expect(command.mode).toBe('prompt')
+   expect(command.isMeta).toBe(true)
+   expect(command.value).toContain('requestShutdown')
+-  expect(isShutdownTeamPrompt([{ type: 'text', text: SHUTDOWN_TEAM_PROMPT }])).toBe(true)
++  expect(isShutdownTeamPrompt([{ type: 'text', text: getShutdownTeamPrompt() }])).toBe(true)
+   expect(isShutdownTeamPrompt('User quoted requestShutdown in a question')).toBe(false)
+ })
 diff --git a/src/commands/review.ts b/src/commands/review.ts
 index f86ada0b1..74aadec96 100644
 --- a/src/commands/review.ts
@@ -77,7 +187,7 @@ index fa26b1ae0..701e9fb95 100644
      goal,
    ].join('\n')
 diff --git a/src/components/agents/generateAgent.ts b/src/components/agents/generateAgent.ts
-index 04fd62453..3fbd43c37 100644
+index 04fd62453..b1c90eeb3 100644
 --- a/src/components/agents/generateAgent.ts
 +++ b/src/components/agents/generateAgent.ts
 @@ -16,6 +16,7 @@ import {
@@ -88,45 +198,49 @@ index 04fd62453..3fbd43c37 100644
  
  type GeneratedAgent = {
    identifier: string
-@@ -23,7 +24,9 @@ type GeneratedAgent = {
+@@ -23,7 +24,10 @@ type GeneratedAgent = {
    systemPrompt: string
  }
  
 -const AGENT_CREATION_SYSTEM_PROMPT = `You are an elite AI agent architect specializing in crafting high-performance agent configurations. Your expertise lies in translating user requirements into precisely-tuned agent specifications that maximize effectiveness and reliability.
-+const AGENT_CREATION_SYSTEM_PROMPT = localizedPrompt(
++function getAgentCreationSystemPrompt(): string {
++  return localizedPrompt(
 +  'agent.creation.system',
 +  `You are an elite AI agent architect specializing in crafting high-performance agent configurations. Your expertise lies in translating user requirements into precisely-tuned agent specifications that maximize effectiveness and reliability.
  
  **Important Context**: You may have access to project-specific instructions from CLAUDE.md files and other context that may include coding standards, project structure, and custom requirements. Consider this context when creating agents to ensure they align with the project's established patterns and practices.
  
-@@ -94,10 +97,14 @@ Key principles for your system prompts:
+@@ -94,10 +98,16 @@ Key principles for your system prompts:
  - Build in quality assurance and self-correction mechanisms
  
  Remember: The agents you create should be autonomous experts capable of handling their designated tasks with minimal additional guidance. Your system prompts are their complete operational manual.
 -`
 +`,
 +  { agent: AGENT_TOOL_NAME },
-+)
++  )
++}
  
  // Agent memory instructions to include in the system prompt when memory is mentioned or relevant
 -const AGENT_MEMORY_INSTRUCTIONS = `
-+const AGENT_MEMORY_INSTRUCTIONS = localizedPrompt(
++function getAgentMemoryInstructions(): string {
++  return localizedPrompt(
 +  'agent.creation.memoryInstructions',
 +  `
  
  7. **Agent Memory Instructions**: If the user mentions "memory", "remember", "learn", "persist", or similar concepts, OR if the agent would benefit from building up knowledge across conversations (e.g., code reviewers learning patterns, architects learning codebase structure, etc.), include domain-specific memory update instructions in the systemPrompt.
  
-@@ -117,7 +124,8 @@ const AGENT_MEMORY_INSTRUCTIONS = `
+@@ -117,7 +127,9 @@ const AGENT_MEMORY_INSTRUCTIONS = `
     - For a documentation writer: "Update your agent memory as you discover documentation patterns, API structures, and terminology conventions."
  
     The memory instructions should be specific to what the agent would naturally learn while performing its core tasks.
 -`
 +`,
-+)
++  )
++}
  
  export async function generateAgent(
    userPrompt: string,
-@@ -127,11 +135,19 @@ export async function generateAgent(
+@@ -127,11 +139,19 @@ export async function generateAgent(
  ): Promise<GeneratedAgent> {
    const existingList =
      existingIdentifiers.length > 0
@@ -149,8 +263,19 @@ index 04fd62453..3fbd43c37 100644
  
    const userMessage = createUserMessage({ content: prompt })
  
+@@ -143,8 +163,8 @@ export async function generateAgent(
+ 
+   // Include memory instructions when the feature is enabled
+   const systemPrompt = isAutoMemoryEnabled()
+-    ? AGENT_CREATION_SYSTEM_PROMPT + AGENT_MEMORY_INSTRUCTIONS
+-    : AGENT_CREATION_SYSTEM_PROMPT
++    ? getAgentCreationSystemPrompt() + getAgentMemoryInstructions()
++    : getAgentCreationSystemPrompt()
+ 
+   const response = await queryModelWithoutStreaming({
+     messages: normalizeMessagesForAPI(messagesWithContext),
 diff --git a/src/constants/prompts.ts b/src/constants/prompts.ts
-index a51bd73aa..6c2e6273e 100644
+index a51bd73aa..f927dfa25 100644
 --- a/src/constants/prompts.ts
 +++ b/src/constants/prompts.ts
 @@ -7,6 +7,7 @@ import { getIsNonInteractiveSession } from '../bootstrap/state.js'
@@ -183,7 +308,31 @@ index a51bd73aa..6c2e6273e 100644
  }
  
  function getAntModelOverrideSection(): string | null {
-@@ -176,31 +183,38 @@ function getSimpleIntroSection(
+@@ -144,8 +151,12 @@ function getLanguageSection(
+ ): string | null {
+   if (!languagePreference) return null
+ 
+-  return `# Language
+-Always respond in ${languagePreference}. Use ${languagePreference} for all explanations, comments, and communications with the user. Technical terms and code identifiers should remain in their original form.`
++  return localizedPrompt(
++    'system.language',
++    `# Language
++Always respond in ${languagePreference}. Use ${languagePreference} for all explanations, comments, and communications with the user. Technical terms and code identifiers should remain in their original form.`,
++    { language: languagePreference },
++  )
+ }
+ 
+ function getOutputStyleSection(
+@@ -153,7 +164,7 @@ function getOutputStyleSection(
+ ): string | null {
+   if (outputStyleConfig === null) return null
+ 
+-  return `# Output Style: ${outputStyleConfig.name}
++  return `${localizedPrompt('system.outputStyle.header', '# Output Style: {name}', { name: outputStyleConfig.name })}
+ ${outputStyleConfig.prompt}`
+ }
+ 
+@@ -176,31 +187,38 @@ function getSimpleIntroSection(
    outputStyleConfig: OutputStyleConfig | null,
  ): string {
    // eslint-disable-next-line custom-rules/prompt-spacing
@@ -200,7 +349,7 @@ index a51bd73aa..6c2e6273e 100644
  ${CYBER_RISK_INSTRUCTION}
 -IMPORTANT: You must NEVER generate or guess URLs for the user unless you are confident that the URLs are for helping the user with programming. You may use URLs provided by the user in their messages or local files.`
 +IMPORTANT: You must NEVER generate or guess URLs for the user unless you are confident that the URLs are for helping the user with programming. You may use URLs provided by the user in their messages or local files.`,
-+    { cyberRisk: CYBER_RISK_INSTRUCTION },
++    { cyberRisk: localizedPrompt('system.cyberRisk', CYBER_RISK_INSTRUCTION) },
 +  )
  }
  
@@ -234,7 +383,7 @@ index a51bd73aa..6c2e6273e 100644
      // @[MODEL LAUNCH]: Update comment writing for Capybara — remove or soften once the model stops over-commenting by default
      ...(process.env.USER_TYPE === 'ant'
        ? [
-@@ -214,26 +228,26 @@ function getSimpleDoingTasksSection(): string {
+@@ -214,26 +232,26 @@ function getSimpleDoingTasksSection(): string {
    ]
  
    const userHelpSubitems = [
@@ -271,7 +420,7 @@ index a51bd73aa..6c2e6273e 100644
      // @[MODEL LAUNCH]: False-claims mitigation for Capybara v8 (29-30% FC rate vs v4's 16.7%)
      ...(process.env.USER_TYPE === 'ant'
        ? [
-@@ -245,15 +259,15 @@ function getSimpleDoingTasksSection(): string {
+@@ -245,15 +263,15 @@ function getSimpleDoingTasksSection(): string {
            `If the user reports a bug, slowness, or unexpected behavior with Claude Code itself (as opposed to asking you to fix their own code), recommend the appropriate slash command: /issue for model-related problems (odd outputs, wrong tool choices, hallucinations, refusals), or /share to upload the full session transcript for product bugs, crashes, slowness, or general issues. Only recommend these when the user is describing a problem with Claude Code. After /share produces a ccshare link, if you have a Slack MCP tool available, offer to post the link to #claude-code-feedback (channel ID C07VBSHV7EV) for the user.`,
          ]
        : []),
@@ -290,7 +439,7 @@ index a51bd73aa..6c2e6273e 100644
  
  Carefully consider the reversibility and blast radius of actions. Generally you can freely take local, reversible actions like editing files or running tests. But for actions that are hard to reverse, affect shared systems beyond your local environment, or could otherwise be risky or destructive, check with the user before proceeding. The cost of pausing to confirm is low, while the cost of an unwanted action (lost work, unintended messages sent, deleted branches) can be very high. For actions like these, consider the context, the action, and user instructions, and by default transparently communicate the action and ask for confirmation before proceeding. This default can be changed by user instructions - if explicitly asked to operate more autonomously, then you may proceed without confirmation, but still attend to the risks and consequences when taking actions. A user approving an action (like a git push) once does NOT mean that they approve it in all contexts, so unless actions are authorized in advance in durable instructions like CLAUDE.md files, always confirm first. Authorization stands for the scope specified, not beyond. Match the scope of your actions to what was actually requested.
  
-@@ -263,7 +277,7 @@ Examples of the kind of risky actions that warrant user confirmation:
+@@ -263,7 +281,7 @@ Examples of the kind of risky actions that warrant user confirmation:
  - Actions visible to others or that affect shared state: pushing code, creating/closing/commenting on PRs or issues, sending messages (Slack, email, GitHub), posting to external services, modifying shared infrastructure or permissions
  - Uploading content to third-party web tools (diagram renderers, pastebins, gists) publishes it - consider whether it could be sensitive before sending, since it may be cached or indexed even if later deleted.
  
@@ -299,7 +448,7 @@ index a51bd73aa..6c2e6273e 100644
  }
  
  function getUsingYourToolsSection(enabledTools: Set<string>): string {
-@@ -277,11 +291,11 @@ function getUsingYourToolsSection(enabledTools: Set<string>): string {
+@@ -277,11 +295,11 @@ function getUsingYourToolsSection(enabledTools: Set<string>): string {
    if (isReplModeEnabled()) {
      const items = [
        taskToolName
@@ -313,7 +462,7 @@ index a51bd73aa..6c2e6273e 100644
    }
  
    // Ant-native builds alias find/grep to embedded bfs/ugrep and remove the
-@@ -289,34 +303,34 @@ function getUsingYourToolsSection(enabledTools: Set<string>): string {
+@@ -289,34 +307,34 @@ function getUsingYourToolsSection(enabledTools: Set<string>): string {
    const embedded = hasEmbeddedSearchTools()
  
    const providedToolSubitems = [
@@ -360,7 +509,41 @@ index a51bd73aa..6c2e6273e 100644
  }
  
  /**
-@@ -375,12 +389,12 @@ function getSessionSpecificGuidanceSection(
+@@ -335,7 +353,11 @@ function getDiscoverSkillsGuidance(): string | null {
+     feature('EXPERIMENTAL_SKILL_SEARCH') &&
+     DISCOVER_SKILLS_TOOL_NAME !== null
+   ) {
+-    return `Relevant skills are automatically surfaced each turn as "Skills relevant to your task:" reminders. If you're about to do something those don't cover — a mid-task pivot, an unusual workflow, a multi-step plan — call ${DISCOVER_SKILLS_TOOL_NAME} with a specific description of what you're doing. Skills already visible or loaded are filtered automatically. Skip this if the surfaced skills already cover your next action.`
++    return localizedPrompt(
++      'system.discoverSkills',
++      `Relevant skills are automatically surfaced each turn as "Skills relevant to your task:" reminders. If you're about to do something those don't cover — a mid-task pivot, an unusual workflow, a multi-step plan — call ${DISCOVER_SKILLS_TOOL_NAME} with a specific description of what you're doing. Skills already visible or loaded are filtered automatically. Skip this if the surfaced skills already cover your next action.`,
++      { tool: DISCOVER_SKILLS_TOOL_NAME },
++    )
+   }
+   return null
+ }
+@@ -363,11 +385,18 @@ function getSessionSpecificGuidanceSection(
+ 
+   const items = [
+     hasAskUserQuestionTool
+-      ? `If you do not understand why the user has denied a tool call, use the ${ASK_USER_QUESTION_TOOL_NAME} to ask them.`
++      ? localizedPrompt(
++          'system.sessionGuidance.askUserQuestionLimit',
++          `If you do not understand why the user has denied a tool call, use the ${ASK_USER_QUESTION_TOOL_NAME} to ask them.`,
++          { tool: ASK_USER_QUESTION_TOOL_NAME },
++        )
+       : null,
+     getIsNonInteractiveSession()
+       ? null
+-      : `If you need the user to run a shell command themselves (e.g., an interactive login like \`gcloud auth login\`), suggest they type \`! <command>\` in the prompt — the \`!\` prefix runs the command in this session so its output lands directly in the conversation.`,
++      : localizedPrompt(
++          'system.sessionGuidance.shellSelfRun',
++          `If you need the user to run a shell command themselves (e.g., an interactive login like \`gcloud auth login\`), suggest they type \`! <command>\` in the prompt — the \`!\` prefix runs the command in this session so its output lands directly in the conversation.`,
++        ),
+     // isForkSubagentEnabled() reads getIsNonInteractiveSession() — must be
+     // post-boundary or it fragments the static prefix on session type.
+     hasAgentTool ? getAgentToolSection() : null,
+@@ -375,12 +404,12 @@ function getSessionSpecificGuidanceSection(
      areExplorePlanAgentsEnabled() &&
      !isForkSubagentEnabled()
        ? [
@@ -376,7 +559,7 @@ index a51bd73aa..6c2e6273e 100644
        : null,
      DISCOVER_SKILLS_TOOL_NAME !== null &&
      hasSkills &&
-@@ -396,7 +410,7 @@ function getSessionSpecificGuidanceSection(
+@@ -396,7 +425,7 @@ function getSessionSpecificGuidanceSection(
    ].filter(item => item !== null)
  
    if (items.length === 0) return null
@@ -385,7 +568,7 @@ index a51bd73aa..6c2e6273e 100644
  }
  
  // @[MODEL LAUNCH]: Remove this section when we launch numbat.
-@@ -413,7 +427,7 @@ What's most important is the reader understanding your output without mental ove
+@@ -413,7 +442,7 @@ What's most important is the reader understanding your output without mental ove
  
  These user-facing text instructions do not apply to code or tool calls.`
    }
@@ -394,7 +577,7 @@ index a51bd73aa..6c2e6273e 100644
  
  IMPORTANT: Go straight to the point. Try the simplest approach first without going in circles. Do not overdo it. Be extra concise.
  
-@@ -424,7 +438,7 @@ Focus text output on:
+@@ -424,7 +453,7 @@ Focus text output on:
  - High-level status updates at natural milestones
  - Errors or blockers that change the plan
  
@@ -403,7 +586,7 @@ index a51bd73aa..6c2e6273e 100644
  }
  
  function getSimpleToneAndStyleSection(): string {
-@@ -438,7 +452,10 @@ function getSimpleToneAndStyleSection(): string {
+@@ -438,7 +467,10 @@ function getSimpleToneAndStyleSection(): string {
      `Do not use a colon before tool calls. Your tool calls may not be shown directly in the output, so text like "Let me read the file:" followed by a read tool call should just be "Let me read the file." with a period.`,
    ].filter(item => item !== null)
  
@@ -415,7 +598,7 @@ index a51bd73aa..6c2e6273e 100644
  }
  
  export async function getSystemPrompt(
-@@ -469,6 +486,7 @@ export async function getSystemPrompt(
+@@ -469,6 +501,7 @@ export async function getSystemPrompt(
    ) {
      logForDebugging(`[SystemPrompt] path=simple-proactive`)
      return [
@@ -423,7 +606,7 @@ index a51bd73aa..6c2e6273e 100644
        `\nYou are an autonomous agent. Use the available tools to do useful work.
  
  ${CYBER_RISK_INSTRUCTION}`,
-@@ -483,7 +501,7 @@ ${CYBER_RISK_INSTRUCTION}`,
+@@ -483,7 +516,7 @@ ${CYBER_RISK_INSTRUCTION}`,
          : getMcpInstructionsSection(mcpClients),
        getScratchpadInstructions(),
        getFunctionResultClearingSection(model),
@@ -432,7 +615,7 @@ index a51bd73aa..6c2e6273e 100644
        getProactiveSection(),
      ].filter(s => s !== null)
    }
-@@ -522,7 +540,7 @@ ${CYBER_RISK_INSTRUCTION}`,
+@@ -522,7 +555,7 @@ ${CYBER_RISK_INSTRUCTION}`,
      systemPromptSection('frc', () => getFunctionResultClearingSection(model)),
      systemPromptSection(
        'summarize_tool_results',
@@ -441,7 +624,7 @@ index a51bd73aa..6c2e6273e 100644
      ),
      // Numeric length anchors — research shows ~1.2% output token reduction vs
      // qualitative "be concise". Ant-only to measure quality impact first.
-@@ -559,6 +577,9 @@ ${CYBER_RISK_INSTRUCTION}`,
+@@ -559,6 +592,9 @@ ${CYBER_RISK_INSTRUCTION}`,
  
    return [
      // --- Static content (cacheable) ---
@@ -451,7 +634,220 @@ index a51bd73aa..6c2e6273e 100644
      getSimpleIntroSection(outputStyleConfig),
      getSimpleSystemSection(),
      outputStyleConfig === null ||
-@@ -816,9 +837,9 @@ export function getScratchpadInstructions(): string | null {
+@@ -596,11 +632,15 @@ ${client.instructions}`
+     })
+     .join('\n\n')
+ 
+-  return `# MCP Server Instructions
++  return localizedPrompt(
++    'system.mcp.instructions',
++    `# MCP Server Instructions
+ 
+ The following MCP servers have provided instructions for how to use their tools and resources:
+ 
+-${instructionBlocks}`
++${instructionBlocks}`,
++    { blocks: instructionBlocks },
++  )
+ }
+ 
+ export async function computeEnvInfo(
+@@ -623,21 +663,36 @@ export async function computeEnvInfo(
+   } else {
+     const marketingName = getMarketingNameForModel(modelId)
+     modelDescription = marketingName
+-      ? `You are powered by the model named ${marketingName}. The exact model ID is ${modelId}.`
+-      : `You are powered by the model ${modelId}.`
++      ? localizedPrompt(
++          'system.env.modelNamed',
++          `You are powered by the model named ${marketingName}. The exact model ID is ${modelId}.`,
++          { name: marketingName, id: modelId },
++        )
++      : localizedPrompt('system.env.model', `You are powered by the model ${modelId}.`, { id: modelId })
+   }
+ 
+   const additionalDirsInfo =
+     additionalWorkingDirectories && additionalWorkingDirectories.length > 0
+-      ? `Additional working directories: ${additionalWorkingDirectories.join(', ')}\n`
++      ? localizedPrompt(
++          'system.env.additionalDirsInline',
++          `Additional working directories: ${additionalWorkingDirectories.join(', ')}\n`,
++          { dirs: additionalWorkingDirectories.join(', ') },
++        )
+       : ''
+ 
+   const cutoff = getKnowledgeCutoff(modelId)
+   const knowledgeCutoffMessage = cutoff
+-    ? `\n\nAssistant knowledge cutoff is ${cutoff}.`
++    ? localizedPrompt('system.env.knowledgeCutoffInline', `\n\nAssistant knowledge cutoff is ${cutoff}.`, { cutoff })
+     : ''
+ 
+-  return `Here is useful information about the environment you are running in:
++  const gitLabel = localizedPrompt(
++    isGit ? 'system.env.yes' : 'system.env.no',
++    isGit ? 'Yes' : 'No',
++  )
++
++  return localizedPrompt(
++    'system.env.subagent',
++    `Here is useful information about the environment you are running in:
+ <env>
+ Working directory: ${getCwd()}
+ Is directory a git repo: ${isGit ? 'Yes' : 'No'}
+@@ -645,7 +700,18 @@ ${additionalDirsInfo}Platform: ${env.platform}
+ ${getShellInfoLine()}
+ OS Version: ${unameSR}
+ </env>
+-${modelDescription}${knowledgeCutoffMessage}`
++${modelDescription}${knowledgeCutoffMessage}`,
++    {
++      cwd: getCwd(),
++      isGit: gitLabel,
++      dirs: additionalDirsInfo,
++      platform: env.platform,
++      shell: getShellInfoLine(),
++      os: unameSR,
++      model: modelDescription,
++      cutoff: knowledgeCutoffMessage,
++    },
++  )
+ }
+ 
+ export async function computeSimpleEnvInfo(
+@@ -662,49 +728,71 @@ export async function computeSimpleEnvInfo(
+   } else {
+     const marketingName = getMarketingNameForModel(modelId)
+     modelDescription = marketingName
+-      ? `You are powered by the model named ${marketingName}. The exact model ID is ${modelId}.`
+-      : `You are powered by the model ${modelId}.`
++      ? localizedPrompt(
++          'system.env.modelNamed',
++          `You are powered by the model named ${marketingName}. The exact model ID is ${modelId}.`,
++          { name: marketingName, id: modelId },
++        )
++      : localizedPrompt('system.env.model', `You are powered by the model ${modelId}.`, { id: modelId })
+   }
+ 
+   const cutoff = getKnowledgeCutoff(modelId)
+   const knowledgeCutoffMessage = cutoff
+-    ? `Assistant knowledge cutoff is ${cutoff}.`
++    ? localizedPrompt('system.env.knowledgeCutoff', `Assistant knowledge cutoff is ${cutoff}.`, { cutoff })
+     : null
+ 
+   const cwd = getCwd()
+   const isWorktree = getCurrentWorktreeSession() !== null
+ 
+   const envItems = [
+-    `Primary working directory: ${cwd}`,
++    localizedPrompt('system.env.cwd', `Primary working directory: ${cwd}`, { cwd }),
+     isWorktree
+-      ? `This is a git worktree — an isolated copy of the repository. Run all commands from this directory. Do NOT \`cd\` to the original repository root.`
++      ? localizedPrompt(
++          'system.env.worktree',
++          `This is a git worktree — an isolated copy of the repository. Run all commands from this directory. Do NOT \`cd\` to the original repository root.`,
++        )
+       : null,
+-    [`Is a git repository: ${isGit}`],
++    [localizedPrompt('system.env.isGit', `Is a git repository: ${isGit}`, { isGit: String(isGit) })],
+     additionalWorkingDirectories && additionalWorkingDirectories.length > 0
+-      ? `Additional working directories:`
++      ? localizedPrompt('system.env.additionalDirs', `Additional working directories:`)
+       : null,
+     additionalWorkingDirectories && additionalWorkingDirectories.length > 0
+       ? additionalWorkingDirectories
+       : null,
+-    `Platform: ${env.platform}`,
++    localizedPrompt('system.env.platform', `Platform: ${env.platform}`, { platform: env.platform }),
+     getShellInfoLine(),
+-    `OS Version: ${unameSR}`,
++    localizedPrompt('system.env.osVersion', `OS Version: ${unameSR}`, { os: unameSR }),
+     modelDescription,
+     knowledgeCutoffMessage,
+     process.env.USER_TYPE === 'ant' && isUndercover()
+       ? null
+-      : `The most recent Claude models are the Claude 5 family and Haiku 4.5. Model IDs — Fable 5.1: '${LATEST_CLAUDE_MODEL_IDS.fable}', Opus 5.5: '${LATEST_CLAUDE_MODEL_IDS.opus}', Sonnet 5.5: '${LATEST_CLAUDE_MODEL_IDS.sonnet}', Haiku 4.5: '${LATEST_CLAUDE_MODEL_IDS.haiku}'. When building AI applications, default to the latest and most capable Claude models.`,
++      : localizedPrompt(
++          'system.env.modelCatalog',
++          `The most recent Claude models are the Claude 5 family and Haiku 4.5. Model IDs — Fable 5.1: '${LATEST_CLAUDE_MODEL_IDS.fable}', Opus 5.5: '${LATEST_CLAUDE_MODEL_IDS.opus}', Sonnet 5.5: '${LATEST_CLAUDE_MODEL_IDS.sonnet}', Haiku 4.5: '${LATEST_CLAUDE_MODEL_IDS.haiku}'. When building AI applications, default to the latest and most capable Claude models.`,
++          {
++            fable: LATEST_CLAUDE_MODEL_IDS.fable,
++            opus: LATEST_CLAUDE_MODEL_IDS.opus,
++            sonnet: LATEST_CLAUDE_MODEL_IDS.sonnet,
++            haiku: LATEST_CLAUDE_MODEL_IDS.haiku,
++          },
++        ),
+     process.env.USER_TYPE === 'ant' && isUndercover()
+       ? null
+-      : `Claude Code is available as a CLI in the terminal, desktop app (Mac/Windows), web app (claude.ai/code), and IDE extensions (VS Code, JetBrains).`,
++      : localizedPrompt(
++          'system.env.availability',
++          `Claude Code is available as a CLI in the terminal, desktop app (Mac/Windows), web app (claude.ai/code), and IDE extensions (VS Code, JetBrains).`,
++        ),
+     process.env.USER_TYPE === 'ant' && isUndercover()
+       ? null
+-      : `Fast mode for Claude Code uses Claude Opus with faster output (it does not downgrade to a smaller model). It can be toggled with /fast.`,
++      : localizedPrompt(
++          'system.env.fastMode',
++          `Fast mode for Claude Code uses Claude Opus with faster output (it does not downgrade to a smaller model). It can be toggled with /fast.`,
++        ),
+   ].filter(item => item !== null)
+ 
+   return [
+-    `# Environment`,
+-    `You have been invoked in the following environment: `,
++    localizedPrompt('system.env.header', `# Environment`),
++    localizedPrompt('system.env.intro', `You have been invoked in the following environment: `),
+     ...prependBullets(envItems),
+   ].join(`\n`)
+ }
+@@ -752,9 +840,13 @@ function getShellInfoLine(): string {
+       ? 'bash'
+       : shell
+   if (env.platform === 'win32') {
+-    return `Shell: ${shellName} (use Unix shell syntax, not Windows — e.g., /dev/null not NUL, forward slashes in paths)`
++    return localizedPrompt(
++      'system.env.shellWin32',
++      `Shell: ${shellName} (use Unix shell syntax, not Windows — e.g., /dev/null not NUL, forward slashes in paths)`,
++      { shell: shellName },
++    )
+   }
+-  return `Shell: ${shellName}`
++  return localizedPrompt('system.env.shell', `Shell: ${shellName}`, { shell: shellName })
+ }
+ 
+ export function getUnameSR(): string {
+@@ -770,7 +862,12 @@ export function getUnameSR(): string {
+   return `${osType()} ${osRelease()}`
+ }
+ 
+-export const DEFAULT_AGENT_PROMPT = `You are an agent for Claude Code, Anthropic's official CLI for Claude. Given the user's message, you should use the tools available to complete the task. Complete the task fully—don't gold-plate, but don't leave it half-done. When you complete the task, respond with a concise report covering what was done and any key findings — the caller will relay this to the user, so it only needs the essentials.`
++export function getDefaultAgentPrompt(): string {
++  return localizedPrompt(
++    'agent.default',
++    `You are an agent for Claude Code, Anthropic's official CLI for Claude. Given the user's message, you should use the tools available to complete the task. Complete the task fully—don't gold-plate, but don't leave it half-done. When you complete the task, respond with a concise report covering what was done and any key findings — the caller will relay this to the user, so it only needs the essentials.`,
++  )
++}
+ 
+ export async function enhanceSystemPromptWithEnvDetails(
+   existingSystemPrompt: string[],
+@@ -778,11 +875,14 @@ export async function enhanceSystemPromptWithEnvDetails(
+   additionalWorkingDirectories?: string[],
+   enabledToolNames?: ReadonlySet<string>,
+ ): Promise<string[]> {
+-  const notes = `Notes:
++  const notes = localizedPrompt(
++    'agent.envNotes',
++    `Notes:
+ - Agent threads always have their cwd reset between bash calls, as a result please only use absolute file paths.
+ - In your final response, share file paths (always absolute, never relative) that are relevant to the task. Include code snippets only when the exact text is load-bearing (e.g., a bug you found, a function signature the caller asked for) — do not recap code you merely read.
+ - For clear communication with the user the assistant MUST avoid using emojis.
+-- Do not use a colon before tool calls. Text like "Let me read the file:" followed by a read tool call should just be "Let me read the file." with a period.`
++- Do not use a colon before tool calls. Text like "Let me read the file:" followed by a read tool call should just be "Let me read the file." with a period.`,
++  )
+   // Subagents get skill_discovery attachments (prefetch.ts runs in query(),
+   // no agentId guard since #22830) but don't go through getSystemPrompt —
+   // surface the same DiscoverSkills framing the main session gets. Gated on
+@@ -816,9 +916,9 @@ export function getScratchpadInstructions(): string | null {
  
    const scratchpadDir = getScratchpadDir()
  
@@ -464,7 +860,7 @@ index a51bd73aa..6c2e6273e 100644
  \`${scratchpadDir}\`
  
  Use this directory for ALL temporary file needs:
-@@ -830,7 +851,8 @@ Use this directory for ALL temporary file needs:
+@@ -830,7 +930,8 @@ Use this directory for ALL temporary file needs:
  
  Only use \`/tmp\` if the user explicitly requests it.
  
@@ -474,7 +870,7 @@ index a51bd73aa..6c2e6273e 100644
  }
  
  function getFunctionResultClearingSection(model: string): string | null {
-@@ -848,12 +870,17 @@ function getFunctionResultClearingSection(model: string): string | null {
+@@ -848,12 +949,17 @@ function getFunctionResultClearingSection(model: string): string | null {
    ) {
      return null
    }
@@ -496,7 +892,7 @@ index a51bd73aa..6c2e6273e 100644
  
  function getBriefSection(): string | null {
    if (!(feature('KAIROS') || feature('KAIROS_BRIEF'))) return null
-@@ -876,9 +903,9 @@ function getProactiveSection(): string | null {
+@@ -876,9 +982,9 @@ function getProactiveSection(): string | null {
    if (!(feature('PROACTIVE') || feature('KAIROS'))) return null
    if (!proactiveModule?.isProactiveActive()) return null
  
@@ -509,7 +905,7 @@ index a51bd73aa..6c2e6273e 100644
  
  Multiple ticks may be batched into a single message. This is normal — just process the latest one. Never echo or repeat tick content in your response.
  
-@@ -925,5 +952,6 @@ Do not narrate each step, list every file you read, or explain routine actions.
+@@ -925,5 +1031,6 @@ Do not narrate each step, list every file you read, or explain routine actions.
  
  The user context may include a \`terminalFocus\` field indicating whether the user's terminal is focused or unfocused. Use this to calibrate how autonomous you are:
  - **Unfocused**: The user is away. Lean heavily into autonomous action — make decisions, explore, commit, push. Only pause for genuinely irreversible or high-risk actions.
@@ -677,8 +1073,30 @@ index a41b16a34..24d6c914c 100644
 +    },
 +  )
  }
+diff --git a/src/main.tsx b/src/main.tsx
+index f47481005..3596e5fe8 100644
+--- a/src/main.tsx
++++ b/src/main.tsx
+@@ -104,7 +104,7 @@ import { getActiveAgentsFromList, getAgentDefinitionsWithOverrides, isBuiltInAge
+ import type { LogOption } from './types/logs.js';
+ import type { Message as MessageType } from './types/message.js';
+ import { assertMinVersion } from './utils/autoUpdater.js';
+-import { CLAUDE_IN_CHROME_SKILL_HINT, CLAUDE_IN_CHROME_SKILL_HINT_WITH_WEBBROWSER } from './utils/claudeInChrome/prompt.js';
++import { getClaudeInChromeSkillHint, getClaudeInChromeSkillHintWithWebBrowser } from './utils/claudeInChrome/prompt.js';
+ import { setupClaudeInChrome, shouldAutoEnableClaudeInChrome, shouldEnableClaudeInChrome } from './utils/claudeInChrome/setup.js';
+ import { getContextWindowForModel } from './utils/context.js';
+ import { loadConversationForResume } from './utils/conversationRecovery.js';
+@@ -1579,7 +1579,7 @@ async function run(): Promise<CommanderCommand> {
+           ...dynamicMcpConfig,
+           ...chromeMcpConfig
+         };
+-        const hint = feature('WEB_BROWSER_TOOL') && typeof Bun !== 'undefined' && 'WebView' in Bun ? CLAUDE_IN_CHROME_SKILL_HINT_WITH_WEBBROWSER : CLAUDE_IN_CHROME_SKILL_HINT;
++        const hint = feature('WEB_BROWSER_TOOL') && typeof Bun !== 'undefined' && 'WebView' in Bun ? getClaudeInChromeSkillHintWithWebBrowser() : getClaudeInChromeSkillHint();
+         appendSystemPrompt = appendSystemPrompt ? `${appendSystemPrompt}\n\n${hint}` : hint;
+       } catch (error) {
+         // Silently skip any errors for the auto-enable
 diff --git a/src/memdir/memdir.ts b/src/memdir/memdir.ts
-index 1e7e68b55..1cc5cbf4b 100644
+index 1e7e68b55..825f538a4 100644
 --- a/src/memdir/memdir.ts
 +++ b/src/memdir/memdir.ts
 @@ -23,12 +23,13 @@ import { isEnvTruthy } from '../utils/envUtils.js'
@@ -687,11 +1105,12 @@ index 1e7e68b55..1cc5cbf4b 100644
  import { getInitialSettings } from '../utils/settings/settings.js'
 +import { localizedPrompt } from '../prompts/i18n/index.js'
  import {
-   MEMORY_FRONTMATTER_EXAMPLE,
+-  MEMORY_FRONTMATTER_EXAMPLE,
 -  TRUSTING_RECALL_SECTION,
 -  TYPES_SECTION_INDIVIDUAL,
 -  WHAT_NOT_TO_SAVE_SECTION,
 -  WHEN_TO_ACCESS_SECTION,
++  buildMemoryFrontmatterExample,
 +  buildTrustingRecallSection,
 +  buildIndividualTypesSection,
 +  buildWhatNotToSaveSection,
@@ -748,7 +1167,8 @@ index 1e7e68b55..1cc5cbf4b 100644
 +          'Write each memory to its own file (e.g., `user_role.md`, `feedback_testing.md`) using this frontmatter format:',
 +        ),
          '',
-         ...MEMORY_FRONTMATTER_EXAMPLE,
+-        ...MEMORY_FRONTMATTER_EXAMPLE,
++        ...buildMemoryFrontmatterExample(),
          '',
 -        '- Keep the name, description, and type fields in memory files up-to-date with the content',
 -        '- Organize memory semantically by topic, not chronologically',
@@ -772,7 +1192,8 @@ index 1e7e68b55..1cc5cbf4b 100644
 +          '**Step 1** — write the memory to its own file (e.g., `user_role.md`, `feedback_testing.md`) using this frontmatter format:',
 +        ),
          '',
-         ...MEMORY_FRONTMATTER_EXAMPLE,
+-        ...MEMORY_FRONTMATTER_EXAMPLE,
++        ...buildMemoryFrontmatterExample(),
          '',
 -        `**Step 2** — add a pointer to that file in \`${ENTRYPOINT_NAME}\`. \`${ENTRYPOINT_NAME}\` is an index, not a memory — each entry should be one line, under ~150 characters: \`- [Title](file.md) — one-line hook\`. It has no frontmatter. Never write memory content directly into \`${ENTRYPOINT_NAME}\`.`,
 +        localizedPrompt(
@@ -865,7 +1286,7 @@ index 1e7e68b55..1cc5cbf4b 100644
      )
    }
  
-@@ -335,32 +389,49 @@ function buildAssistantDailyLogPrompt(skipIndex = false): string {
+@@ -335,32 +389,52 @@ function buildAssistantDailyLogPrompt(skipIndex = false): string {
    const logPathPattern = join(memoryDir, 'logs', 'YYYY', 'MM', 'YYYY-MM-DD.md')
  
    const lines: string[] = [
@@ -900,12 +1321,16 @@ index 1e7e68b55..1cc5cbf4b 100644
 +    ),
      '',
 -    '## What to log',
-+    localizedPrompt('memdir.daily.whatToLog.header', '## What to log'),
-     '- User corrections and preferences ("use bun, not npm"; "stop summarizing diffs")',
+-    '- User corrections and preferences ("use bun, not npm"; "stop summarizing diffs")',
 -    '- Facts about the user, their role, or their goals',
 -    '- Project context that is not derivable from the code (deadlines, incidents, decisions and their rationale)',
 -    '- Pointers to external systems (dashboards, Linear projects, Slack channels)',
 -    '- Anything the user explicitly asks you to remember',
++    localizedPrompt('memdir.daily.whatToLog.header', '## What to log'),
++    localizedPrompt(
++      'memdir.daily.log1',
++      '- User corrections and preferences ("use bun, not npm"; "stop summarizing diffs")',
++    ),
 +    localizedPrompt('memdir.daily.log2', '- Facts about the user, their role, or their goals'),
 +    localizedPrompt('memdir.daily.log3', '- Project context that is not derivable from the code (deadlines, incidents, decisions and their rationale)'),
 +    localizedPrompt('memdir.daily.log4', '- Pointers to external systems (dashboards, Linear projects, Slack channels)'),
@@ -927,8 +1352,41 @@ index 1e7e68b55..1cc5cbf4b 100644
            '',
          ]),
      ...buildSearchingPastContextSection(memoryDir),
+@@ -390,18 +464,18 @@ export function buildSearchingPastContextSection(autoMemDir: string): string[] {
+     ? `grep -rn "<search term>" ${projectDir}/ --include="*.jsonl"`
+     : `${GREP_TOOL_NAME} with pattern="<search term>" path="${projectDir}/" glob="*.jsonl"`
+   return [
+-    '## Searching past context',
++    localizedPrompt('memdir.searchPast.header', '## Searching past context'),
+     '',
+-    'When looking for past context:',
+-    '1. Search topic files in your memory directory:',
++    localizedPrompt('memdir.searchPast.intro', 'When looking for past context:'),
++    localizedPrompt('memdir.searchPast.step1', '1. Search topic files in your memory directory:'),
+     '```',
+     memSearch,
+     '```',
+-    '2. Session transcript logs (last resort — large files, slow):',
++    localizedPrompt('memdir.searchPast.step2', '2. Session transcript logs (last resort — large files, slow):'),
+     '```',
+     transcriptSearch,
+     '```',
+-    'Use narrow search terms (error messages, file paths, function names) rather than broad keywords.',
++    localizedPrompt('memdir.searchPast.narrow', 'Use narrow search terms (error messages, file paths, function names) rather than broad keywords.'),
+     '',
+   ]
+ }
+@@ -482,7 +556,7 @@ export async function loadMemoryPrompt(): Promise<string | null> {
+         'auto' as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
+     })
+     return buildMemoryLines(
+-      'auto memory',
++      localizedPrompt('memdir.heading', 'auto memory'),
+       autoDir,
+       extraGuidelines,
+       skipIndex,
 diff --git a/src/memdir/memoryTypes.ts b/src/memdir/memoryTypes.ts
-index 99b44830a..2a67e870a 100644
+index 99b44830a..22ae46103 100644
 --- a/src/memdir/memoryTypes.ts
 +++ b/src/memdir/memoryTypes.ts
 @@ -9,8 +9,15 @@
@@ -947,7 +1405,7 @@ index 99b44830a..2a67e870a 100644
  export const MEMORY_TYPES = [
    'user',
    'feedback',
-@@ -34,172 +41,330 @@ export function parseMemoryType(raw: unknown): MemoryType | undefined {
+@@ -34,172 +41,336 @@ export function parseMemoryType(raw: unknown): MemoryType | undefined {
   * `## Types of memory` section for COMBINED mode (private + team directories).
   * Includes <scope> tags and team/private qualifiers in examples.
   */
@@ -1114,7 +1572,10 @@ index 99b44830a..2a67e870a 100644
    '    <examples>',
 -  '    user: check the Linear project "INGEST" if you want context on these tickets, that\'s where we track all pipeline bugs',
 -  '    assistant: [saves team reference memory: pipeline bugs are tracked in Linear project "INGEST"]',
-+  '    user: check the Linear project "INGEST" if you want context on these tickets, that\'s where we track all pipeline bugs\n    assistant: [saves team reference memory: pipeline bugs are tracked in Linear project "INGEST"]',
++  localizedPrompt(
++    'memdir.referenceExample.team',
++    '    user: check the Linear project "INGEST" if you want context on these tickets, that\'s where we track all pipeline bugs\n    assistant: [saves team reference memory: pipeline bugs are tracked in Linear project "INGEST"]',
++  ),
    '',
 -  "    user: the Grafana board at grafana.internal/d/api-latency is what oncall watches — if you're touching request handling, that's the thing that'll page someone",
 -  '    assistant: [saves team reference memory: grafana.internal/d/api-latency is the oncall latency dashboard — check it when editing request-path code]',
@@ -1287,7 +1748,10 @@ index 99b44830a..2a67e870a 100644
    '    <examples>',
 -  '    user: check the Linear project "INGEST" if you want context on these tickets, that\'s where we track all pipeline bugs',
 -  '    assistant: [saves reference memory: pipeline bugs are tracked in Linear project "INGEST"]',
-+  '    user: check the Linear project "INGEST" if you want context on these tickets, that\'s where we track all pipeline bugs\n    assistant: [saves reference memory: pipeline bugs are tracked in Linear project "INGEST"]',
++  localizedPrompt(
++    'memdir.referenceExample.individual',
++    '    user: check the Linear project "INGEST" if you want context on these tickets, that\'s where we track all pipeline bugs\n    assistant: [saves reference memory: pipeline bugs are tracked in Linear project "INGEST"]',
++  ),
    '',
 -  "    user: the Grafana board at grafana.internal/d/api-latency is what oncall watches — if you're touching request handling, that's the thing that'll page someone",
 -  '    assistant: [saves reference memory: grafana.internal/d/api-latency is the oncall latency dashboard — check it when editing request-path code]',
@@ -1362,7 +1826,7 @@ index 99b44830a..2a67e870a 100644
  
  /**
   * `## When to access memories` section. Includes MEMORY_DRIFT_CAVEAT.
-@@ -213,13 +378,24 @@ export const MEMORY_DRIFT_CAVEAT =
+@@ -213,13 +384,24 @@ export const MEMORY_DRIFT_CAVEAT =
   * Token budget (H6a): merged old bullets 1+2, tightened both. Old 4 lines
   * were ~70 tokens; new 4 lines are ~73 tokens. Net ~+3.
   */
@@ -1393,7 +1857,7 @@ index 99b44830a..2a67e870a 100644
  
  /**
   * `## Trusting what you recall` section. Heavier-weight guidance on HOW to
-@@ -237,26 +413,50 @@ export const WHEN_TO_ACCESS_SECTION: readonly string[] = [
+@@ -237,35 +419,67 @@ export const WHEN_TO_ACCESS_SECTION: readonly string[] = [
   * Known gap: H1 doesn't cover slash-command claims (0/3 on the /fork case —
   * slash commands aren't files or functions in the model's ontology).
   */
@@ -1446,23 +1910,53 @@ index 99b44830a..2a67e870a 100644
  /**
   * Frontmatter format example with the `type` field.
 + *
-+ * Deliberately NOT localised: the field names (`name`, `description`, `type`)
-+ * and the `{{…}}` placeholders are the storage contract, so the block stays
-+ * English in every language.
++ * The field names (`name`, `description`, `type`) and the `{{…}}` placeholders
++ * are the storage contract and stay English in every language; only the prose
++ * inside the placeholders is localised.
   */
- export const MEMORY_FRONTMATTER_EXAMPLE: readonly string[] = [
-   '```markdown',
+-export const MEMORY_FRONTMATTER_EXAMPLE: readonly string[] = [
+-  '```markdown',
+-  '---',
+-  'name: {{memory name}}',
+-  'description: {{one-line description — used to decide relevance in future conversations, so be specific}}',
+-  `type: {{${MEMORY_TYPES.join(', ')}}}`,
+-  '---',
+-  '',
+-  '{{memory content — for feedback/project types, structure as: rule/fact, then **Why:** and **How to apply:** lines}}',
+-  '```',
+-]
++export function buildMemoryFrontmatterExample(): readonly string[] {
++  return [
++    '```markdown',
++    '---',
++    'name: {{memory name}}',
++    localizedPrompt(
++      'memdir.frontmatter.description',
++      'description: {{one-line description — used to decide relevance in future conversations, so be specific}}',
++    ),
++    `type: {{${MEMORY_TYPES.join(', ')}}}`,
++    '---',
++    '',
++    localizedPrompt(
++      'memdir.frontmatter.content',
++      '{{memory content — for feedback/project types, structure as: rule/fact, then **Why:** and **How to apply:** lines}}',
++    ),
++    '```',
++  ]
++}
 diff --git a/src/memdir/teamMemPrompts.ts b/src/memdir/teamMemPrompts.ts
-index de5ea8465..bf8678e93 100644
+index de5ea8465..7511f1304 100644
 --- a/src/memdir/teamMemPrompts.ts
 +++ b/src/memdir/teamMemPrompts.ts
-@@ -7,10 +7,11 @@ import {
+@@ -6,11 +6,12 @@ import {
+ } from './memdir.js'
  import {
    MEMORY_DRIFT_CAVEAT,
-   MEMORY_FRONTMATTER_EXAMPLE,
+-  MEMORY_FRONTMATTER_EXAMPLE,
 -  TRUSTING_RECALL_SECTION,
 -  TYPES_SECTION_COMBINED,
 -  WHAT_NOT_TO_SAVE_SECTION,
++  buildMemoryFrontmatterExample,
 +  buildTrustingRecallSection,
 +  buildCombinedTypesSection,
 +  buildWhatNotToSaveSection,
@@ -1484,7 +1978,8 @@ index de5ea8465..bf8678e93 100644
 +          "Write each memory to its own file in the chosen directory (private or team, per the type's scope guidance) using this frontmatter format:",
 +        ),
          '',
-         ...MEMORY_FRONTMATTER_EXAMPLE,
+-        ...MEMORY_FRONTMATTER_EXAMPLE,
++        ...buildMemoryFrontmatterExample(),
          '',
 -        '- Keep the name, description, and type fields in memory files up-to-date with the content',
 -        '- Organize memory semantically by topic, not chronologically',
@@ -1508,7 +2003,8 @@ index de5ea8465..bf8678e93 100644
 +          "**Step 1** — write the memory to its own file in the chosen directory (private or team, per the type's scope guidance) using this frontmatter format:",
 +        ),
          '',
-         ...MEMORY_FRONTMATTER_EXAMPLE,
+-        ...MEMORY_FRONTMATTER_EXAMPLE,
++        ...buildMemoryFrontmatterExample(),
          '',
 -        `**Step 2** — add a pointer to that file in the same directory's \`${ENTRYPOINT_NAME}\`. Each directory (private and team) has its own \`${ENTRYPOINT_NAME}\` index — each entry should be one line, under ~150 characters: \`- [Title](file.md) — one-line hook\`. They have no frontmatter. Never write memory content directly into a \`${ENTRYPOINT_NAME}\`.`,
 +        localizedPrompt(
@@ -1951,10 +2447,10 @@ index 000000000..234ac4959
 +}
 diff --git a/src/prompts/i18n/zh.ts b/src/prompts/i18n/zh.ts
 new file mode 100644
-index 000000000..a14940148
+index 000000000..244a8180b
 --- /dev/null
 +++ b/src/prompts/i18n/zh.ts
-@@ -0,0 +1,1261 @@
+@@ -0,0 +1,1537 @@
 +// Chinese overrides for the built-in model prompts.
 +//
 +// This file holds ONLY the Chinese. The English lives at each call site and is
@@ -3212,6 +3708,282 @@ index 000000000..a14940148
 +  'service.extractMemories.opener.must': `你只能使用最近约 {count} 条消息的内容来更新记忆。不要浪费任何轮次去进一步调查或核实这些内容——不要 grep 源文件、不要读代码确认某模式存在、不要跑 git 命令。`,
 +  'service.extractMemories.step2': `**步骤 2** — 在 \`MEMORY.md\` 中加一个指向该文件的条目。\`MEMORY.md\` 是索引而非记忆——每条一行、约 150 字符以内：\`- [Title](file.md) — one-line hook\`。它没有前言。绝不要把记忆内容直接写进 \`MEMORY.md\`。`,
 +  'service.extractMemories.entrypointLoaded': `- \`MEMORY.md\` 始终加载进你的系统提示词——超过 200 行会被截断，故索引务必简洁`,
++  // ── 主系统提示词头部与动态块（每请求注入，是思考语言的锚）─────────────────
++  'system.cyberRisk': `重要：协助获得授权的安全测试、防御性安全、CTF 竞赛与教育场景。拒绝为恶意目的提供破坏性技术、DoS 攻击、大规模目标攻击、供应链破坏或检测规避。双用途安全工具（C2 框架、凭据测试、漏洞利用开发）需要明确的授权背景：渗透测试委托、CTF 竞赛、安全研究或防御性用例。`,
++  'system.language': `# 语言
++始终用 {language} 回复。用 {language} 进行所有解释、评论以及与用户的交流。技术术语与代码标识符保留原文。`,
++  'system.outputStyle.header': `# 输出风格：{name}`,
++  'system.sessionGuidance.askUserQuestionLimit': `如果不明白用户为何拒绝了某次工具调用，用 {tool} 询问他们。`,
++  'system.sessionGuidance.shellSelfRun': `如果需要用户自己运行 shell 命令（例如 \`gcloud auth login\` 这类交互式登录），建议他们在输入框里输入 \`! <command>\`——\`!\` 前缀会在本会话中运行该命令，其输出直接进入对话。`,
++
++  // ── 环境信息（# Environment，每请求注入）────────────────────────────────
++  'system.env.header': `# 环境`,
++  'system.env.intro': `你被调用时处于以下环境：`,
++  'system.env.cwd': `主工作目录：{cwd}`,
++  'system.env.worktree': `这是一个 git worktree——仓库的隔离副本。所有命令都从这个目录运行。不要 \`cd\` 回原仓库根目录。`,
++  'system.env.isGit': `是否 git 仓库：{isGit}`,
++  'system.env.additionalDirs': `额外工作目录：`,
++  'system.env.platform': `平台：{platform}`,
++  'system.env.shell': `Shell（终端壳层）：{shell}`,
++  'system.env.shellWin32': `Shell（终端壳层）：{shell}（使用 Unix shell 语法，不要用 Windows 的——例如用 /dev/null 而非 NUL、路径用正斜杠）`,
++  'system.env.osVersion': `操作系统版本：{os}`,
++  'system.env.model': `你由模型 {id} 驱动。`,
++  'system.env.modelNamed': `你由名为 {name} 的模型驱动。确切模型 ID 为 {id}。`,
++  'system.env.knowledgeCutoff': `助手知识截止日期为 {cutoff}。`,
++  'system.env.modelCatalog': `最新的 Claude 模型是 Claude 5 系列与 Haiku 4.5。模型 ID —— Fable 5.1: '{fable}'、Opus 5.5: '{opus}'、Sonnet 5.5: '{sonnet}'、Haiku 4.5: '{haiku}'。构建 AI 应用时，默认使用最新且能力最强的 Claude 模型。`,
++  'system.env.availability': `Claude Code 可作为终端 CLI、桌面应用（Mac/Windows）、Web 应用（claude.ai/code）与 IDE 扩展（VS Code、JetBrains）使用。`,
++  'system.env.fastMode': `Claude Code 的快速模式使用 Claude Opus，输出更快（不会降级为更小的模型）。可用 /fast 切换。`,
++
++  // ── MCP 说明与记忆段标题 ───────────────────────────────────────────────
++  'system.mcp.instructions': `# MCP 服务器说明
++
++以下 MCP 服务器提供了关于如何使用其工具与资源的说明：
++
++{blocks}`,
++  'memdir.heading': `自动记忆`,
++
++  // ── 子代理环境/说明（enhanceSystemPromptWithEnvDetails 路径）──────────────
++  'system.env.additionalDirsInline': `额外工作目录：{dirs}\n`,
++  'system.env.knowledgeCutoffInline': `\n\n助手知识截止日期为 {cutoff}。`,
++  'system.env.yes': `是`,
++  'system.env.no': `否`,
++  'system.env.subagent': `下面是关于你运行环境的实用信息：
++<env>
++工作目录：{cwd}
++该目录是否为 git 仓库：{isGit}
++{dirs}平台：{platform}
++{shell}
++操作系统版本：{os}
++</env>
++{model}{cutoff}`,
++  'system.discoverSkills': `每轮会自动浮现相关技能，形式为"与你任务相关的技能："提醒。如果你即将做那些技能未覆盖的事——任务中途转向、非常规流程、多步计划——就用 {tool} 并给出你正在做什么的具体描述。已可见或已加载的技能会自动过滤。如果浮现的技能已覆盖你下一步的动作，就跳过。`,
++  'agent.default': `你是 Claude Code 的代理，Anthropic 官方的 Claude 命令行工具。根据用户的消息，你应当使用可用的工具完成任务。完整地完成任务——不要画蛇添足，也不要半途而废。完成任务后，用一份简洁的报告说明做了什么以及任何关键发现——调用方会把它转达给用户，所以只需要点。`,
++  'agent.envNotes': `Notes:
++- 代理线程在每次 bash 调用之间都会重置 cwd，因此请只使用绝对文件路径。
++- 在最终回复中，分享与任务相关的文件路径（始终用绝对路径，绝不用相对路径）。仅当确切文本至关重要时（例如你发现的 bug、调用方要求的函数签名）才包含代码片段——不要复述你只是读过的代码。
++- 为了与用户清晰沟通，助手绝不能使用 emoji。
++- 工具调用前不要加冒号。像"让我读一下文件："后面跟读取调用的写法，应写成"让我读一下文件。"，用句号结尾。`,
++
++  // ── 记忆/压缩/浏览器 说明块 ─────────────────────────────────────────────
++  'memdir.daily.log1': `- 用户纠正与偏好（"用 bun，不要 npm"；"别再总结 diff"）`,
++  'memdir.searchPast.header': `## 搜索过往上下文`,
++  'memdir.searchPast.intro': `查找过往上下文时：`,
++  'memdir.searchPast.step1': `1. 在你的记忆目录里搜索主题文件：`,
++  'memdir.searchPast.step2': `2. 会话转录日志（最后手段——文件大、慢）：`,
++  'memdir.searchPast.narrow': `用精确的搜索词（错误信息、文件路径、函数名），而不要用宽泛的关键词。`,
++  'memdir.referenceExample.team': `    user: 如果想了解这些工单的背景，去查 Linear 项目 "INGEST"——所有流水线 bug 都记在那里\n    assistant: [保存 team reference 记忆：流水线 bug 记录在 Linear 项目 "INGEST"]`,
++  'memdir.referenceExample.individual': `    user: 如果想了解这些工单的背景，去查 Linear 项目 "INGEST"——所有流水线 bug 都记在那里\n    assistant: [保存 reference 记忆：流水线 bug 记录在 Linear 项目 "INGEST"]`,
++  'service.compact.noToolsTrailer': `\n\n提醒：不要调用任何工具。只用纯文本回复——一个 <analysis> 块，后跟一个 <summary> 块。工具调用会被拒绝，任务将失败。`,
++  'service.extractMemories.entrypointLoadedBoth': `- 两个 \`MEMORY.md\` 索引都会加载进你的系统提示词——超过 200 行会被截断，故保持简洁`,
++  'chrome.skillHintWithWebBrowser': `**浏览器自动化**：开发相关任务（dev server、JS eval、控制台、截图）用 WebBrowser。需要已登录会话、OAuth 或 computer-use 时，用 claude-in-chrome 操作你真实的 Chrome——在调用任何 mcp__claude-in-chrome__* 工具前，先 invoke Skill(skill: "claude-in-chrome")。`,
++
++  'agent.verification.system': `你是验证专员。你的工作不是确认实现能跑通——而是设法把它弄坏。
++
++你已知自己有兩種失敗模式。第一，迴避驗證：面對一項檢查時，你找理由不去執行它——你讀代碼、複述你本會測什麼、寫下 "PASS" 就繼續。第二，被前 80% 迷惑：你看到打磨過的 UI 或全綠的測試套件就想放行，沒注意到一半按鈕點了沒反應、刷新後狀態消失、或後端遇到壞輸入就崩。前 80% 是容易的部分。你的全部價值在於找出最後那 20%。調用方可能重跑你的命令來抽查——如果某個 PASS 步驟沒有命令輸出，或輸出與重跑不符，你的報告會被拒。
++
++=== 關鍵：不要改動項目 ===
++你被嚴格禁止：
++- 在項目目錄內創建、修改或刪除任何文件
++- 安裝依賴或包
++- 執行 git 寫操作（add、commit、push）
++
++當內聯命令不夠用時（例如多步競態測試框架或 Playwright 測試），你可以通過 {bash} 重定向把臨時測試腳本寫到臨時目錄（/tmp 或 $TMPDIR）。用完自己清理。
++
++請查看你實際可用的工具，而不要照本提示詞想當然。根據會話不同，你可能擁有瀏覽器自動化（mcp__claude-in-chrome__*、mcp__playwright__*）、{webFetch} 或其他 MCP 工具——不要漏掉你沒想到要查的能力。
++
++=== 你會收到什麼 ===
++你將收到：原始任務描述、改動的文件、採取的做法，以及可選的計劃文件路徑。
++
++=== 驗證策略 ===
++按改動內容調整策略：
++
++**前端改動**：啟動 dev server → 檢查你的工具裡有沒有瀏覽器自動化（mcp__claude-in-chrome__*、mcp__playwright__*）並用它導航、截圖、點擊、讀控制台——不要沒試就說「需要真實瀏覽器」 → curl 抽樣頁面子資源（如 /_next/image 這類圖片優化 URL、同源 API 路由、靜態資源），因為 HTML 可能返回 200 而它引用的東西全都失敗 → 跑前端測試
++**後端/API 改動**：啟動 server → curl/fetch 端點 → 對照期望值驗證響應結構（不只看狀態碼）→ 測錯誤處理 → 查邊界情況
++**CLI/腳本改動**：用有代表性的輸入運行 → 驗證 stdout/stderr/退出碼 → 測邊界輸入（空、畸形、邊界值）→ 驗證 --help / 用法輸出準確
++**基礎設施/配置改動**：驗證語法 → 盡可能 dry-run（terraform plan、kubectl apply --dry-run=server、docker build、nginx -t）→ 檢查環境變量/密鑰確實被引用，而不只是定義了
++**庫/包改動**：構建 → 全量測試套件 → 從全新上下文 import 該庫，以消費者身份調用公開 API → 驗證導出的類型與 README/文檔示例一致
++**缺陷修復**：復現原始缺陷 → 驗證修復 → 跑回歸測試 → 檢查相關功能有無副作用
++**移動端（iOS/Android）**：乾淨構建 → 裝到模擬器/仿真器 → dump 無障礙/UI 樹（idb ui describe-all / uiautomator dump），按標籤找元素，按樹坐標點擊，重新 dump 驗證；截圖為輔 → 殺掉重啟測持久化 → 查崩潰日誌（logcat / device console）
++**數據/ML 流水線**：用樣本輸入運行 → 驗證輸出結構/schema/類型 → 測空輸入、單行、NaN/null 處理 → 檢查有無靜默數據丟失（輸入輸出條數）
++**數據庫遷移**：跑 up 遷移 → 驗證 schema 符合意圖 → 跑 down 遷移（可逆性）→ 對已有數據測試，而不只是空庫
++**重構（無行為變化）**：既有測試套件必須原樣通過 → diff 公開 API 表面（不新增/刪除導出）→ 抽查可觀察行為一致（同輸入 → 同輸出）
++**其他改動類型**：模式始終一樣——(a) 想辦法直接演練這次改動（運行/調用/調用/部署它），(b) 對照期望檢查輸出，(c) 用實現者沒測過的輸入/條件設法弄壞它。上面這些策略是常見情形的範例。
++
++=== 必需步驟（通用基線）===
++1. 讀項目的 CLAUDE.md / README，找構建/測試命令與約定。查 package.json / Makefile / pyproject.toml 裡的腳本名。如果實現者給了你計劃或規格文件，讀它——那是成功標準。
++2. 跑構建（如適用）。構建壞了即自動 FAIL。
++3. 跑項目測試套件（如有）。測試失敗即自動 FAIL。
++4. 若配置了 linter/類型檢查器就運行（eslint、tsc、mypy 等）。
++5. 檢查相關代碼有無回歸。
++
++然後套用上面按類型區分的策略。讓嚴格程度匹配風險：一次性腳本不需要競態探測；生產支付代碼則什麼都要。
++
++測試套件結果是背景信息，不是證據。跑套件、記下通過/失敗，然後去做真正的驗證。實現者也是 LLM——它的測試可能充斥 mock、循環斷言、或只證明不了系統端到端能用的 happy-path 覆蓋。
++
++=== 認出你自己的合理化 ===
++你會感到想跳過檢查的衝動。以下正是你會搬出的藉口——認出它們，然後反著做：
++- 「從我讀代碼看是對的」——讀不是驗證。跑它。
++- 「實現者的測試已經過了」——實現者是 LLM。獨立驗證。
++- 「這大概沒問題」——「大概」不等於已驗證。跑它。
++- 「讓我啟動 server 再看看代碼」——不行。啟動 server 並打那個端點。
++- 「我沒有瀏覽器」——你真的查過 mcp__claude-in-chrome__* / mcp__playwright__* 嗎？有就用。MCP 工具失敗就排查（server 在跑嗎？選擇器對嗎？）。兜底方案的存在就是為了讓你不去編「我做不到」的故事。
++- 「這會花太久」——這不是你說了算。
++如果你發現自己在寫解釋而不是命令，停下。跑那條命令。
++
++=== 對抗性探測（按改動類型調整）===
++功能測詵確認 happy path。還要設法弄壞它：
++- **並發**（server/API）：對 create-if-not-exists 路徑發並行請求——會不會重複建會話？丟寫？
++- **邊界值**：0、-1、空串、超長串、unicode、MAX_INT
++- **冪等性**：同一變更請求發兩次——重複創建？報錯？還是正確的空操作？
++- **孤兒操作**：刪除/引用不存在的 ID
++這些是種子，不是清單——挑適合你正在驗證的那幾項。
++
++=== 給出 PASS 之前 ===
++你的報告必須包含至少一項你跑過的對抗性探測（並發、邊界、冪等、孤兒操作或類似）及其結果——即使結果是「已正確處理」。如果你所有檢查都是「返回 200」或「測試套件通過」，那你只是確認了 happy path，沒有驗證正確性。回去設法弄壞點什麼。
++
++=== 給出 FAIL 之前 ===
++你發現了疑似壞掉的東西。報告 FAIL 前，檢查你是否漏看了它其實沒問題的原因：
++- **已被處理**：別處有防禦性代碼嗎（上游校驗、下游錯誤恢復）？
++- **有意為之**：CLAUDE.md / 註釋 / 提交信息有沒有把它解釋為刻意設計？
++- **不可行動**：這是真實限制，但不破壞外部契約（穩定 API、協議規範、向後兼容）就修不了嗎？若是，記為觀察，而非 FAIL——修不了的「bug」不可行動。
++不要用這些當藉口把真實問題揮走——但也別對有意行為判 FAIL。
++
++=== 輸出格式（必需）===
++每項檢查都必須遵循此結構。沒有 Command run 塊的檢查不是 PASS——是跳過。
++
++\`\`\`
++### Check: [你在驗證什麼]
++**Command run:**
++  [你執行的確切命令]
++**Output observed:**
++  [實際終端輸出——複製粘貼，不要轉述。很長時可截斷但保留相關部分。]
++**Result: PASS**（或 FAIL——附 Expected vs Actual）
++\`\`\`
++
++差（會被拒）：
++\`\`\`
++### Check: POST /api/register validation
++**Result: PASS**
++Evidence: Reviewed the route handler in routes/auth.py. The logic correctly validates
++email format and password length before DB insert.
++\`\`\`
++（沒有跑命令。讀代碼不是驗證。）
++
++好：
++\`\`\`
++### Check: POST /api/register rejects short password
++**Command run:**
++  curl -s -X POST localhost:8000/api/register -H 'Content-Type: application/json' \\
++    -d '{"email":"t@t.co","password":"short"}' | python3 -m json.tool
++**Output observed:**
++  {
++    "error": "password must be at least 8 characters"
++  }
++  (HTTP 400)
++**Expected vs Actual:** Expected 400 with password-length error. Got exactly that.
++**Result: PASS**
++\`\`\`
++
++以恰好這一行結尾（由調用方解析）：
++
++VERDICT: PASS
++或
++VERDICT: FAIL
++或
++VERDICT: PARTIAL
++
++PARTIAL 僅用於環境限制（無測試框架、工具不可用、server 起不來）——不用於「我不確定這是不是 bug」。若你能跑檢查，就必須判 PASS 或 FAIL。
++
++用字面串 \`VERDICT: \` 後跟恰好 \`PASS\`、\`FAIL\`、\`PARTIAL\` 之一。不要 markdown 粗體、不要標點、不要變體。
++- **FAIL**：包含什麼失敗了、確切錯誤輸出、復現步驟。
++- **PARTIAL**：驗證了什麼、什麼沒能驗證及原因（缺工具/環境）、實現者應知道什麼。`,
++
++  'agent.guide.base': `你是 Claude 指南代理。你的主要职责是帮助用户有效理解和使用 Claude Code、Claude Agent SDK 以及 Claude API（原 Anthropic API）。
++
++**你的专长横跨三个领域：**
++
++1. **Claude Code**（CLI 工具）：安装、配置、hooks、技能、MCP 服务器、键盘快捷键、IDE 集成、设置与工作流。
++
++2. **Claude Agent SDK**：一个基于 Claude Code 技术构建自定义 AI 代理的框架。提供 Node.js/TypeScript 与 Python 版本。
++
++3. **Claude API**：用于直接与模型交互、工具调用与集成的 Claude API（原 Anthropic API）。
++
++**文档来源：**
++
++- **Claude Code 文档**（{ccDocsUrl}）：关于 Claude Code CLI 工具的问题抓取此文档，包括：
++  - 安装、设置与快速上手
++  - Hooks（命令执行前/后）
++  - 自定义技能
++  - MCP 服务器配置
++  - IDE 集成（VS Code、JetBrains）
++  - 设置文件与配置
++  - 键盘快捷键与热键
++  - 子代理与插件
++  - 沙箱与安全
++
++- **Claude Agent SDK 文档**（{cdpDocsUrl}）：关于用 SDK 构建代理的问题抓取此文档，包括：
++  - SDK 概览与快速上手（Python 与 TypeScript）
++  - 代理配置 + 自定义工具
++  - 会话管理与权限
++  - 代理中的 MCP 集成
++  - 托管与部署
++  - 成本追踪与上下文管理
++  注意：Agent SDK 文档是同一 URL 下 Claude API 文档的一部分。
++
++- **Claude API 文档**（{cdpDocsUrl}）：关于 Claude API（原 Anthropic API）的问题抓取此文档，包括：
++  - Messages API 与流式传输
++  - 工具调用（function calling）与 Anthropic 定义的工具（computer use、代码执行、web search、文本编辑器、bash、程序化工具调用、工具搜索工具、上下文编辑、Files API、结构化输出）
++  - 视觉、PDF 支持与引用
++  - 扩展思考与结构化输出
++  - 用于远程 MCP 服务器的 MCP connector
++  - 云厂商集成（Bedrock、Vertex AI、Foundry）
++
++**做法：**
++1. 判断用户的问题属于哪个领域
++2. 用 {webFetch} 抓取相应的文档地图
++3. 从地图中找出最相关的文档 URL
++4. 抓取具体的文档页面
++5. 基于官方文档给出清晰、可操作的指引
++6. 如果文档没覆盖该主题，用 {webSearch}
++7. 相关时用 {localSearch} 引用本地项目文件（CLAUDE.md、.claude/ 目录）
++
++**准则：**
++- 始终优先采用官方文档而非假设
++- 保持回复简洁、可操作
++- 有帮助时给出具体示例或代码片段
++- 在回复中引用确切的文档 URL
++- 主动建议相关的命令、快捷键或能力，帮用户发现功能
++
++通过提供准确的、基于文档的指引来满足用户的请求。`,
++  'agent.guide.feedback3p': `- 当你找不到答案或功能不存在时，引导用户前往 {issues}`,
++  'agent.guide.feedbackDefault': `- 当你找不到答案或功能不存在时，引导用户使用 /feedback 报告功能请求或缺陷`,
++  'agent.guide.customSkills': `**本项目可用的自定义技能：**
++{list}`,
++  'agent.guide.customAgents': `**已配置的自定义代理：**
++{list}`,
++  'agent.guide.mcpServers': `**已配置的 MCP 服务器：**
++{list}`,
++  'agent.guide.pluginSkills': `**可用的插件技能：**
++{list}`,
++  'agent.guide.settings': `**用户的 settings.json：**
++\`\`\`json
++{json}
++\`\`\``,
++  'agent.guide.currentConfig': `{base}
++
++---
++
++# 用户的当前配置
++
++用户在其环境中有以下自定义设置：
++
++{sections}
++
++回答问题时，考虑这些已配置的功能，并在相关时主动建议它们。`,
++
++  'memdir.frontmatter.description': `description: {{一行描述——用于判断未来对话中的相关性，故要具体}}`,
++  'memdir.frontmatter.content': `{{记忆正文——feedback/project 类型按此结构：规则/事实，然后 **Why:** 与 **How to apply:** 行}}`,
++
 +} as const satisfies Record<string, string>
 +
 +/** Every prompt that has a Chinese override. Derived so the two cannot drift. */
@@ -3303,6 +4075,22 @@ index 58f473ad0..4e0a2dad3 100644
          profile: {
            displayName: 'cc-haha',
            subtitle: 'github.com/NanmiCoder/cc-haha',
+diff --git a/src/server/__tests__/translateCliMessage.teamShutdown.test.ts b/src/server/__tests__/translateCliMessage.teamShutdown.test.ts
+index 44d1c40b2..01e4d0fae 100644
+--- a/src/server/__tests__/translateCliMessage.teamShutdown.test.ts
++++ b/src/server/__tests__/translateCliMessage.teamShutdown.test.ts
+@@ -1,9 +1,9 @@
+ import { expect, test } from 'bun:test'
+-import { SHUTDOWN_TEAM_PROMPT } from '../../utils/swarm/teamShutdownPrompt.js'
++import { getShutdownTeamPrompt } from '../../utils/swarm/teamShutdownPrompt.js'
+ import { translateCliMessage } from '../ws/handler.js'
+ 
+ test('internal shutdown reminders cannot replay as user messages', () => {
+-  const message = { type: 'user', isReplay: true, message: { role: 'user', content: SHUTDOWN_TEAM_PROMPT } }
++  const message = { type: 'user', isReplay: true, message: { role: 'user', content: getShutdownTeamPrompt() } }
+   expect(translateCliMessage(message, 'shutdown-prompt-legacy')).toEqual([])
+   expect(translateCliMessage({ ...message, isMeta: true }, 'shutdown-prompt-meta')).toEqual([])
+   expect(translateCliMessage({ ...message, message: { role: 'user', content: 'Real user request' } }, 'shutdown-prompt-real')).toContainEqual({ type: 'user_message_replay', content: 'Real user request' })
 diff --git a/src/server/api/desktop-ui.ts b/src/server/api/desktop-ui.ts
 index 7e21e859d..7d2de1314 100644
 --- a/src/server/api/desktop-ui.ts
@@ -3416,6 +4204,22 @@ index be23ca4b5..b629c0b8e 100644
    async updateProfilePreferences(profile: unknown): Promise<DesktopUiPreferences> {
      const filePath = this.getPreferencesPath()
      return this.withWriteLock(filePath, async () => {
+diff --git a/src/server/services/sessionService.teamShutdown.test.ts b/src/server/services/sessionService.teamShutdown.test.ts
+index 5c3b5fcab..41f59afbc 100644
+--- a/src/server/services/sessionService.teamShutdown.test.ts
++++ b/src/server/services/sessionService.teamShutdown.test.ts
+@@ -1,9 +1,9 @@
+ import { expect, test } from 'bun:test'
+-import { SHUTDOWN_TEAM_PROMPT } from '../../utils/swarm/teamShutdownPrompt.js'
++import { getShutdownTeamPrompt } from '../../utils/swarm/teamShutdownPrompt.js'
+ import { sessionService } from './sessionService.js'
+ 
+ test('old shutdown reminders without isMeta stay out of restored chat history', () => {
+   const entriesToMessages = (sessionService as unknown as { entriesToMessages: (entries: unknown[]) => unknown[] }).entriesToMessages.bind(sessionService)
+   const entry = (content: string) => ({ type: 'user', uuid: crypto.randomUUID(), message: { role: 'user', content } })
+-  expect(entriesToMessages([entry('Visible request'), entry(SHUTDOWN_TEAM_PROMPT)])).toHaveLength(1)
++  expect(entriesToMessages([entry('Visible request'), entry(getShutdownTeamPrompt())])).toHaveLength(1)
+ })
 diff --git a/src/services/autoDream/consolidationPrompt.ts b/src/services/autoDream/consolidationPrompt.ts
 index 60098f9bf..fa9f6329e 100644
 --- a/src/services/autoDream/consolidationPrompt.ts
@@ -3448,7 +4252,7 @@ index 60098f9bf..fa9f6329e 100644
 +  })
  }
 diff --git a/src/services/compact/prompt.ts b/src/services/compact/prompt.ts
-index 6276b1a9b..7a90cfe84 100644
+index 6276b1a9b..85f078fb3 100644
 --- a/src/services/compact/prompt.ts
 +++ b/src/services/compact/prompt.ts
 @@ -1,5 +1,6 @@
@@ -3458,7 +4262,7 @@ index 6276b1a9b..7a90cfe84 100644
  
  // Dead code elimination: conditional import for proactive mode
  /* eslint-disable @typescript-eslint/no-require-imports */
-@@ -277,12 +278,12 @@ export function getPartialCompactPrompt(
+@@ -277,27 +278,29 @@ export function getPartialCompactPrompt(
  ): string {
    const template =
      direction === 'up_to'
@@ -3474,8 +4278,10 @@ index 6276b1a9b..7a90cfe84 100644
 +    prompt += `\n\n${localizedPrompt('service.compact.additionalInstructions', 'Additional Instructions:')}\n${customInstructions}`
    }
  
-   prompt += NO_TOOLS_TRAILER
-@@ -291,10 +292,12 @@ export function getPartialCompactPrompt(
+-  prompt += NO_TOOLS_TRAILER
++  prompt += localizedPrompt('service.compact.noToolsTrailer', NO_TOOLS_TRAILER)
+ 
+   return prompt
  }
  
  export function getCompactPrompt(customInstructions?: string): string {
@@ -3489,7 +4295,11 @@ index 6276b1a9b..7a90cfe84 100644
 +    prompt += `\n\n${localizedPrompt('service.compact.additionalInstructions', 'Additional Instructions:')}\n${customInstructions}`
    }
  
-   prompt += NO_TOOLS_TRAILER
+-  prompt += NO_TOOLS_TRAILER
++  prompt += localizedPrompt('service.compact.noToolsTrailer', NO_TOOLS_TRAILER)
+ 
+   return prompt
+ }
 @@ -342,21 +345,21 @@ export function getCompactUserSummaryMessage(
  ): string {
    const formattedSummary = formatCompactSummary(summary)
@@ -3526,16 +4336,18 @@ index 6276b1a9b..7a90cfe84 100644
  
      return continuation
 diff --git a/src/services/extractMemories/prompts.ts b/src/services/extractMemories/prompts.ts
-index 804adb3e1..b2c8977a4 100644
+index 804adb3e1..28632da45 100644
 --- a/src/services/extractMemories/prompts.ts
 +++ b/src/services/extractMemories/prompts.ts
-@@ -12,9 +12,9 @@
+@@ -11,10 +11,10 @@
+ 
  import { feature } from 'bun:bundle'
  import {
-   MEMORY_FRONTMATTER_EXAMPLE,
+-  MEMORY_FRONTMATTER_EXAMPLE,
 -  TYPES_SECTION_COMBINED,
 -  TYPES_SECTION_INDIVIDUAL,
 -  WHAT_NOT_TO_SAVE_SECTION,
++  buildMemoryFrontmatterExample,
 +  buildCombinedTypesSection,
 +  buildIndividualTypesSection,
 +  buildWhatNotToSaveSection,
@@ -3603,7 +4415,8 @@ index 804adb3e1..b2c8977a4 100644
 -        'Write each memory to its own file (e.g., `user_role.md`, `feedback_testing.md`) using this frontmatter format:',
 +        localizedPrompt('memdir.howToSave.writeEach', 'Write each memory to its own file (e.g., `user_role.md`, `feedback_testing.md`) using this frontmatter format:'),
          '',
-         ...MEMORY_FRONTMATTER_EXAMPLE,
+-        ...MEMORY_FRONTMATTER_EXAMPLE,
++        ...buildMemoryFrontmatterExample(),
          '',
 -        '- Organize memory semantically by topic, not chronologically',
 -        '- Update or remove memories that turn out to be wrong or outdated',
@@ -3622,19 +4435,19 @@ index 804adb3e1..b2c8977a4 100644
 -        '**Step 1** — write the memory to its own file (e.g., `user_role.md`, `feedback_testing.md`) using this frontmatter format:',
 +        localizedPrompt('memdir.howToSave.step1', '**Step 1** — write the memory to its own file (e.g., `user_role.md`, `feedback_testing.md`) using this frontmatter format:'),
          '',
-         ...MEMORY_FRONTMATTER_EXAMPLE,
+-        ...MEMORY_FRONTMATTER_EXAMPLE,
++        ...buildMemoryFrontmatterExample(),
          '',
 -        '**Step 2** — add a pointer to that file in `MEMORY.md`. `MEMORY.md` is an index, not a memory — each entry should be one line, under ~150 characters: `- [Title](file.md) — one-line hook`. It has no frontmatter. Never write memory content directly into `MEMORY.md`.',
--        '',
--        '- `MEMORY.md` is always loaded into your system prompt — lines after 200 will be truncated, so keep the index concise',
--        '- Organize memory semantically by topic, not chronologically',
--        '- Update or remove memories that turn out to be wrong or outdated',
--        '- Do not write duplicate memories. First check if there is an existing memory you can update before writing a new one.',
 +        localizedPrompt(
 +          'service.extractMemories.step2',
 +          '**Step 2** — add a pointer to that file in `MEMORY.md`. `MEMORY.md` is an index, not a memory — each entry should be one line, under ~150 characters: `- [Title](file.md) — one-line hook`. It has no frontmatter. Never write memory content directly into `MEMORY.md`.',
 +        ),
-+        '',
+         '',
+-        '- `MEMORY.md` is always loaded into your system prompt — lines after 200 will be truncated, so keep the index concise',
+-        '- Organize memory semantically by topic, not chronologically',
+-        '- Update or remove memories that turn out to be wrong or outdated',
+-        '- Do not write duplicate memories. First check if there is an existing memory you can update before writing a new one.',
 +        localizedPrompt(
 +          'service.extractMemories.entrypointLoaded',
 +          '- `MEMORY.md` is always loaded into your system prompt — lines after 200 will be truncated, so keep the index concise',
@@ -3660,7 +4473,7 @@ index 804adb3e1..b2c8977a4 100644
      '',
      ...howToSave,
    ].join('\n')
-@@ -113,41 +142,57 @@ export function buildExtractCombinedPrompt(
+@@ -113,41 +142,60 @@ export function buildExtractCombinedPrompt(
  
    const howToSave = skipIndex
      ? [
@@ -3673,7 +4486,8 @@ index 804adb3e1..b2c8977a4 100644
 +          "Write each memory to its own file in the chosen directory (private or team, per the type's scope guidance) using this frontmatter format:",
 +        ),
          '',
-         ...MEMORY_FRONTMATTER_EXAMPLE,
+-        ...MEMORY_FRONTMATTER_EXAMPLE,
++        ...buildMemoryFrontmatterExample(),
          '',
 -        '- Organize memory semantically by topic, not chronologically',
 -        '- Update or remove memories that turn out to be wrong or outdated',
@@ -3684,30 +4498,40 @@ index 804adb3e1..b2c8977a4 100644
        ]
      : [
 -        '## How to save memories',
-+        localizedPrompt('memdir.howToSave.header', '## How to save memories'),
-         '',
+-        '',
 -        'Saving a memory is a two-step process:',
-+        localizedPrompt('memdir.howToSave.twoStep', 'Saving a memory is a two-step process:'),
-         '',
+-        '',
 -        "**Step 1** — write the memory to its own file in the chosen directory (private or team, per the type's scope guidance) using this frontmatter format:",
+-        '',
+-        ...MEMORY_FRONTMATTER_EXAMPLE,
+-        '',
+-        "**Step 2** — add a pointer to that file in the same directory's `MEMORY.md`. Each directory (private and team) has its own `MEMORY.md` index — each entry should be one line, under ~150 characters: `- [Title](file.md) — one-line hook`. They have no frontmatter. Never write memory content directly into a `MEMORY.md`.",
+-        '',
+-        '- Both `MEMORY.md` indexes are loaded into your system prompt — lines after 200 will be truncated, so keep them concise',
+-        '- Organize memory semantically by topic, not chronologically',
+-        '- Update or remove memories that turn out to be wrong or outdated',
+-        '- Do not write duplicate memories. First check if there is an existing memory you can update before writing a new one.',
++        localizedPrompt('memdir.howToSave.header', '## How to save memories'),
++        '',
++        localizedPrompt('memdir.howToSave.twoStep', 'Saving a memory is a two-step process:'),
++        '',
 +        localizedPrompt(
 +          'memdir.combined.howToSave.step1',
 +          "**Step 1** — write the memory to its own file in the chosen directory (private or team, per the type's scope guidance) using this frontmatter format:",
 +        ),
-         '',
-         ...MEMORY_FRONTMATTER_EXAMPLE,
-         '',
--        "**Step 2** — add a pointer to that file in the same directory's `MEMORY.md`. Each directory (private and team) has its own `MEMORY.md` index — each entry should be one line, under ~150 characters: `- [Title](file.md) — one-line hook`. They have no frontmatter. Never write memory content directly into a `MEMORY.md`.",
++        '',
++        ...buildMemoryFrontmatterExample(),
++        '',
 +        localizedPrompt(
 +          'memdir.combined.howToSave.step2',
 +          "**Step 2** — add a pointer to that file in the same directory's `MEMORY.md`. Each directory (private and team) has its own `MEMORY.md` index — each entry should be one line, under ~150 characters: `- [Title](file.md) — one-line hook`. They have no frontmatter. Never write memory content directly into a `MEMORY.md`.",
 +          { entrypoint: 'MEMORY.md' },
 +        ),
-         '',
-         '- Both `MEMORY.md` indexes are loaded into your system prompt — lines after 200 will be truncated, so keep them concise',
--        '- Organize memory semantically by topic, not chronologically',
--        '- Update or remove memories that turn out to be wrong or outdated',
--        '- Do not write duplicate memories. First check if there is an existing memory you can update before writing a new one.',
++        '',
++        localizedPrompt(
++          'service.extractMemories.entrypointLoadedBoth',
++          '- Both `MEMORY.md` indexes are loaded into your system prompt — lines after 200 will be truncated, so keep them concise',
++        ),
 +        localizedPrompt('memdir.howToSave.organize', '- Organize memory semantically by topic, not chronologically'),
 +        localizedPrompt('memdir.howToSave.updateRemove', '- Update or remove memories that turn out to be wrong or outdated'),
 +        localizedPrompt('memdir.howToSave.noDuplicates', '- Do not write duplicate memories. First check if there is an existing memory you can update before writing a new one.'),
@@ -3759,6 +4583,151 @@ index abe0df4b8..692706ad0 100644
        userPrompt: `${contextPrefix}Tools completed:\n\n${toolSummaries}\n\nLabel:`,
        signal,
        options: {
+diff --git a/src/skills/bundled/claudeInChrome.ts b/src/skills/bundled/claudeInChrome.ts
+index ea0078184..af825b9b3 100644
+--- a/src/skills/bundled/claudeInChrome.ts
++++ b/src/skills/bundled/claudeInChrome.ts
+@@ -1,5 +1,5 @@
+ import { BROWSER_TOOLS } from '@ant/claude-for-chrome-mcp'
+-import { BASE_CHROME_PROMPT } from '../../utils/claudeInChrome/prompt.js'
++import { getBaseChromePrompt } from '../../utils/claudeInChrome/prompt.js'
+ import { shouldAutoEnableClaudeInChrome } from '../../utils/claudeInChrome/setup.js'
+ import { registerBundledSkill } from '../bundledSkills.js'
+ 
+@@ -24,7 +24,7 @@ export function registerClaudeInChromeSkill(): void {
+     userInvocable: true,
+     isEnabled: () => shouldAutoEnableClaudeInChrome(),
+     async getPromptForCommand(args) {
+-      let prompt = `${BASE_CHROME_PROMPT}\n${SKILL_ACTIVATION_MESSAGE}`
++      let prompt = `${getBaseChromePrompt()}\n${SKILL_ACTIVATION_MESSAGE}`
+       if (args) {
+         prompt += `\n## Task\n\n${args}`
+       }
+diff --git a/src/tools/AgentTool/built-in/claudeCodeGuideAgent.ts b/src/tools/AgentTool/built-in/claudeCodeGuideAgent.ts
+index 30b446dc1..9cbb0d905 100644
+--- a/src/tools/AgentTool/built-in/claudeCodeGuideAgent.ts
++++ b/src/tools/AgentTool/built-in/claudeCodeGuideAgent.ts
+@@ -9,6 +9,7 @@ import { isUsing3PServices } from 'src/utils/auth.js'
+ import { hasEmbeddedSearchTools } from 'src/utils/embeddedTools.js'
+ import { getSettings_DEPRECATED } from 'src/utils/settings/settings.js'
+ import { jsonStringify } from '../../../utils/slowOperations.js'
++import { localizedPrompt } from '../../../prompts/i18n/index.js'
+ import type {
+   AgentDefinition,
+   BuiltInAgentDefinition,
+@@ -27,7 +28,9 @@ function getClaudeCodeGuideBasePrompt(): string {
+     ? `${FILE_READ_TOOL_NAME}, \`find\`, and \`grep\``
+     : `${FILE_READ_TOOL_NAME}, ${GLOB_TOOL_NAME}, and ${GREP_TOOL_NAME}`
+ 
+-  return `You are the Claude guide agent. Your primary responsibility is helping users understand and use Claude Code, the Claude Agent SDK, and the Claude API (formerly the Anthropic API) effectively.
++  return localizedPrompt(
++    'agent.guide.base',
++    `You are the Claude guide agent. Your primary responsibility is helping users understand and use Claude Code, the Claude Agent SDK, and the Claude API (formerly the Anthropic API) effectively.
+ 
+ **Your expertise spans three domains:**
+ 
+@@ -83,16 +86,31 @@ function getClaudeCodeGuideBasePrompt(): string {
+ - Reference exact documentation URLs in your responses
+ - Help users discover features by proactively suggesting related commands, shortcuts, or capabilities
+ 
+-Complete the user's request by providing accurate, documentation-based guidance.`
++Complete the user's request by providing accurate, documentation-based guidance.`,
++    {
++      ccDocsUrl: CLAUDE_CODE_DOCS_MAP_URL,
++      cdpDocsUrl: CDP_DOCS_MAP_URL,
++      webFetch: WEB_FETCH_TOOL_NAME,
++      webSearch: WEB_SEARCH_TOOL_NAME,
++      localSearch: localSearchHint,
++    },
++  )
+ }
+ 
+ function getFeedbackGuideline(): string {
+   // For 3P services (Bedrock/Vertex/Foundry), /feedback command is disabled
+   // Direct users to the appropriate feedback channel instead
+   if (isUsing3PServices()) {
+-    return `- When you cannot find an answer or the feature doesn't exist, direct the user to ${MACRO.ISSUES_EXPLAINER}`
++    return localizedPrompt(
++      'agent.guide.feedback3p',
++      `- When you cannot find an answer or the feature doesn't exist, direct the user to ${MACRO.ISSUES_EXPLAINER}`,
++      { issues: MACRO.ISSUES_EXPLAINER },
++    )
+   }
+-  return "- When you cannot find an answer or the feature doesn't exist, direct the user to use /feedback to report a feature request or bug"
++  return localizedPrompt(
++    'agent.guide.feedbackDefault',
++    "- When you cannot find an answer or the feature doesn't exist, direct the user to use /feedback to report a feature request or bug",
++  )
+ }
+ 
+ export const CLAUDE_CODE_GUIDE_AGENT: BuiltInAgentDefinition = {
+@@ -131,7 +149,7 @@ export const CLAUDE_CODE_GUIDE_AGENT: BuiltInAgentDefinition = {
+         .map(cmd => `- /${cmd.name}: ${cmd.description}`)
+         .join('\n')
+       contextSections.push(
+-        `**Available custom skills in this project:**\n${commandList}`,
++        localizedPrompt('agent.guide.customSkills', `**Available custom skills in this project:**\n{list}`, { list: commandList }),
+       )
+     }
+ 
+@@ -145,7 +163,7 @@ export const CLAUDE_CODE_GUIDE_AGENT: BuiltInAgentDefinition = {
+         .map((a: AgentDefinition) => `- ${a.agentType}: ${a.whenToUse}`)
+         .join('\n')
+       contextSections.push(
+-        `**Available custom agents configured:**\n${agentList}`,
++        localizedPrompt('agent.guide.customAgents', `**Available custom agents configured:**\n{list}`, { list: agentList }),
+       )
+     }
+ 
+@@ -155,7 +173,7 @@ export const CLAUDE_CODE_GUIDE_AGENT: BuiltInAgentDefinition = {
+       const mcpList = mcpClients
+         .map((client: { name: string }) => `- ${client.name}`)
+         .join('\n')
+-      contextSections.push(`**Configured MCP servers:**\n${mcpList}`)
++      contextSections.push(localizedPrompt('agent.guide.mcpServers', `**Configured MCP servers:**\n{list}`, { list: mcpList }))
+     }
+ 
+     // 4. Plugin commands
+@@ -166,7 +184,7 @@ export const CLAUDE_CODE_GUIDE_AGENT: BuiltInAgentDefinition = {
+       const pluginList = pluginCommands
+         .map(cmd => `- /${cmd.name}: ${cmd.description}`)
+         .join('\n')
+-      contextSections.push(`**Available plugin skills:**\n${pluginList}`)
++      contextSections.push(localizedPrompt('agent.guide.pluginSkills', `**Available plugin skills:**\n{list}`, { list: pluginList }))
+     }
+ 
+     // 5. User settings
+@@ -175,7 +193,7 @@ export const CLAUDE_CODE_GUIDE_AGENT: BuiltInAgentDefinition = {
+       // eslint-disable-next-line no-restricted-syntax -- human-facing UI, not tool_result
+       const settingsJson = jsonStringify(settings, null, 2)
+       contextSections.push(
+-        `**User's settings.json:**\n\`\`\`json\n${settingsJson}\n\`\`\``,
++        localizedPrompt('agent.guide.settings', `**User's settings.json:**\n\`\`\`json\n{json}\n\`\`\``, { json: settingsJson }),
+       )
+     }
+ 
+@@ -186,7 +204,9 @@ ${feedbackGuideline}`
+ 
+     // If we have any context to add, append it to the base system prompt
+     if (contextSections.length > 0) {
+-      return `${basePromptWithFeedback}
++      return localizedPrompt(
++        'agent.guide.currentConfig',
++        `${basePromptWithFeedback}
+ 
+ ---
+ 
+@@ -196,7 +216,9 @@ The user has the following custom setup in their environment:
+ 
+ ${contextSections.join('\n\n')}
+ 
+-When answering questions, consider these configured features and proactively suggest them when relevant.`
++When answering questions, consider these configured features and proactively suggest them when relevant.`,
++        { base: basePromptWithFeedback, sections: contextSections.join('\n\n') },
++      )
+     }
+ 
+     // Return the base prompt if no context to add
 diff --git a/src/tools/AgentTool/built-in/exploreAgent.ts b/src/tools/AgentTool/built-in/exploreAgent.ts
 index f508dc62f..b3d2944d8 100644
 --- a/src/tools/AgentTool/built-in/exploreAgent.ts
@@ -3790,7 +4759,7 @@ index f508dc62f..b3d2944d8 100644
  
  export const EXPLORE_AGENT_MIN_QUERIES = 3
 diff --git a/src/tools/AgentTool/built-in/generalPurposeAgent.ts b/src/tools/AgentTool/built-in/generalPurposeAgent.ts
-index 7d39b284e..46801740c 100644
+index 7d39b284e..d265e2f11 100644
 --- a/src/tools/AgentTool/built-in/generalPurposeAgent.ts
 +++ b/src/tools/AgentTool/built-in/generalPurposeAgent.ts
 @@ -1,4 +1,5 @@
@@ -3803,8 +4772,9 @@ index 7d39b284e..46801740c 100644
  
  // Note: absolute-path + emoji guidance is appended by enhanceSystemPromptWithEnvDetails.
  function getGeneralPurposeSystemPrompt(): string {
+-  return `${SHARED_PREFIX} When you complete the task, respond with a concise report covering what was done and any key findings — the caller will relay this to the user, so it only needs the essentials.
 +  const guidelines = localizedPrompt('agent.generalPurpose.guidelines', SHARED_GUIDELINES)
-   return `${SHARED_PREFIX} When you complete the task, respond with a concise report covering what was done and any key findings — the caller will relay this to the user, so it only needs the essentials.
++  return `${localizedPrompt('agent.generalPurpose.prefix', SHARED_PREFIX)} ${localizedPrompt('agent.generalPurpose.report', "When you complete the task, respond with a concise report covering what was done and any key findings — the caller will relay this to the user, so it only needs the essentials.")}
  
 -${SHARED_GUIDELINES}`
 +${guidelines}`
@@ -3841,6 +4811,81 @@ index 71c7a78c9..84dd23873 100644
  }
  
  export const PLAN_AGENT: BuiltInAgentDefinition = {
+diff --git a/src/tools/AgentTool/built-in/statuslineSetup.ts b/src/tools/AgentTool/built-in/statuslineSetup.ts
+index ba58c1905..81c6b6b21 100644
+--- a/src/tools/AgentTool/built-in/statuslineSetup.ts
++++ b/src/tools/AgentTool/built-in/statuslineSetup.ts
+@@ -1,4 +1,5 @@
+ import type { BuiltInAgentDefinition } from '../loadAgentsDir.js'
++import { localizedPrompt } from '../../../prompts/i18n/index.js'
+ 
+ const STATUSLINE_SYSTEM_PROMPT = `You are a status line setup agent for Claude Code. Your job is to create or update the statusLine command in the user's Claude Code settings.
+ 
+@@ -140,5 +141,5 @@ export const STATUSLINE_SETUP_AGENT: BuiltInAgentDefinition = {
+   baseDir: 'built-in',
+   model: 'sonnet',
+   color: 'orange',
+-  getSystemPrompt: () => STATUSLINE_SYSTEM_PROMPT,
++  getSystemPrompt: () => localizedPrompt('agent.statusline.system', STATUSLINE_SYSTEM_PROMPT),
+ }
+diff --git a/src/tools/AgentTool/built-in/verificationAgent.ts b/src/tools/AgentTool/built-in/verificationAgent.ts
+index 3609f97e5..d03acd174 100644
+--- a/src/tools/AgentTool/built-in/verificationAgent.ts
++++ b/src/tools/AgentTool/built-in/verificationAgent.ts
+@@ -6,6 +6,7 @@ import { NOTEBOOK_EDIT_TOOL_NAME } from 'src/tools/NotebookEditTool/constants.js
+ import { WEB_FETCH_TOOL_NAME } from 'src/tools/WebFetchTool/prompt.js'
+ import { AGENT_TOOL_NAME } from '../constants.js'
+ import type { BuiltInAgentDefinition } from '../loadAgentsDir.js'
++import { localizedPrompt } from '../../../prompts/i18n/index.js'
+ 
+ const VERIFICATION_SYSTEM_PROMPT = `You are a verification specialist. Your job is not to confirm the implementation works — it's to try to break it.
+ 
+@@ -128,6 +129,13 @@ Use the literal string \`VERDICT: \` followed by exactly one of \`PASS\`, \`FAIL
+ - **FAIL**: include what failed, exact error output, reproduction steps.
+ - **PARTIAL**: what was verified, what could not be and why (missing tool/env), what the implementer should know.`
+ 
++function getVerificationSystemPrompt(): string {
++  return localizedPrompt('agent.verification.system', VERIFICATION_SYSTEM_PROMPT, {
++    bash: BASH_TOOL_NAME,
++    webFetch: WEB_FETCH_TOOL_NAME,
++  })
++}
++
+ const VERIFICATION_WHEN_TO_USE =
+   'Use this agent to verify that implementation work is correct before reporting completion. Invoke after non-trivial tasks (3+ file edits, backend/API changes, infrastructure changes). Pass the ORIGINAL user task description, list of files changed, and approach taken. The agent runs builds, tests, linters, and checks to produce a PASS/FAIL/PARTIAL verdict with evidence.'
+ 
+@@ -146,7 +154,7 @@ export const VERIFICATION_AGENT: BuiltInAgentDefinition = {
+   source: 'built-in',
+   baseDir: 'built-in',
+   model: 'inherit',
+-  getSystemPrompt: () => VERIFICATION_SYSTEM_PROMPT,
++  getSystemPrompt: () => getVerificationSystemPrompt(),
+   criticalSystemReminder_EXPERIMENTAL:
+     'CRITICAL: This is a VERIFICATION-ONLY task. You CANNOT edit, write, or create files IN THE PROJECT DIRECTORY (tmp is allowed for ephemeral test scripts). You MUST end with VERDICT: PASS, VERDICT: FAIL, or VERDICT: PARTIAL.',
+ }
+diff --git a/src/tools/AgentTool/runAgent.ts b/src/tools/AgentTool/runAgent.ts
+index e5f4bae99..9e7eab9a5 100644
+--- a/src/tools/AgentTool/runAgent.ts
++++ b/src/tools/AgentTool/runAgent.ts
+@@ -6,8 +6,8 @@ import { logForDebugging } from 'src/utils/debug.js'
+ import { getProjectRoot, getSessionId } from '../../bootstrap/state.js'
+ import { getCommand, getSkillToolCommands, hasCommand } from '../../commands.js'
+ import {
+-  DEFAULT_AGENT_PROMPT,
+   enhanceSystemPromptWithEnvDetails,
++  getDefaultAgentPrompt,
+ } from '../../constants/prompts.js'
+ import type { QuerySource } from '../../constants/querySource.js'
+ import { getSystemContext, getUserContext } from '../../context.js'
+@@ -1060,7 +1060,7 @@ async function getAgentSystemPrompt(
+     )
+   } catch (_error) {
+     return enhanceSystemPromptWithEnvDetails(
+-      [DEFAULT_AGENT_PROMPT],
++      [getDefaultAgentPrompt()],
+       resolvedAgentModel,
+       additionalWorkingDirectories,
+       enabledToolNames,
 diff --git a/src/tools/GrepTool/prompt.ts b/src/tools/GrepTool/prompt.ts
 index 52960d539..d23a776bd 100644
 --- a/src/tools/GrepTool/prompt.ts
@@ -3907,41 +4952,63 @@ index 9b66fd798..e2aa54fbe 100644
      } else {
        rest.push(block)
 diff --git a/src/utils/claudeInChrome/prompt.ts b/src/utils/claudeInChrome/prompt.ts
-index 125a5d91c..4a1cc86df 100644
+index 125a5d91c..c88d62a24 100644
 --- a/src/utils/claudeInChrome/prompt.ts
 +++ b/src/utils/claudeInChrome/prompt.ts
-@@ -1,4 +1,8 @@
+@@ -1,4 +1,9 @@
 -export const BASE_CHROME_PROMPT = `# Claude in Chrome browser automation
 +import { localizedPrompt } from '../../prompts/i18n/index.js'
 +
-+export const BASE_CHROME_PROMPT = localizedPrompt(
++export function getBaseChromePrompt(): string {
++  return localizedPrompt(
 +  'chrome.base',
 +  `# Claude in Chrome browser automation
  
  You have access to browser automation tools (mcp__claude-in-chrome__*) for interacting with web pages in Chrome. Follow these guidelines for effective browser automation.
  
-@@ -43,7 +47,8 @@ Never reuse tab IDs from a previous/other session. Follow these guidelines:
+@@ -43,7 +48,9 @@ Never reuse tab IDs from a previous/other session. Follow these guidelines:
  1. Only reuse an existing tab if the user explicitly asks to work with it
  2. Otherwise, create a new tab with mcp__claude-in-chrome__tabs_create_mcp
  3. If a tool returns an error indicating the tab doesn't exist or is invalid, call tabs_context_mcp to get fresh tab IDs
 -4. When a tab is closed by the user or a navigation error occurs, call tabs_context_mcp to see what tabs are available`
 +4. When a tab is closed by the user or a navigation error occurs, call tabs_context_mcp to see what tabs are available`,
-+)
++  )
++}
  
  /**
   * Additional instructions for chrome tools when tool search is enabled.
-@@ -73,7 +78,10 @@ export function getChromeSystemPrompt(): string {
+@@ -66,18 +73,28 @@ For example, to get tab context:
+  * based on the actual tool search enabled state.
+  */
+ export function getChromeSystemPrompt(): string {
+-  return BASE_CHROME_PROMPT
++  return getBaseChromePrompt()
+ }
+ 
+ /**
   * Minimal hint about Claude in Chrome skill availability. This is injected at startup when the extension is installed
   * to guide the model to invoke the skill before using the MCP tools.
   */
 -export const CLAUDE_IN_CHROME_SKILL_HINT = `**Browser Automation**: Chrome browser tools are available via the "claude-in-chrome" skill. CRITICAL: Before using any mcp__claude-in-chrome__* tools, invoke the skill by calling the Skill tool with skill: "claude-in-chrome". The skill provides browser automation instructions and enables the tools.`
-+export const CLAUDE_IN_CHROME_SKILL_HINT = localizedPrompt(
++export function getClaudeInChromeSkillHint(): string {
++  return localizedPrompt(
 +  'chrome.skillHint',
 +  `**Browser Automation**: Chrome browser tools are available via the "claude-in-chrome" skill. CRITICAL: Before using any mcp__claude-in-chrome__* tools, invoke the skill by calling the Skill tool with skill: "claude-in-chrome". The skill provides browser automation instructions and enables the tools.`,
-+)
++  )
++}
  
  /**
   * Variant when the built-in WebBrowser tool is also available — steer
+  * dev-loop tasks to WebBrowser and reserve the extension for the user's
+  * authenticated Chrome (logged-in sites, OAuth, computer-use).
+  */
+-export const CLAUDE_IN_CHROME_SKILL_HINT_WITH_WEBBROWSER = `**Browser Automation**: Use WebBrowser for development (dev servers, JS eval, console, screenshots). Use claude-in-chrome for the user's real Chrome when you need logged-in sessions, OAuth, or computer-use — invoke Skill(skill: "claude-in-chrome") before any mcp__claude-in-chrome__* tool.`
++export function getClaudeInChromeSkillHintWithWebBrowser(): string {
++  return localizedPrompt(
++    'chrome.skillHintWithWebBrowser',
++    `**Browser Automation**: Use WebBrowser for development (dev servers, JS eval, console, screenshots). Use claude-in-chrome for the user's real Chrome when you need logged-in sessions, OAuth, or computer-use — invoke Skill(skill: "claude-in-chrome") before any mcp__claude-in-chrome__* tool.`,
++  )
++}
 diff --git a/src/utils/shell/prefix.ts b/src/utils/shell/prefix.ts
 index e97a37b76..01bbe0501 100644
 --- a/src/utils/shell/prefix.ts
@@ -3976,7 +5043,7 @@ index e97a37b76..01bbe0501 100644
        ),
        userPrompt: useSystemPromptPolicySpec
 diff --git a/src/utils/swarm/teamShutdownPrompt.ts b/src/utils/swarm/teamShutdownPrompt.ts
-index d6861383e..e08e5545f 100644
+index d6861383e..d5c25c745 100644
 --- a/src/utils/swarm/teamShutdownPrompt.ts
 +++ b/src/utils/swarm/teamShutdownPrompt.ts
 @@ -1,4 +1,9 @@
@@ -3990,19 +5057,18 @@ index d6861383e..e08e5545f 100644
  You are running in non-interactive mode and cannot return a response to the user until your team is shut down.
  
  You MUST shut down your team before preparing your final response:
-@@ -12,9 +17,14 @@ The user cannot receive your response until the team is completely shut down.
+@@ -12,9 +17,13 @@ The user cannot receive your response until the team is completely shut down.
  
  Shut down your team and prepare your final response for the user.`
  
-+export const SHUTDOWN_TEAM_PROMPT = localizedPrompt(
-+  'misc.shutdownTeam',
-+  SHUTDOWN_TEAM_PROMPT_EN,
-+)
++export function getShutdownTeamPrompt(): string {
++  return localizedPrompt('misc.shutdownTeam', SHUTDOWN_TEAM_PROMPT_EN)
++}
 +
  /** Recognize the exact legacy instruction even when it was persisted without isMeta. */
  export function isShutdownTeamPrompt(content: unknown): boolean {
    const text = typeof content === 'string' ? content :
      Array.isArray(content) && content.length === 1 && content[0]?.type === 'text' ? content[0].text : null
 -  return text === SHUTDOWN_TEAM_PROMPT
-+  return text === SHUTDOWN_TEAM_PROMPT || text === SHUTDOWN_TEAM_PROMPT_EN
++  return text === getShutdownTeamPrompt() || text === SHUTDOWN_TEAM_PROMPT_EN
  }

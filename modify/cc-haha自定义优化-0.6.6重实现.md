@@ -3185,6 +3185,32 @@ src/prompts/i18n/
 根因与 memdir 完全同型：`src/constants/system.ts` 的三个前缀常量是模块顶层 `const`，import 时固化；且 `CLI_SYSPROMPT_PREFIXES`（`splitSysPromptPrefix` 按内容识别前缀块以分配缓存作用域）也是顶层常量。只改 `getCLISyspromptPrefix` 而不改集合 ⇒ 中文前缀块认不出，缓存作用域分配错位。
 修法：三前缀改 `build` 函数（运行时 `localizedPrompt`）+ 集合改 `getCliSyspromptPrefixSet()` 运行时构建 + `api.ts` 三处 `.has()` 改局部常量 + zh.ts 新增 3 条 `system.cliPrefix.*` id（`默认` / `Agent SDK 预设` / `Agent SDK`）。
 补丁：三项增量已并入 `prompt-i18n-localization-patch1.patch`（合并版，基座 `cb7065b1e`），干净应用 ⇒ 28 个 src 文件与 `8572193e9` 逐字节一致（`a6131f029` 合并 commit）。
+### 补记二（2026-10-12）：v22 全量中文化 + 引擎实测验收
+
+用户怀疑「头部还有英文系统提示词导致首字效应」。逐块 dump 审计（`getSystemPrompt` 12 块）确认并修复了残留英文块：
+
+**每请求注入的英文块（影响思考语言最大）**：`CYBER_RISK_INSTRUCTION`（第 2 块，紧接 intro 首句）、`computeSimpleEnvInfo`/`computeEnvInfo`（`# Environment` 整块）、语言段、输出风格标题、会话指引 bullet、MCP 说明、记忆段标题 `# auto memory`、frontmatter 说明散文、compact trailer、extractMemories 行。
+**子代理提示词**（沿用调用方语言，英文系统提示词会把子代理思考也拽回英文）：verification / claudeCodeGuide / generalPurpose / default agent / statuslineSetup。
+**保留英文**（刻意）：工具名、参数名、技能清单、`VERDICT: PASS|FAIL|PARTIAL` 裁决词、frontmatter 字段名与 `{{占位符}}`、代码/路径/标识符。
+
+**⭐ 又抓到 5 处「模块顶层 `const = localizedPrompt(...)`」固化 bug**（与 memdir 同型，累计 10 处）：`SHUTDOWN_TEAM_PROMPT`、`BASE_CHROME_PROMPT`、`CLAUDE_IN_CHROME_SKILL_HINT`/`_WITH_WEBBROWSER`、`AGENT_CREATION_SYSTEM_PROMPT`、`AGENT_MEMORY_INSTRUCTIONS`——import 时求值固化英文，全部改成调用时求值的函数（`get*()`）。**排查法**：`grep -rn "^const [A-Z_]* = localizedPrompt" src/`。
+
+**⚠️ patch 漏文件修正**：合并 patch1 时误用 `-- src/` 限定，漏掉 desktop 侧 locale 管道（`desktop/src/api/desktopUiPreferences.ts`、`desktop/src/stores/settingsStore.ts`）。缺它则侧车读不到 locale，中文化整体失效。已补回，patch1 = 40 文件（38 src/ + 2 desktop/）。
+
+**⭐ 引擎实测验收**（本地 `zxsv-ai`，`http://127.0.0.1:8866/v1/chat/completions`，真实 zh 系统提示词，5 场景 × 3 采样）：
+
+| 场景 | 中文思考占比 | 思考首词 |
+|---|---|---|
+| 写质数函数 | 86.1% | 用户要求 / 用户想要 |
+| React 状态丢失 | 84.2% | 用户问的 |
+| Redis 持久化 | 80.2% | 用户问的 / 用户在问 |
+| 重构 God class | 86.4% | 用户在问 |
+| 内存泄漏分析 | 87.6% | 用户给了 / 用户问的 |
+
+**15/15 次思考首词全中文**（正是 lead 替换规则指定的「用户在问」等）；残留英文基本只剩代码标识符（本就该保留）。dev 服务（vite 7787 + sidecar 3456）端到端新会话回复纯中文。
+
+**门禁**：`check:server` 6649/0。
+
 ### 功能完整性评估（V22 中文提示词 vs 原版英文）
 
 | 功能域 | 检查项 | 结果 |

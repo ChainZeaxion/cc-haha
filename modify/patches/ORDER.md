@@ -49,11 +49,14 @@ patches/h5/h5-file-open-patch1.patch
 patches/vcc/vcc-compaction-retention-budget-patch1.patch
 
 # 39：⚠️ 基座同上（0.6.7 血缘）—— = `align-latest` 的 `cb7065b1e`，**同样独立应用**。
-# 内置提示词中文化（第一版打样 + 第二版产前实验期，**合并版**）：zh 覆盖表 + localizedPrompt，主系统提示词/收尾/compact/autoDream/review/team/三个内置 agent；
-# 含 locale 管道（desktop-ui.json.locale → 侧车）。第二版产前实验期增量：① lead 替换规则（"The user is asking"→"用户在问"等 8 条，97.8% 中文思考）；
-# ② memdir 5 个 section 模块常量固化 bug 修复（改 buildXxxSection() 运行时求值，记忆段 0→2392 汉字）；
-# ③ CLI 身份前缀中文化（同型模块常量 bug，build 函数 + getCliSyspromptPrefixSet() + api.ts .has() 改局部常量 + zh.ts 3 条 system.cliPrefix.* id）。
-# 28 文件（24 改 + 4 新 src/prompts/i18n/*）。独立应用（干净 `cb7065b1e` 上 apply ⇒ 28 文件逐字节一致）。
+# 内置提示词中文化（第一版打样 + 第二版产前实验期 v22，**合并版**）：zh 覆盖表 + localizedPrompt。
+# 覆盖主系统提示词全节（intro/cyberRisk/env/language/outputStyle/会话指引/MCP/记忆段/toneAndStyle/outputEfficiency）+
+# 子代理（verification/guide/generalPurpose/explore/plan/default/statusline）+ compact/autoDream/review/team/extractMemories/toolUseSummary/chrome。
+# 含 locale 管道（desktop-ui.json.locale → 侧车）：src/server/* + desktop/src/api/desktopUiPreferences.ts + desktop/src/stores/settingsStore.ts。
+# v22 关键修复：① lead 首词替换规则（"The user is asking"→"用户在问"等 8 条）；② 「模块顶层 const = localizedPrompt」固化英文 bug 共 10 处
+# （memdir 5 section + frontmatter 示例 + 3 个 CLI 身份前缀 + CLI_SYSPROMPT_PREFIXES 集合 + SHUTDOWN_TEAM_PROMPT/BASE_CHROME_PROMPT/
+# CLAUDE_IN_CHROME_SKILL_HINT(_WITH_WEBBROWSER)/AGENT_CREATION_SYSTEM_PROMPT/AGENT_MEMORY_INSTRUCTIONS）。实测 8866 引擎思考 80-88% 中文。
+# 40 文件（38 src/ + 2 desktop/）。独立应用（干净 `cb7065b1e` 上 apply ⇒ 40 文件逐字节一致）。
 patches/prompt/prompt-i18n-localization-patch1.patch
 
 # 40：⚠️ 基座同上（0.6.7 血缘）—— = `align-latest`，**独立应用**。
