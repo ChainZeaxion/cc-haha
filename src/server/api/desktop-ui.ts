@@ -88,6 +88,23 @@ export async function handleDesktopUiApi(
       return Response.json({ ok: true, locale: preferences.locale, promptLanguage })
     }
 
+    if (detail === 'thinking-language') {
+      if (req.method === 'GET') {
+        const result = await desktopUiPreferencesService.readPreferences()
+        return Response.json({
+          exists: result.exists,
+          thinkingLanguage: result.preferences.thinkingLanguage,
+        })
+      }
+      if (req.method !== 'PUT') throw methodNotAllowed(req.method)
+      const body = await parseJsonBody(req)
+      const { preferences, thinkingLanguage } =
+        await desktopUiPreferencesService.updateThinkingLanguage(
+          (body as { thinkingLanguage?: unknown } | null)?.thinkingLanguage,
+        )
+      return Response.json({ ok: true, thinkingLanguage, locale: preferences.locale })
+    }
+
     if (detail === 'profile') {
       const action = segments[4]
 

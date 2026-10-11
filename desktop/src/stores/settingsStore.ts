@@ -3,7 +3,7 @@ import { ApiError } from '../api/client'
 import { settingsApi } from '../api/settings'
 import { modelsApi } from '../api/models'
 import { h5AccessApi } from '../api/h5Access'
-import { desktopUiPreferencesApi } from '../api/desktopUiPreferences'
+import { desktopUiPreferencesApi, type ThinkingLanguageSetting } from '../api/desktopUiPreferences'
 import { tracesApi } from '../api/traces'
 import {
   type AppMode,
@@ -103,6 +103,7 @@ type SettingsStore = {
   h5AccessDiagnostics: H5AccessDiagnostics | null
   h5AccessError: string | null
   responseLanguage: string
+  thinkingLanguage: ThinkingLanguageSetting
   uiZoom: number
   isLoading: boolean
   error: string | null
@@ -127,6 +128,8 @@ type SettingsStore = {
   setAutoQuestion: (settings: AutoQuestionSettings) => Promise<void>
   acceptAutoModeOptIn: () => Promise<void>
   setLocale: (locale: Locale) => void
+  setThinkingLanguage: (setting: ThinkingLanguageSetting) => Promise<void>
+  loadThinkingLanguage: () => Promise<void>
   setTheme: (theme: ThemeMode) => Promise<void>
   setChatSendBehavior: (behavior: ChatSendBehavior) => Promise<void>
   fetchOutputStyles: (workDir?: string | null) => Promise<void>
@@ -246,6 +249,7 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
   availableModels: [],
   activeProviderName: null,
   locale: initialLocale,
+  thinkingLanguage: 'auto',
   chatSendBehavior: 'enter',
   outputStyle: DEFAULT_OUTPUT_STYLE,
   outputStyles: DEFAULT_OUTPUT_STYLE_OPTIONS,
@@ -505,6 +509,27 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
       console.error('[desktop] Failed to persist locale preference', error)
     })
     publishLocaleToServer(locale)
+  },
+
+  loadThinkingLanguage: async () => {
+    try {
+      const { thinkingLanguage } = await desktopUiPreferencesApi.getThinkingLanguage()
+      set({ thinkingLanguage })
+    } catch (error) {
+      console.error('[desktop] Failed to load thinking language', error)
+    }
+  },
+
+  setThinkingLanguage: async (setting) => {
+    const prev = get().thinkingLanguage
+    set({ thinkingLanguage: setting })
+    try {
+      await desktopUiPreferencesApi.updateThinkingLanguagePreference(setting)
+    } catch (error) {
+      set({ thinkingLanguage: prev })
+      console.error('[desktop] Failed to persist thinking language', error)
+      throw error
+    }
   },
 
   // Kept as the Settings page's entry point; uiStore owns the state.

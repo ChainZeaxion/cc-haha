@@ -56,6 +56,9 @@ export type ProjectDisplayNameUpdateResponse = {
   displayName: string | null
 }
 
+/** `auto` follows the UI locale; `zh`/`en` pin the reasoning language. */
+export type ThinkingLanguageSetting = 'auto' | 'zh' | 'en'
+
 export const desktopUiPreferencesApi = {
   getPreferences() {
     return api.get<DesktopUiPreferencesResponse>('/api/desktop-ui/preferences')
@@ -76,6 +79,23 @@ export const desktopUiPreferencesApi = {
     return api.put<{ ok: true; locale: string | null; promptLanguage: 'en' | 'zh' }>(
       '/api/desktop-ui/preferences/locale',
       { locale },
+    )
+  },
+
+  /**
+   * The language the model should reason in, independent of the UI language.
+   * `auto` follows the UI locale; `zh`/`en` pin it.
+   */
+  getThinkingLanguage() {
+    return api.get<{ exists: boolean; thinkingLanguage: ThinkingLanguageSetting }>(
+      '/api/desktop-ui/preferences/thinking-language',
+    )
+  },
+
+  updateThinkingLanguagePreference(thinkingLanguage: ThinkingLanguageSetting) {
+    return api.put<{ ok: true; thinkingLanguage: ThinkingLanguageSetting; locale: string | null }>(
+      '/api/desktop-ui/preferences/thinking-language',
+      { thinkingLanguage },
     )
   },
 

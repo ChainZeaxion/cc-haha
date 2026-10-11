@@ -5,12 +5,16 @@
 // that is not Chinese — or an id that has no translation yet — returns exactly
 // the English that was passed in. Nothing can be lost by not translating.
 
-import { getPromptLanguage, type PromptLanguage } from './promptLanguage.js'
+import { getPromptLanguage, getThinkingLanguage, type PromptLanguage } from './promptLanguage.js'
 import { ZH_PROMPTS, type PromptId } from './zh.js'
 
 export type { PromptId } from './zh.js'
 export {
   getPromptLanguage,
+  getThinkingLanguage,
+  resolveThinkingLanguageSetting,
+  setThinkingLanguagePreference,
+  type ThinkingLanguageSetting,
   resolvePromptLanguage,
   setPromptLanguage,
   resetPromptLanguageCacheForTests,
@@ -83,7 +87,7 @@ const PROMPT_LANGUAGE_LEAD_ZH = `# 语言说明
  * nothing and leaves the prompt byte-identical to upstream.
  */
 export function promptLanguageLead(): string | null {
-  return getPromptLanguage() === 'zh' ? PROMPT_LANGUAGE_LEAD_ZH : null
+  return getThinkingLanguage() === 'zh' ? PROMPT_LANGUAGE_LEAD_ZH : null
 }
 
 /**
@@ -106,7 +110,7 @@ const PROMPT_LANGUAGE_TAIL_ZH = `# 思考语言（最高优先）
 
 /** The tail copy of the rule, or null when not in Chinese. */
 export function promptLanguageTail(): string | null {
-  return getPromptLanguage() === 'zh' ? PROMPT_LANGUAGE_TAIL_ZH : null
+  return getThinkingLanguage() === 'zh' ? PROMPT_LANGUAGE_TAIL_ZH : null
 }
 
 /**
@@ -124,5 +128,5 @@ const PROMPT_LANGUAGE_USER_NOTE_ZH = `思考语言：中文。首词只能是"�
 
 /** The user-context copy of the rule, or null when not in Chinese. */
 export function promptLanguageUserNote(): string | null {
-  return getPromptLanguage() === 'zh' ? PROMPT_LANGUAGE_USER_NOTE_ZH : null
+  return getThinkingLanguage() === 'zh' ? PROMPT_LANGUAGE_USER_NOTE_ZH : null
 }

@@ -7,7 +7,13 @@ import { readRecoverableJsonFile } from './recoverableJsonFile.js'
 import { ensurePersistentStorageUpgraded } from './persistentStorageMigrations.js'
 import { normalizeVoicePreferences } from './voice/preferences.js'
 import { DEFAULT_VOICE_PREFERENCES, type VoicePreferences } from './voice/types.js'
-import { setPromptLanguage, type PromptLanguage } from '../../prompts/i18n/promptLanguage.js'
+import {
+  resolveThinkingLanguageSetting,
+  setPromptLanguage,
+  setThinkingLanguagePreference,
+  type PromptLanguage,
+  type ThinkingLanguageSetting,
+} from '../../prompts/i18n/promptLanguage.js'
 
 const CURRENT_DESKTOP_UI_PREFERENCES_SCHEMA_VERSION = 6
 const MAX_PROJECT_PREFERENCE_ENTRIES = 2_000
@@ -76,6 +82,11 @@ export type DesktopUiPreferences = {
    * storage. See `src/prompts/i18n/promptLanguage.ts`.
    */
   locale: string | null
+  /**
+   * The language the model should reason in: `auto` (follow `locale`), `zh`, or
+   * `en`. Independent of `locale` so an English UI can still reason in Chinese.
+   */
+  thinkingLanguage: ThinkingLanguageSetting
   [key: string]: unknown
 }
 
@@ -122,6 +133,7 @@ function defaultPreferences(): DesktopUiPreferences {
     voiceInput: { ...DEFAULT_VOICE_PREFERENCES },
     projectDisplayNames: createProjectDisplayNames(),
     locale: null,
+    thinkingLanguage: 'auto',
   }
 }
 
@@ -367,6 +379,7 @@ function normalizeDesktopUiPreferences(value: unknown): DesktopUiPreferences | n
     voiceInput: normalizeVoicePreferences(record.voiceInput),
     projectDisplayNames: normalizeProjectDisplayNames(record.projectDisplayNames),
     locale: normalizeLocalePreference(record.locale),
+    thinkingLanguage: resolveThinkingLanguageSetting(record.thinkingLanguage),
   }
 }
 
@@ -510,6 +523,30 @@ export class DesktopUiPreferencesService {
 
       await this.writePreferences(nextPreferences)
       return { preferences: nextPreferences, promptLanguage: setPromptLanguage(nextPreferences.locale) }
+    })
+  }
+
+  /**
+   * Persist the reasoning language. Like `updateLocalePreference`, the write
+   * path also updates the in-process setting so a running sidecar follows it on
+   * the very next request.
+   */
+  async updateThinkingLanguage(raw: unknown): Promise<{
+    preferences: DesktopUiPreferences
+    thinkingLanguage: ThinkingLanguageSetting
+  }> {
+    const filePath = this.getPreferencesPath()
+    return this.withWriteLock(filePath, async () => {
+      const { preferences } = await this.readPreferences()
+      const setting = resolveThinkingLanguageSetting(raw)
+      const nextPreferences: DesktopUiPreferences = {
+        ...preferences,
+        schemaVersion: preferences.schemaVersion,
+        thinkingLanguage: setting,
+      }
+      await this.writePreferences(nextPreferences)
+      setThinkingLanguagePreference(setting)
+      return { preferences: nextPreferences, thinkingLanguage: setting }
     })
   }
 

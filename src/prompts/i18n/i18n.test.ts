@@ -1,6 +1,16 @@
 import { beforeEach, describe, expect, test } from 'bun:test'
 
-import { localizedPrompt, promptLanguageLead, promptLanguageTail, resolvePromptLanguage, setPromptLanguage } from './index.js'
+import {
+  getThinkingLanguage,
+  localizedPrompt,
+  promptLanguageLead,
+  promptLanguageTail,
+  promptLanguageUserNote,
+  resolvePromptLanguage,
+  resolveThinkingLanguageSetting,
+  setPromptLanguage,
+  setThinkingLanguagePreference,
+} from './index.js'
 import { ZH_PROMPTS } from './zh.js'
 
 // A stand-in for a real call site: the English as it appears in the source, and
@@ -123,6 +133,46 @@ describe('the tail reasoning rule', () => {
     expect(tail).toContain('用户')
     expect(tail).toContain('让我')
     expect(tail.length).toBeLessThan(300)
+  })
+})
+
+describe('the reasoning-language setting', () => {
+  test('only zh/en are explicit; anything else is auto', () => {
+    for (const v of ['zh', 'ZH', ' zh ']) expect(resolveThinkingLanguageSetting(v)).toBe('zh')
+    for (const v of ['en', 'EN']) expect(resolveThinkingLanguageSetting(v)).toBe('en')
+    for (const v of ['auto', '', 'jp', undefined, null, 42]) {
+      expect(resolveThinkingLanguageSetting(v)).toBe('auto')
+    }
+  })
+
+  test('auto follows the prompt language; an explicit value overrides it', () => {
+    // Explicit zh, even on an English UI.
+    setPromptLanguage('en')
+    setThinkingLanguagePreference('zh')
+    expect(getThinkingLanguage()).toBe('zh')
+    expect(promptLanguageLead()).not.toBeNull()
+    expect(promptLanguageTail()).not.toBeNull()
+    expect(promptLanguageUserNote()).not.toBeNull()
+
+    // Explicit en, even on a Chinese UI.
+    setPromptLanguage('zh')
+    setThinkingLanguagePreference('en')
+    expect(getThinkingLanguage()).toBe('en')
+    expect(promptLanguageLead()).toBeNull()
+    expect(promptLanguageTail()).toBeNull()
+    expect(promptLanguageUserNote()).toBeNull()
+
+    // auto mirrors the UI locale.
+    setThinkingLanguagePreference('auto')
+    expect(getThinkingLanguage()).toBe('zh')
+  })
+
+  test('changing the prompt language re-derives an auto reasoning language', () => {
+    setPromptLanguage('zh')
+    setThinkingLanguagePreference('auto')
+    expect(getThinkingLanguage()).toBe('zh')
+    setPromptLanguage('en')
+    expect(getThinkingLanguage()).toBe('en')
   })
 })
 

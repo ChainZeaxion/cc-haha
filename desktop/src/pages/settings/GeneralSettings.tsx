@@ -90,6 +90,9 @@ export function GeneralSettings() {
     setAutoQuestion,
     locale,
     setLocale,
+    thinkingLanguage,
+    setThinkingLanguage,
+    loadThinkingLanguage,
     setTheme,
     chatSendBehavior,
     setChatSendBehavior,
@@ -256,12 +259,22 @@ export function GeneralSettings() {
     setPortableDirDraft(appMode.portableDir ?? '')
   }, [appMode.portableDir])
 
+  useEffect(() => {
+    void loadThinkingLanguage()
+  }, [loadThinkingLanguage])
+
   const LANGUAGES: Array<{ value: Locale; label: string }> = [
     { value: 'en', label: 'English' },
     { value: 'zh', label: '简体中文' },
     { value: 'zh-TW', label: '繁體中文' },
     { value: 'jp', label: '日本語' },
     { value: 'kr', label: '한국어' },
+  ]
+
+  const THINKING_LANGUAGES: Array<{ value: 'auto' | 'zh' | 'en'; label: string }> = [
+    { value: 'auto', label: t('settings.general.thinkingLangAuto') },
+    { value: 'zh', label: t('settings.general.thinkingLangZh') },
+    { value: 'en', label: t('settings.general.thinkingLangEn') },
   ]
 
   const RESPONSE_LANGUAGES: Array<{ value: string; label: string }> = [
@@ -913,6 +926,24 @@ export function GeneralSettings() {
               key={value}
               selected={locale === value}
               onClick={() => setLocale(value)}
+            >
+              {label}
+            </SettingsPill>
+          ))}
+        </div>
+      </SettingsSection>
+
+      {/* Reasoning language — independent of the UI language */}
+      <SettingsSection
+        title={t('settings.general.thinkingLangTitle')}
+        description={t('settings.general.thinkingLangDescription')}
+      >
+        <div className="flex flex-wrap gap-2">
+          {THINKING_LANGUAGES.map(({ value, label }) => (
+            <SettingsPill
+              key={value}
+              selected={thinkingLanguage === value}
+              onClick={() => void setThinkingLanguage(value)}
             >
               {label}
             </SettingsPill>
