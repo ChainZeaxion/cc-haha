@@ -1,20 +1,29 @@
 # patch 39：⚠️ 基座同上（0.6.7 血缘）—— = `align-latest` 的 `cb7065b1e`，独立应用。
-# 内置提示词中文化（第一版打样 + 第二版产前实验期 v22，合并版）：zh 覆盖表 + localizedPrompt。
-# 覆盖主系统提示词全节（intro/cyberRisk/env/language/outputStyle/会话指引/MCP/记忆段/toneAndStyle/outputEfficiency）+
-# 子代理（verification/guide/generalPurpose/explore/plan/default/statusline）+ compact/autoDream/review/team/extractMemories/toolUseSummary/chrome。
-# 含 locale 管道（desktop-ui.json.locale → 侧车）：src/server/* + desktop/src/api/desktopUiPreferences.ts + desktop/src/stores/settingsStore.ts。
-# v22 关键修复：① 中文思考三层注入（18 轮迭代约 1200 次调用定出）：
-#    system 头 lead（framing）+ system 尾首词模板 promptLanguageTail() + user 首条 reminder promptLanguageUserNote()（prependUserContext）；
-#    根因＝32 个英文工具定义 ≈25k token 锚定英文思考；user 角色位置（tools 之后）最优，首词中文 19%→75%→94%；
-# ② 「模块顶层 const = localizedPrompt」固化英文 bug 共 10 处（memdir 5 section + frontmatter 示例 + 3 个 CLI 身份前缀 +
-# CLI_SYSPROMPT_PREFIXES 集合 + SHUTDOWN_TEAM_PROMPT/BASE_CHROME_PROMPT/CLAUDE_IN_CHROME_SKILL_HINT(_WITH_WEBBROWSER)/
-# AGENT_CREATION_SYSTEM_PROMPT/AGENT_MEMORY_INSTRUCTIONS）。
-# 40 文件（38 src/ + 2 desktop/）。独立应用（干净 `cb7065b1e` 上 apply ⇒ 40 文件逐字节一致）。
+# 内置提示词中文化 + 中文思考（第一版打样 + 第二版产前实验期 v22，合并版）：zh 覆盖表 + localizedPrompt。
+# 覆盖主系统提示词全节 + 子代理 + compact/autoDream/review/team/extractMemories/toolUseSummary/chrome。
+# 含 locale 管道（desktop-ui.json.locale → 侧车）：src/server/* + desktop/src/api/desktopUiPreferences.ts + settingsStore.ts。
+# v22 关键：① 中文思考三处注入（18 轮迭代定出）——system 头 lead + system 尾首词模板 promptLanguageTail() + user 首条 reminder
+#    promptLanguageUserNote()（prependUserContext）；根因＝32 个英文工具定义 ≈25k token 锚定英文思考；
+# ② 思考语言人工开关（thinkingLanguage: auto/zh/en，与界面语言解耦）：侧车 getThinkingLanguage() + 新端点 + 设置页 pill；
+# ③ 「模块顶层 const = localizedPrompt」固化英文 bug 共 10 处（memdir 5 section + frontmatter 示例 + 3 个 CLI 身份前缀 +
+#    CLI_SYSPROMPT_PREFIXES 集合 + SHUTDOWN_TEAM_PROMPT/BASE_CHROME_PROMPT/CLAUDE_IN_CHROME_SKILL_HINT(_WITH_WEBBROWSER)/
+#    AGENT_CREATION_SYSTEM_PROMPT/AGENT_MEMORY_INSTRUCTIONS）。
+# 46 文件（38 src/ + 8 desktop/）。独立应用（干净 `cb7065b1e` 上 apply ⇒ 46 文件逐字节一致）。
 diff --git a/desktop/src/api/desktopUiPreferences.ts b/desktop/src/api/desktopUiPreferences.ts
-index ee72d6d3d..a17884189 100644
+index ee72d6d3d..d30a313c1 100644
 --- a/desktop/src/api/desktopUiPreferences.ts
 +++ b/desktop/src/api/desktopUiPreferences.ts
-@@ -65,6 +65,20 @@ export const desktopUiPreferencesApi = {
+@@ -56,6 +56,9 @@ export type ProjectDisplayNameUpdateResponse = {
+   displayName: string | null
+ }
+ 
++/** `auto` follows the UI locale; `zh`/`en` pin the reasoning language. */
++export type ThinkingLanguageSetting = 'auto' | 'zh' | 'en'
++
+ export const desktopUiPreferencesApi = {
+   getPreferences() {
+     return api.get<DesktopUiPreferencesResponse>('/api/desktop-ui/preferences')
+@@ -65,6 +68,37 @@ export const desktopUiPreferencesApi = {
      return api.get<DesktopPetPreferencesResponse>('/api/desktop-ui/preferences/pet')
    },
  
@@ -32,22 +41,199 @@ index ee72d6d3d..a17884189 100644
 +    )
 +  },
 +
++  /**
++   * The language the model should reason in, independent of the UI language.
++   * `auto` follows the UI locale; `zh`/`en` pin it.
++   */
++  getThinkingLanguage() {
++    return api.get<{ exists: boolean; thinkingLanguage: ThinkingLanguageSetting }>(
++      '/api/desktop-ui/preferences/thinking-language',
++    )
++  },
++
++  updateThinkingLanguagePreference(thinkingLanguage: ThinkingLanguageSetting) {
++    return api.put<{ ok: true; thinkingLanguage: ThinkingLanguageSetting; locale: string | null }>(
++      '/api/desktop-ui/preferences/thinking-language',
++      { thinkingLanguage },
++    )
++  },
++
    updateSidebarPreferences(sidebar: SidebarProjectPreferences) {
      return api.put<{ ok: true; preferences: DesktopUiPreferences }>(
        '/api/desktop-ui/preferences/sidebar',
+diff --git a/desktop/src/i18n/locales/en.ts b/desktop/src/i18n/locales/en.ts
+index b62675bd2..020e6c373 100644
+--- a/desktop/src/i18n/locales/en.ts
++++ b/desktop/src/i18n/locales/en.ts
+@@ -2346,6 +2346,11 @@ Row 9, all 8 cells: continuing from straight down, turning left through lower-le
+   'settings.general.appearance.lightThemeLabel': 'Use in light mode',
+   'settings.general.appearance.darkThemeLabel': 'Use in dark mode',
+   'settings.general.languageTitle': 'Language',
++  'settings.general.thinkingLangTitle': 'Reasoning language',
++  'settings.general.thinkingLangDescription': 'The language the model thinks in. Independent of the UI language above.',
++  'settings.general.thinkingLangAuto': 'Follow UI language',
++  'settings.general.thinkingLangZh': 'Chinese',
++  'settings.general.thinkingLangEn': 'English',
+   'settings.general.languageDescription': 'Choose the display language for the application.',
+   'settings.general.responseLangTitle': 'Response Language',
+   'settings.general.responseLangDescription': 'Instruct Claude to always respond in a specific language.',
+diff --git a/desktop/src/i18n/locales/jp.ts b/desktop/src/i18n/locales/jp.ts
+index 0b0b146cf..af16ac515 100644
+--- a/desktop/src/i18n/locales/jp.ts
++++ b/desktop/src/i18n/locales/jp.ts
+@@ -2345,6 +2345,11 @@ export const jp: Record<TranslationKey, string> = {
+   'settings.general.appearance.lightThemeLabel': 'ライトモードで使用',
+   'settings.general.appearance.darkThemeLabel': 'ダークモードで使用',
+   'settings.general.languageTitle': '言語',
++  'settings.general.thinkingLangTitle': '思考言語',
++  'settings.general.thinkingLangDescription': 'モデルが思考（reasoning）に用いる言語。上の UI 言語とは独立です。',
++  'settings.general.thinkingLangAuto': 'UI 言語に従う',
++  'settings.general.thinkingLangZh': '中国語',
++  'settings.general.thinkingLangEn': '英語',
+   'settings.general.languageDescription': 'アプリケーションの表示言語を選択します。',
+   'settings.general.responseLangTitle': '応答言語',
+   'settings.general.responseLangDescription': 'Claude が常に特定の言語で応答するよう指示します。',
+diff --git a/desktop/src/i18n/locales/kr.ts b/desktop/src/i18n/locales/kr.ts
+index b9283ef38..507517820 100644
+--- a/desktop/src/i18n/locales/kr.ts
++++ b/desktop/src/i18n/locales/kr.ts
+@@ -2347,6 +2347,11 @@ export const kr: Record<TranslationKey, string> = {
+   'settings.general.appearance.lightThemeLabel': '라이트 모드에서 사용',
+   'settings.general.appearance.darkThemeLabel': '다크 모드에서 사용',
+   'settings.general.languageTitle': '언어',
++  'settings.general.thinkingLangTitle': '사고 언어',
++  'settings.general.thinkingLangDescription': '모델이 사고(reasoning)에 사용하는 언어입니다. 위의 UI 언어와 독립적입니다.',
++  'settings.general.thinkingLangAuto': 'UI 언어 따르기',
++  'settings.general.thinkingLangZh': '중국어',
++  'settings.general.thinkingLangEn': '영어',
+   'settings.general.languageDescription': '애플리케이션의 표시 언어를 선택합니다.',
+   'settings.general.responseLangTitle': '응답 언어',
+   'settings.general.responseLangDescription': 'Claude가 항상 특정 언어로 응답하도록 지시합니다.',
+diff --git a/desktop/src/i18n/locales/zh-TW.ts b/desktop/src/i18n/locales/zh-TW.ts
+index 708a5cfeb..924ebdabd 100644
+--- a/desktop/src/i18n/locales/zh-TW.ts
++++ b/desktop/src/i18n/locales/zh-TW.ts
+@@ -2343,6 +2343,11 @@ export const zh: Record<TranslationKey, string> = {
+   'settings.general.appearance.lightThemeLabel': '淺色模式下使用',
+   'settings.general.appearance.darkThemeLabel': '深色模式下使用',
+   'settings.general.languageTitle': '語言',
++  'settings.general.thinkingLangTitle': '思考語言',
++  'settings.general.thinkingLangDescription': '模型思考（reasoning）所用的語言，與上面的介面語言相互獨立。',
++  'settings.general.thinkingLangAuto': '跟隨介面語言',
++  'settings.general.thinkingLangZh': '中文',
++  'settings.general.thinkingLangEn': '英文',
+   'settings.general.languageDescription': '選擇應用程式的顯示語言。',
+   'settings.general.responseLangTitle': '回覆語言',
+   'settings.general.responseLangDescription': '指定 Claude 始終以某種語言回覆。',
+diff --git a/desktop/src/i18n/locales/zh.ts b/desktop/src/i18n/locales/zh.ts
+index b5d0f3c96..56225077e 100644
+--- a/desktop/src/i18n/locales/zh.ts
++++ b/desktop/src/i18n/locales/zh.ts
+@@ -2343,6 +2343,11 @@ export const zh: Record<TranslationKey, string> = {
+   'settings.general.appearance.lightThemeLabel': '浅色模式下使用',
+   'settings.general.appearance.darkThemeLabel': '深色模式下使用',
+   'settings.general.languageTitle': '语言',
++  'settings.general.thinkingLangTitle': '思考语言',
++  'settings.general.thinkingLangDescription': '模型思考（reasoning）所用的语言，与上面的界面语言相互独立。',
++  'settings.general.thinkingLangAuto': '跟随界面语言',
++  'settings.general.thinkingLangZh': '中文',
++  'settings.general.thinkingLangEn': '英文',
+   'settings.general.languageDescription': '选择应用程序的显示语言。',
+   'settings.general.responseLangTitle': '回复语言',
+   'settings.general.responseLangDescription': '指定 Claude 始终以某种语言回复。',
+diff --git a/desktop/src/pages/settings/GeneralSettings.tsx b/desktop/src/pages/settings/GeneralSettings.tsx
+index e6ee60386..b82f6d824 100644
+--- a/desktop/src/pages/settings/GeneralSettings.tsx
++++ b/desktop/src/pages/settings/GeneralSettings.tsx
+@@ -90,6 +90,9 @@ export function GeneralSettings() {
+     setAutoQuestion,
+     locale,
+     setLocale,
++    thinkingLanguage,
++    setThinkingLanguage,
++    loadThinkingLanguage,
+     setTheme,
+     chatSendBehavior,
+     setChatSendBehavior,
+@@ -256,6 +259,10 @@ export function GeneralSettings() {
+     setPortableDirDraft(appMode.portableDir ?? '')
+   }, [appMode.portableDir])
+ 
++  useEffect(() => {
++    void loadThinkingLanguage()
++  }, [loadThinkingLanguage])
++
+   const LANGUAGES: Array<{ value: Locale; label: string }> = [
+     { value: 'en', label: 'English' },
+     { value: 'zh', label: '简体中文' },
+@@ -264,6 +271,12 @@ export function GeneralSettings() {
+     { value: 'kr', label: '한국어' },
+   ]
+ 
++  const THINKING_LANGUAGES: Array<{ value: 'auto' | 'zh' | 'en'; label: string }> = [
++    { value: 'auto', label: t('settings.general.thinkingLangAuto') },
++    { value: 'zh', label: t('settings.general.thinkingLangZh') },
++    { value: 'en', label: t('settings.general.thinkingLangEn') },
++  ]
++
+   const RESPONSE_LANGUAGES: Array<{ value: string; label: string }> = [
+     { value: '', label: t('settings.general.responseLangDefault') },
+     { value: 'english', label: 'English' },
+@@ -920,6 +933,24 @@ export function GeneralSettings() {
+         </div>
+       </SettingsSection>
+ 
++      {/* Reasoning language — independent of the UI language */}
++      <SettingsSection
++        title={t('settings.general.thinkingLangTitle')}
++        description={t('settings.general.thinkingLangDescription')}
++      >
++        <div className="flex flex-wrap gap-2">
++          {THINKING_LANGUAGES.map(({ value, label }) => (
++            <SettingsPill
++              key={value}
++              selected={thinkingLanguage === value}
++              onClick={() => void setThinkingLanguage(value)}
++            >
++              {label}
++            </SettingsPill>
++          ))}
++        </div>
++      </SettingsSection>
++
+       {/* Response Language */}
+       <h2
+         className="text-[16.5px] font-semibold leading-tight text-[var(--color-text-primary)] mb-1"
 diff --git a/desktop/src/stores/settingsStore.ts b/desktop/src/stores/settingsStore.ts
-index 03d215292..aed00d60e 100644
+index 03d215292..8d3d44449 100644
 --- a/desktop/src/stores/settingsStore.ts
 +++ b/desktop/src/stores/settingsStore.ts
 @@ -3,6 +3,7 @@ import { ApiError } from '../api/client'
  import { settingsApi } from '../api/settings'
  import { modelsApi } from '../api/models'
  import { h5AccessApi } from '../api/h5Access'
-+import { desktopUiPreferencesApi } from '../api/desktopUiPreferences'
++import { desktopUiPreferencesApi, type ThinkingLanguageSetting } from '../api/desktopUiPreferences'
  import { tracesApi } from '../api/traces'
  import {
    type AppMode,
-@@ -212,6 +213,20 @@ const initialLocale = getInitialLocale()
+@@ -102,6 +103,7 @@ type SettingsStore = {
+   h5AccessDiagnostics: H5AccessDiagnostics | null
+   h5AccessError: string | null
+   responseLanguage: string
++  thinkingLanguage: ThinkingLanguageSetting
+   uiZoom: number
+   isLoading: boolean
+   error: string | null
+@@ -126,6 +128,8 @@ type SettingsStore = {
+   setAutoQuestion: (settings: AutoQuestionSettings) => Promise<void>
+   acceptAutoModeOptIn: () => Promise<void>
+   setLocale: (locale: Locale) => void
++  setThinkingLanguage: (setting: ThinkingLanguageSetting) => Promise<void>
++  loadThinkingLanguage: () => Promise<void>
+   setTheme: (theme: ThemeMode) => Promise<void>
+   setChatSendBehavior: (behavior: ChatSendBehavior) => Promise<void>
+   fetchOutputStyles: (workDir?: string | null) => Promise<void>
+@@ -212,6 +216,20 @@ const initialLocale = getInitialLocale()
  applyDocumentLocale(initialLocale)
  let autoQuestionUpdateQueue: Promise<unknown> = Promise.resolve()
  
@@ -68,11 +254,40 @@ index 03d215292..aed00d60e 100644
  export const useSettingsStore = create<SettingsStore>((set, get) => ({
    permissionMode: 'default',
    currentModel: null,
-@@ -489,6 +504,7 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
+@@ -231,6 +249,7 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
+   availableModels: [],
+   activeProviderName: null,
+   locale: initialLocale,
++  thinkingLanguage: 'auto',
+   chatSendBehavior: 'enter',
+   outputStyle: DEFAULT_OUTPUT_STYLE,
+   outputStyles: DEFAULT_OUTPUT_STYLE_OPTIONS,
+@@ -489,6 +508,28 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
      void getDesktopHost().app.setLocalePreference(locale).catch((error) => {
        console.error('[desktop] Failed to persist locale preference', error)
      })
 +    publishLocaleToServer(locale)
++  },
++
++  loadThinkingLanguage: async () => {
++    try {
++      const { thinkingLanguage } = await desktopUiPreferencesApi.getThinkingLanguage()
++      set({ thinkingLanguage })
++    } catch (error) {
++      console.error('[desktop] Failed to load thinking language', error)
++    }
++  },
++
++  setThinkingLanguage: async (setting) => {
++    const prev = get().thinkingLanguage
++    set({ thinkingLanguage: setting })
++    try {
++      await desktopUiPreferencesApi.updateThinkingLanguagePreference(setting)
++    } catch (error) {
++      set({ thinkingLanguage: prev })
++      console.error('[desktop] Failed to persist thinking language', error)
++      throw error
++    }
    },
  
    // Kept as the Settings page's entry point; uiStore owns the state.
@@ -2145,13 +2360,23 @@ index de5ea8465..7511f1304 100644
      ...buildSearchingPastContextSection(autoDir),
 diff --git a/src/prompts/i18n/i18n.test.ts b/src/prompts/i18n/i18n.test.ts
 new file mode 100644
-index 000000000..bfc91aad0
+index 000000000..22855b6a5
 --- /dev/null
 +++ b/src/prompts/i18n/i18n.test.ts
-@@ -0,0 +1,161 @@
+@@ -0,0 +1,211 @@
 +import { beforeEach, describe, expect, test } from 'bun:test'
 +
-+import { localizedPrompt, promptLanguageLead, promptLanguageTail, resolvePromptLanguage, setPromptLanguage } from './index.js'
++import {
++  getThinkingLanguage,
++  localizedPrompt,
++  promptLanguageLead,
++  promptLanguageTail,
++  promptLanguageUserNote,
++  resolvePromptLanguage,
++  resolveThinkingLanguageSetting,
++  setPromptLanguage,
++  setThinkingLanguagePreference,
++} from './index.js'
 +import { ZH_PROMPTS } from './zh.js'
 +
 +// A stand-in for a real call site: the English as it appears in the source, and
@@ -2277,6 +2502,46 @@ index 000000000..bfc91aad0
 +  })
 +})
 +
++describe('the reasoning-language setting', () => {
++  test('only zh/en are explicit; anything else is auto', () => {
++    for (const v of ['zh', 'ZH', ' zh ']) expect(resolveThinkingLanguageSetting(v)).toBe('zh')
++    for (const v of ['en', 'EN']) expect(resolveThinkingLanguageSetting(v)).toBe('en')
++    for (const v of ['auto', '', 'jp', undefined, null, 42]) {
++      expect(resolveThinkingLanguageSetting(v)).toBe('auto')
++    }
++  })
++
++  test('auto follows the prompt language; an explicit value overrides it', () => {
++    // Explicit zh, even on an English UI.
++    setPromptLanguage('en')
++    setThinkingLanguagePreference('zh')
++    expect(getThinkingLanguage()).toBe('zh')
++    expect(promptLanguageLead()).not.toBeNull()
++    expect(promptLanguageTail()).not.toBeNull()
++    expect(promptLanguageUserNote()).not.toBeNull()
++
++    // Explicit en, even on a Chinese UI.
++    setPromptLanguage('zh')
++    setThinkingLanguagePreference('en')
++    expect(getThinkingLanguage()).toBe('en')
++    expect(promptLanguageLead()).toBeNull()
++    expect(promptLanguageTail()).toBeNull()
++    expect(promptLanguageUserNote()).toBeNull()
++
++    // auto mirrors the UI locale.
++    setThinkingLanguagePreference('auto')
++    expect(getThinkingLanguage()).toBe('zh')
++  })
++
++  test('changing the prompt language re-derives an auto reasoning language', () => {
++    setPromptLanguage('zh')
++    setThinkingLanguagePreference('auto')
++    expect(getThinkingLanguage()).toBe('zh')
++    setPromptLanguage('en')
++    expect(getThinkingLanguage()).toBe('en')
++  })
++})
++
 +describe('the Chinese bundle', () => {
 +  test('every entry is non-empty Chinese text', () => {
 +    for (const [id, text] of Object.entries(ZH_PROMPTS)) {
@@ -2312,10 +2577,10 @@ index 000000000..bfc91aad0
 +})
 diff --git a/src/prompts/i18n/index.ts b/src/prompts/i18n/index.ts
 new file mode 100644
-index 000000000..d4f1c5eb4
+index 000000000..6aca8d0f4
 --- /dev/null
 +++ b/src/prompts/i18n/index.ts
-@@ -0,0 +1,128 @@
+@@ -0,0 +1,132 @@
 +// Single entry point for language-aware model prompts.
 +//
 +// The rule this exists to enforce: the English text stays the source of truth at
@@ -2323,12 +2588,16 @@ index 000000000..d4f1c5eb4
 +// that is not Chinese — or an id that has no translation yet — returns exactly
 +// the English that was passed in. Nothing can be lost by not translating.
 +
-+import { getPromptLanguage, type PromptLanguage } from './promptLanguage.js'
++import { getPromptLanguage, getThinkingLanguage, type PromptLanguage } from './promptLanguage.js'
 +import { ZH_PROMPTS, type PromptId } from './zh.js'
 +
 +export type { PromptId } from './zh.js'
 +export {
 +  getPromptLanguage,
++  getThinkingLanguage,
++  resolveThinkingLanguageSetting,
++  setThinkingLanguagePreference,
++  type ThinkingLanguageSetting,
 +  resolvePromptLanguage,
 +  setPromptLanguage,
 +  resetPromptLanguageCacheForTests,
@@ -2401,7 +2670,7 @@ index 000000000..d4f1c5eb4
 + * nothing and leaves the prompt byte-identical to upstream.
 + */
 +export function promptLanguageLead(): string | null {
-+  return getPromptLanguage() === 'zh' ? PROMPT_LANGUAGE_LEAD_ZH : null
++  return getThinkingLanguage() === 'zh' ? PROMPT_LANGUAGE_LEAD_ZH : null
 +}
 +
 +/**
@@ -2424,7 +2693,7 @@ index 000000000..d4f1c5eb4
 +
 +/** The tail copy of the rule, or null when not in Chinese. */
 +export function promptLanguageTail(): string | null {
-+  return getPromptLanguage() === 'zh' ? PROMPT_LANGUAGE_TAIL_ZH : null
++  return getThinkingLanguage() === 'zh' ? PROMPT_LANGUAGE_TAIL_ZH : null
 +}
 +
 +/**
@@ -2442,14 +2711,14 @@ index 000000000..d4f1c5eb4
 +
 +/** The user-context copy of the rule, or null when not in Chinese. */
 +export function promptLanguageUserNote(): string | null {
-+  return getPromptLanguage() === 'zh' ? PROMPT_LANGUAGE_USER_NOTE_ZH : null
++  return getThinkingLanguage() === 'zh' ? PROMPT_LANGUAGE_USER_NOTE_ZH : null
 +}
 diff --git a/src/prompts/i18n/promptLanguage.ts b/src/prompts/i18n/promptLanguage.ts
 new file mode 100644
-index 000000000..234ac4959
+index 000000000..dd6887128
 --- /dev/null
 +++ b/src/prompts/i18n/promptLanguage.ts
-@@ -0,0 +1,78 @@
+@@ -0,0 +1,121 @@
 +// Which language the built-in model prompts are written in.
 +//
 +// English is the source of truth and lives at each call site; this layer only
@@ -2492,12 +2761,12 @@ index 000000000..234ac4959
 + * service: prompt builders run deep inside request handling, and one small
 + * synchronous read at most once per process keeps that path free of new awaits.
 + */
-+function readPersistedLocale(): string | null {
++function readPersistedPreference(field: string): string | null {
 +  try {
 +    const parsed = JSON.parse(
 +      fs.readFileSync(localePreferencesPath(), 'utf8'),
 +    ) as Record<string, unknown> | null
-+    const value = parsed?.[LOCALE_FIELD]
++    const value = parsed?.[field]
 +    return typeof value === 'string' && value.trim() ? value : null
 +  } catch {
 +    // No preferences yet, or unreadable: English, which needs no override.
@@ -2509,7 +2778,7 @@ index 000000000..234ac4959
 +
 +/** The language built-in prompts are rendered in for this process. */
 +export function getPromptLanguage(): PromptLanguage {
-+  if (cached === null) cached = resolvePromptLanguage(readPersistedLocale())
++  if (cached === null) cached = resolvePromptLanguage(readPersistedPreference(LOCALE_FIELD))
 +  return cached
 +}
 +
@@ -2521,12 +2790,55 @@ index 000000000..234ac4959
 + */
 +export function setPromptLanguage(locale: unknown): PromptLanguage {
 +  cached = resolvePromptLanguage(locale)
++  // The reasoning language may be "auto", i.e. derived from the locale — drop
++  // its cache so the next read re-derives from the new locale.
++  cachedThinking = null
 +  return cached
 +}
 +
 +/** Test seam: forget the cached language so the next read re-resolves it. */
 +export function resetPromptLanguageCacheForTests(): void {
 +  cached = null
++  cachedThinking = null
++}
++
++// ── Reasoning (thinking) language ──────────────────────────────────────────
++//
++// Separate from the *prompt* language on purpose. The prompt body follows the UI
++// locale (translate the built-in prompts or not); the reasoning language is what
++// the model thinks in, and a user may want it pinned regardless of UI language —
++// e.g. an English UI but Chinese thinking.
++
++const THINKING_FIELD = 'thinkingLanguage'
++
++/** `auto` follows the UI locale; `zh`/`en` pin the reasoning language. */
++export type ThinkingLanguageSetting = 'auto' | 'zh' | 'en'
++
++export function resolveThinkingLanguageSetting(raw: unknown): ThinkingLanguageSetting {
++  const value = typeof raw === 'string' ? raw.trim().toLowerCase() : ''
++  return value === 'zh' || value === 'en' ? value : 'auto'
++}
++
++let cachedThinking: PromptLanguage | null = null
++
++/**
++ * The language the model should reason in.
++ *
++ * `auto` (the default) mirrors the prompt language, preserving prior behaviour.
++ */
++export function getThinkingLanguage(): PromptLanguage {
++  if (cachedThinking === null) {
++    const setting = resolveThinkingLanguageSetting(readPersistedPreference(THINKING_FIELD))
++    cachedThinking = setting === 'auto' ? getPromptLanguage() : setting
++  }
++  return cachedThinking
++}
++
++/** Record a reasoning-language change (the write path, like setPromptLanguage). */
++export function setThinkingLanguagePreference(raw: unknown): PromptLanguage {
++  const setting = resolveThinkingLanguageSetting(raw)
++  cachedThinking = setting === 'auto' ? getPromptLanguage() : setting
++  return cachedThinking
 +}
 diff --git a/src/prompts/i18n/zh.ts b/src/prompts/i18n/zh.ts
 new file mode 100644
@@ -4072,42 +4384,46 @@ index 000000000..244a8180b
 +/** Every prompt that has a Chinese override. Derived so the two cannot drift. */
 +export type PromptId = keyof typeof ZH_PROMPTS
 diff --git a/src/server/__tests__/desktop-ui-preferences.test.ts b/src/server/__tests__/desktop-ui-preferences.test.ts
-index 58f473ad0..4e0a2dad3 100644
+index 58f473ad0..729b337a7 100644
 --- a/src/server/__tests__/desktop-ui-preferences.test.ts
 +++ b/src/server/__tests__/desktop-ui-preferences.test.ts
-@@ -74,6 +74,7 @@ describe('DesktopUiPreferencesService', () => {
+@@ -74,6 +74,8 @@ describe('DesktopUiPreferencesService', () => {
      expect(result.exists).toBe(false)
      expect(result.preferences).toEqual({
        schemaVersion: 6,
 +      locale: null,
++      thinkingLanguage: 'auto',
        profile: {
          displayName: 'cc-haha',
          subtitle: 'github.com/NanmiCoder/cc-haha',
-@@ -129,6 +130,7 @@ describe('DesktopUiPreferencesService', () => {
+@@ -129,6 +131,8 @@ describe('DesktopUiPreferencesService', () => {
      expect(before.exists).toBe(true)
      expect(before.preferences).toEqual({
        schemaVersion: 6,
 +      locale: null,
++      thinkingLanguage: 'auto',
        futureField: { keep: true },
        profile: {
          displayName: 'cc-haha',
-@@ -151,6 +153,7 @@ describe('DesktopUiPreferencesService', () => {
+@@ -151,6 +155,8 @@ describe('DesktopUiPreferencesService', () => {
      })
      expect(after).toEqual({
        schemaVersion: 6,
 +      locale: null,
++      thinkingLanguage: 'auto',
        futureField: { keep: true },
        profile: {
          displayName: 'cc-haha',
-@@ -493,6 +496,7 @@ describe('DesktopUiPreferencesService', () => {
+@@ -493,6 +499,8 @@ describe('DesktopUiPreferencesService', () => {
  
      expect(after).toEqual({
        schemaVersion: 6,
 +      locale: null,
++      thinkingLanguage: 'auto',
        profile: {
          displayName: 'Claude Captain',
          subtitle: 'local.example/profile',
-@@ -570,6 +574,34 @@ describe('desktop UI preferences API', () => {
+@@ -570,6 +578,34 @@ describe('desktop UI preferences API', () => {
    beforeEach(setup)
    afterEach(teardown)
  
@@ -4142,19 +4458,21 @@ index 58f473ad0..4e0a2dad3 100644
    test('persists sidebar preferences under cc-haha desktop-ui.json', async () => {
      const putReq = makeRequest('PUT', '/api/desktop-ui/preferences/sidebar', {
        projectOrder: ['/workspace/beta', '/workspace/alpha'],
-@@ -587,6 +619,7 @@ describe('desktop UI preferences API', () => {
+@@ -587,6 +623,8 @@ describe('desktop UI preferences API', () => {
        ok: true,
        preferences: {
          schemaVersion: 6,
 +        locale: null,
++        thinkingLanguage: 'auto',
          profile: {
            displayName: 'cc-haha',
            subtitle: 'github.com/NanmiCoder/cc-haha',
-@@ -615,6 +648,7 @@ describe('desktop UI preferences API', () => {
+@@ -615,6 +653,8 @@ describe('desktop UI preferences API', () => {
        exists: true,
        preferences: {
          schemaVersion: 6,
 +        locale: null,
++        thinkingLanguage: 'auto',
          profile: {
            displayName: 'cc-haha',
            subtitle: 'github.com/NanmiCoder/cc-haha',
@@ -4175,10 +4493,10 @@ index 44d1c40b2..01e4d0fae 100644
    expect(translateCliMessage({ ...message, isMeta: true }, 'shutdown-prompt-meta')).toEqual([])
    expect(translateCliMessage({ ...message, message: { role: 'user', content: 'Real user request' } }, 'shutdown-prompt-real')).toContainEqual({ type: 'user_message_replay', content: 'Real user request' })
 diff --git a/src/server/api/desktop-ui.ts b/src/server/api/desktop-ui.ts
-index 7e21e859d..7d2de1314 100644
+index 7e21e859d..6be7078e1 100644
 --- a/src/server/api/desktop-ui.ts
 +++ b/src/server/api/desktop-ui.ts
-@@ -74,6 +74,20 @@ export async function handleDesktopUiApi(
+@@ -74,6 +74,37 @@ export async function handleDesktopUiApi(
        })
      }
  
@@ -4196,22 +4514,45 @@ index 7e21e859d..7d2de1314 100644
 +      return Response.json({ ok: true, locale: preferences.locale, promptLanguage })
 +    }
 +
++    if (detail === 'thinking-language') {
++      if (req.method === 'GET') {
++        const result = await desktopUiPreferencesService.readPreferences()
++        return Response.json({
++          exists: result.exists,
++          thinkingLanguage: result.preferences.thinkingLanguage,
++        })
++      }
++      if (req.method !== 'PUT') throw methodNotAllowed(req.method)
++      const body = await parseJsonBody(req)
++      const { preferences, thinkingLanguage } =
++        await desktopUiPreferencesService.updateThinkingLanguage(
++          (body as { thinkingLanguage?: unknown } | null)?.thinkingLanguage,
++        )
++      return Response.json({ ok: true, thinkingLanguage, locale: preferences.locale })
++    }
++
      if (detail === 'profile') {
        const action = segments[4]
  
 diff --git a/src/server/services/desktopUiPreferencesService.ts b/src/server/services/desktopUiPreferencesService.ts
-index be23ca4b5..b629c0b8e 100644
+index be23ca4b5..7d46ab5cb 100644
 --- a/src/server/services/desktopUiPreferencesService.ts
 +++ b/src/server/services/desktopUiPreferencesService.ts
-@@ -7,6 +7,7 @@ import { readRecoverableJsonFile } from './recoverableJsonFile.js'
+@@ -7,6 +7,13 @@ import { readRecoverableJsonFile } from './recoverableJsonFile.js'
  import { ensurePersistentStorageUpgraded } from './persistentStorageMigrations.js'
  import { normalizeVoicePreferences } from './voice/preferences.js'
  import { DEFAULT_VOICE_PREFERENCES, type VoicePreferences } from './voice/types.js'
-+import { setPromptLanguage, type PromptLanguage } from '../../prompts/i18n/promptLanguage.js'
++import {
++  resolveThinkingLanguageSetting,
++  setPromptLanguage,
++  setThinkingLanguagePreference,
++  type PromptLanguage,
++  type ThinkingLanguageSetting,
++} from '../../prompts/i18n/promptLanguage.js'
  
  const CURRENT_DESKTOP_UI_PREFERENCES_SCHEMA_VERSION = 6
  const MAX_PROJECT_PREFERENCE_ENTRIES = 2_000
-@@ -66,6 +67,15 @@ export type DesktopUiPreferences = {
+@@ -66,6 +73,20 @@ export type DesktopUiPreferences = {
    pet: DesktopPetPreferences
    voiceInput: DesktopVoiceInputPreferences
    projectDisplayNames: ProjectDisplayNames
@@ -4224,18 +4565,24 @@ index be23ca4b5..b629c0b8e 100644
 +   * storage. See `src/prompts/i18n/promptLanguage.ts`.
 +   */
 +  locale: string | null
++  /**
++   * The language the model should reason in: `auto` (follow `locale`), `zh`, or
++   * `en`. Independent of `locale` so an English UI can still reason in Chinese.
++   */
++  thinkingLanguage: ThinkingLanguageSetting
    [key: string]: unknown
  }
  
-@@ -111,6 +121,7 @@ function defaultPreferences(): DesktopUiPreferences {
+@@ -111,6 +132,8 @@ function defaultPreferences(): DesktopUiPreferences {
      pet: { ...DEFAULT_PET_PREFERENCES },
      voiceInput: { ...DEFAULT_VOICE_PREFERENCES },
      projectDisplayNames: createProjectDisplayNames(),
 +    locale: null,
++    thinkingLanguage: 'auto',
    }
  }
  
-@@ -331,6 +342,11 @@ function normalizeProjectSortBy(value: unknown): SidebarProjectPreferences['proj
+@@ -331,6 +354,11 @@ function normalizeProjectSortBy(value: unknown): SidebarProjectPreferences['proj
    return value === 'createdAt' || value === 'updatedAt' ? value : 'updatedAt'
  }
  
@@ -4247,15 +4594,16 @@ index be23ca4b5..b629c0b8e 100644
  function normalizeDesktopUiPreferences(value: unknown): DesktopUiPreferences | null {
    if (!value || typeof value !== 'object' || Array.isArray(value)) {
      return null
-@@ -350,6 +366,7 @@ function normalizeDesktopUiPreferences(value: unknown): DesktopUiPreferences | n
+@@ -350,6 +378,8 @@ function normalizeDesktopUiPreferences(value: unknown): DesktopUiPreferences | n
      pet: normalizeDesktopPetPreferences(record.pet),
      voiceInput: normalizeVoicePreferences(record.voiceInput),
      projectDisplayNames: normalizeProjectDisplayNames(record.projectDisplayNames),
 +    locale: normalizeLocalePreference(record.locale),
++    thinkingLanguage: resolveThinkingLanguageSetting(record.thinkingLanguage),
    }
  }
  
-@@ -471,6 +488,31 @@ export class DesktopUiPreferencesService {
+@@ -471,6 +501,55 @@ export class DesktopUiPreferencesService {
      })
    }
  
@@ -4281,6 +4629,30 @@ index be23ca4b5..b629c0b8e 100644
 +
 +      await this.writePreferences(nextPreferences)
 +      return { preferences: nextPreferences, promptLanguage: setPromptLanguage(nextPreferences.locale) }
++    })
++  }
++
++  /**
++   * Persist the reasoning language. Like `updateLocalePreference`, the write
++   * path also updates the in-process setting so a running sidecar follows it on
++   * the very next request.
++   */
++  async updateThinkingLanguage(raw: unknown): Promise<{
++    preferences: DesktopUiPreferences
++    thinkingLanguage: ThinkingLanguageSetting
++  }> {
++    const filePath = this.getPreferencesPath()
++    return this.withWriteLock(filePath, async () => {
++      const { preferences } = await this.readPreferences()
++      const setting = resolveThinkingLanguageSetting(raw)
++      const nextPreferences: DesktopUiPreferences = {
++        ...preferences,
++        schemaVersion: preferences.schemaVersion,
++        thinkingLanguage: setting,
++      }
++      await this.writePreferences(nextPreferences)
++      setThinkingLanguagePreference(setting)
++      return { preferences: nextPreferences, thinkingLanguage: setting }
 +    })
 +  }
 +

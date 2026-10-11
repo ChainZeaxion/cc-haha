@@ -3274,6 +3274,26 @@ src/prompts/i18n/
 
 **门禁**：i18n 16/16；`check:server` 6651/0。
 
+### 补记六（2026-10-12）：引擎层预填种子（强制中文思考）+ 思考语言开关
+
+补记五提示词三层注入到 ~94% 后触顶——剩余 6% 是模型「引用用户原话」时的 `The user is asking…` 强惯性，提示词已无法触及。
+
+**引擎侧排查**（对标 1cat-vllm / 1cat-studio）：链路 = cc-haha → `8866`(onecat) → `8000`(vLLM) → 模板 `/mnt/data1/modelfiles/Qwen3.6-27B-abliterated-AWQ/chat_template-fix.jinja`。
+- 模板在 thinking 时注入 `reasoning_instructions`（xhigh），**该文本已是中文**（之前优化过）——但思考首词仍英文，**证明光有中文指令不够**。
+- 模板末尾 `add_generation_prompt` 生成 `<think>\n` 后即开始推理——**真正的控制点**。
+
+**方案（opt23，引擎 patch）**：在 `<think>\n` 后**预填中文种子「用户」**，模型从预填字继续生成，物理上无法转英文。仅当 system 含中文思考规则标记时触发，英文会话与其他项目逐字节不变。
+
+| | 首词中文 |
+|---|---|
+| 不预填（现状） | 6/10 |
+| **预填「用户」** | **10/10** |
+| 预填「用户想」 | 10/10 |
+
+**思考语言开关**（本次一并实装）：设置-通用新增「思考语言」三态——**跟随界面（auto）/ 中文 / 英文**，存 `desktop-ui.json.thinkingLanguage`，与界面语言解耦（界面英文也可强制中文思考）。侧车 `getThinkingLanguage()` 决定是否注入中文思考规则（lead/tail/userNote）；引擎预填随该标记自动跟随——**一个开关贯通全链**。
+
+**状态**：代码与引擎模板均已改（备份 `chat_template-fix.jinja.bak-prefill-20261012`）；**引擎重启后生效**（`VLLM_CHAT_TEMPLATE_HOT_RELOAD=0`）。门禁：i18n 19/19、desktop 81/81、`check:server` 6654/0。
+
 ### 功能完整性评估（V22 中文提示词 vs 原版英文）
 
 | 功能域 | 检查项 | 结果 |
