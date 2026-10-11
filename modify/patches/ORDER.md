@@ -42,3 +42,8 @@ patches/session/session-local-index-budget-patch1.patch
 # 该血缘里本轮触及的文件多数在 068b3ebd 基座中不存在或布局不同（如 `components/workspace/surfaces/document/`），
 # 故无法链尾追加；本 patch 独立应用（干净 HEAD 上 apply ⇒ 本轮 66 文件逐字节一致）。
 patches/h5/h5-file-open-patch1.patch
+
+# 38：⚠️ 基座同上（0.6.7 血缘）—— = `align-latest` 的 `3a51ef84`，**同样不可**接到 36 条之后。
+# 压缩阈值分档改双百分比 + vcc 压缩后保留预算；触及 4 源码 + 2 测试文件。
+# 独立应用（干净 `3a51ef84` 上 apply ⇒ 6 文件逐字节一致）。
+patches/vcc/vcc-compaction-retention-budget-patch1.patch

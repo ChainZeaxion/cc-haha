@@ -2276,7 +2276,7 @@ if (gapMs > 0 && tokens / (gapMs / 1000) <= MAX_INSTANT_TPS) { /* 计入 */ }   
 - 本次改动文件 `tsc --noEmit` **0 错**。
 - **尚未重启 sidecar**：server 侧 TS 由 bun 直跑，重启后生效；前端 bundle 不含这些常量，无需 vite build。
 
-⚠️ **patch 状态（待固化时处理）**：链位 24 的 `patches/vcc/vcc-autocompact-window-tiers-patch1.patch` 编码的是**旧分档表 + 旧硬触发口径**，本次修订后**已过期**——重放会覆盖新表。本次跨 `autoCompact.ts` / `vcc/engine.ts` / `vcc/vccCompact.ts` / `compact.ts` 四文件，应作为**新的链位**追加（而非改写链位 24），按「新增链位」标准做法生成（链终态 worktree 跑全链 → 工作树差分）。
+**patch（已固化 2026-10-11）**：新增 `patches/vcc/vcc-compaction-retention-budget-patch1.patch`（**链位 38**，767 行 / 6 文件：4 源码 + 2 测试）。基座 = `align-latest` 的 `3a51ef84`（0.6.7 血缘），与链位 37 同组**独立应用**——链位 24 编码的是旧分档表与旧硬触发口径，重放会覆盖新表，故**不改写链位 24 而另起链位**。已登记 `ORDER.md` / `README.md`；往返校验：干净 `3a51ef84` 上 `git apply` ⇒ 6 文件**逐字节一致**。
 
 ---
 
