@@ -41,7 +41,8 @@ export function parseMemoryType(raw: unknown): MemoryType | undefined {
  * `## Types of memory` section for COMBINED mode (private + team directories).
  * Includes <scope> tags and team/private qualifiers in examples.
  */
-export const TYPES_SECTION_COMBINED: readonly string[] = [
+export function buildCombinedTypesSection(): readonly string[] {
+  return [
   localizedPrompt('memdir.typesC.header', `## Types of memory`),
   '',
   localizedPrompt(
@@ -177,6 +178,7 @@ export const TYPES_SECTION_COMBINED: readonly string[] = [
   '</types>',
   '',
 ]
+}
 
 /**
  * `## Types of memory` section for INDIVIDUAL-ONLY mode (single directory).
@@ -187,7 +189,8 @@ export const TYPES_SECTION_COMBINED: readonly string[] = [
  * drift; only the genuinely different prose (intro, feedback/project
  * descriptions, and the example save-lines) gets its own id.
  */
-export const TYPES_SECTION_INDIVIDUAL: readonly string[] = [
+export function buildIndividualTypesSection(): readonly string[] {
+  return [
   localizedPrompt('memdir.typesC.header', `## Types of memory`),
   '',
   localizedPrompt(
@@ -313,11 +316,13 @@ export const TYPES_SECTION_INDIVIDUAL: readonly string[] = [
   '</types>',
   '',
 ]
+}
 
 /**
  * `## What NOT to save in memory` section. Identical across both modes.
  */
-export const WHAT_NOT_TO_SAVE_SECTION: readonly string[] = [
+export function buildWhatNotToSaveSection(): readonly string[] {
+  return [
   localizedPrompt('memdir.whatNotToSave.header', '## What NOT to save in memory'),
   '',
   localizedPrompt(
@@ -348,15 +353,18 @@ export const WHAT_NOT_TO_SAVE_SECTION: readonly string[] = [
     'These exclusions apply even when the user explicitly asks you to save. If they ask you to save a PR list or activity summary, ask what was *surprising* or *non-obvious* about it — that is the part worth keeping.',
   ),
 ]
+}
 
 /**
  * Recall-side drift caveat. Single bullet under `## When to access memories`.
  * Proactive: verify memory against current state before answering.
  */
-export const MEMORY_DRIFT_CAVEAT = localizedPrompt(
+export function buildDriftCaveat(): string {
+  return localizedPrompt(
   'memdir.driftCaveat',
   '- Memory records can become stale over time. Use memory as context for what was true at a given point in time. Before answering the user or building assumptions based solely on information in memory records, verify that the memory is still correct and up-to-date by reading the current state of the files or resources. If a recalled memory conflicts with current information, trust what you observe now — and update or remove the stale memory rather than acting on it.',
-)
+  )
+}
 
 /**
  * `## When to access memories` section. Includes MEMORY_DRIFT_CAVEAT.
@@ -370,7 +378,8 @@ export const MEMORY_DRIFT_CAVEAT = localizedPrompt(
  * Token budget (H6a): merged old bullets 1+2, tightened both. Old 4 lines
  * were ~70 tokens; new 4 lines are ~73 tokens. Net ~+3.
  */
-export const WHEN_TO_ACCESS_SECTION: readonly string[] = [
+export function buildWhenToAccessSection(): readonly string[] {
+  return [
   localizedPrompt('memdir.whenToAccess.header', '## When to access memories'),
   localizedPrompt(
     'memdir.whenToAccess.relevant',
@@ -384,8 +393,9 @@ export const WHEN_TO_ACCESS_SECTION: readonly string[] = [
     'memdir.whenToAccess.ignore',
     '- If the user says to *ignore* or *not use* memory: proceed as if MEMORY.md were empty. Do not apply remembered facts, cite, compare against, or mention memory content.',
   ),
-  MEMORY_DRIFT_CAVEAT,
+  buildDriftCaveat(),
 ]
+}
 
 /**
  * `## Trusting what you recall` section. Heavier-weight guidance on HOW to
@@ -403,7 +413,8 @@ export const WHEN_TO_ACCESS_SECTION: readonly string[] = [
  * Known gap: H1 doesn't cover slash-command claims (0/3 on the /fork case —
  * slash commands aren't files or functions in the model's ontology).
  */
-export const TRUSTING_RECALL_SECTION: readonly string[] = [
+export function buildTrustingRecallSection(): readonly string[] {
+  return [
   // Header wording matters: "Before recommending" (action cue at the decision
   // point) tested better than "Trusting what you recall" (abstract). The
   // appendSystemPrompt variant with this header went 3/3; the abstract header
@@ -438,6 +449,7 @@ export const TRUSTING_RECALL_SECTION: readonly string[] = [
     'A memory that summarizes repo state (activity logs, architecture snapshots) is frozen in time. If the user asks about *recent* or *current* state, prefer `git log` or reading the code over recalling the snapshot.',
   ),
 ]
+}
 
 /**
  * Frontmatter format example with the `type` field.

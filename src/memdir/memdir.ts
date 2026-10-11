@@ -26,10 +26,10 @@ import { getInitialSettings } from '../utils/settings/settings.js'
 import { localizedPrompt } from '../prompts/i18n/index.js'
 import {
   MEMORY_FRONTMATTER_EXAMPLE,
-  TRUSTING_RECALL_SECTION,
-  TYPES_SECTION_INDIVIDUAL,
-  WHAT_NOT_TO_SAVE_SECTION,
-  WHEN_TO_ACCESS_SECTION,
+  buildTrustingRecallSection,
+  buildIndividualTypesSection,
+  buildWhatNotToSaveSection,
+  buildWhenToAccessSection,
 } from './memoryTypes.js'
 
 export const ENTRYPOINT_NAME = 'MEMORY.md'
@@ -283,14 +283,14 @@ export function buildMemoryLines(
       'If the user explicitly asks you to remember something, save it immediately as whichever type fits best. If they ask you to forget something, find and remove the relevant entry.',
     ),
     '',
-    ...TYPES_SECTION_INDIVIDUAL,
-    ...WHAT_NOT_TO_SAVE_SECTION,
+    ...buildIndividualTypesSection(),
+    ...buildWhatNotToSaveSection(),
     '',
     ...howToSave,
     '',
-    ...WHEN_TO_ACCESS_SECTION,
+    ...buildWhenToAccessSection(),
     '',
-    ...TRUSTING_RECALL_SECTION,
+    ...buildTrustingRecallSection(),
     '',
     localizedPrompt('memdir.persist.header', '## Memory and other forms of persistence'),
     localizedPrompt(
@@ -421,7 +421,7 @@ function buildAssistantDailyLogPrompt(skipIndex = false): string {
     localizedPrompt('memdir.daily.log4', '- Pointers to external systems (dashboards, Linear projects, Slack channels)'),
     localizedPrompt('memdir.daily.log5', '- Anything the user explicitly asks you to remember'),
     '',
-    ...WHAT_NOT_TO_SAVE_SECTION,
+    ...buildWhatNotToSaveSection(),
     '',
     ...(skipIndex
       ? []

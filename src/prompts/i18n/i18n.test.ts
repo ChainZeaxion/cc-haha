@@ -74,7 +74,7 @@ describe('the Chinese lead-in', () => {
     expect(lead).not.toBeNull()
     expect(lead!).toContain('语言说明')
     // Short by design: it frames what follows, it does not restate it.
-    expect(lead!.length).toBeLessThan(300)
+    expect(lead!.length).toBeLessThan(600)
 
     for (const locale of ['en', 'jp', 'kr']) {
       setPromptLanguage(locale)
@@ -91,6 +91,14 @@ describe('the Chinese lead-in', () => {
     setPromptLanguage('zh')
     expect(promptLanguageLead()).toContain('思考')
     expect(promptLanguageLead()).toContain('不要切换成英文')
+  })
+
+  test('forces the very first word of reasoning to be Chinese, naming the English openings to ban', () => {
+    setPromptLanguage('zh')
+    expect(promptLanguageLead()).toContain('思考首词必须中文')
+    // The banned English openings are named explicitly — measured to be what actually
+    // anchors a whole English reasoning run.
+    expect(promptLanguageLead()).toContain('The user')
   })
 })
 

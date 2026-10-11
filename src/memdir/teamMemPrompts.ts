@@ -7,9 +7,9 @@ import {
 import {
   MEMORY_DRIFT_CAVEAT,
   MEMORY_FRONTMATTER_EXAMPLE,
-  TRUSTING_RECALL_SECTION,
-  TYPES_SECTION_COMBINED,
-  WHAT_NOT_TO_SAVE_SECTION,
+  buildTrustingRecallSection,
+  buildCombinedTypesSection,
+  buildWhatNotToSaveSection,
 } from './memoryTypes.js'
 import { localizedPrompt } from '../prompts/i18n/index.js'
 import { getAutoMemPath } from './paths.js'
@@ -106,8 +106,8 @@ export function buildCombinedMemoryPrompt(
       { teamDir },
     ),
     '',
-    ...TYPES_SECTION_COMBINED,
-    ...WHAT_NOT_TO_SAVE_SECTION,
+    ...buildCombinedTypesSection(),
+    ...buildWhatNotToSaveSection(),
     localizedPrompt(
       'memdir.combined.sensitiveData',
       '- You MUST avoid saving sensitive data within shared team memories. For example, never save API keys or user credentials.',
@@ -130,7 +130,7 @@ export function buildCombinedMemoryPrompt(
     ),
     MEMORY_DRIFT_CAVEAT,
     '',
-    ...TRUSTING_RECALL_SECTION,
+    ...buildTrustingRecallSection(),
     '',
     localizedPrompt('memdir.persist.header', '## Memory and other forms of persistence'),
     localizedPrompt(
