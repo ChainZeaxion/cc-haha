@@ -27,7 +27,7 @@ import { FileWriteTool } from 'src/tools/FileWriteTool/FileWriteTool.js'
 import { getTools } from 'src/tools.js'
 import type { AgentId } from 'src/types/ids.js'
 import type { z } from 'zod/v4'
-import { CLI_SYSPROMPT_PREFIXES } from '../constants/system.js'
+import { getCliSyspromptPrefixSet } from '../constants/system.js'
 import { roughTokenCountEstimation } from '../services/tokenEstimation.js'
 import type { Tool, ToolPermissionContext, Tools } from '../Tool.js'
 import { AGENT_TOOL_NAME } from '../tools/AgentTool/constants.js'
@@ -323,6 +323,8 @@ export function splitSysPromptPrefix(
   options?: { skipGlobalCacheForSystemPrompt?: boolean },
 ): SystemPromptBlock[] {
   const useGlobalCacheFeature = shouldUseGlobalCacheScope()
+  // Runtime so the prefix set reflects the current prompt language (memdir fix).
+  const cliSyspromptPrefixSet = getCliSyspromptPrefixSet()
   if (useGlobalCacheFeature && options?.skipGlobalCacheForSystemPrompt) {
     logEvent('tengu_sysprompt_using_tool_based_cache', {
       promptBlockCount: systemPrompt.length,
@@ -338,7 +340,7 @@ export function splitSysPromptPrefix(
       if (prompt === SYSTEM_PROMPT_DYNAMIC_BOUNDARY) continue // Skip boundary
       if (prompt.startsWith('x-anthropic-billing-header')) {
         attributionHeader = prompt
-      } else if (CLI_SYSPROMPT_PREFIXES.has(prompt)) {
+      } else if (cliSyspromptPrefixSet.has(prompt)) {
         systemPromptPrefix = prompt
       } else {
         rest.push(prompt)
@@ -375,7 +377,7 @@ export function splitSysPromptPrefix(
 
         if (block.startsWith('x-anthropic-billing-header')) {
           attributionHeader = block
-        } else if (CLI_SYSPROMPT_PREFIXES.has(block)) {
+        } else if (cliSyspromptPrefixSet.has(block)) {
           systemPromptPrefix = block
         } else if (i < boundaryIndex) {
           staticBlocks.push(block)
@@ -417,7 +419,7 @@ export function splitSysPromptPrefix(
 
     if (block.startsWith('x-anthropic-billing-header')) {
       attributionHeader = block
-    } else if (CLI_SYSPROMPT_PREFIXES.has(block)) {
+    } else if (cliSyspromptPrefixSet.has(block)) {
       systemPromptPrefix = block
     } else {
       rest.push(block)
