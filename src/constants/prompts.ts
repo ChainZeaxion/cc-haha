@@ -609,6 +609,11 @@ ${CYBER_RISK_INSTRUCTION}`,
     ...(shouldUseGlobalCacheScope() ? [SYSTEM_PROMPT_DYNAMIC_BOUNDARY] : []),
     // --- Dynamic content (registry-managed) ---
     ...resolvedDynamicSections,
+    // Recency: the head lead sits ~11k tokens from the generation point and is
+    // diluted by the English body between it and the turn. Repeating the rule at
+    // the tail puts it immediately before the user's message — where the model
+    // actually begins reasoning. Null for non-Chinese, so upstream is untouched.
+    promptLanguageLead(),
   ].filter(s => s !== null)
 }
 

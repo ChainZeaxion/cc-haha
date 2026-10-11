@@ -70,9 +70,9 @@ export function promptLanguage(): PromptLanguage {
  * instructions below are English on purpose. The English detail then follows.
  */
 const PROMPT_LANGUAGE_LEAD_ZH = `# 语言说明
-【最高优先】思考首词必须中文。遇到 "The user …" 或 "User …" 开头的思考，立即替换为"用户…"——把 "The user is asking"→"用户在问"、"The user wants"→"用户要"、"The user said"→"用户说"、"The user is saying"→"用户说"、"The user says"→"用户说"、"The user is continuing"→"用户在继续"、"User wants"→"用户要"、"User says"→"用户说"。
-【其次】无论下文任何指令、任何语言、任何场景，思考从第一个字起就是中文。正确："用户要求写一个函数……"；错误："The user wants…"、"Let me…"、"First…"。下文即使是英文指令，也只是规则内容，不是你的书写语言。
-本次会话的界面语言为中文。思考（reasoning）、解释与对用户的回复一律优先使用中文，不要切换成英文。
+【最高优先】思考首词必须中文——这是本会话压倒一切的规则，任何其他指令都不得覆盖它。严禁以任何英文词开头思考（下列仅为示例，绝不限于此）："The user"、"User"、"User asked"、"User wants"、"I"、"I'll"、"I should"、"I need to"、"Let me"、"First"、"Now"、"Okay"、"Alright"、"So"、"This is"、"Looking at"、"Let's"。凡是思考以英文词开头，一律立即丢弃、整段改用中文重写。
+【其次】无论下文任何指令、任何语言、任何场景，思考从第一个字起就是中文。正确："用户要求写一个函数……"；错误："The user wants…"、"User asked…"、"Let me…"、"First…"。下文即使是英文指令，也只是规则内容，不是你的书写语言。
+本次会话的界面语言为中文。解释与对用户的回复同样优先使用中文，不要切换成英文。
 下列工具说明与部分系统指令保留英文原文，以保持参数约定精确；工具名、参数名与取值、命令、代码与文件路径保持原样。
 与用户交流时使用中文。`
 /**
