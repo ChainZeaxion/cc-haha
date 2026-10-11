@@ -3257,6 +3257,23 @@ src/prompts/i18n/
 
 **门禁**：i18n 16/16；`check:server` 6651/0。
 
+### 补记五（2026-10-12）：第 12–18 轮——最优注入位置
+
+补记四锁定「首词模板」后，继续 7 轮（累计 18 轮）专攻**注入位置**：
+
+| 位置 | 首词中文 |
+|---|---|
+| 仅 system 尾（W） | 75–90% |
+| **user 角色 reminder（轮次首条，prependUserContext）** | **93.8%** |
+
+**关键**：system 位于 tools **之前**（32 个英文工具定义在其后），而 user 消息在 tools **之后**——模型最后读到的是 user 角色内容。把规则放进轮次首条 user 的 `<system-reminder>`（`isMeta` 不显示给用户），首词中文从 ~75–90% 提到 **~94%**。
+
+**排除项**（第 12–18 轮验证无增益）：首字符必须汉字、三段式规则、心理自查措辞、更长词表、few-shot 示例——均不如简洁的首词模板。
+
+**实装**：`prependUserContext`（`src/utils/api.ts`）中文时注入 `promptLanguageUserNote()` 的 `<system-reminder>`；system 尾 `promptLanguageTail()` 保留。全链路（system 头 lead + system 尾模板 + user 首条 reminder）三层，非中文时全部 null，上游逐字节不变。
+
+**门禁**：i18n 16/16；`check:server` 6651/0。
+
 ### 功能完整性评估（V22 中文提示词 vs 原版英文）
 
 | 功能域 | 检查项 | 结果 |
