@@ -72,8 +72,10 @@ it('edits saved providers without reading or overwriting stored keys or global s
   fireEvent.click(await screen.findByRole('button', { name: 'Edit' }))
   const dialog = within(screen.getByRole('dialog'))
   expect(dialog.queryByRole('textbox', { name: 'Settings JSON' })).not.toBeInTheDocument()
-  expect(dialog.queryByRole('button', { name: 'Test Connection' })).not.toBeInTheDocument()
-  expect(dialog.queryByRole('button', { name: /Fetch Models/ })).not.toBeInTheDocument()
+  // 测试/获取按钮对 H5 放开（2026-10-11）：apiKey 已持久化在本地服务端，
+  // 经隧道测试与聊天走同一链路，无新增密钥暴露。Settings JSON 粘贴仍桌面专属。
+  expect(dialog.getByRole('button', { name: 'Test Connection' })).toBeInTheDocument()
+  expect(dialog.getByRole('button', { name: /Fetch models/i })).toBeInTheDocument()
   expect(dialog.getByLabelText('API Key')).toHaveValue('')
   expect(providersApi.getSettings).not.toHaveBeenCalled()
   fireEvent.click(dialog.getByRole('button', { name: 'Save' }))

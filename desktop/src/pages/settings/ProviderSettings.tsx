@@ -406,7 +406,7 @@ export function ProviderSettings({ browserMode = false }: { browserMode?: boolea
                       {!isActive && (
                         <Button variant="ghost" size="sm" onClick={() => handleActivate(provider.id)}>{t('settings.providers.setDefault')}</Button>
                       )}
-                      {!browserMode && <Button variant="ghost" size="sm" onClick={() => handleTest(provider)} loading={test?.loading}>{t('settings.providers.test')}</Button>}
+                      <Button variant="ghost" size="sm" onClick={() => handleTest(provider)} loading={test?.loading}>{t('settings.providers.test')}</Button>
                       <Button variant="ghost" size="sm" onClick={() => setEditingProvider(provider)}>{t('settings.providers.edit')}</Button>
                       {!isActive && (
                         <Button variant="ghost" size="sm" onClick={() => handleDelete(provider)} className="text-[var(--color-error)] hover:text-[var(--color-error)]">{t('common.delete')}</Button>
@@ -1838,7 +1838,7 @@ function ProviderFormModal({ open, onClose, mode, provider, presets, browserMode
         <div>
           <div className="mb-2 flex items-center justify-between gap-2">
             <label className="text-sm font-medium text-[var(--color-text-primary)]">{t('settings.providers.modelMapping')}</label>
-            {!browserMode && <Button
+            <Button
               variant="secondary"
               size="base"
               onClick={handleFetchModels}
@@ -1847,7 +1847,7 @@ function ProviderFormModal({ open, onClose, mode, provider, presets, browserMode
               icon={<span className="material-symbols-outlined text-[15px]">cloud_download</span>}
             >
               {t('settings.providers.fetchModels')}
-            </Button>}
+            </Button>
           </div>
           {browserMode ? null : !hasModelsApiKey ? (
             <p className="mb-2 text-[11px] text-[var(--color-text-tertiary)]">{t('settings.providers.fetchModelsApiKeyHint')}</p>
@@ -2096,7 +2096,7 @@ function ProviderFormModal({ open, onClose, mode, provider, presets, browserMode
         </div>
 
         {/* Test connection */}
-        {!browserMode && <div className="flex items-center gap-3">
+        <div className="flex items-center gap-3">
           <Button variant="secondary" size="sm" className="shrink-0 whitespace-nowrap" onClick={handleTest} loading={isTesting} disabled={!baseUrl.trim() || !models.main.trim() || compatibilityInvalid}>
             {t('settings.providers.testConnection')}
           </Button>
@@ -2116,7 +2116,7 @@ function ProviderFormModal({ open, onClose, mode, provider, presets, browserMode
               )}
             </div>
           )}
-        </div>}
+        </div>
 
         {/* Settings JSON stays on the trusted desktop. */}
         {!browserMode && <div>

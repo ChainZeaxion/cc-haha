@@ -25,6 +25,7 @@ while read -r p; do git apply -p1 "$p"; done < modify/patches/ORDER.md
 | `h5-mobile-run-records-patch1.patch` | 34,34 |
 | `h5-local-index-multi-root-patch1.patch` | 46,46,48 |
 | `h5-file-open-patch1.patch` | 2026-10-06 新增（⚠️ 基座 = 067 `align-latest` HEAD，非 068b3ebd；H5 文件打开三轮修复，66 文件 / +1680−192） |
+| `h5-provider-test-buttons-patch1.patch` | 2026-10-11 新增（⚠️ 基座 = 067 `align-latest`；H5 模型配置补「获取模型/测试连接/行内测试」，3 文件 / +41−7） |
 
 ## session/ — 会话及相关优化（pr-2，含文件下载/大会话性能）
 

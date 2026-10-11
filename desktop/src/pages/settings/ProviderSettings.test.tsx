@@ -518,3 +518,35 @@ describe('OpenCode Go provider', () => {
   })
 
 })
+describe('browserMode exposes provider testing affordances', () => {
+  beforeEach(() => {
+    useSettingsStore.setState({ locale: 'en' })
+    vi.spyOn(useSettingsStore.getState(), 'fetchAll').mockResolvedValue()
+    vi.spyOn(providersApi, 'list').mockResolvedValue({ providers: [], activeId: null })
+    vi.spyOn(providersApi, 'getSettings').mockResolvedValue({})
+    vi.spyOn(providersApi, 'updateSettings').mockResolvedValue({ ok: true })
+  })
+
+  afterEach(() => {
+    cleanup()
+    vi.restoreAllMocks()
+  })
+
+  it('shows the per-provider Test button, and Fetch Models / Test Connection in the modal', async () => {
+    vi.spyOn(providersApi, 'list').mockResolvedValue({
+      providers: savedProviders,
+      activeId: null,
+    })
+    vi.spyOn(useProviderStore.getState(), 'testProvider').mockResolvedValue({
+      connectivity: { success: true, latencyMs: 1 },
+    })
+    render(<ProviderSettings browserMode />)
+    const rowTests = await screen.findAllByRole('button', { name: 'Test' })
+    expect(rowTests).toHaveLength(savedProviders.length)
+
+    fireEvent.click(await screen.findByRole('button', { name: /Add Model/ }))
+    const dialog = await screen.findByRole('dialog')
+    expect(await within(dialog).findByRole('button', { name: /Fetch models/i })).toBeInTheDocument()
+    expect(within(dialog).getByRole('button', { name: /Test Connection/ })).toBeInTheDocument()
+  })
+})

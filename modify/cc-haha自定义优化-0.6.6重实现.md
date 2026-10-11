@@ -3145,3 +3145,19 @@ src/prompts/i18n/
 ### 状态
 
 ✅ v1 打样已实施（2026-10-11）；门禁 `check:server` 556/6647、`bun test src/prompts/i18n` 12/0；i18n 表 204 条、引用 202、**无悬空 id**。
+## 三十五 H5 模型配置补齐测试/获取按钮（✅ 2026-10-11）
+
+**问题**：H5 远程访问后，设置 → 模型配置里缺三个按钮：配置页无「获取模型」「测试连接」（仅桌面有）；供应商行内「设为默认」与「编辑」之间缺「测试」。
+
+**根因**：H5 复用桌面 `ProviderSettings`（`desktop/src/pages/settings/H5Settings.tsx:80` 传 `browserMode`），三处被 `!browserMode &&` 一刀切隐藏——来自 `8d7b5ea56`「加固远程凭据处理」的保守决策（同批禁的还有 cc-switch 导入）。非技术限制：H5 经同一隧道到同一服务端，`POST /api/providers/models`、`/api/providers/test`、`/api/providers/:id/test` 全部可达。
+
+**改动**（仅 1 文件 + 测试）：
+- `desktop/src/pages/settings/ProviderSettings.tsx`：删 3 处 `!browserMode &&` 门控（行内 Test 按钮、表单模态「获取模型」「测试连接」）。结果展示区本就存在，无需新布局。
+- `desktop/src/pages/settings/ProviderSettings.test.tsx`：新增 `browserMode exposes provider testing affordances` 用例——断言行内 Test 按钮数量 = 供应商数、模态内「Fetch models / Test Connection」可见。
+- `desktop/src/pages/settings/H5Settings.test.tsx`：旧用例锁定了「H5 下无这三个按钮」（8d7b5ea56 的行为），改为断言存在；Settings JSON 粘贴的缺席断言保留。
+
+**保持不动**：cc-switch 导入（:251）——读本地文件系统扫描，经隧道做无意义，仍禁。settings JSON 粘贴（:2122）——凭据加固的本意，仍禁。
+
+**安全论证**：无新密钥暴露。apiKey 已持久化在本地服务端且每次聊天都在用；测试/获取只是把已填/已存的值走同一链路；行内「测试」甚至不经客户端传 key（服务端自读配置）。
+
+**测试**：`bunx vitest run ProviderSettings.test.tsx` 23/23（原 22 + 新 1）。

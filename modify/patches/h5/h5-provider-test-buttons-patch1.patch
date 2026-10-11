@@ -1,0 +1,106 @@
+diff --git a/desktop/src/pages/settings/H5Settings.test.tsx b/desktop/src/pages/settings/H5Settings.test.tsx
+index b22def873..a3aa480f0 100644
+--- a/desktop/src/pages/settings/H5Settings.test.tsx
++++ b/desktop/src/pages/settings/H5Settings.test.tsx
+@@ -72,8 +72,10 @@ it('edits saved providers without reading or overwriting stored keys or global s
+   fireEvent.click(await screen.findByRole('button', { name: 'Edit' }))
+   const dialog = within(screen.getByRole('dialog'))
+   expect(dialog.queryByRole('textbox', { name: 'Settings JSON' })).not.toBeInTheDocument()
+-  expect(dialog.queryByRole('button', { name: 'Test Connection' })).not.toBeInTheDocument()
+-  expect(dialog.queryByRole('button', { name: /Fetch Models/ })).not.toBeInTheDocument()
++  // 测试/获取按钮对 H5 放开（2026-10-11）：apiKey 已持久化在本地服务端，
++  // 经隧道测试与聊天走同一链路，无新增密钥暴露。Settings JSON 粘贴仍桌面专属。
++  expect(dialog.getByRole('button', { name: 'Test Connection' })).toBeInTheDocument()
++  expect(dialog.getByRole('button', { name: /Fetch models/i })).toBeInTheDocument()
+   expect(dialog.getByLabelText('API Key')).toHaveValue('')
+   expect(providersApi.getSettings).not.toHaveBeenCalled()
+   fireEvent.click(dialog.getByRole('button', { name: 'Save' }))
+diff --git a/desktop/src/pages/settings/ProviderSettings.test.tsx b/desktop/src/pages/settings/ProviderSettings.test.tsx
+index 3cd01ea0c..57ffbb008 100644
+--- a/desktop/src/pages/settings/ProviderSettings.test.tsx
++++ b/desktop/src/pages/settings/ProviderSettings.test.tsx
+@@ -518,3 +518,35 @@ describe('OpenCode Go provider', () => {
+   })
+ 
+ })
++describe('browserMode exposes provider testing affordances', () => {
++  beforeEach(() => {
++    useSettingsStore.setState({ locale: 'en' })
++    vi.spyOn(useSettingsStore.getState(), 'fetchAll').mockResolvedValue()
++    vi.spyOn(providersApi, 'list').mockResolvedValue({ providers: [], activeId: null })
++    vi.spyOn(providersApi, 'getSettings').mockResolvedValue({})
++    vi.spyOn(providersApi, 'updateSettings').mockResolvedValue({ ok: true })
++  })
++
++  afterEach(() => {
++    cleanup()
++    vi.restoreAllMocks()
++  })
++
++  it('shows the per-provider Test button, and Fetch Models / Test Connection in the modal', async () => {
++    vi.spyOn(providersApi, 'list').mockResolvedValue({
++      providers: savedProviders,
++      activeId: null,
++    })
++    vi.spyOn(useProviderStore.getState(), 'testProvider').mockResolvedValue({
++      connectivity: { success: true, latencyMs: 1 },
++    })
++    render(<ProviderSettings browserMode />)
++    const rowTests = await screen.findAllByRole('button', { name: 'Test' })
++    expect(rowTests).toHaveLength(savedProviders.length)
++
++    fireEvent.click(await screen.findByRole('button', { name: /Add Model/ }))
++    const dialog = await screen.findByRole('dialog')
++    expect(await within(dialog).findByRole('button', { name: /Fetch models/i })).toBeInTheDocument()
++    expect(within(dialog).getByRole('button', { name: /Test Connection/ })).toBeInTheDocument()
++  })
++})
+diff --git a/desktop/src/pages/settings/ProviderSettings.tsx b/desktop/src/pages/settings/ProviderSettings.tsx
+index cfba07156..a3e4da797 100644
+--- a/desktop/src/pages/settings/ProviderSettings.tsx
++++ b/desktop/src/pages/settings/ProviderSettings.tsx
+@@ -406,7 +406,7 @@ export function ProviderSettings({ browserMode = false }: { browserMode?: boolea
+                       {!isActive && (
+                         <Button variant="ghost" size="sm" onClick={() => handleActivate(provider.id)}>{t('settings.providers.setDefault')}</Button>
+                       )}
+-                      {!browserMode && <Button variant="ghost" size="sm" onClick={() => handleTest(provider)} loading={test?.loading}>{t('settings.providers.test')}</Button>}
++                      <Button variant="ghost" size="sm" onClick={() => handleTest(provider)} loading={test?.loading}>{t('settings.providers.test')}</Button>
+                       <Button variant="ghost" size="sm" onClick={() => setEditingProvider(provider)}>{t('settings.providers.edit')}</Button>
+                       {!isActive && (
+                         <Button variant="ghost" size="sm" onClick={() => handleDelete(provider)} className="text-[var(--color-error)] hover:text-[var(--color-error)]">{t('common.delete')}</Button>
+@@ -1838,7 +1838,7 @@ function ProviderFormModal({ open, onClose, mode, provider, presets, browserMode
+         <div>
+           <div className="mb-2 flex items-center justify-between gap-2">
+             <label className="text-sm font-medium text-[var(--color-text-primary)]">{t('settings.providers.modelMapping')}</label>
+-            {!browserMode && <Button
++            <Button
+               variant="secondary"
+               size="base"
+               onClick={handleFetchModels}
+@@ -1847,7 +1847,7 @@ function ProviderFormModal({ open, onClose, mode, provider, presets, browserMode
+               icon={<span className="material-symbols-outlined text-[15px]">cloud_download</span>}
+             >
+               {t('settings.providers.fetchModels')}
+-            </Button>}
++            </Button>
+           </div>
+           {browserMode ? null : !hasModelsApiKey ? (
+             <p className="mb-2 text-[11px] text-[var(--color-text-tertiary)]">{t('settings.providers.fetchModelsApiKeyHint')}</p>
+@@ -2096,7 +2096,7 @@ function ProviderFormModal({ open, onClose, mode, provider, presets, browserMode
+         </div>
+ 
+         {/* Test connection */}
+-        {!browserMode && <div className="flex items-center gap-3">
++        <div className="flex items-center gap-3">
+           <Button variant="secondary" size="sm" className="shrink-0 whitespace-nowrap" onClick={handleTest} loading={isTesting} disabled={!baseUrl.trim() || !models.main.trim() || compatibilityInvalid}>
+             {t('settings.providers.testConnection')}
+           </Button>
+@@ -2116,7 +2116,7 @@ function ProviderFormModal({ open, onClose, mode, provider, presets, browserMode
+               )}
+             </div>
+           )}
+-        </div>}
++        </div>
+ 
+         {/* Settings JSON stays on the trusted desktop. */}
+         {!browserMode && <div>

@@ -52,4 +52,7 @@ patches/vcc/vcc-compaction-retention-budget-patch1.patch
 # 内置提示词中文化基础设施（v1 打样）：zh 覆盖表 + localizedPrompt，主系统提示词/收尾/compact/autoDream/review/team/三个内置 agent；
 # 含 locale 管道（desktop-ui.json.locale → 侧车）。28 文件（24 改 + 4 新 src/prompts/i18n/*）。
 # 独立应用（干净 `cb7065b1e` 上 apply ⇒ 28 文件逐字节一致）。
-patches/prompt/prompt-i18n-localization-patch1.patch
+
+# 40：⚠️ 基座同上（0.6.7 血缘）—— = `align-latest`，**独立应用**。
+# H5 模型配置补齐测试/获取按钮：删 ProviderSettings 3 处 !browserMode 门控（行内 Test / 获取模型 / 测试连接）+ 测试。3 文件。
+patches/h5/h5-provider-test-buttons-patch1.patch
