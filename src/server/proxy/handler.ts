@@ -278,7 +278,15 @@ export async function handleProxyRequest(req: Request, url: URL): Promise<Respon
   // Resolved per request because one provider record can serve several formats.
   const modelApiFormat = resolveModelApiFormat(config.modelApiFormats, body.model)
   const apiFormat = modelApiFormat ?? config.apiFormat
-  const upstreamHeaders = resolveUpstreamHeaders(config.upstreamHeaders, { sessionId: inboundSessionId })
+  // A private-network (machine-local/LAN) upstream is our own engine, so the
+  // preset may declare per-gateway headers for it that must not reach a public
+  // host — canonically the CLI session id, which the pass-through below filters
+  // as an internal client header but bc/vLLM key their session state on. Merge
+  // those in only when the resolved upstream really is private.
+  const upstreamHeaderTemplate = isPrivateNetworkUrl(baseUrl)
+    ? { ...config.upstreamHeaders, ...config.upstreamHeadersPrivate }
+    : config.upstreamHeaders
+  const upstreamHeaders = resolveUpstreamHeaders(upstreamHeaderTemplate, { sessionId: inboundSessionId })
 
   try {
     if (apiFormat === 'anthropic') {

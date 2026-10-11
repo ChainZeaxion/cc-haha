@@ -108,35 +108,44 @@ export const MANUAL_COMPACT_BUFFER_TOKENS = 3_000
 
 /**
  * Auto-compact tiers, keyed by the *declared* context window
- * (`getResolvedContextWindow`). Each tier states how much should be left when
- * compaction starts (`pctLeft` of the window) and the absolute floor below
- * which compaction is forced regardless of percentage (`floorTokens`).
+ * (`getResolvedContextWindow`). Both numbers are shares of the window that
+ * should still be free, and both are applied to the *effective* window (the
+ * declared one minus the summary reserve) because the quantity they are
+ * compared against is a real token count.
+ *
+ * - `softPctLeft` — compaction starts here.
+ * - `forcedPctLeft` — compaction is forced here, whatever the soft rule says.
+ *   Also the budget a compaction aims to land under: see
+ *   {@link getVccRetentionBudget}.
+ *
+ * Every band keeps more than half the gap between the two, so the forced
+ * threshold is always the later of the pair.
  *
  * Bands are inclusive upper bounds, evaluated top to bottom.
  */
 export const AUTOCOMPACT_TIERS: ReadonlyArray<{
   upToWindow: number
-  pctLeft: number
-  floorTokens: number
+  softPctLeft: number
+  forcedPctLeft: number
 }> = [
-  { upToWindow: 100_000, pctLeft: 0.13, floorTokens: 13_000 },
-  { upToWindow: 200_000, pctLeft: 0.17, floorTokens: 32_000 },
-  { upToWindow: 300_000, pctLeft: 0.21, floorTokens: 36_000 },
-  { upToWindow: 500_000, pctLeft: 0.17, floorTokens: 53_000 },
-  { upToWindow: Number.POSITIVE_INFINITY, pctLeft: 0.15, floorTokens: 65_000 },
+  { upToWindow: 120_000, softPctLeft: 0.1, forcedPctLeft: 0.08 },
+  { upToWindow: 210_000, softPctLeft: 0.13, forcedPctLeft: 0.1 },
+  { upToWindow: 320_000, softPctLeft: 0.15, forcedPctLeft: 0.13 },
+  { upToWindow: 520_000, softPctLeft: 0.13, forcedPctLeft: 0.1 },
+  { upToWindow: Number.POSITIVE_INFINITY, softPctLeft: 0.1, forcedPctLeft: 0.07 },
 ]
 
 export function getAutoCompactTier(declaredWindow: number): {
-  pctLeft: number
-  floorTokens: number
+  softPctLeft: number
+  forcedPctLeft: number
 } {
   for (const tier of AUTOCOMPACT_TIERS) {
     if (declaredWindow <= tier.upToWindow) {
-      return { pctLeft: tier.pctLeft, floorTokens: tier.floorTokens }
+      return { softPctLeft: tier.softPctLeft, forcedPctLeft: tier.forcedPctLeft }
     }
   }
   const last = AUTOCOMPACT_TIERS[AUTOCOMPACT_TIERS.length - 1]!
-  return { pctLeft: last.pctLeft, floorTokens: last.floorTokens }
+  return { softPctLeft: last.softPctLeft, forcedPctLeft: last.forcedPctLeft }
 }
 
 // Stop trying autocompact after this many consecutive failures.
@@ -155,7 +164,7 @@ const MAX_CONSECUTIVE_AUTOCOMPACT_FAILURES = 3
  */
 export function getAutoCompactThreshold(model: string): number {
   const effectiveContextWindow = getEffectiveContextWindowSize(model)
-  const { pctLeft } = getAutoCompactTier(getResolvedContextWindow(model))
+  const { softPctLeft: pctLeft } = getAutoCompactTier(getResolvedContextWindow(model))
 
   const tieredThreshold = Math.floor(
     effectiveContextWindow * (1 - pctLeft),
@@ -181,23 +190,47 @@ export function getAutoCompactThreshold(model: string): number {
 }
 
 /**
- * Hard trigger: remaining tokens below the tier's absolute floor. The soft
- * percentage normally fires first, so this is a backstop — it guarantees a
- * compaction attempt when the remaining budget is genuinely small even if the
- * percentage path was bypassed (overridden, or already compacted and refilled).
+ * Hard trigger: the tier's `forcedPctLeft` of the window is all that is left.
+ * The soft percentage normally fires first, so this is a backstop — it
+ * guarantees a compaction attempt when the remaining budget is genuinely small
+ * even if the percentage path was bypassed (overridden, or already compacted
+ * and refilled).
  *
- * Never returned earlier than the soft trigger, so crossing it always implies
- * the soft condition was already satisfied.
+ * Measured on the effective window, the same basis as the soft threshold: both
+ * are a share of the window held against a real token count, so putting them on
+ * different bases would make the gap between them depend on the summary reserve.
+ * Never returned earlier than the soft trigger.
  */
 export function getForcedCompactThreshold(model: string): number {
-  // Measured on the declared window, the same basis as the tier bands: the
-  // floor is stated as an absolute number of tokens left, so it has to be
-  // subtracted from the window the operator declared. Both are clamped so the
-  // result can never precede the soft trigger.
-  const declaredWindow = getResolvedContextWindow(model)
-  const { floorTokens } = getAutoCompactTier(declaredWindow)
-  const floor = Math.min(floorTokens, declaredWindow)
-  return Math.max(declaredWindow - floor, getAutoCompactThreshold(model))
+  const effectiveContextWindow = getEffectiveContextWindowSize(model)
+  const { forcedPctLeft } = getAutoCompactTier(getResolvedContextWindow(model))
+  const forced = Math.floor(effectiveContextWindow * (1 - forcedPctLeft))
+  return Math.max(forced, getAutoCompactThreshold(model))
+}
+
+/**
+ * What a completed compaction should leave behind, in tokens of context.
+ *
+ * `preferredTokens` is the target: the share of the window the forced trigger
+ * reserves — i.e. a compaction should land where the next compaction is not
+ * already due. `ceilingTokens` is the most that may be kept when the live tail
+ * is too large to fit the target, and it is the *soft* share: past it the
+ * compaction would have made the context no safer than not compacting at all.
+ *
+ * The window is the effective one, matching how both triggers are measured.
+ */
+export function getVccRetentionBudget(model: string): {
+  preferredTokens: number
+  ceilingTokens: number
+} {
+  const effectiveContextWindow = getEffectiveContextWindowSize(model)
+  const { softPctLeft, forcedPctLeft } = getAutoCompactTier(
+    getResolvedContextWindow(model),
+  )
+  return {
+    preferredTokens: Math.floor(effectiveContextWindow * forcedPctLeft),
+    ceilingTokens: Math.floor(effectiveContextWindow * softPctLeft),
+  }
 }
 
 export function calculateTokenWarningState(

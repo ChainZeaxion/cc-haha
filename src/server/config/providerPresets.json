@@ -453,6 +453,9 @@
     },
     "needsApiKey": true,
     "websiteUrl": "",
-    "authStrategy": "auth_token"
+    "authStrategy": "auth_token",
+    "upstreamHeadersPrivate": {
+      "x-claude-code-session-id": "$SESSION_ID"
+    }
   }
 ]

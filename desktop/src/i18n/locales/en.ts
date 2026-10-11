@@ -933,6 +933,8 @@ export const en = {
   'workspace.previewState.loading': 'Loading preview...',
   'workspace.previewState.binary': 'Binary file preview is unavailable.',
   'workspace.previewState.tooLarge': 'File is too large to preview.',
+  'workspace.previewState.tooLargeSized': '{name} is {size} — past what the browser preview will carry. Download it to read the whole file.',
+  'workspace.previewState.truncated': 'Only the beginning of this {size} file is shown. Download it to read the whole of it.',
   'workspace.previewState.missing': 'File not found.',
   'workspace.imagePreviewUnavailable': 'Image preview is unavailable.',
   'workspace.zoom.group': 'Zoom controls',
@@ -941,6 +943,14 @@ export const en = {
   'workspace.zoom.fitWindow': 'Fit to window',
   'workspace.zoom.fitWidth': 'Fit to width',
   'workspace.openInSystemApp': 'Open in system app',
+  // The browser surface has no system application to hand a file to, and on the
+  // H5 surface "the system" would be the *server*, so the way out is a save.
+  'workspace.mediaUnavailable': 'This media can’t be played here.',
+  'workspace.fileUnavailable.title': 'Can’t open in the page',
+  'workspace.fileUnavailable.body': '{name} can’t be previewed in the browser. Download it to open it with an app on this device.',
+  'workspace.fileUnavailable.tooLargeBody': '{name} is too large ({size}) to preview in the browser. Download it to open it with an app on this device.',
+  'workspace.fileUnavailable.outsideBody': '{name} is outside the workspace and can’t be previewed in the browser. Download it to open it with an app on this device.',
+  'workspace.fileUnavailable.unreachableBody': '{name} is outside the workspace and the server can’t provide it, so it can’t be opened or downloaded from here.',
   'workspace.document.loading': 'Loading document...',
   'workspace.document.updating': 'Updating preview...',
   'workspace.document.parseFailed': 'This document could not be displayed.',

@@ -6,7 +6,8 @@ import { isWorkspaceDocumentFile } from './fileCapabilities'
 import { useWorkspaceContentStore } from '../stores/workspaceContentStore'
 import { sessionsApi } from '../api/sessions'
 import { workspaceOpen } from './workspace/openTarget'
-import { openLocalFileWithSystem, reportOpenFailure, resolveAbsoluteOpenPath } from './systemFileOpen'
+import { canOpenWithSystem, openFileWithSystemOrOfferSave, resolveAbsoluteOpenPath } from './systemFileOpen'
+import { openFileOutsideWorkspace } from './openOutsideWorkspaceFile'
 
 /**
  * Cheap, synchronous guess at whether the workspace preview can reach this document.
@@ -58,21 +59,49 @@ async function documentReachableOnServer(sessionId: string, path: string): Promi
 export function openPreviewLink(href: string, sessionId: string): boolean {
   const currentWorkDir = () => useWorkspaceContentStore.getState().statusBySession[sessionId]?.workDir
   const openSystemFile = (path: string) => {
-    const absolutePath = resolveAbsoluteOpenPath(path, currentWorkDir())
-    void openLocalFileWithSystem(absolutePath).catch(() => reportOpenFailure(absolutePath))
+    const workDir = currentWorkDir()
+    const absolutePath = resolveAbsoluteOpenPath(path, workDir)
+    // A path outside the workspace is a different problem on a runtime with no
+    // system application: there is nothing to hand it to, and the workspace route
+    // may refuse it. Settle which, by size and reachability, rather than letting
+    // it fall through to a generic "cannot open".
+    if (!canOpenWithSystem() && !documentReachableInWorkspace(path, workDir)) {
+      openFileOutsideWorkspace({ sessionId, absolutePath, displayPath: path })
+      return
+    }
+    openFileWithSystemOrOfferSave(absolutePath)
   }
 
   return handlePreviewLink(href, {
     sessionId,
     serverBaseUrl: getServerBaseUrl(),
-    openBrowser: (id, url) => { workspaceOpen.browser(id, url) },
+    openBrowser: (id, url) => { workspaceOpen.browser(id, url, { requestedBy: 'user' }) },
     openFilePreview: (id, path, reveal) => {
       const openInWorkspace = () => {
         workspaceOpen.file(id, path, {
           ...(reveal ? { line: reveal.line, ...(reveal.column ? { column: reveal.column } : {}) } : {}),
+          requestedBy: 'user',
         })
       }
-      if (!isWorkspaceDocumentFile(path) || documentReachableInWorkspace(path, currentWorkDir())) {
+      const workDir = currentWorkDir()
+      if (documentReachableInWorkspace(path, workDir)) {
+        openInWorkspace()
+        return
+      }
+      // Outside the workspace. On the desktop the reachability question is worth
+      // asking of the server, because a registered root may still cover it; with
+      // no shell the answer decides between an in-page preview and an explanation,
+      // and the size has to be weighed in too.
+      if (!canOpenWithSystem()) {
+        openFileOutsideWorkspace({
+          sessionId: id,
+          absolutePath: resolveAbsoluteOpenPath(path, workDir),
+          displayPath: path,
+          ...(reveal ? { reveal } : {}),
+        })
+        return
+      }
+      if (!isWorkspaceDocumentFile(path)) {
         openInWorkspace()
         return
       }

@@ -75,6 +75,15 @@ export type WorkspaceSessionState = {
   nextTerminalOrdinal: number
   focus: WorkspaceFocusRequest | null
   origin: WorkspaceOrigin | null
+  /**
+   * The last open this session got that the *user* asked for, as a counter.
+   *
+   * A count rather than a flag so a repeat open re-fires: the mobile shell shows
+   * its workspace overlay on an explicit tap, and two taps in a row (or the same
+   * file twice) are two tap-to-reveal events. Never serialized — it describes one
+   * interaction, not the workspace's shape.
+   */
+  lastUserOpen: { nonce: number } | null
 }
 
 type WorkspaceStore = {
@@ -145,6 +154,7 @@ export const EMPTY_WORKSPACE_SESSION: WorkspaceSessionState = {
   nextTerminalOrdinal: 1,
   focus: null,
   origin: null,
+  lastUserOpen: null,
 }
 
 let idCounter = 0
@@ -159,6 +169,15 @@ export function __resetWorkspaceIdCounterForTest() {
 }
 
 let focusNonce = 0
+
+/**
+ * Monotonic, so no two user opens ever look alike.
+ *
+ * Reusing the value of a previous open — as a boolean flag or a constant would —
+ * makes the *second* tap indistinguishable from the first to anything watching
+ * for a change, and the panel would simply not open.
+ */
+let userOpenNonce = 0
 
 export function clampWorkspaceSideWidth(width: number) {
   if (!Number.isFinite(width)) return WORKSPACE_SIDE_DEFAULT_WIDTH
@@ -633,6 +652,20 @@ export const useWorkspaceStore = create<WorkspaceStore>((set, get) => ({
         : inserted
       return { bySession: { ...store.bySession, [sessionId]: next } }
     })
+
+    // Stamped after the open has settled rather than inside each branch: the
+    // event is "the user asked, and the workspace honoured it", which every one
+    // of those branches shares. A background open is not a user gesture in the
+    // sense the mobile shell cares about — it must not pop the panel over what
+    // the user is reading.
+    if (options.requestedBy === 'user' && options.background !== true) {
+      set((store) => ({
+        bySession: {
+          ...store.bySession,
+          [sessionId]: { ...session(store.bySession, sessionId), lastUserOpen: { nonce: ++userOpenNonce } },
+        },
+      }))
+    }
 
     return createdId
   },

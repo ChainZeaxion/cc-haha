@@ -136,6 +136,7 @@ export function AttachmentGallery({ attachments, variant = 'message', onRemove }
         { kind: 'file', absolutePath: attachment.path! },
         targets,
         {
+          systemOpenAvailable: desktopHost.capabilities.shell,
           openInAppBrowser: () => {},
           openSystem: (path) => {
             void desktopHost.shell.openPath(path).catch(() => showOpenFailure(attachment.name))

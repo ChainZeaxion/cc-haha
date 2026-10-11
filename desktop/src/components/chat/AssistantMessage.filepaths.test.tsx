@@ -60,7 +60,8 @@ vi.mock('@tauri-apps/plugin-shell', () => ({ open: vi.fn().mockResolvedValue(und
 
 const openPath = vi.hoisted(() => vi.fn().mockResolvedValue(undefined))
 vi.mock('../../lib/desktopHost', () => ({
-  getDesktopHost: () => ({ shell: { openPath } }),
+  // A desktop runtime: these cases are about what reaches the system app.
+  getDesktopHost: () => ({ capabilities: { shell: true }, shell: { openPath } }),
 }))
 
 vi.mock('../../i18n', () => ({
@@ -92,19 +93,19 @@ describe('AssistantMessage file references', () => {
     // #1146, and the contract src/constants/prompts.ts already asks the model for.
     render(<AssistantMessage sessionId="s1" content={'越界在 desktop/src/lib/foo.ts:42'} isStreaming={false} />)
     fireEvent.click(screen.getByRole('link', { name: 'desktop/src/lib/foo.ts:42' }))
-    expect(openPreviewFn).toHaveBeenCalledWith('s1', 'desktop/src/lib/foo.ts', { line: 42 })
+    expect(openPreviewFn).toHaveBeenCalledWith('s1', 'desktop/src/lib/foo.ts', { line: 42, requestedBy: 'user' })
   })
 
   it('opens an inline-code reference through the same route', () => {
     render(<AssistantMessage sessionId="s1" content={'改 `src/app.ts:7`'} isStreaming={false} />)
     fireEvent.click(screen.getByRole('link', { name: 'src/app.ts:7' }))
-    expect(openPreviewFn).toHaveBeenCalledWith('s1', 'src/app.ts', { line: 7 })
+    expect(openPreviewFn).toHaveBeenCalledWith('s1', 'src/app.ts', { line: 7, requestedBy: 'user' })
   })
 
   it('opens a source reference under the explicitly declared project root', () => {
     render(<AssistantMessage sessionId="s1" content={'项目根目录是 `/other/promo/`：\n- `src/lib/shots.ts:7`'} />)
     fireEvent.click(screen.getByRole('link', { name: 'src/lib/shots.ts:7' }))
-    expect(openPreviewFn).toHaveBeenCalledWith('s1', '/other/promo/src/lib/shots.ts', { line: 7 })
+    expect(openPreviewFn).toHaveBeenCalledWith('s1', '/other/promo/src/lib/shots.ts', { line: 7, requestedBy: 'user' })
   })
 
   it('uses the declared root for prose context menus and copy path', async () => {
@@ -127,20 +128,31 @@ describe('AssistantMessage file references', () => {
     const { container } = render(<AssistantMessage sessionId="s1" content={content} turnChangedFiles={turnChangedFiles} />)
     expect(container.querySelectorAll('video')).toHaveLength(1)
     expect(container.querySelector('video')).toHaveAttribute('src', 'http://127.0.0.1:4321/local-file/other/promo/out/movie.mp4')
+    // Audio plays in the workspace now, so both the card and the prose open the
+    // preview rather than handing the file to the system application — which on
+    // the H5 surface meant the *server's* application.
     fireEvent.click(screen.getByText('track.wav').closest('button')!)
-    await waitFor(() => expect(openPath).toHaveBeenCalledWith('/other/promo/public/audio/track.wav'))
-    openPath.mockClear()
+    await waitFor(() => expect(openPreviewFn).toHaveBeenCalledWith(
+      's1', '/other/promo/public/audio/track.wav', { requestedBy: 'user' },
+    ))
+    openPreviewFn.mockClear()
     fireEvent.click(screen.getByRole('link', { name: 'public/audio/track.wav' }))
-    await waitFor(() => expect(openPath).toHaveBeenCalledWith('/other/promo/public/audio/track.wav'))
+    await waitFor(() => expect(openPreviewFn).toHaveBeenCalledWith(
+      's1', '/other/promo/public/audio/track.wav', { requestedBy: 'user' },
+    ))
   })
 
   it('keeps prose and card destinations equal when the project root is stated later', async () => {
     render(<AssistantMessage sessionId="s1" content={'`track.wav`\n\n项目根目录是 `/other/promo/`'} />)
     fireEvent.click(screen.getByRole('link', { name: 'track.wav' }))
-    await waitFor(() => expect(openPath).toHaveBeenLastCalledWith('/other/promo/track.wav'))
-    openPath.mockClear()
+    await waitFor(() => expect(openPreviewFn).toHaveBeenLastCalledWith(
+      's1', '/other/promo/track.wav', { requestedBy: 'user' },
+    ))
+    openPreviewFn.mockClear()
     fireEvent.click(screen.getByText('track.wav', { selector: 'span' }).closest('button')!)
-    await waitFor(() => expect(openPath).toHaveBeenLastCalledWith('/other/promo/track.wav'))
+    await waitFor(() => expect(openPreviewFn).toHaveBeenLastCalledWith(
+      's1', '/other/promo/track.wav', { requestedBy: 'user' },
+    ))
   })
 
   it('does not linkify a bare path mid-stream', () => {

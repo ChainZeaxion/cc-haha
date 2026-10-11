@@ -1,16 +1,20 @@
 import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from 'react'
-import { ChevronDown, ChevronRight, ExternalLink, FolderClosed, FolderOpen, PanelLeftClose, PanelLeftOpen } from 'lucide-react'
+import { ChevronDown, ChevronRight, Download, ExternalLink, FolderClosed, FolderOpen, PanelLeftClose, PanelLeftOpen } from 'lucide-react'
 import { IconButton } from '@/components/ui/IconButton'
 import { TargetIcon } from '@/components/composite/TargetIcon'
 import { useWorkspaceFileOpenTargets } from '@/components/workspace/workspaceFileOpenTargets'
 import { useDismissable } from '@/hooks/useDismissable'
+import { useSystemFileAction } from '@/hooks/useSystemFileAction'
 import { useTranslation } from '../../i18n'
 import { CodeSurface } from '../workspace/surfaces/CodeSurface'
 import { DocumentSurface } from '../workspace/surfaces/document/DocumentSurface'
 import { isDocumentPreviewType } from '../workspace/surfaces/document/documentViewers'
+import { isWorkspaceMediaFile } from '../../lib/fileCapabilities'
 import { ImagePreview } from '../workspace/surfaces/ImagePreview'
 import { MarkdownSurface } from '../workspace/surfaces/MarkdownSurface'
+import { MediaSurface } from '../workspace/surfaces/MediaSurface'
 import { OpenInSystemButton } from '../workspace/surfaces/OpenInSystemButton'
+import { formatBytes } from '../../lib/formatBytes'
 import { PanelMessage } from '../workspace/surfaces/PanelMessage'
 import type { WorkspaceTextSelection } from '../workspace/surfaces/textSelection'
 import { WorkspaceFileOpenWith } from '../workspace/WorkspaceFileOpenWith'
@@ -125,7 +129,10 @@ export function WorkspaceFileTab({ sessionId, tab }: WorkspaceFileTabProps) {
   }, [loadStatus, sessionId])
 
   useEffect(() => {
-    if (!path) return
+    // Media is played from the path, never from the read: this route fetches the
+    // first chunk of the file for a text preview, which for a video is both
+    // useless and a wasted read of a file that may be hundreds of megabytes.
+    if (!path || isWorkspaceMediaFile(path)) return
     void loadFile(sessionId, path)
   }, [loadFile, path, sessionId])
 
@@ -187,6 +194,7 @@ export function WorkspaceFileTab({ sessionId, tab }: WorkspaceFileTabProps) {
   const breadcrumbSegments = projectSegment ? [projectSegment, ...segments] : segments
   const absolutePath = resolveAbsoluteOpenPath(path, workDir ?? undefined)
   const fileOpen = useWorkspaceFileOpenTargets(path ? absolutePath : null)
+  const openAction = useSystemFileAction(absolutePath)
   // Every state below that cannot show the file offers the way out that always
   // works. It needs a real absolute path: until the workdir is known a relative
   // one would have the OS open nothing.
@@ -249,13 +257,25 @@ export function WorkspaceFileTab({ sessionId, tab }: WorkspaceFileTabProps) {
               <button
                 type="button"
                 data-testid="workspace-file-open-primary"
-                disabled={!fileOpen.primaryTarget}
-                aria-label={fileOpen.primaryTarget ? t('openWith.openInTarget', { target: fileOpen.primaryTarget.label }) : t('workspace.files.openWith')}
-                onClick={() => { if (fileOpen.primaryTarget) fileOpen.openTarget(fileOpen.primaryTarget) }}
+                // Without a shell there is no application to open *with*: the slot
+                // becomes the save, which is the only way the user gets the file.
+                disabled={!openAction.canOpen && !fileOpen.primaryTarget}
+                aria-label={openAction.canOpen
+                  ? (fileOpen.primaryTarget ? t('openWith.openInTarget', { target: fileOpen.primaryTarget.label }) : t('workspace.files.openWith'))
+                  : openAction.label}
+                onClick={() => {
+                  if (!openAction.canOpen) {
+                    openAction.run()
+                    return
+                  }
+                  if (fileOpen.primaryTarget) fileOpen.openTarget(fileOpen.primaryTarget)
+                }}
                 className="flex min-w-0 items-center gap-2 rounded-l-[var(--radius-md)] px-2 text-[14px] text-[var(--color-text-primary)] hover:bg-[var(--color-surface-hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-border-focus)] disabled:opacity-50"
               >
-                <span aria-hidden="true">{fileOpen.primaryTarget ? <TargetIcon target={fileOpen.primaryTarget} size={16} /> : <ExternalLink size={16} />}</span>
-                {t('workspace.files.openWith')}
+                <span aria-hidden="true">{fileOpen.primaryTarget
+                  ? <TargetIcon target={fileOpen.primaryTarget} size={16} />
+                  : openAction.canOpen ? <ExternalLink size={16} /> : <Download size={16} />}</span>
+                {openAction.canOpen ? t('workspace.files.openWith') : openAction.label}
               </button>
               <button
                 ref={openWithTriggerRef}
@@ -307,12 +327,37 @@ export function WorkspaceFileTab({ sessionId, tab }: WorkspaceFileTabProps) {
             revealNonce: tab.reveal?.nonce,
           })
         }}>
-          {!entry || entry.state === 'loading' ? (
+          {entry?.truncated && !isWorkspaceMediaFile(path) ? (
+            // Ahead of the content on purpose: the tail is missing, and a reader
+            // who is not told will read a file that ends mid-sentence as if that
+            // were the whole of it.
+            <div
+              role="status"
+              className="flex shrink-0 items-center gap-2 border-b border-[var(--color-border)] bg-[var(--color-surface-container-low)] px-3 py-1.5"
+            >
+              <p className="min-w-0 flex-1 text-[11px] text-[var(--color-text-secondary)]">
+                {t('workspace.previewState.truncated', { size: formatBytes(entry.size ?? 0) })}
+              </p>
+              {canOpenInSystem ? <OpenInSystemButton absolutePath={absolutePath} /> : null}
+            </div>
+          ) : null}
+          {isWorkspaceMediaFile(path) ? (
+            // Ahead of the load ladder on purpose: media is not loaded through it
+            // (see the effect above), so an absent entry would otherwise read as
+            // "still loading" forever.
+            <MediaSurface sessionId={sessionId} path={path} absolutePath={absolutePath} />
+          ) : !entry || entry.state === 'loading' ? (
             <PanelMessage icon="hourglass_empty" message={t('workspace.previewState.loading')} />
           ) : entry.state === 'missing' ? (
             <PanelMessage icon="search_off" message={t('workspace.previewState.missing')} />
           ) : entry.state === 'too_large' ? (
-            <PanelMessage icon="database" message={t('workspace.previewState.tooLarge')} action={systemAction} />
+            <PanelMessage
+              icon="database"
+              message={entry.size === undefined
+                ? t('workspace.previewState.tooLarge')
+                : t('workspace.previewState.tooLargeSized', { size: formatBytes(entry.size) })}
+              action={systemAction}
+            />
           ) : entry.state === 'binary' ? (
             <PanelMessage icon="data_object" message={t('workspace.previewState.binary')} action={systemAction} />
           ) : entry.state === 'error' ? (
@@ -373,7 +418,7 @@ export function WorkspaceFileTab({ sessionId, tab }: WorkspaceFileTabProps) {
               // A pick from the tree is a permanent tab of its own. Only the
               // empty Files launcher this tree is hosted in gets replaced —
               // everything else adds, so ten picks mean ten tabs.
-              workspaceOpen.file(sessionId, nextPath, { replaceBlankPlaceholder: true })
+              workspaceOpen.file(sessionId, nextPath, { replaceBlankPlaceholder: true, requestedBy: 'user' })
             }}
           />
       </WorkspaceTreeSidebar>

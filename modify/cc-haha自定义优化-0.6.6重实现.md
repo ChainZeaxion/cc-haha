@@ -34,7 +34,7 @@
 | 功能特性/显示 | 二十一 思考计时与工具计时综合优化（思考 token+耗时 badge、收纳栏总计时+token、轮次用量、**子代理耗时+子代理收纳栏总耗时+后台任务耗时**） | —（新增） | ✅ |
 | 性能/历史 | 二十二 历史记录膨胀（`toolUseResult.originalFile`）致大体积会话打不开 | —（新增） | 🔍 主要实施（A+B+E+G+H ✅；C 证伪；D `projectContext` 候选；F 待授权） |
 | 性能/显示 | 二十三 子代理内容实时反馈（opencode 式，替代当前间隔刷新） | —（新增） | ⬜ 待办（仅登记，不推进） |
-| 上下文/压缩 | 二十四 上下文压缩阈值按窗口分档（软触发百分比 + 硬触发绝对下限） | —（新增） | ✅ 已实施 |
+| 上下文/压缩 | 二十四 上下文压缩阈值按窗口分档（软/强制**双百分比**）+ 压缩后保留预算 | —（新增） | ✅ 已实施（2026-10-06 修订，见§二十四·补） |
 | 功能特性/显示 | 二十五 轮次用量 + think 用量 + 收纳栏 综合优化 | —（新增） | ➡ 已并入第二十一章（子优化②） |
 
 | 工程/登记 | 二十七 未纳入章节链的既有改动（测试环境隔离 / vcc 校准脚本 / 章内残余 delta） | `chapter-27-test-env-isolation` / `chapter-27-vcc-calibration-scripts` / `chapter-27-residual-hunks`（链位 58–60） | ✅ 已补补丁 |
@@ -68,7 +68,7 @@
 ### 命名与存放约定（**2026-10-03 重组：按 PR 主题两层**）
 - 存放：`modify/patches/<主题>/<主题>-<优化项>-patch<N>.patch` —— **主题目录 = 上游 PR 的 8 个功能域；一个优化项一个 patch，拆不开才 `patch2`/`patch3`**
 - 主题：`h5` / `session` / `tps` / `usage` / `test` / `vcc` / `computer-use` / `thinking-subagent`
-- **应用顺序 = `modify/patches/ORDER.md` 自上而下**（34 个 patch）：
+- **应用顺序 = `modify/patches/ORDER.md` 自上而下**（**36 个 patch，基座 = 上游 `068b3ebd`**；**另有 1 个「另起基座」patch** `h5/h5-file-open-patch1.patch`，基座 = `cchaha-067scode` `align-latest` HEAD（0.6.7 血缘），**不可**接在链尾，见第三十三章）：
 
 ```bash
 cd <repo>
@@ -2209,6 +2209,77 @@ if (gapMs > 0 && tokens / (gapMs / 1000) <= MAX_INSTANT_TPS) { /* 计入 */ }   
 
 ---
 
+## 二十四·补（2026-10-06 修订）：双百分比分档 + 压缩后保留预算
+
+> 用户 2026-10-06 指示（verbatim）：
+> 「小于等于120k 小于等于10%开始压缩 小于8%强制压缩；小于等于210k 小于等于13%开始压缩 小于10%强制压缩；小于等于320k 小于等于15%开始压缩 小于13%强制压缩；小于等于520k 小于等于13%开始压缩 小于10%强制压缩；大于520k 小于等于10%开始压缩 小于7%强制压缩。然后vcc执行压缩后保留内容，应该等于上面小于多少百分比强制压缩的最大可用上下文长度。」
+
+### 一、分档表改为「软/强制双百分比」
+
+原表（§二十四）用**绝对 token 下限**做硬触发（13K/32K/36K/53K/65K）；新表两项都是**窗口占比**，故 `AUTOCOMPACT_TIERS` 的 `floorTokens` 改为 `forcedPctLeft`，`pctLeft` 更名为 `softPctLeft`。
+
+| 声明窗口 | 软触发（剩余） | 强制触发（剩余） |
+|---|---|---|
+| ≤120K | 10% | 8% |
+| ≤210K | 13% | 10% |
+| ≤320K | 15% | 13% |
+| ≤520K | 13% | 10% |
+| >520K | 10% | 7% |
+
+**口径（定稿，用户确认）**：分档键 = **声明窗口**；**软、强制阈值都算在有效窗口**（`getEffectiveContextWindowSize`）——与 §二十四口径 2 一致，且**取代口径 3**。理由：两者都是「窗口占比 vs 真实用量」的比较，放不同基准会让两者间距随摘要预留漂移。故 `getForcedCompactThreshold` 由 `declared − floor` 改为 `floor(effective × (1 − forcedPctLeft))`，并保留 `max(…, 软阈值)` 钳制（五档 soft > forced，故恒成立，钳制只作兜底）。
+**小窗口安全钳制保留**（`min(档位阈值, window − min(13K, window/3))`）：8K/16K/32K/33K/64K/80K 五档阈值**与旧实现逐字节一致**（实测未改用例即通过），零回归。
+
+### 二、压缩后保留预算（vcc）
+
+新增 `getVccRetentionBudget(model)` → `{preferredTokens, ceilingTokens}`，即**压缩后上下文该占多少**：
+- `preferredTokens = floor(effective × forcedPctLeft)` —— **目标**：压到强制触发预留的那一份，这样「下次压缩不是马上又到期」；
+- `ceilingTokens = floor(effective × softPctLeft)` —— **上限**：最新一轮装不下目标时最多可留到这里，再超就等于「压了跟没压一样安全」。
+
+用户对「装不下」的三段规则（原话：*不超按最小8%，超则按10%，如果10%仍然兜不住则在尽力保留最近一轮的情况下严格不超预算*）落为：
+
+| 情形 | 行为 |
+|---|---|
+| 整尾 ≤ 目标 | **把目标用满**（多保轮次），而非停在固定 MIN |
+| 超目标但 ≤ 上限 | 保留最近一轮（`buildVccCut` 不裁） |
+| 超上限 | 从末尾向前取**能装下的最长后缀**；起始落在 toolResult 上则前移到下一个合法边界 |
+| 连最新一条都超上限 | **compact-all**（`keptCcStart = messages.length`）——严格不超，摘要承载全部 |
+
+**实现要点**
+- `engine.ts`：新增 `TailAllowance {preferredTokens, ceilingTokens}`；`resolveSmartKeepUserTurns(…, allowance?)` 有预算时按目标**填满**、无预算时保留 pi-vcc 原 MIN/MAX 规则（slice/局部压缩与 parity 调用者不传，行为不变）；`buildVccCut(…, {tailAllowance})` 新增严格后缀计算 `largestSuffixWithin`，仅在有预算时启用；**旧的无预算分支（`MAX × OVERSIZED_TAIL_FACTOR`）原样保留**。
+- `vccCompact.ts`：`VccCompactionInput.retentionBudget`；⭐**摘要本身也吃预算，且其大小不受 brief 预算约束**（结构段 Session Goal / Files And Changes / Commits 另行计费）——所以先按「对全量消息编译的草稿摘要」预留算出 allowance，裁剪后再用**实际摘要**复算，超上限则收紧一次（`buildVccCut` 只会把尾裁得更小，故收敛，最多 2 轮）。
+- `compact.ts`：`maybeVccCompact` 传入 `getVccRetentionBudget(getMainLoopModel())`。
+- **局部（片段）压缩不接预算**：其 `messagesToKeep` 恒为 `[]`（边界由 pivot 决定，另一侧由调用方逐字保留），不存在「保留尾」可裁。
+
+### 三、本机实测数值（代码实调，非手算）
+
+| provider | 声明 | 有效 | 软触发（已用≥） | 强制（已用≥） | 保留目标/上限 |
+|---|---|---|---|---|---|
+| DeepSeek / Zhipu GLM | 512,000 | 492,000 | **428,040** | 442,800 | 49,200 / 63,960 |
+| 老外的API | 368,640 | 348,640 | 303,316 | 313,776 | 34,864 / 45,323 |
+| 未央170hx | 233,000 | 213,000 | 181,050 | 185,310 | 27,690 / 31,950 |
+| ZXSV-AI | 231,248 | 211,248 | 179,560 | 183,785 | 27,462 / 31,687 |
+| 1M 档 | 1,000,000 | 980,000 | 882,000 | 911,399 | 68,600 / 98,000 |
+
+> 对比旧表（512K 档软触发 418,200）：新表**更晚触发**（428,040），但**压缩后目标更高**（49,200 vs 旧的 brief≈1.1–2.5K + 尾≤25K）——即「晚压、但压完留得更多且不再顶着上限」。
+
+### 四、踩坑记录
+
+1. **首次实现的「超上限回切」并不严格**：沿旧逻辑「从末尾累加、停在跨过阈值的那条」，于是**跨过上限的那条消息被整条保留**（实测 `keptTokens=3000 > ceiling=1500`）。改为计算**能装下的最长后缀**；并明确「连最新一条都超上限 ⇒ compact-all」。**教训：要「不超某预算」，就不能用「累加至跨过阈值」这类近似，必须解出满足约束的最大可行集合。**
+2. **`1 - 0.07` 的浮点误差**：`floor(980000 × 0.93) = 911,399`（而非 911,400），因 `1-0.07 = 0.9299999999999999`。测试期望须用实调值，别用纸面乘积。
+3. **`deepseek-v4-pro` 在本机被 provider 预设压到 512,000**（注入 `CLAUDE_CODE_AUTO_COMPACT_WINDOW`），故它是 ≤520K 档而非 >520K 档；**测试用例的期望值是「测试环境」的（删除该环境变量）**，两者不同，别用本机实测值去改测试。
+4. 单测里「5 轮全保留」不成立：cut 前必须有内容，**最老一轮进不了保留尾**，固定规则下 5 轮最多保 4 轮。
+
+### 五、验证
+
+- `bun test src/services/compact` **45 pass / 0 fail**（新增 `vcc/retentionBudget.test.ts` 6 条：填满目标 / 目标内保最近一轮 / 无预算保留固定规则 / 超上限回切 / 单条超上限 compact-all / 端到端「压缩后总占用 ≤ 上限」且无预算时确实超出）；
+- `bun run check:server` **555 文件 / 6633 pass / 0 fail**；
+- 本次改动文件 `tsc --noEmit` **0 错**。
+- **尚未重启 sidecar**：server 侧 TS 由 bun 直跑，重启后生效；前端 bundle 不含这些常量，无需 vite build。
+
+⚠️ **patch 状态（待固化时处理）**：链位 24 的 `patches/vcc/vcc-autocompact-window-tiers-patch1.patch` 编码的是**旧分档表 + 旧硬触发口径**，本次修订后**已过期**——重放会覆盖新表。本次跨 `autoCompact.ts` / `vcc/engine.ts` / `vcc/vccCompact.ts` / `compact.ts` 四文件，应作为**新的链位**追加（而非改写链位 24），按「新增链位」标准做法生成（链终态 worktree 跑全链 → 工作树差分）。
+
+---
+
 ## 二十五、H5 打不开子代理运行记录（移动端 tab 白名单遗漏 run 记录页）（✅ 2026-09-27）
 
 ### 问题（用户 verbatim）
@@ -2819,3 +2890,198 @@ type DensitySample = { cjk: number; latin: number; digit: number; sym: number; t
 **验证**：`tpsMeter`/`TpsIndicator`/`chatStore` 单测 **472/472**（并修掉一条假绿：`picks up subagents…` 原用 `vi.useFakeTimers()` 连 `performance.now` 一起 mock，读数恒 0 ⇒ 断言空过；改为只 fake 定时器）；7787 实测 4 子代理写长文：**显示均值 141 vs 引擎 139.7 ⇒ 1.01×**（旧口径 6.5×）。
 
 **patch**：067 = `patches/tps/tps-session-total-patch1.patch`；06 = `patches/tps-session-total-fix.patch`。
+
+---
+
+## 三十一 私网上游「会话 id 丢失」修复（✅ 2026-10-04，`patches/session/session-upstream-session-id-patch1.patch`）
+
+**症状**：cc-haha 把请求转发到**私网上游**（本机/LAN 上我们自己的引擎，如 bc / vLLM）时，引擎收不到 **CLI 会话 id**。而 bc/vLLM 正是以该 id 作为会话状态的键（引擎按 session id 上报 `tps_tokens`），于是 TPS 面板读数无法归属/串会话。
+
+**根因**：私网上游的请求头只有通用的 `upstreamHeaders`；代表调用者的内部头（会话 id）被透传过滤器当作「内部客户端头」拦掉，**没有一条「只对私网上游生效」的注入通道**。而公开网关不能收到这类内部头（`custom` 等预设公私共用），否则等于把会话标识泄给公网。
+
+**修法**：新增 `upstreamHeadersPrivate`（与 `upstreamHeaders` 同构，但**仅当上游落在私网**时合并进模板）——
+- `src/server/config/providerPresets.ts` / `.json`：schema 加 `upstreamHeadersPrivate` 字段 + 预设声明；
+- `src/server/proxy/handler.ts`：`isPrivateNetworkUrl(baseUrl)` 为真时 `{...upstreamHeaders, ...upstreamHeadersPrivate}`，否则只用 `upstreamHeaders`；
+- `src/server/services/providerRuntimeEnv.ts` / `providerService.ts`：运行时常量/映射透传；
+- `src/server/__tests__/proxy-anthropic-compat.test.ts`：+66 行回归（私网注入 / 公网不注入）。
+
+**验证**：`proxy-anthropic-compat.test.ts` 通过；全量 server 套件 **554 文件 / 6621 通过 / 0 失败**。
+
+**patch**：`patches/session/session-upstream-session-id-patch1.patch`（链尾追加，零级联；已在该链终态上 `git apply --check -p1` 通过）。
+
+### 踩坑记录
+- 该修复所在的移植提交（`726c219c`）**同时带进来一个测试文件合并事故**：`src/services/compact/compact.test.ts` 导入重复（同批符号 import 两次）+ `stripImagesFromMessages` 段少 `})`，`{`/`}` 各差 2 ⇒ TS1005 `'}' expected`。已修（合并重复导入 + 补闭合），修后 **15 pass**。
+- **该修复不并入链 patch**：它针对的是 HEAD 侧的新版文件（含上游 #1373 用例，335 行），而链终态里该文件是**旧版**（215 行、括号平衡、无此缺陷）——链基座比 HEAD 旧一截上游，故此项**随提交走**，不进 `patches/`。
+
+### 31.1 deb 产物与核验（2026-10-05）
+
+含本节修复（git `37aa7b56`）的安装包：
+
+| 项 | 值 |
+|---|---|
+| 产物 | `desktop/build-artifacts/linux-x64/Claude-Code-Haha-0.6.7-linux-amd64.deb` |
+| 大小 / 时间 | **203,846,284 B** / **2026-10-05 03:57:00** |
+| 构建命令 | `LINUX_TARGETS=deb SKIP_INSTALL=1 bash desktop/scripts/build-linux.sh` |
+| package-smoke | **PASS**（用 cwd 绕过法复核：`CCHAHA_CWD=<repo> bun --preload /tmp/bun-cwd-shim.js scripts/quality-gate/package-smoke/index.ts --platform linux --package-kind release --artifacts-dir desktop/build-artifacts/linux-x64`） |
+
+**制品新鲜度核验**：新串 `upstreamHeadersPrivate` 同时命中
+- 侧车（服务端）：`…/app.asar.unpacked/src-tauri/binaries/claude-sidecar-x86_64-unknown-linux-gnu` ✓
+- 前端（渲染）：`…/app.asar.unpacked/dist/assets/index-D-ROgf7v.js` ✓
+
+> ⚠️ 版本号已由 **0.6.6 → 0.6.7**（`package.json` 升级）；§29.2 记的 0.6.6 是上一版产物。
+> ⚠️ 构建脚本末步 package-smoke 会在本环境因 **bun cwd 钉死**报 `ENOENT …/gov-managerment-plan/desktop/package.json` 并以 exit 1 收尾——**deb 已在之前产出**，该失败是假红，须用上表绕过法复核。
+
+---
+
+## 三十二 本地索引「元数据预算」失配修复（✅ 2026-10-05，`patches/session/session-local-index-budget-patch1.patch`）
+
+**症状**：长会话（本机实测 29.5 万字符 深度的 5de884c1 会话，jsonl **287 MB**）在诊断页显示**本地索引已降级**，`index` 状态 `state=degraded`、`lastErrorCode=LOCAL_INDEX_SOURCE_LIMIT`，唯一下降级源就是该会话自己的 transcript（其余 84/85 全部 `ready`）。
+
+**根因（两个预算口径失配）**：`sessionProjector.ts` 里
+```ts
+MAX_PROJECTION_RECORDS = 50_000        // 记录（行）数墙
+MAX_PROJECTION_METADATA_BYTES = 32 MiB // 元数据墙
+```
+但每条记录至少要按 **64 B/字段槽 × ~19 槽**（`uuid`/`timestamp`/`model`/`role`/`cwd`/`id`…）计费 ⇒ **50,000 条天然意味着 ~58 MiB 元数据**，于是 **32 MiB 的墙先到（≈47K 条处穿越）**，记录数墙（50,001 条）形同虚设。
+
+**实测取证**（按 reducer 记账口径跑一遍该 jsonl）：
+
+| 预算 | 用量 | 上限 | 结论 |
+|---|---|---|---|
+| `MAX_PROJECTION_RECORDS`（行数） | 48,739 | 50,000 | 未越 |
+| **`MAX_PROJECTION_METADATA_BYTES`** | **33.12 MiB** | **32 MiB** | ✗ 第 47,116 条处穿越 |
+| 超长值被 clamp | 0 | — | 非「异常值」所致，纯计数累积 |
+
+⇒ 每记录 ≈ 0.68 KiB（33.12 MiB ÷ 48,739），**是「记录太多」而非「某条异常」**。
+
+**修法**（`sessionProjector.ts`，两常量对齐）：
+```ts
+MAX_PROJECTION_RECORDS = 96_000          // 50_000 → 96_000
+MAX_PROJECTION_METADATA_BYTES = 64 MiB   // 32 → 64 MiB
+```
+按 0.68 KiB/条，96,000 条 ≈ **63.8 MiB ≈ 64 MiB** ⇒ 两墙**基本重合**，不再互相空转。本会话 48.7K 条 / 33.1 MiB，两墙皆不碰。
+
+**验证**：`sessionProjector.test.ts` + `coordinator.test.ts` **102 pass / 0 fail**。同时把 `enforces aggregate retained metadata across appended windows` 这条测试的样本量由**硬编码 8000+4000**（旧按 32 MiB 校准）改为**从 `MAX_PROJECTION_METADATA_BYTES` 推导**——否则常量一改它就假红（本项实测踩到：抬到 64 MiB 后原样本不再越界 ⇒ 1 fail）。
+
+**patch**：`patches/session/session-local-index-budget-patch1.patch`（链尾追加，零级联）。
+
+### 踩坑记录
+- **只抬 `MAX_PROJECTION_RECORDS` 不解决问题**：元数据墙在 ~47K 条先撞，记录数抬到多少都白搭——本项最初按「改 50000→160000」下单，实测才确认真正卡点是元数据预算。
+- **已降级源是「粘性」的**：`sessionProjector.ts:1024-1034` 对 `append`/`unchanged` 的已降级源**直接再抛错、根本不读文件**，只在文件被重写或 **parser 版本变更**时才重试 ⇒ 只抬预算 + 重启，该会话仍然是 degraded。要让它当场恢复须抬 `SESSION_SUMMARY_PARSER_VERSION`（会触发 85 个源全量重索引）或手工重置该源状态。**本次按用户要求不改索引状态**，留待新 deb 上手工处理重索引。
+- 公开状态里 `degradedSources:4` / `lastErrorCode=LOCAL_INDEX_SOURCE_CHANGED` 是**内存 `failedPaths`** 的运行时对账失败（文件正被写时被索引器读到，活跃会话正常 churn），会自动重试；与 DB 里那条持久的 `SOURCE_LIMIT` 是两回事。
+
+### 32.1 deb 产物与核验（2026-10-05）
+
+含本节修复（git `67ae4b54`）的安装包：
+
+| 项 | 值 |
+|---|---|
+| 产物 | `desktop/build-artifacts/linux-x64/Claude-Code-Haha-0.6.7-linux-amd64.deb` |
+| 大小 / 时间 | **203,844,272 B** / **2026-10-05 04:31:48** |
+| 构建命令 | `LINUX_TARGETS=deb SKIP_INSTALL=1 bash desktop/scripts/build-linux.sh` |
+| package-smoke | **PASS**（cwd 绕过法复核，同上节） |
+
+**制品新鲜度核验**（侧车 `…/binaries/claude-sidecar-x86_64-…` 内压缩形态）：
+
+```
+var R07=9,Ea5=8388608,tk1=96000,ek1=67108864,Ca5=4096,…  "LOCAL…
+        └parser=9   └8 MiB   └96_000 ✓新  └64 MiB ✓新      └4096
+```
+
+- `tk1=96000` / `ek1=67108864` = 本次两个新值 ✓
+- `R07=9` = `SESSION_SUMMARY_PARSER_VERSION` **仍为 9**（本次**未动** parser 版本，符合「不动索引」要求）
+
+---
+
+## 三十三 H5 文件打开：轮次卡点击 / 非工作区文件 / 预览上限（✅ 2026-10-06，⚠️ `patches/h5/h5-file-open-patch1.patch` **基座另起**）
+
+> **本章 patch 的基座与前面 36 条不同**：= `cchaha-067scode` 的 `align-latest` HEAD（**0.6.7 血缘**），**不是**上游 `068b3ebd`。理由见 33.4。
+
+### 33.1 症状（用户三次反馈）
+
+H5（远端手机浏览器）打开会话里生成的文件，**点击无效**或**在服务端打开**（`xdg-open` 跑在服务器桌面上，用户看不到）。逐轮明确为三条需求：
+
+1. 轮次结束卡上「N 个文件已更改」列出的文件，点开要**在 H5 页面内**打开（可预览的预览；不可预览的给下载）；
+2. **非本工作区**的文件（workdir 之外）不应点开即死，应能预览或至少能下载；
+3. 预览上限：**文本 4 MiB**（超限先提示大小、再显示截断内容，不拒绝），**图像 16 MiB**（超限只提示 + 下载）。
+
+### 33.2 根因（四类，逐条对应）
+
+| # | 症状 | 根因 |
+|---|---|---|
+| ① | 点了**没反应** | `workspaceOpen.*` 只写 store 里的 `layout`，而移动端浮层的显隐另有一个**本地 state** `mobileWorkspaceOpen`，此前只由底部快捷按钮设置 ⇒ 移动端点轮次卡等于"改了布局但浮层不弹" |
+| ② | **在服务端打开** | `openLocalFileWithSystem` 在**无 shell 运行时**兜底调 `POST /api/open-targets/open` ⇒ 服务端执行 `xdg-open`。H5 是远端手机访问，这条路径语义上就是错的 |
+| ③ | 区外文件点开死 / **不能下载** | 工作区路由（`/api/sessions/:id/workspace/file`）对绝对路径要求落在**已注册根**内，越界 403；而客户端此前**不区分路径是否在工作区内**，一律走工作区路由 ⇒ 标签页打开一个 403 空页 |
+| ④ | 图像预览不设上限 | `readFile` 对**文本**按 `MAX_PREVIEW_BYTES`（原 1 MiB）截断，但**图像整体 base64 成 `dataUrl` 返回、无任何上限** ⇒ 大图把内存和等待都推到两端 |
+
+### 33.3 修法
+
+- **① 浮层与调用来源解耦**：新增 `requestedBy: 'user' | 'agent'`（**默认 `agent`**），从调用点透传到 `workspaceStore.lastUserOpen` 的 nonce；`ActiveSession` 监听 nonce 变化后弹浮层。**首值只记录、不动作**——否则切换标签会误弹。
+- **② 无 shell 不触达服务端**：`SystemOpenUnavailableError` + `canOpenWithSystem()`，在调用服务端**之前**抛出；统一入口 `openFileWithSystemOrOfferSave` → 弹 `FileUnavailableDialog`；`useSystemFileAction` 让「用系统程序打开」按钮在无 shell 时**变成「下载」**。「打开方式」菜单同步按 `systemOpenAvailable` 过滤掉系统/IDE/文件管理器行。
+- **③ 区外文件按「大小 + 可达性」判定**（新文件 `lib/openOutsideWorkspaceFile.ts`）：
+  1. `GET /local-file/<abs>?info=1` 取 `{name,size,mime}` —— **`stat` 级、不读字节**，经 `api.get` 走鉴权通道（H5 也带 Bearer）；
+  2. 取不到 ⇒ 服务端**根本不供**该路径：弹「不在本工作区」且 **`canDownload:false`**（下载同走服务端，同样不可能，不给假按钮）；
+  3. 超限图像 ⇒ 弹「过大 + 实际大小」+ 下载；
+  4. 小但无可预览类型（pptx/zip）⇒ 弹「无法在页面内打开」+ 下载；
+  5. 媒体跳过工作区路由检查（它走 `/local-file`，第 1 步已证明可达）；其余先问 `sessionsApi.getWorkspaceFile`，**不可服务就不开那个必然 403 的标签页**；
+  6. 否则 `workspaceOpen.file(abs, { requestedBy:'user' })`。
+  - 该判定**只在无 shell 运行时生效**，桌面端行为刻意保持不变。
+- **④ 预览上限（服务端 `workspaceService.ts`）**：
+  - `MAX_PREVIEW_BYTES` 1 MiB → **4 MiB**：超限**不拒绝**，返回文件头 + `truncated:true` + 真实 `size`；`WorkspaceFileTab` 在内容**上方**渲染 `role="status"` 提示条（含大小，附 `OpenInSystemButton`——无 shell 时即"下载"）。
+  - 新增 `MAX_IMAGE_PREVIEW_BYTES` = **16 MiB**（server/client 同名同值）：图像是唯一被**整份 base64 携带**的预览，故只对它按大小设门；超限**在读字节之前**返回 `state:'too_large'`（含 size），复用既有 `too_large` 分支 → `PanelMessage` + 下载按钮。
+- **音视频**：新增 `MediaSurface`（裸 `<audio>/<video src>`，走 `/local-file`）。⚠️ `/api/…/workspace/raw` **只服务 pdf/docx/xlsx 且不支持 Range**，媒体用它会坏。
+- 文案：`workspace.previewState.tooLargeSized`、`workspace.previewState.truncated`、`workspace.fileUnavailable.{tooLarge,outside,unreachable}Body`，5 语言同步。
+
+### 33.4 patch 与基座（⚠️ 本节是本章与其余 chapters 的关键差异）
+
+- patch：`patches/h5/h5-file-open-patch1.patch`（**66 文件 / +1680−192**，含 7 个新文件）。
+- **基座 = `cchaha-067scode` 的 `align-latest` HEAD（0.6.7 血缘）**。实测：干净 HEAD 上 `git apply` **apply --check OK**，应用后本轮 **66/66 文件逐字节等于工作树**。
+- **为什么不能接在前面 36 条之后**：那 36 条的基座是上游 `068b3ebd`（0.6.6 血缘），其链终态 = `cchaha-06scode` 树（实测 `desktop/src` 差异 **0**）。而本轮 66 个文件里 **56 个**在 0.6.6 基座中**不存在或布局不同**——`components/workspace/surfaces/document/`、`OpenInSystemButton.tsx`、`MediaSurface.tsx`、`WorkspaceChangesFallback.tsx` 等在那条血缘里没有对应路径。⇒ 只能**另起基座、单独应用**。
+- 反面对照（为何前两条能"链尾追加"）：`session-upstream-session-id` / `session-local-index-budget` 的目标文件在两个血缘里**逐字节相同**（实测两个 patch 对 06 血缘与 067 血缘双方 `git apply --check` 均 OK）。**判据是"文件级"的，不是"链级"的。**
+- 泄漏自检：patch 内 `MAX_PROJECTION_RECORDS` / `session-upstream` / `H5_REQUIRE_TOKEN` 等**链内既有改动标志串命中 0**。
+
+### 踩坑记录
+
+1. **「点了没反应」≠ store 没更新**：`workspaceOpen` 确实写进了 store，问题在于移动端浮层的显隐由**另一个本地 state** 决定。只查 store 会误判为"点击未生效"。以后遇到"H5 上布局变了但界面没动"，先找**浮层/抽屉自己的开关**，别只看 store。
+2. **`requestedBy` 必须以 `agent` 为默认**：第一版把默认设成"弹浮层"更直觉，但所有**非用户**的 `workspaceOpen` 调用（恢复标签、agent 自动打开）都会跟着弹一个浮层。默认 `agent`、只在真实点击处传 `user` 才安全；且 nonce **首值不动作**，否则切换会话/标签时误弹。
+3. **两套 gate 不是一套**：`/local-file` 的 gate 是 `isAllowedFilesystemPath`（`$HOME` / tmp / **已注册根**），而工作区路由对绝对路径要求 `isWithinRegisteredFilesystemRoot`。**"`/local-file` 能取"不等于"工作区标签能开"**，反之亦然。轮次改过的区外文件其目录会被 `registerChangedFileAccessRoot` 注册，所以多数情况两者都通——不同时现在会**明确告知**，而不是开个 403 空页。**教训：判断"能不能打开"必须问对应的那条路由，别用一条路的结果推断另一条。**
+4. **`?info=1` 是免下载拿大小的正解**：`GET /local-file/<abs>?info=1` 只 `stat`、不读字节，能在**传输任何内容之前**拿到 `{name,size,mime}`，且在越界时与内容路由**同样 403**——这让"能不能显示/能不能存"和"多大"都能在点击瞬间答出来。别为了拿大小先去下载。
+5. **「大小门」只该套在图像上**（本轮真实返工）：我曾把 16 MiB 门套在**所有**区外文件上，与"文本超限仍显示截断内容"直接矛盾——区外 64 MiB 的 `.log` 被错误拒绝。修法＝门只对 `isWorkspaceImageFile` 生效。**教训：限制的语义要跟着"代价"走——文本的代价是截断（服务端给头即可），图像的代价是必须整份携带（base64），二者不是一个规则。**
+6. **大日志别用"零字节空洞"造**：测截断时用 `truncate` 造稀疏文件，文本内容会被读成 NUL ⇒ 走 `state:'binary'` 分支，测不到目标。文本必须写**真实字节**（5 MiB 可接受）；图像可以用稀疏文件（不需要被读）。
+7. **`.deb` 的 `app.asar` 不可 grep**：前端产物其实在 `resources/app.asar.unpacked/dist/assets/`（未打包目录）。核验新鲜度要 grep 那里，不是 `app.asar`——否则会得到"全 0 命中"而误判为旧包。
+8. **服务端常量核验别只 grep 数字**：`1048576` 这类值在 sidecar 里遍地都是（大量无关代码用 1 MiB），单看数字命中无法证明新鲜度。有效锚点＝**结构化签名或比较式**，如 `state:"too_large",path:$.relativePath,previewType:"image"`（新分支独有，实测命中正好 1）与 `>4194304`（2 处）/`>16777216`（1 处）。
+9. **token 用量类的"提示色"要挑存在的 token**：提示条初版用了 `--color-surface-raised`（不存在），被 `tokenUsage.test.ts` 拦下。改为 `--color-surface-container-low`。
+
+### 33.5 验证
+
+| 项 | 结果 |
+|---|---|
+| 服务端 | `bun run check:server` ⇒ **files=554 / tests=6625 / failed 0** |
+| 桌面 | `bun run test -- --run` ⇒ **496 文件 / 8276 通过 / 6 skipped / 0 失败** |
+| 类型与 lint | `bun run lint`（eslint + `tsc --noEmit`）**绿** |
+| 前端构建 | `bun run build` 绿；`grep dist` 确认新 key 进包 |
+| patch 复现度 | 干净 `align-latest` HEAD + 本 patch ⇒ 本轮 **66/66 逐字节一致**；`apply --check` OK |
+| 新增测试 | 解析器决策表 9 条、弹窗理由 6 条、`WorkspaceFileTab` 截断/超限 3 条、轮次卡 H5 分支 1 条、服务端预览上限 4 条 |
+
+### 33.6 deb 产物与核验（2026-10-06）
+
+| 项 | 值 |
+|---|---|
+| 产物 | `desktop/build-artifacts/linux-x64/Claude-Code-Haha-0.6.7-linux-amd64.deb` |
+| 大小 / 时间 | **203,867,468 B** / **2026-10-06 20:19** |
+| 构建命令 | `LINUX_TARGETS=deb SKIP_INSTALL=1 bash desktop/scripts/build-linux.sh` |
+| package-smoke | **PASS** |
+
+**制品新鲜度核验**（改 `app.asar` 为 grep 前端 unpacked 目录，见踩坑⑦）：
+
+```
+resources/app.asar.unpacked/dist/assets/App-TVh-Qr3w.js      2412343 B  20:18
+resources/app.asar.unpacked/dist/assets/index-D7HY4RJw.js    1850679 B  20:18
+  └ workspace.previewState.truncated / .tooLargeSized        ✓ 命中（本轮新 key）
+  └ "Only the beginning of this" / "outside the workspace and the server"  ✓ 命中
+sidecar（claude-sidecar-x86_64-unknown-linux-gnu，111786112 B  20:18）
+  └ state:"too_large",path:$.relativePath,previewType:"image"  ✓ 命中 1（本新增分支）
+  └ >4194304（4 MiB 文本门）2 处 ／ >16777216（16 MiB 图像门）1 处  ✓
+```
+
+- deb 内 `dist` 两个 chunk 与本地 `desktop/dist` **同名同大小**（构建于 20:18），即本轮前端码确已进包。

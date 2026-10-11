@@ -12,6 +12,8 @@ vi.mock('../api/sessions', () => ({
 
 vi.mock('./desktopHost', () => ({
   getDesktopHost: () => ({
+    // A desktop runtime: these cases are about which paths reach the system app.
+    capabilities: { shell: true },
     shell: {
       open: vi.fn().mockResolvedValue(undefined),
       openPath,
@@ -57,21 +59,21 @@ describe('openPreviewLink for a document the workspace can draw', () => {
   it('previews a workspace-relative document, which the server resolves against the workdir', () => {
     expect(openPreviewLink('out/thesis.pdf', 's1')).toBe(true)
 
-    expect(workspaceOpen.file).toHaveBeenCalledWith('s1', 'out/thesis.pdf', {})
+    expect(workspaceOpen.file).toHaveBeenCalledWith('s1', 'out/thesis.pdf', { requestedBy: 'user' })
     expect(openPath).not.toHaveBeenCalled()
   })
 
   it('previews a Word document the same way as a PDF', () => {
     expect(openPreviewLink('out/thesis.docx', 's1')).toBe(true)
 
-    expect(workspaceOpen.file).toHaveBeenCalledWith('s1', 'out/thesis.docx', {})
+    expect(workspaceOpen.file).toHaveBeenCalledWith('s1', 'out/thesis.docx', { requestedBy: 'user' })
     expect(openPath).not.toHaveBeenCalled()
   })
 
   it.each(['out/budget.xlsx', 'out/legacy.xls'])('previews an Excel workbook (%s) the same way', (path) => {
     expect(openPreviewLink(path, 's1')).toBe(true)
 
-    expect(workspaceOpen.file).toHaveBeenCalledWith('s1', path, {})
+    expect(workspaceOpen.file).toHaveBeenCalledWith('s1', path, { requestedBy: 'user' })
     expect(openPath).not.toHaveBeenCalled()
   })
 
@@ -85,7 +87,7 @@ describe('openPreviewLink for a document the workspace can draw', () => {
   it('previews an absolute path that sits inside the session directory', () => {
     openPreviewLink('/work/out/thesis.pdf', 's1')
 
-    expect(workspaceOpen.file).toHaveBeenCalledWith('s1', '/work/out/thesis.pdf', {})
+    expect(workspaceOpen.file).toHaveBeenCalledWith('s1', '/work/out/thesis.pdf', { requestedBy: 'user' })
     expect(openPath).not.toHaveBeenCalled()
   })
 
@@ -114,7 +116,7 @@ describe('openPreviewLink for a document the workspace can draw', () => {
   it('still previews a relative document that only steps out of a folder and back in', () => {
     openPreviewLink('out/../out/thesis.pdf', 's1')
 
-    expect(workspaceOpen.file).toHaveBeenCalledWith('s1', 'out/../out/thesis.pdf', {})
+    expect(workspaceOpen.file).toHaveBeenCalledWith('s1', 'out/../out/thesis.pdf', { requestedBy: 'user' })
     expect(openPath).not.toHaveBeenCalled()
   })
 
@@ -133,7 +135,7 @@ describe('openPreviewLink for a document the workspace can draw', () => {
 
     openPreviewLink('/work/out/thesis.pdf', 's2')
 
-    await waitFor(() => expect(workspaceOpen.file).toHaveBeenCalledWith('s2', '/work/out/thesis.pdf', {}))
+    await waitFor(() => expect(workspaceOpen.file).toHaveBeenCalledWith('s2', '/work/out/thesis.pdf', { requestedBy: 'user' }))
     expect(openPath).not.toHaveBeenCalled()
   })
 
@@ -145,7 +147,7 @@ describe('openPreviewLink for a document the workspace can draw', () => {
 
     expect(openPreviewLink('/tmp/app/report.pdf', 's3')).toBe(true)
 
-    await waitFor(() => expect(workspaceOpen.file).toHaveBeenCalledWith('s3', '/tmp/app/report.pdf', {}))
+    await waitFor(() => expect(workspaceOpen.file).toHaveBeenCalledWith('s3', '/tmp/app/report.pdf', { requestedBy: 'user' }))
     expect(getWorkspaceFile).toHaveBeenCalledWith('s3', '/tmp/app/report.pdf')
     expect(openPath).not.toHaveBeenCalled()
   })
@@ -159,13 +161,13 @@ describe('openPreviewLink for a document the workspace can draw', () => {
   it('still previews a relative document while the workdir is unknown', () => {
     openPreviewLink('out/thesis.pdf', 's2')
 
-    expect(workspaceOpen.file).toHaveBeenCalledWith('s2', 'out/thesis.pdf', {})
+    expect(workspaceOpen.file).toHaveBeenCalledWith('s2', 'out/thesis.pdf', { requestedBy: 'user' })
   })
 
   it('applies only to documents: source files outside the workdir open in the code view as before', () => {
     openPreviewLink('/Users/x/notes/app.ts', 's1')
 
-    expect(workspaceOpen.file).toHaveBeenCalledWith('s1', '/Users/x/notes/app.ts', {})
+    expect(workspaceOpen.file).toHaveBeenCalledWith('s1', '/Users/x/notes/app.ts', { requestedBy: 'user' })
     expect(openPath).not.toHaveBeenCalled()
   })
 
@@ -188,6 +190,6 @@ describe('openPreviewLink', () => {
     // The output card for `README-拍摄大纲.md` rendered but its click returned
     // false: the path parser was ASCII-only and the router answered `ignored`.
     expect(openPreviewLink('README-拍摄大纲.md', 's1')).toBe(true)
-    expect(workspaceOpen.file).toHaveBeenCalledWith('s1', 'README-拍摄大纲.md', {})
+    expect(workspaceOpen.file).toHaveBeenCalledWith('s1', 'README-拍摄大纲.md', { requestedBy: 'user' })
   })
 })

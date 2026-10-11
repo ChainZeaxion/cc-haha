@@ -182,8 +182,14 @@ export type WorkspaceOpenOptions = {
   /** Leave the current tab active — used by background/agent-driven opens. */
   background?: boolean
   /**
-   * Identity of the task that asked. A request that names a task other than
-   * the foreground one lands in that task's workspace and never steals focus.
+   * Who asked — a person clicking, or the agent/prose opening something on its
+   * own.
+   *
+   * Only explicit user gestures may reveal a panel the user is not already
+   * looking at: on the mobile shell an open that the user asked for brings the
+   * workspace overlay up, and one the agent asked for lands silently behind the
+   * conversation. Callers that do not know should leave it unset; the default is
+   * `'agent'`, so an unmarked path can never pop the panel.
    */
   requestedBy?: 'user' | 'agent'
   /**

@@ -1,5 +1,11 @@
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import '@testing-library/jest-dom'
+
+// The pane's open-with menu is built against the desktop runtime, so the system
+// application rows exist to assert on.
+vi.mock('@/lib/desktopHost', () => ({
+  getDesktopHost: () => ({ capabilities: { shell: true } }),
+}))
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 const mocks = vi.hoisted(() => ({

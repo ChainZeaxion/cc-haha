@@ -137,8 +137,8 @@ type SourceProjectionBundle = {
  * so one large payload never makes the whole transcript unprojectable.
  */
 export const MAX_PROJECTION_RECORD_BYTES = 8 * 1024 * 1024
-export const MAX_PROJECTION_RECORDS = 50_000
-export const MAX_PROJECTION_METADATA_BYTES = 32 * 1024 * 1024
+export const MAX_PROJECTION_RECORDS = 96_000
+export const MAX_PROJECTION_METADATA_BYTES = 64 * 1024 * 1024
 // Per-retained-string cap. A malformed transcript can carry thinking text
 // mis-parsed into a tool_use name (a ~12K-character outlier was observed), and
 // one such value must not cost the whole session its index — so an over-long

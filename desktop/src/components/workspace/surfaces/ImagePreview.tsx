@@ -1,9 +1,9 @@
 import { useState } from 'react'
-import { ExternalLink } from 'lucide-react'
+import { Download, ExternalLink } from 'lucide-react'
 import { IconButton } from '@/components/ui/IconButton'
 import { ZoomableImage, type ImageZoom } from '@/components/ui/ZoomableImage'
 import { useTranslation } from '@/i18n'
-import { openLocalFileWithSystem, reportOpenFailure } from '@/lib/systemFileOpen'
+import { useSystemFileAction } from '@/hooks/useSystemFileAction'
 import { useWorkspaceContentStore, workspaceFileKey, type WorkspaceFileView } from '@/stores/workspaceContentStore'
 import { OpenInSystemButton } from './OpenInSystemButton'
 import { PanelMessage } from './PanelMessage'
@@ -34,6 +34,8 @@ export function ImagePreview({
 }) {
   const t = useTranslation()
   const [failedUrl, setFailedUrl] = useState<string | null>(null)
+  // Called before the failure return below, since a hook cannot be skipped.
+  const systemAction = useSystemFileAction(absolutePath ?? '')
   const storedZoom = useWorkspaceContentStore((state) => (
     sessionId ? state.fileViewByKey[workspaceFileKey(sessionId, path)]?.zoom : undefined
   ))
@@ -70,13 +72,13 @@ export function ImagePreview({
       }}
       actions={absolutePath ? (
         <IconButton
-          icon={<ExternalLink size={16} strokeWidth={1.9} />}
-          label={t('workspace.openInSystemApp')}
+          icon={systemAction.canOpen
+            ? <ExternalLink size={16} strokeWidth={1.9} />
+            : <Download size={16} strokeWidth={1.9} />}
+          label={systemAction.label}
           size="md"
           tone="secondary"
-          onClick={() => {
-            void openLocalFileWithSystem(absolutePath).catch(() => reportOpenFailure(absolutePath))
-          }}
+          onClick={systemAction.run}
         />
       ) : undefined}
     />

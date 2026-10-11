@@ -107,13 +107,13 @@ describe('AssistantOutputTargetCard', () => {
     fireEvent.click(screen.getByLabelText('assistantOutputs.open'))
     // The trailing args are openPreview's optional `origin` and `reveal` (#1146);
     // a card has no line number to reveal, hence undefined.
-    expect(openPreviewFn).toHaveBeenCalledWith('s1', 'docs/readme.md', {})
+    expect(openPreviewFn).toHaveBeenCalledWith('s1', 'docs/readme.md', { requestedBy: 'user' })
   })
 
   it('routes Open to the in-app browser for a localhost target', () => {
     render(<AssistantOutputTargetCard target={localhostTarget} sessionId="s1" />)
     fireEvent.click(screen.getByLabelText('assistantOutputs.open'))
-    expect(openBrowser).toHaveBeenCalledWith('s1', 'http://localhost:5173/')
+    expect(openBrowser).toHaveBeenCalledWith('s1', 'http://localhost:5173/', { requestedBy: 'user' })
   })
 
   // The trailing icon button is a discoverability affordance, not the hit area:
@@ -121,14 +121,14 @@ describe('AssistantOutputTargetCard', () => {
   it('opens the workspace preview when the row body is clicked', () => {
     render(<AssistantOutputTargetCard target={markdownTarget} sessionId="s1" />)
     fireEvent.click(screen.getByText('readme.md'))
-    expect(openPreviewFn).toHaveBeenCalledWith('s1', 'docs/readme.md', {})
+    expect(openPreviewFn).toHaveBeenCalledWith('s1', 'docs/readme.md', { requestedBy: 'user' })
   })
 
   it('opens the in-app browser when a localhost row body is clicked', () => {
     render(<AssistantOutputTargetCard target={localhostTarget} sessionId="s1" />)
     // The badge sits inside the row body too — clicking it is not a dead zone.
     fireEvent.click(screen.getByText('assistantOutputs.kind.localhost'))
-    expect(openBrowser).toHaveBeenCalledWith('s1', 'http://localhost:5173/')
+    expect(openBrowser).toHaveBeenCalledWith('s1', 'http://localhost:5173/', { requestedBy: 'user' })
   })
 
   it('exposes the row body as a pointer-cursor button, since button cursors default to the arrow', () => {

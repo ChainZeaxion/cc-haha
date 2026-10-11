@@ -91,6 +91,21 @@ describe('WorkspaceFileOpenWith', () => {
     expect(labels).toContain('workspace.download')
     expect(labels).not.toContain('openWith.systemDefault')  })
 
+  it('offers only what the browser can actually do: no application rows, no reveal', () => {
+    // Everything the dropped rows do is done by the *server*, which on the H5
+    // surface is a different machine from the one the user is holding.
+    window.desktopHost = { ...browserHost, kind: 'browser', isDesktop: false }
+
+    const { getAllByRole } = render(<WorkspaceFileOpenWith absolutePath="/w/report.md" />)
+
+    const labels = getAllByRole('menuitem').map((el) => el.textContent)
+    expect(labels.some((l) => l?.includes('VS Code'))).toBe(false)
+    expect(labels.some((l) => l?.includes('workspace.files.openContainingFolder'))).toBe(false)
+    // The ways to still get the file survive.
+    expect(labels).toContain('workspace.download')
+    expect(labels).toContain('openWith.copyPath')
+  })
+
   it('clicking the IDE item calls openTarget and onAfterSelect', () => {
     const onAfter = vi.fn()
     const { getAllByRole } = render(
@@ -195,6 +210,7 @@ describe('WorkspaceFileOpenWith', () => {
     expect(browserOpen).toHaveBeenCalledWith(
       's1',
       'http://127.0.0.1:3456/preview-fs/s1/66estmutl_files/index.html',
+      { requestedBy: 'user' },
     )
   })
 
@@ -213,7 +229,7 @@ describe('WorkspaceFileOpenWith', () => {
 
     fireEvent.click(previewItem)
 
-    expect(openPreview).toHaveBeenCalledWith('s1', 'report.md')
+    expect(openPreview).toHaveBeenCalledWith('s1', 'report.md', { requestedBy: 'user' })
   })
 
   it('omits file-only actions for directories, even with a file-like name', () => {

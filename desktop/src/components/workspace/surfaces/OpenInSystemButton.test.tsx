@@ -1,19 +1,29 @@
 import '@testing-library/jest-dom/vitest'
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { openLocalFileWithSystem, reportOpenFailure } from '@/lib/systemFileOpen'
 import { useSettingsStore } from '@/stores/settingsStore'
 import { OpenInSystemButton } from './OpenInSystemButton'
 
+const fixture = vi.hoisted(() => ({
+  shell: true,
+  openFileWithSystemOrOfferSave: vi.fn(),
+  downloadLocalFile: vi.fn(),
+}))
+
 vi.mock('@/lib/systemFileOpen', () => ({
-  openLocalFileWithSystem: vi.fn(),
-  reportOpenFailure: vi.fn(),
+  canOpenWithSystem: () => fixture.shell,
+  openFileWithSystemOrOfferSave: fixture.openFileWithSystemOrOfferSave,
+}))
+vi.mock('@/lib/handlePreviewLink', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/lib/handlePreviewLink')>()),
+  downloadLocalFile: fixture.downloadLocalFile,
 }))
 
 beforeEach(() => {
   useSettingsStore.setState({ locale: 'en' })
-  vi.mocked(openLocalFileWithSystem).mockReset().mockResolvedValue(undefined)
-  vi.mocked(reportOpenFailure).mockReset()
+  fixture.shell = true
+  fixture.openFileWithSystemOrOfferSave.mockReset()
+  fixture.downloadLocalFile.mockReset()
 })
 
 describe('OpenInSystemButton', () => {
@@ -28,24 +38,18 @@ describe('OpenInSystemButton', () => {
 
     fireEvent.click(screen.getByRole('button'))
 
-    expect(openLocalFileWithSystem).toHaveBeenCalledWith('/work/out/thesis.pdf')
+    expect(fixture.openFileWithSystemOrOfferSave).toHaveBeenCalledWith('/work/out/thesis.pdf')
   })
 
-  it('says nothing when the file opened', async () => {
+  // The failure reporting and the save dialog belong to the shared opener, which
+  // has its own suite. What is asserted here is only that this button asks for it.
+  it('becomes the save where there is no system shell, instead of promising an open it cannot do', () => {
+    fixture.shell = false
     render(<OpenInSystemButton absolutePath="/work/out/thesis.pdf" />)
 
-    fireEvent.click(screen.getByRole('button'))
-    await waitFor(() => expect(openLocalFileWithSystem).toHaveBeenCalled())
+    fireEvent.click(screen.getByRole('button', { name: 'Download' }))
 
-    expect(reportOpenFailure).not.toHaveBeenCalled()
-  })
-
-  it('names the file it could not open: a click that does nothing reads as a broken button', async () => {
-    vi.mocked(openLocalFileWithSystem).mockRejectedValue(new Error('no application'))
-    render(<OpenInSystemButton absolutePath="/work/out/thesis.pdf" />)
-
-    fireEvent.click(screen.getByRole('button'))
-
-    await waitFor(() => expect(reportOpenFailure).toHaveBeenCalledWith('/work/out/thesis.pdf'))
+    expect(fixture.downloadLocalFile).toHaveBeenCalledWith('/work/out/thesis.pdf')
+    expect(fixture.openFileWithSystemOrOfferSave).not.toHaveBeenCalled()
   })
 })

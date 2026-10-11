@@ -703,3 +703,40 @@ it('keeps side chats alive on navigation and releases them only on close without
   expect(store().getTab(SESSION, fileId)).not.toBeNull()
   expect(store().bySession[SESSION]?.closed.flatMap(group => group.tabs)).toEqual([])
 })
+
+describe('a user-requested open', () => {
+  // The mobile shell shows its workspace overlay for an explicit tap and stays out
+  // of the way for everything else. This counter is how it tells them apart.
+  const lastUserOpenNonce = () => store().bySession[SESSION]?.lastUserOpen?.nonce
+
+  it('is recorded, so the shell can reveal what was asked for', () => {
+    store().openTarget(SESSION, { kind: 'file', path: '/repo/a.ts' }, { requestedBy: 'user' })
+
+    expect(lastUserOpenNonce()).toBeTypeOf('number')
+  })
+
+  it('is not recorded for an agent open, which must never pop the panel', () => {
+    store().openTarget(SESSION, { kind: 'file', path: '/repo/a.ts' }, { requestedBy: 'agent' })
+    store().openTarget(SESSION, { kind: 'file', path: '/repo/b.ts' })
+
+    expect(lastUserOpenNonce()).toBeUndefined()
+  })
+
+  it('is not recorded for a background open, which leaves the reader where they are', () => {
+    store().openTarget(
+      SESSION,
+      { kind: 'file', path: '/repo/a.ts' },
+      { requestedBy: 'user', background: true },
+    )
+
+    expect(lastUserOpenNonce()).toBeUndefined()
+  })
+
+  it('counts up, so the same file tapped twice reveals twice', () => {
+    store().openTarget(SESSION, { kind: 'file', path: '/repo/a.ts' }, { requestedBy: 'user' })
+    const first = lastUserOpenNonce()
+    store().openTarget(SESSION, { kind: 'file', path: '/repo/a.ts' }, { requestedBy: 'user' })
+
+    expect(lastUserOpenNonce()).toBeGreaterThan(first!)
+  })
+})

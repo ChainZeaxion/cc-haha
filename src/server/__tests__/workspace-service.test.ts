@@ -496,7 +496,7 @@ describe('WorkspaceService', () => {
       path.join(workDir, 'large-image.png'),
       Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47]), Buffer.alloc(ONE_MIB + 1, 0xff)]),
     )
-    await fs.writeFile(path.join(workDir, 'large.txt'), Buffer.alloc(ONE_MIB + 1, 'a'))
+    await fs.writeFile(path.join(workDir, 'large.txt'), Buffer.alloc(4 * ONE_MIB + 1, 'a'))
     await fs.mkdir(path.join(workDir, 'folder'))
 
     await expect(service.readFile('session-1', 'note.ts')).resolves.toMatchObject({
@@ -531,10 +531,10 @@ describe('WorkspaceService', () => {
       state: 'ok',
       previewType: 'text',
       language: 'text',
-      size: ONE_MIB + 1,
-      readBytes: ONE_MIB,
+      size: 4 * ONE_MIB + 1,
+      readBytes: 4 * ONE_MIB,
       truncated: true,
-      content: 'a'.repeat(ONE_MIB),
+      content: 'a'.repeat(4 * ONE_MIB),
     })
     await expect(service.readFile('session-1', 'missing.txt')).resolves.toMatchObject({
       state: 'missing',
@@ -905,6 +905,63 @@ describe('WorkspaceService document previews', () => {
       await fs.truncate(target, limit + 1)
 
       await expect(service.resolveRawFile('session-1', 'huge.xlsx')).rejects.toMatchObject({ statusCode: 413 })
+    })
+  })
+
+  describe('preview limits', () => {
+    it('shows the head of a text file past the limit and says how big the whole is', async () => {
+      const workDir = await makeTempDir('workspace-service-big-text-')
+      const service = new WorkspaceService(async () => workDir)
+      const size = 5 * ONE_MIB
+      await fs.writeFile(path.join(workDir, 'server.log'), 'x'.repeat(size))
+
+      const result = await service.readFile('session-1', 'server.log')
+
+      expect(result.state).toBe('ok')
+      expect(result.previewType).toBe('text')
+      // The reader is told, and told the real size — a preview that stops without
+      // saying so reads as a file that ends there.
+      expect(result.truncated).toBe(true)
+      expect(result.size).toBe(size)
+      expect(result.readBytes).toBe(4 * ONE_MIB)
+    })
+
+    it('shows a text file under the limit whole, with no truncation to report', async () => {
+      const workDir = await makeTempDir('workspace-service-small-text-')
+      const service = new WorkspaceService(async () => workDir)
+      const size = 2 * ONE_MIB
+      await fs.writeFile(path.join(workDir, 'notes.txt'), 'y'.repeat(size))
+
+      const result = await service.readFile('session-1', 'notes.txt')
+
+      expect(result.truncated).toBe(false)
+      expect(result.readBytes).toBe(size)
+    })
+
+    it('refuses an image past its own limit without carrying it', async () => {
+      const workDir = await makeTempDir('workspace-service-big-image-')
+      const service = new WorkspaceService(async () => workDir)
+      const target = path.join(workDir, 'huge.png')
+      await fs.writeFile(target, '')
+      await fs.truncate(target, 17 * ONE_MIB)
+
+      const result = await service.readFile('session-1', 'huge.png')
+
+      expect(result.state).toBe('too_large')
+      expect(result.previewType).toBe('image')
+      expect(result.size).toBe(17 * ONE_MIB)
+      expect(result).not.toHaveProperty('dataUrl')
+    })
+
+    it('still draws an image under the limit', async () => {
+      const workDir = await makeTempDir('workspace-service-small-image-')
+      const service = new WorkspaceService(async () => workDir)
+      await fs.writeFile(path.join(workDir, 'pixel.png'), Buffer.from([0x89, 0x50, 0x4e, 0x47]))
+
+      const result = await service.readFile('session-1', 'pixel.png')
+
+      expect(result.state).toBe('ok')
+      expect(result.dataUrl).toStartWith('data:image/png;base64,')
     })
   })
 })

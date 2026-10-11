@@ -6202,7 +6202,7 @@ describe('MessageList nested tool calls', () => {
     expect(within(fallback).getByText(/too long for turn previews or file undo/)).toBeTruthy()
     expect(within(fallback).getByText(/current workspace changes/)).toBeTruthy()
     fireEvent.click(within(fallback).getByRole('button', { name: 'Open current content of qa-status.txt' }))
-    expect(openFile).toHaveBeenCalledWith(ACTIVE_TAB, 'qa-status.txt')
+    expect(openFile).toHaveBeenCalledWith(ACTIVE_TAB, 'qa-status.txt', { requestedBy: 'user' })
     expect(openReview).not.toHaveBeenCalled()
     expect(rewind).not.toHaveBeenCalled()
     expect(screen.queryByLabelText('Turn changed files')).toBeNull()

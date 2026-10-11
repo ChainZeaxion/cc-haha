@@ -47,6 +47,7 @@ import {
   getPresetAuthStrategy,
   getPresetDefaultEnv,
   getPresetModelApiFormats,
+  getPresetPrivateUpstreamHeaders,
   getPresetUpstreamHeaders,
   normalizeImageGeneration,
   normalizeModelMapping,
@@ -674,6 +675,7 @@ export class ProviderService {
     authStrategy: ProviderAuthStrategy
     modelApiFormats: ModelApiFormatRule<ApiFormat>[]
     upstreamHeaders: Record<string, string>
+    upstreamHeadersPrivate: Record<string, string>
     requestCompatibility?: RequestCompatibility
   } | null> {
     const toProxyConfig = (provider: SavedProvider) => {
@@ -688,6 +690,7 @@ export class ProviderService {
         authStrategy: provider.authStrategy ?? getPresetAuthStrategy(provider.presetId),
         modelApiFormats: getPresetModelApiFormats(provider.presetId),
         upstreamHeaders: getPresetUpstreamHeaders(provider.presetId),
+        upstreamHeadersPrivate: getPresetPrivateUpstreamHeaders(provider.presetId),
         ...(provider.requestCompatibility !== undefined && { requestCompatibility: provider.requestCompatibility }),
       }
     }

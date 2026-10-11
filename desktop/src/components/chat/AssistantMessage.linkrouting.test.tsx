@@ -63,7 +63,7 @@ describe('AssistantMessage link routing', () => {
     render(<AssistantMessage sessionId="s1" content={'打开 [预览](http://localhost:5173/)'} />)
     // The clickable element is the rendered markdown anchor (the card title is a span).
     fireEvent.click(screen.getByRole('link', { name: '预览' }))
-    expect(openBrowser).toHaveBeenCalledWith('s1', 'http://localhost:5173/')
+    expect(openBrowser).toHaveBeenCalledWith('s1', 'http://localhost:5173/', { requestedBy: 'user' })
   })
 
   // #1145. Every case above this one leaves a space on both sides of the URL,
@@ -79,7 +79,7 @@ describe('AssistantMessage link routing', () => {
       />,
     )
     fireEvent.click(screen.getByRole('link', { name: 'http://localhost:5173' }))
-    expect(openBrowser).toHaveBeenCalledWith('s1', 'http://localhost:5173/')
+    expect(openBrowser).toHaveBeenCalledWith('s1', 'http://localhost:5173/', { requestedBy: 'user' })
   })
 
   it('opens a clean URL when Han characters run straight into the link', () => {
@@ -91,7 +91,7 @@ describe('AssistantMessage link routing', () => {
       />,
     )
     fireEvent.click(screen.getByRole('link', { name: 'http://localhost:3000' }))
-    expect(openBrowser).toHaveBeenCalledWith('s1', 'http://localhost:3000/')
+    expect(openBrowser).toHaveBeenCalledWith('s1', 'http://localhost:3000/', { requestedBy: 'user' })
   })
 
   it('routes an inline-code URL through the same preview handler', () => {
@@ -103,7 +103,7 @@ describe('AssistantMessage link routing', () => {
       />,
     )
     fireEvent.click(screen.getByRole('link', { name: 'http://localhost:3000' }))
-    expect(openBrowser).toHaveBeenCalledWith('s1', 'http://localhost:3000/')
+    expect(openBrowser).toHaveBeenCalledWith('s1', 'http://localhost:3000/', { requestedBy: 'user' })
   })
 })
 

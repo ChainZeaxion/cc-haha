@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type HTMLAttributes 
 import { Sidebar } from './Sidebar'
 import { ContentRouter } from './ContentRouter'
 import { ToastContainer } from '@/components/layout/Toast'
+import { FileUnavailableDialog } from '@/components/layout/FileUnavailableDialog'
 import { UpdateChecker } from '@/components/layout/UpdateChecker'
 import { StatusDot } from '@/components/ui/Badge'
 import { IconButton } from '@/components/ui/IconButton'
@@ -342,6 +343,7 @@ export function AppShell() {
           <TraceList />
         )}
         <ToastContainer />
+        <FileUnavailableDialog />
       </div>
     )
   }
@@ -477,6 +479,7 @@ export function AppShell() {
         </WorkspaceHeaderProvider>
       </main>
       <ToastContainer />
+      <FileUnavailableDialog />
       <UpdateChecker />
     </div>
   )

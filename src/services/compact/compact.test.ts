@@ -1,17 +1,16 @@
 import { describe, expect, test } from 'bun:test'
 
-import { buildPostCompactMessages, stripImagesFromMessages, truncateHeadForPTLRetry, type CompactionResult } from './compact.js'
-import { getCurrentUsage } from '../../utils/tokens.js'
-import type { AssistantMessage, Message } from '../../types/message.js'
 import {
   ERROR_MESSAGE_USER_ABORT,
   buildPostCompactMessages,
   maybeVccCompact,
   maybeVccSliceCompact,
+  stripImagesFromMessages,
+  truncateHeadForPTLRetry,
   type CompactionResult,
 } from './compact.js'
 import { getCurrentUsage } from '../../utils/tokens.js'
-import type { Message } from '../../types/message.js'
+import type { AssistantMessage, Message } from '../../types/message.js'
 import { runVccCompaction } from './vcc/vccCompact.js'
 
 
@@ -250,6 +249,9 @@ describe('stripImagesFromMessages', () => {
 
     expect(result[0]).toBe(plain)
     expect(result[1]).toBe(assistant)
+  })
+})
+
 describe('vcc compaction degrades instead of stalling the session', () => {
   // The ported adapter reads `m.message.content` without checking that the
   // message is there, so a user line carrying no `message` object throws

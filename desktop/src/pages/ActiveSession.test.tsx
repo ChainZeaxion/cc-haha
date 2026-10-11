@@ -2325,6 +2325,110 @@ describe('ActiveSession task polling', () => {
     expect(useWorkspaceStore.getState().bySession[sessionId]?.layout).toBe('hidden')
   })
 
+  // The turn-changes card and a prose file link both open through the workspace
+  // store. On mobile that used to write the store and show nothing at all,
+  // because only the quick actions could lift the overlay.
+  function seedMobileSession(sessionId: string) {
+    viewportMocks.isMobile = true
+    useSessionStore.setState({
+      sessions: [{
+        id: sessionId,
+        title: 'Mobile Workspace Session',
+        createdAt: '2026-04-10T00:00:00.000Z',
+        modifiedAt: '2026-04-10T00:00:00.000Z',
+        messageCount: 1,
+        projectPath: '/tmp/project-root',
+        workDir: '/tmp/project-root',
+        workDirExists: true,
+      }],
+      activeSessionId: sessionId,
+      isLoading: false,
+      error: null,
+    })
+    useTabStore.setState({
+      tabs: [{ sessionId, title: 'Mobile Workspace Session', type: 'session', status: 'idle' }],
+      activeTabId: sessionId,
+    })
+    useChatStore.setState({
+      sessions: {
+        [sessionId]: {
+          messages: [{ id: 'msg-1', type: 'assistant_text', content: 'hello', timestamp: 1 }],
+          chatState: 'idle',
+          connectionState: 'connected',
+          streamingText: '',
+          streamingToolInput: '',
+          activeToolUseId: null,
+          activeToolName: null,
+          activeThinkingId: null,
+          pendingPermission: null,
+          pendingComputerUsePermission: null,
+          tokenUsage: { input_tokens: 0, output_tokens: 0 },
+          streamingResponseChars: 0,
+          elapsedSeconds: 0,
+          statusVerb: '',
+          slashCommands: [],
+          agentTaskNotifications: {},
+          elapsedTimer: null,
+        },
+      },
+    })
+    return sessionId
+  }
+
+  it('reveals the overlay for a workspace open the user asked for from the conversation', async () => {
+    const sessionId = seedMobileSession('mobile-user-open-session')
+
+    render(<ActiveSession />)
+    expect(screen.queryByTestId('mobile-workspace-overlay')).not.toBeInTheDocument()
+
+    act(() => {
+      useWorkspaceStore.getState().openTarget(
+        sessionId,
+        { kind: 'file', path: 'out/report.md' },
+        { requestedBy: 'user' },
+      )
+    })
+
+    await waitFor(() => {
+      expect(screen.getByTestId('mobile-workspace-overlay')).toBeInTheDocument()
+    })
+  })
+
+  it('leaves a background open behind the conversation, not over it', () => {
+    const sessionId = seedMobileSession('mobile-background-open-session')
+
+    render(<ActiveSession />)
+
+    act(() => {
+      useWorkspaceStore.getState().openTarget(sessionId, { kind: 'file', path: 'out/report.md' })
+    })
+
+    expect(screen.queryByTestId('mobile-workspace-overlay')).not.toBeInTheDocument()
+  })
+
+  it('floats the side-chat entry over the conversation instead of giving it a row', () => {
+    // It used to render as a block row of its own, which landed between the
+    // mobile top bar and the history and cost a strip of height for one icon.
+    seedMobileSession('mobile-side-chat-entry')
+
+    render(<ActiveSession />)
+
+    const entry = screen.getByTestId('side-chat-floating-button')
+    expect(entry).toBeInTheDocument()
+    // Out of flow: absolutely placed, so no row is reserved for it.
+    expect(entry.className).toContain('absolute')
+    expect(within(entry).getByRole('button', { name: 'Side chat' })).toBeInTheDocument()
+  })
+
+  it('keeps the desktop placement, where the entry belongs to the header', () => {
+    seedMobileSession('desktop-side-chat-entry')
+    viewportMocks.isMobile = false
+
+    render(<ActiveSession />)
+
+    expect(screen.queryByTestId('side-chat-floating-button')).not.toBeInTheDocument()
+  })
+
   it('renders a bottom terminal panel in the current session cwd and can promote it to a tab', async () => {
     const sessionId = 'terminal-session'
 

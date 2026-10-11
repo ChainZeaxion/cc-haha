@@ -1,10 +1,10 @@
 import type { ReactNode } from 'react'
-import { ExternalLink } from 'lucide-react'
+import { Download, ExternalLink } from 'lucide-react'
 import { IconButton } from '@/components/ui/IconButton'
 import { ZoomControls, type ZoomControlsProps } from '@/components/ui/ZoomControls'
 import { useTranslation } from '@/i18n'
+import { useSystemFileAction } from '@/hooks/useSystemFileAction'
 import { isRootedLocalPath } from '@/lib/handlePreviewLink'
-import { openLocalFileWithSystem, reportOpenFailure } from '@/lib/systemFileOpen'
 
 export type DocumentZoomState = Omit<ZoomControlsProps, 'labels' | 'surface' | 'flat' | 'fitMode' | 'className'>
 
@@ -30,6 +30,7 @@ export function DocumentToolbar({
   note?: string
 }) {
   const t = useTranslation()
+  const systemAction = useSystemFileAction(absolutePath)
   const canOpenInSystem = isRootedLocalPath(absolutePath)
 
   return (
@@ -51,13 +52,13 @@ export function DocumentToolbar({
         ) : null}
         {canOpenInSystem ? (
           <IconButton
-            icon={<ExternalLink size={16} strokeWidth={1.9} />}
-            label={t('workspace.openInSystemApp')}
+            icon={systemAction.canOpen
+              ? <ExternalLink size={16} strokeWidth={1.9} />
+              : <Download size={16} strokeWidth={1.9} />}
+            label={systemAction.label}
             size="md"
             tone="secondary"
-            onClick={() => {
-              void openLocalFileWithSystem(absolutePath).catch(() => reportOpenFailure(absolutePath))
-            }}
+            onClick={systemAction.run}
           />
         ) : null}
       </div>

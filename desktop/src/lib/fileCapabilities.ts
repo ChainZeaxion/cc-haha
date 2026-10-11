@@ -23,6 +23,31 @@ const SYSTEM_OPEN_EXTENSIONS: ReadonlySet<string> = new Set([
  */
 export const WORKSPACE_DOCUMENT_EXTENSIONS: ReadonlySet<string> = new Set<string>(['pdf', 'docx', 'xlsx', 'xlsm', 'xls'])
 
+/**
+ * Media the workspace tab plays itself, through the browser's own element.
+ *
+ * These stay in {@link SYSTEM_OPEN_EXTENSIONS} on purpose: a code editor is still
+ * the wrong place for a `.mp4`, so they are not editor-openable. But unlike an
+ * Office package or an archive, the browser has a native player, so a workspace
+ * tab can render one — which is the only way audio or video opens *inside* the
+ * page, and on the H5 surface the only way it opens on the user's device at all.
+ *
+ * Their bytes come from the filesystem routes (`/preview-fs`, `/local-file`),
+ * which stream with Range support — the `raw` route the document viewers use
+ * deliberately serves whole documents only and cannot seek.
+ */
+export const WORKSPACE_AUDIO_EXTENSIONS: ReadonlySet<string> = new Set<string>([
+  'mp3', 'wav', 'm4a', 'flac', 'aac', 'ogg', 'opus',
+])
+
+export const WORKSPACE_VIDEO_EXTENSIONS: ReadonlySet<string> = new Set<string>([
+  'mp4', 'mov', 'm4v', 'webm', 'mkv', 'avi',
+])
+
+export const WORKSPACE_IMAGE_EXTENSIONS: ReadonlySet<string> = new Set<string>([
+  'png', 'jpg', 'jpeg', 'gif', 'webp', 'avif', 'bmp', 'ico', 'svg',
+])
+
 // These are user-facing deliverables often created without being repeated in the
 // final prose. Source files stay in the changed-file card unless the assistant
 // explicitly cites them, so a large code change does not become a wall of cards.
@@ -84,11 +109,38 @@ export function isWorkspaceDocumentFile(path: string): boolean {
   return WORKSPACE_DOCUMENT_EXTENSIONS.has(fileExtension(path))
 }
 
-/** Whether the workspace can render this path as text/source, an image or a document. */
+/** Whether the workspace plays this path with an `<audio>` element. */
+export function isWorkspaceAudioFile(path: string): boolean {
+  return WORKSPACE_AUDIO_EXTENSIONS.has(fileExtension(path))
+}
+
+/** Whether the workspace plays this path with a `<video>` element. */
+export function isWorkspaceVideoFile(path: string): boolean {
+  return WORKSPACE_VIDEO_EXTENSIONS.has(fileExtension(path))
+}
+
+/**
+ * Whether the workspace shows this path as a picture.
+ *
+ * Worth its own predicate because an image is the one preview the server carries
+ * whole (as a base64 data URL) instead of streaming or truncating it, so it is the
+ * one whose size has to be weighed before opening.
+ */
+export function isWorkspaceImageFile(path: string): boolean {
+  return WORKSPACE_IMAGE_EXTENSIONS.has(fileExtension(path))
+}
+
+/** Whether the workspace plays this path itself, rather than handing it to the system. */
+export function isWorkspaceMediaFile(path: string): boolean {
+  return isWorkspaceAudioFile(path) || isWorkspaceVideoFile(path)
+}
+
+/** Whether the workspace can render this path as text/source, an image, a document or media. */
 export function isWorkspacePreviewableFile(path: string): boolean {
   const extension = fileExtension(path)
   if (!extension) return true
   if (WORKSPACE_DOCUMENT_EXTENSIONS.has(extension)) return true
+  if (WORKSPACE_AUDIO_EXTENSIONS.has(extension) || WORKSPACE_VIDEO_EXTENSIONS.has(extension)) return true
   return LINKABLE_FILE_EXTENSIONS.has(extension) && !SYSTEM_OPEN_EXTENSIONS.has(extension)
 }
 
@@ -99,6 +151,10 @@ export function isGeneratedArtifactFile(path: string): boolean {
 
 /** Whether a cited path belongs in the final-output resource strip. */
 export function isOutputResourceFile(path: string): boolean {
+  // Media is named explicitly because the second clause is the *non*-previewable
+  // half: the workspace now plays a `.mp4` itself, which would otherwise drop it
+  // out of the strip and out of the chat's prose deliverable cards entirely.
   return isGeneratedArtifactFile(path)
+    || isWorkspaceMediaFile(path)
     || (LINKABLE_FILE_EXTENSIONS.has(fileExtension(path)) && !isWorkspacePreviewableFile(path))
 }

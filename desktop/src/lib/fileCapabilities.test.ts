@@ -5,8 +5,11 @@ import {
   isEditorOpenableFile,
   isGeneratedArtifactFile,
   isOutputResourceFile,
+  isWorkspaceAudioFile,
   isWorkspaceDocumentFile,
+  isWorkspaceMediaFile,
   isWorkspacePreviewableFile,
+  isWorkspaceVideoFile,
 } from './fileCapabilities'
 
 describe('the workspace document gate', () => {
@@ -29,11 +32,40 @@ describe('the workspace document gate', () => {
   })
 
   it('leaves formats the workspace cannot draw with the system application', () => {
-    for (const path of ['deck.pptx', 'legacy.doc', 'archive.zip', 'song.mp3', 'clip.mp4', 'book.pages']) {
+    for (const path of ['deck.pptx', 'legacy.doc', 'archive.zip', 'book.pages']) {
       expect(isWorkspaceDocumentFile(path)).toBe(false)
       expect(isWorkspacePreviewableFile(path)).toBe(false)
       expect(isEditorOpenableFile(path)).toBe(false)
     }
+  })
+
+  it('plays audio and video itself: the browser has the player, so the tab renders them', () => {
+    // These used to be handed to the system application, which is exactly what
+    // opened them on the *server* host from the H5 surface. The media element is
+    // the only way they open inside the page — and the only way a phone can play
+    // them at all.
+    for (const path of ['song.mp3', 'clip.mp4', 'voice.wav', 'take.MOV']) {
+      expect(isWorkspaceMediaFile(path)).toBe(true)
+      expect(isWorkspacePreviewableFile(path)).toBe(true)
+    }
+    for (const path of ['song.mp3', 'clip.mp4']) {
+      expect(isWorkspaceAudioFile(path)).toBe(path.endsWith('.mp3'))
+      expect(isWorkspaceVideoFile(path)).toBe(path.endsWith('.mp4'))
+    }
+  })
+
+  it('still keeps media away from code editors: playing it is not editing it', () => {
+    for (const path of ['song.mp3', 'clip.mp4']) {
+      expect(isEditorOpenableFile(path)).toBe(false)
+      expect(isWorkspaceDocumentFile(path)).toBe(false)
+    }
+  })
+
+  it('keeps media in the turn outputs now that the workspace renders it', () => {
+    // The strip's second clause is the non-previewable half, so playing media in
+    // the workspace would silently drop a produced recording out of the outputs.
+    expect(isOutputResourceFile('clip.mp4')).toBe(true)
+    expect(isOutputResourceFile('song.mp3')).toBe(true)
   })
 
   it('does not disturb what was previewable before: source, markdown, images, extensionless files', () => {

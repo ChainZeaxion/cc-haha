@@ -25,8 +25,16 @@ describe('classifyPreviewLink for a document the workspace can draw', () => {
   })
 
   it('still sends formats the workspace cannot draw to the system application', () => {
-    for (const path of ['reports/launch.pptx', 'reports/legacy.doc', 'exports/archive.zip', 'media/clip.mp4']) {
+    for (const path of ['reports/launch.pptx', 'reports/legacy.doc', 'exports/archive.zip']) {
       expect(classifyPreviewLink(path).kind).toBe('system-file')
+    }
+  })
+
+  it('previews media in the workspace, which plays it, rather than handing it to the system', () => {
+    // `system-file` means "launch it on the host", and on the H5 surface the host
+    // is not where the user is — that is what opened a clip on the server.
+    for (const path of ['media/clip.mp4', 'media/voice.wav']) {
+      expect(classifyPreviewLink(path)).toMatchObject({ kind: 'file-preview', path })
     }
   })
 })

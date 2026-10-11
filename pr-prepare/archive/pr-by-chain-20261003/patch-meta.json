@@ -1,0 +1,1097 @@
+{
+ "h5-require-token": {
+  "slot": 1,
+  "desc": "一 H5 令牌开关 + 免令牌豁免",
+  "status": "✅",
+  "files": [
+   "desktop/src/__tests__/generalSettings.test.tsx",
+   "desktop/src/api/h5Access.ts",
+   "desktop/src/i18n/locales/en.ts",
+   "desktop/src/i18n/locales/jp.ts",
+   "desktop/src/i18n/locales/kr.ts",
+   "desktop/src/i18n/locales/zh-TW.ts",
+   "desktop/src/i18n/locales/zh.ts",
+   "desktop/src/lib/desktopRuntime.test.ts",
+   "desktop/src/lib/desktopRuntime.ts",
+   "desktop/src/pages/settings/H5AccessSettings.tsx",
+   "desktop/src/stores/settingsStore.test.ts",
+   "desktop/src/stores/settingsStore.ts",
+   "desktop/src/types/settings.ts",
+   "package.json",
+   "src/server/__fixtures__/remoteBrowserSettingsSmoke.ts",
+   "src/server/__tests__/h5-access-api.test.ts",
+   "src/server/__tests__/h5-access-auth.test.ts",
+   "src/server/__tests__/h5-access-policy.test.ts",
+   "src/server/__tests__/h5-access-service.test.ts",
+   "src/server/api/h5-access.ts",
+   "src/server/h5AccessPolicy.ts",
+   "src/server/index.ts",
+   "src/server/services/h5AccessService.ts"
+  ],
+  "files_n": 23,
+  "ins": 721,
+  "del": 102
+ },
+ "h5-auto-mode-optin": {
+  "slot": 2,
+  "desc": "一 H5 选「自动模式」400 修复（1.1）",
+  "status": "✅",
+  "files": [
+   "src/server/remoteBrowserPolicy.ts",
+   "src/server/router.remoteBrowser.test.ts"
+  ],
+  "files_n": 2,
+  "ins": 115,
+  "del": 11
+ },
+ "session-export": {
+  "slot": 3,
+  "desc": "二 会话导出",
+  "status": "✅",
+  "files": [
+   "desktop/src/components/ExportConversationDialog.tsx",
+   "desktop/src/components/layout/Sidebar.tsx",
+   "desktop/src/lib/sessionExport.ts",
+   "desktop/src/types/session.ts",
+   "src/server/services/sessionService.ts"
+  ],
+  "files_n": 5,
+  "ins": 493,
+  "del": 38
+ },
+ "h5-settings-parity": {
+  "slot": 4,
+  "desc": "九 H5 设置全 tab 对齐",
+  "status": "✅",
+  "files": [
+   "desktop/src/pages/Settings.tsx",
+   "desktop/src/pages/settings/H5GeneralSettings.tsx",
+   "desktop/src/pages/settings/H5Settings.test.tsx",
+   "desktop/src/pages/settings/H5Settings.tsx"
+  ],
+  "files_n": 4,
+  "ins": 212,
+  "del": 134
+ },
+ "h5-terminal-bridge": {
+  "slot": 5,
+  "desc": "一 H5 终端桥接（1.2）",
+  "status": "✅",
+  "files": [
+   "desktop/src/api/terminal.test.ts",
+   "desktop/src/lib/desktopHost/browserHost.ts",
+   "desktop/src/lib/desktopHost/contract.test.ts",
+   "desktop/src/lib/desktopHost/terminalWs.ts",
+   "src/server/__tests__/terminal-service.test.ts",
+   "src/server/api/terminal.ts",
+   "src/server/router.ts",
+   "src/server/services/terminalService.ts",
+   "src/server/ws/handler.ts"
+  ],
+  "files_n": 9,
+  "ins": 1644,
+  "del": 31
+ },
+ "session-refresh": {
+  "slot": 6,
+  "desc": "三 会话刷新按钮",
+  "status": "✅",
+  "files": [
+   "desktop/src/components/layout/AppShell.tsx",
+   "desktop/src/pages/ActiveSession.tsx"
+  ],
+  "files_n": 2,
+  "ins": 183,
+  "del": 7
+ },
+ "tps-indicator": {
+  "slot": 7,
+  "desc": "四 TPS 指示器 + 两行 + 子代理汇聚 + 展示格式/4 位封顶（#90）",
+  "status": "✅",
+  "files": [
+   "desktop/src/components/chat/TpsIndicator.test.tsx",
+   "desktop/src/components/chat/TpsIndicator.tsx",
+   "desktop/src/components/layout/AppShell.test.tsx",
+   "desktop/src/components/layout/AppShell.tsx",
+   "desktop/src/lib/tpsMeter.test.ts",
+   "desktop/src/lib/tpsMeter.ts",
+   "desktop/src/pages/ActiveSession.tsx",
+   "desktop/src/stores/chatStore.ts"
+  ],
+  "files_n": 8,
+  "ins": 776,
+  "del": 7
+ },
+ "file-download": {
+  "slot": 8,
+  "desc": "五 文件下载桥接（含右键/菜单下载 + H5 内置浏览器提示）",
+  "status": "✅",
+  "files": [
+   "desktop/src/components/chat/DownloadReferencesCard.tsx",
+   "desktop/src/components/chat/ToolCallGroup.tsx",
+   "desktop/src/components/composite/OpenWithMenu.tsx",
+   "desktop/src/components/workbench/WorkspaceFileTreePane.test.tsx",
+   "desktop/src/components/workbench/WorkspaceFileTreePane.tsx",
+   "desktop/src/components/workspace/WorkspaceFileOpenWith.test.tsx",
+   "desktop/src/components/workspace/WorkspaceFileOpenWith.tsx",
+   "desktop/src/lib/downloadFileMeta.ts",
+   "desktop/src/lib/fileSizeCache.ts",
+   "desktop/src/lib/handlePreviewLink.ts",
+   "desktop/src/lib/openWithItems.ts",
+   "desktop/src/lib/openWithMenuItems.ts",
+   "src/server/api/localFile.ts",
+   "src/server/api/previewFs.ts"
+  ],
+  "files_n": 14,
+  "ins": 541,
+  "del": 43
+ },
+ "disable-updates": {
+  "slot": 9,
+  "desc": "六 禁止更新开关",
+  "status": "✅",
+  "files": [
+   "desktop/src/pages/settings/AboutSettings.tsx",
+   "desktop/src/stores/updateStore.test.ts",
+   "desktop/src/stores/updateStore.ts",
+   "src/server/remoteBrowserPolicy.test.ts"
+  ],
+  "files_n": 4,
+  "ins": 145,
+  "del": 1
+ },
+ "cache-billing": {
+  "slot": 10,
+  "desc": "七 上下文缓存与计费显示",
+  "status": "✅",
+  "files": [
+   "desktop/src/components/chat/ContextUsageDetails.tsx",
+   "desktop/src/components/chat/ContextUsageIndicator.test.tsx",
+   "desktop/src/components/chat/ContextUsageIndicator.tsx",
+   "desktop/src/components/chat/LocalSlashCommandPanel.tsx",
+   "desktop/src/components/chat/SessionCostBadge.tsx",
+   "desktop/src/lib/sessionUsageMetrics.test.ts",
+   "desktop/src/lib/sessionUsageMetrics.ts"
+  ],
+  "files_n": 7,
+  "ins": 274,
+  "del": 30
+ },
+ "thinking-switch": {
+  "slot": 11,
+  "desc": "八 思考模式二级开关",
+  "status": "✅",
+  "files": [
+   "desktop/src/pages/settings/GeneralSettings.tsx",
+   "src/server/__tests__/providers.test.ts",
+   "src/server/proxy/handler.ts",
+   "src/services/api/claude.ts",
+   "src/services/openaiAuth/fetch.ts",
+   "src/tools/ConfigTool/supportedSettings.ts",
+   "src/utils/__tests__/thinking.test.ts",
+   "src/utils/messages.test.ts",
+   "src/utils/messages.ts",
+   "src/utils/settings/types.ts",
+   "src/utils/thinking.ts"
+  ],
+  "files_n": 11,
+  "ins": 354,
+  "del": 8
+ },
+ "server-test-baseline-zeroing": {
+  "slot": 12,
+  "desc": "十二 src/server 既有 22 条测试失败清零",
+  "status": "✅",
+  "files": [
+   "adapters/whatsapp/session.ts",
+   "src/server/__tests__/conversation-service.test.ts",
+   "src/server/__tests__/e2e/full-flow.test.ts",
+   "src/server/services/connectorService.ts",
+   "src/server/services/sessionCollaborationService.ts",
+   "src/server/services/workspaceService.ts",
+   "src/server/services/workspaceWatch.test.ts"
+  ],
+  "files_n": 7,
+  "ins": 95,
+  "del": 16
+ },
+ "h5-mobile-quick-actions": {
+  "slot": 13,
+  "desc": "十一 H5 悬浮快捷入口（任务/终端/文件/审查）",
+  "status": "✅",
+  "files": [
+   "desktop/src/components/chat/MobileQuickActions.test.tsx",
+   "desktop/src/components/chat/MobileQuickActions.tsx",
+   "desktop/src/pages/ActiveSession.test.tsx"
+  ],
+  "files_n": 3,
+  "ins": 251,
+  "del": 0
+ },
+ "vcc-compactor": {
+  "slot": 14,
+  "desc": "十三 pi-vcc 算法压缩移植 + 双后端热切换 + vcc_recall",
+  "status": "✅",
+  "files": [
+   "desktop/src/pages/settings/GeneralSettings.compaction.test.tsx",
+   "src/services/compact/compact.ts",
+   "src/services/compact/vcc/adapter.ts",
+   "src/services/compact/vcc/ccGlobalIndex.ts",
+   "src/services/compact/vcc/engine.ts",
+   "src/services/compact/vcc/pi-ai.ts",
+   "src/services/compact/vcc/recallDrillDown.ts",
+   "src/services/compact/vcc/recallLoader.ts",
+   "src/services/compact/vcc/vccCompact.test.ts",
+   "src/services/compact/vcc/vccCompact.ts",
+   "src/services/compact/vcc/vendor/core/brief.ts",
+   "src/services/compact/vcc/vendor/core/build-sections.ts",
+   "src/services/compact/vcc/vendor/core/compact-args.ts",
+   "src/services/compact/vcc/vendor/core/content.ts",
+   "src/services/compact/vcc/vendor/core/drill-down.ts",
+   "src/services/compact/vcc/vendor/core/filter-noise.ts",
+   "src/services/compact/vcc/vendor/core/format-recall.ts",
+   "src/services/compact/vcc/vendor/core/format.ts",
+   "src/services/compact/vcc/vendor/core/global-indices.ts",
+   "src/services/compact/vcc/vendor/core/jsonl.ts",
+   "src/services/compact/vcc/vendor/core/lineage.ts",
+   "src/services/compact/vcc/vendor/core/load-messages.ts",
+   "src/services/compact/vcc/vendor/core/normalize.ts",
+   "src/services/compact/vcc/vendor/core/rank.ts",
+   "src/services/compact/vcc/vendor/core/recall-scope.ts",
+   "src/services/compact/vcc/vendor/core/render-entries.ts",
+   "src/services/compact/vcc/vendor/core/report.ts",
+   "src/services/compact/vcc/vendor/core/sanitize.ts",
+   "src/services/compact/vcc/vendor/core/search-entries.ts",
+   "src/services/compact/vcc/vendor/core/settings.ts",
+   "src/services/compact/vcc/vendor/core/skill-collapse.ts",
+   "src/services/compact/vcc/vendor/core/summarize.ts",
+   "src/services/compact/vcc/vendor/core/token-estimate.ts",
+   "src/services/compact/vcc/vendor/core/tool-args.ts",
+   "src/services/compact/vcc/vendor/details.ts",
+   "src/services/compact/vcc/vendor/extract/commits.ts",
+   "src/services/compact/vcc/vendor/extract/files.ts",
+   "src/services/compact/vcc/vendor/extract/goals.ts",
+   "src/services/compact/vcc/vendor/extract/preferences.ts",
+   "src/services/compact/vcc/vendor/sections.ts",
+   "src/services/compact/vcc/vendor/types.ts",
+   "src/tools.ts",
+   "src/tools/VccRecallTool/UI.tsx",
+   "src/tools/VccRecallTool/VccRecallTool.test.ts",
+   "src/tools/VccRecallTool/VccRecallTool.ts",
+   "src/tools/VccRecallTool/prompt.ts",
+   "src/utils/compactionBackend.ts"
+  ],
+  "files_n": 47,
+  "ins": 5584,
+  "del": 32
+ },
+ "h5-mobile-scheduled": {
+  "slot": 15,
+  "desc": "十五 H5/移动端支持打开计划任务（定时任务）页",
+  "status": "✅",
+  "files": [
+   "desktop/src/components/layout/Sidebar.test.tsx",
+   "desktop/src/pages/ScheduledTasks.tsx"
+  ],
+  "files_n": 2,
+  "ins": 4,
+  "del": 3
+ },
+ "connector-linux-platform": {
+  "slot": 16,
+  "desc": "十六 连接器目录 Linux 平台支持（x64/arm64）",
+  "status": "✅",
+  "files": [
+   "src/services/connectors/catalog.ts",
+   "src/services/connectors/managedRuntime.ts",
+   "src/services/connectors/remoteCatalog.ts",
+   "src/services/connectors/skillCatalog.ts"
+  ],
+  "files_n": 4,
+  "ins": 21,
+  "del": 11
+ },
+ "h5-mobile-market-layout": {
+  "slot": 17,
+  "desc": "十七 H5/移动端 技能市场页 header 布局适配",
+  "status": "✅",
+  "files": [
+   "desktop/src/components/market/MarketHome.tsx"
+  ],
+  "files_n": 1,
+  "ins": 1,
+  "del": 1
+ },
+ "computer-use-linux-x11": {
+  "slot": 18,
+  "desc": "十八 Computer Use 解锁 Linux（X11）",
+  "status": "✅",
+  "files": [
+   "desktop/src/api/computerUse.ts",
+   "desktop/src/components/computer-use/ComputerUseEnableDialog.tsx",
+   "desktop/src/pages/ComputerUseSettings.tsx",
+   "runtime/linux_helper.py",
+   "runtime/requirements-linux.txt",
+   "src/server/__tests__/computer-use-api.test.ts",
+   "src/server/api/computer-use.ts",
+   "src/skills/bundled/computerUse.ts",
+   "src/utils/computerUse/common.test.ts",
+   "src/utils/computerUse/common.ts",
+   "src/utils/computerUse/executor.ts",
+   "src/utils/computerUse/gates.test.ts",
+   "src/utils/computerUse/gates.ts",
+   "src/utils/computerUse/pythonBridge.ts",
+   "src/utils/computerUse/setup.test.ts",
+   "src/utils/computerUse/skillGate.test.ts",
+   "src/utils/computerUse/skillGate.ts",
+   "src/vendor/computer-use-mcp/executor.ts",
+   "src/vendor/computer-use-mcp/keyBlocklist.ts",
+   "src/vendor/computer-use-mcp/mcpServer.ts",
+   "src/vendor/computer-use-mcp/toolCalls.ts",
+   "src/vendor/computer-use-mcp/tools.ts",
+   "src/vendor/computer-use-mcp/windowsLegacyToolCalls.ts",
+   "src/vendor/computer-use-mcp/windowsLegacyTools.ts"
+  ],
+  "files_n": 24,
+  "ins": 1231,
+  "del": 75
+ },
+ "context-usage-anchor": {
+  "slot": 19,
+  "desc": "十九 bc 压缩后 context usage 不收敛（显示总量 usage 锚口径 + projector metadata 上限加固）",
+  "status": "✅",
+  "files": [
+   "src/server/__tests__/conversations.test.ts",
+   "src/server/services/localIndex/sessionProjector.test.ts",
+   "src/server/services/localIndex/sessionProjector.ts",
+   "src/server/services/sessionService.ts"
+  ],
+  "files_n": 4,
+  "ins": 74,
+  "del": 12
+ },
+ "h5-gzip-transport": {
+  "slot": 20,
+  "desc": "二十 H5 远端 API 响应 gzip 压缩传输",
+  "status": "✅",
+  "files": [
+   "src/server/index.ts",
+   "src/server/responseCompression.test.ts",
+   "src/server/responseCompression.ts"
+  ],
+  "files_n": 3,
+  "ins": 246,
+  "del": 1
+ },
+ "thinking-tool-timing": {
+  "slot": 21,
+  "desc": "二十一 思考计时与工具计时综合优化（思考 badge+收纳栏总计时+token）",
+  "status": "✅",
+  "files": [
+   "desktop/src/components/chat/ActivityGroup.test.tsx",
+   "desktop/src/components/chat/ActivityGroup.tsx",
+   "desktop/src/components/chat/MessageList.tsx",
+   "desktop/src/components/chat/ThinkingBlock.test.tsx",
+   "desktop/src/components/chat/ThinkingBlock.tsx",
+   "desktop/src/components/chat/activityGroupModel.ts",
+   "desktop/src/stores/__fixtures__/chat-store.golden.json",
+   "desktop/src/stores/chatStore.test.ts",
+   "desktop/src/stores/chatStore.ts",
+   "desktop/src/types/chat.ts",
+   "desktop/src/types/session.ts",
+   "src/server/__tests__/fixtures/translate-cli-message.golden.json",
+   "src/server/__tests__/translateCliMessage.agentRunMessage.test.ts",
+   "src/server/__tests__/translateCliMessage.golden.test.ts",
+   "src/server/__tests__/ws-memory-events.test.ts",
+   "src/server/services/sessionService.ts",
+   "src/server/ws/events.ts",
+   "src/server/ws/handler.ts",
+   "src/server/ws/streamBlocks.ts",
+   "src/services/api/claude.ts"
+  ],
+  "files_n": 20,
+  "ins": 532,
+  "del": 54
+ },
+ "autocompact-window-tiers": {
+  "slot": 22,
+  "desc": "二十四 上下文压缩阈值按窗口分档（软触发百分比 + 硬触发绝对下限）",
+  "status": "✅ 已实施",
+  "files": [
+   "src/services/compact/autoCompact.test.ts",
+   "src/services/compact/autoCompact.ts"
+  ],
+  "files_n": 2,
+  "ins": 144,
+  "del": 26
+ },
+ "history-transport-bounds": {
+  "slot": 23,
+  "desc": "二十二 历史传输裁剪（`toolUseResult` 有界投影）+ 读取预算收紧",
+  "status": "🔍 部分（A+H）",
+  "files": [
+   "src/server/services/boundedSessionHistory.test.ts",
+   "src/server/services/boundedSessionHistory.ts",
+   "src/server/services/sessionService.ts"
+  ],
+  "files_n": 3,
+  "ins": 101,
+  "del": 7
+ },
+ "file-history-dedup": {
+  "slot": 24,
+  "desc": "二十二 E file-history `-completed-*` 重复消除（变动才建）",
+  "status": "✅ 已实施",
+  "files": [
+   "src/utils/fileHistory.security.test.ts",
+   "src/utils/fileHistory.ts"
+  ],
+  "files_n": 2,
+  "ins": 83,
+  "del": 5
+ },
+ "gzip-transport": {
+  "slot": 25,
+  "desc": "二十二 G gzip 传输改造：同步→异步（移出事件循环）+ 会话大小门控（<10MB 不压缩）",
+  "status": "✅ 已实施",
+  "files": [
+   "src/server/index.ts",
+   "src/server/responseCompression.test.ts",
+   "src/server/responseCompression.ts"
+  ],
+  "files_n": 3,
+  "ins": 175,
+  "del": 5
+ },
+ "history-first-paint-bound": {
+  "slot": 26,
+  "desc": "二十二 B 首屏翻页上限（提前返回并保留 `nextCursor`，打通既有「加载更早」）",
+  "status": "✅ 已实施",
+  "files": [
+   "desktop/src/api/sessions.test.ts",
+   "desktop/src/api/sessions.ts"
+  ],
+  "files_n": 2,
+  "ins": 61,
+  "del": 3
+ },
+ "baseline-typecheck-fixes": {
+  "slot": 27,
+  "desc": "基线真缺陷修复：`index.ts` TS2502（参数遮蔽致类型自引用）+ vendor 重复导入 TS2300",
+  "status": "✅ 已实施",
+  "files": [
+   "src/server/index.ts",
+   "src/vendor/computer-use-mcp/toolCalls.test.ts"
+  ],
+  "files_n": 2,
+  "ins": 7,
+  "del": 4
+ },
+ "thinking-badge-order-and-duration": {
+  "slot": 28,
+  "desc": "二十一 子优化①：收纳栏「token 在前、耗时在后」+ `+` 间隔收紧 + 零耗时按未测处理",
+  "status": "✅ 已实施",
+  "files": [
+   "desktop/src/components/chat/ActivityGroup.test.tsx",
+   "desktop/src/components/chat/ActivityGroup.tsx",
+   "desktop/src/components/chat/ThinkingBlock.test.tsx",
+   "desktop/src/components/chat/ThinkingBlock.tsx",
+   "desktop/src/components/chat/activityGroupModel.ts",
+   "src/services/api/claude.ts"
+  ],
+  "files_n": 6,
+  "ins": 84,
+  "del": 25
+ },
+ "turn-usage": {
+  "slot": 29,
+  "desc": "二十一 子优化②：轮次用量（每轮总消耗 token，口径=真实 `output_tokens`，`usageKey` 去重）",
+  "status": "✅ 已实施",
+  "files": [
+   "desktop/src/components/chat/TurnCompletionStamp.test.tsx",
+   "desktop/src/components/chat/TurnCompletionStamp.tsx",
+   "desktop/src/i18n/locales/en.ts",
+   "desktop/src/i18n/locales/jp.ts",
+   "desktop/src/i18n/locales/kr.ts",
+   "desktop/src/i18n/locales/zh-TW.ts",
+   "desktop/src/i18n/locales/zh.ts",
+   "desktop/src/lib/turnCompletion.test.ts",
+   "desktop/src/lib/turnCompletion.ts",
+   "desktop/src/stores/chatStore.test.ts",
+   "desktop/src/stores/chatStore.ts",
+   "desktop/src/types/chat.ts"
+  ],
+  "files_n": 12,
+  "ins": 463,
+  "del": 7
+ },
+ "tps-centered-second-line": {
+  "slot": 30,
+  "desc": "四 费用/TPS **保持上下两行**，TPS 由右对齐改**第二行居中**（桌面 `ActiveSession.tsx` + H5 `AppShell.tsx`）",
+  "status": "✅ 已实施",
+  "files": [
+   "desktop/src/components/layout/AppShell.tsx",
+   "desktop/src/pages/ActiveSession.tsx"
+  ],
+  "files_n": 2,
+  "ins": 6,
+  "del": 3
+ },
+ "storage-original-file-bound": {
+  "slot": 31,
+  "desc": "二十二 F **存量瘦身**：写入侧对 `toolUseResult.originalFile` 做 16KB 有界裁剪（+ `originalFileTruncated/Bytes` 标记，含新测试文件）",
+  "status": "✅ 已实施",
+  "files": [
+   "src/utils/sessionStorage.originalFileBound.test.ts",
+   "src/utils/sessionStorage.ts"
+  ],
+  "files_n": 2,
+  "ins": 118,
+  "del": 1
+ },
+ "computer-use-platform-components": {
+  "slot": 32,
+  "desc": "十八 平台化组件选择：`pythonRuntimeFor()` 显式平台表（macOS/未知平台无 Python 组件），修复「二元三目」把 win 依赖清单发给 mac",
+  "status": "✅ 已实施",
+  "files": [
+   "src/utils/computerUse/pipInstall.test.ts",
+   "src/utils/computerUse/pythonBridge.ts"
+  ],
+  "files_n": 2,
+  "ins": 186,
+  "del": 9
+ },
+ "computer-use-python-path-fallback": {
+  "slot": 33,
+  "desc": "十八 无原生文件选择器时**回退填入已探测解释器路径**（+ 5 语言 i18n 键 + 测试）",
+  "status": "✅ 已实施",
+  "files": [
+   "desktop/src/i18n/locales/en.ts",
+   "desktop/src/i18n/locales/jp.ts",
+   "desktop/src/i18n/locales/kr.ts",
+   "desktop/src/i18n/locales/zh-TW.ts",
+   "desktop/src/i18n/locales/zh.ts",
+   "desktop/src/pages/ComputerUseSettings.test.tsx",
+   "desktop/src/pages/ComputerUseSettings.tsx"
+  ],
+  "files_n": 7,
+  "ins": 62,
+  "del": 3
+ },
+ "h5-mobile-run-records": {
+  "slot": 34,
+  "desc": "二十五 **H5 打不开子代理运行记录**：移动端 tab 守卫白名单补 `subagent`/`team-member`（+ 2 测试）",
+  "status": "✅ 已实施",
+  "files": [
+   "desktop/src/components/layout/AppShell.test.tsx",
+   "desktop/src/components/layout/AppShell.tsx"
+  ],
+  "files_n": 2,
+  "ins": 52,
+  "del": 1
+ },
+ "tps-real-token-accounting": {
+  "slot": 35,
+  "desc": "四 子优化：**TPS 采样改真实 token 口径**——自适应三层源（ids/chunk/char）+ 真实 `output_tokens` 对账校准 + 按模型分桶持久化 + 引擎 `return_token_ids` 旁路（20 文件 1717 行）",
+  "status": "✅ 已实施",
+  "files": [
+   "desktop/src/components/chat/TpsIndicator.test.tsx",
+   "desktop/src/components/chat/TpsIndicator.tsx",
+   "desktop/src/lib/tpsCalibration.test.ts",
+   "desktop/src/lib/tpsCalibration.ts",
+   "desktop/src/lib/tpsMeter.test.ts",
+   "desktop/src/lib/tpsMeter.ts",
+   "desktop/src/stores/chatStore.test.ts",
+   "desktop/src/stores/chatStore.ts",
+   "desktop/src/types/chat.ts",
+   "src/server/index.ts",
+   "src/server/proxy/handler.ts",
+   "src/server/proxy/streaming/openaiChatStreamToAnthropic.test.ts",
+   "src/server/proxy/streaming/openaiChatStreamToAnthropic.ts",
+   "src/server/proxy/tpsTokenSink.ts",
+   "src/server/proxy/transform/anthropicToOpenaiChat.ts",
+   "src/server/proxy/transform/requestCompatibility.test.ts",
+   "src/server/proxy/transform/requestCompatibility.ts",
+   "src/server/proxy/transform/types.ts",
+   "src/server/types/provider.ts",
+   "src/server/ws/events.ts"
+  ],
+  "files_n": 20,
+  "ins": 1184,
+  "del": 52
+ },
+ "compact-dead-import-cleanup": {
+  "slot": 36,
+  "desc": "策略门禁 `check:policy` 的 **dead-imports 清零**（十三章 vcc 移植遗留的 3 处未引用导入；该规则口径是「删」而非白名单）",
+  "status": "✅ 已实施",
+  "files": [
+   "src/services/compact/compact.ts",
+   "src/services/compact/vcc/vendor/core/build-sections.ts",
+   "src/services/compact/vcc/vendor/types.ts"
+  ],
+  "files_n": 3,
+  "ins": 1,
+  "del": 3
+ },
+ "session-speed-and-usage-pairing": {
+  "slot": 37,
+  "desc": "四 子优化：**面板「生成速度」分子分母配对**（decode 只除「同批被测到 span 的 token」，非流式回退不再抬高速度）+ **transcript usage 去重改保留末行**（首行 `output_tokens: 0` 曾致 output/cache_read 全丢，13 文件 1183 行）",
+  "status": "✅ 已实施",
+  "files": [
+   "desktop/src/api/sessions.ts",
+   "desktop/src/components/chat/ContextUsageIndicator.test.tsx",
+   "desktop/src/lib/sessionUsageMetrics.test.ts",
+   "desktop/src/lib/sessionUsageMetrics.ts",
+   "src/QueryEngine.ts",
+   "src/bootstrap/state.generationTiming.test.ts",
+   "src/bootstrap/state.ts",
+   "src/cost-tracker.ts",
+   "src/server/__tests__/sessions.test.ts",
+   "src/server/services/localIndex/transcriptReducer.test.ts",
+   "src/server/services/localIndex/transcriptReducer.ts",
+   "src/server/services/sessionService.ts",
+   "src/utils/config.ts"
+  ],
+  "files_n": 13,
+  "ins": 427,
+  "del": 56
+ },
+ "tps-content-accounting": {
+  "slot": 38,
+  "desc": "四 子优化：**TPS 计量改为按内容度量**（CJK/latin 两系数最小二乘 + `ids` 独占；废弃按帧计数的 chunk 层——6 并发子代理下它把读数抬到真实值 2~3 倍的根因）",
+  "status": "✅ 已实施",
+  "files": [
+   "desktop/src/components/chat/TpsIndicator.test.tsx",
+   "desktop/src/components/chat/TpsIndicator.tsx",
+   "desktop/src/lib/tpsCalibration.test.ts",
+   "desktop/src/lib/tpsCalibration.ts",
+   "desktop/src/lib/tpsMeter.test.ts",
+   "desktop/src/lib/tpsMeter.ts",
+   "desktop/src/stores/chatStore.test.ts",
+   "desktop/src/stores/chatStore.ts"
+  ],
+  "files_n": 8,
+  "ins": 369,
+  "del": 252
+ },
+ "subagent-background-task-durations": {
+  "slot": 39,
+  "desc": "二十一 子优化④：**子代理耗时 + 子代理收纳栏总耗时 + 后台任务耗时**（汇总栏取**区间并集跨度**而非求和——子代理是并发派发；`agentRunInterval`/`agentGroupSpanMs` 另立，因全 Agent 组不进 `ActivityGroup`；新建 `ToolCallGroup.test`）",
+  "status": "✅ 已实施",
+  "files": [
+   "desktop/src/components/activity/SessionActivityPanel.test.tsx",
+   "desktop/src/components/activity/SessionActivityPanel.tsx",
+   "desktop/src/components/activity/sessionActivityModel.ts",
+   "desktop/src/components/chat/ActivityGroup.test.tsx",
+   "desktop/src/components/chat/ToolCallGroup.tsx",
+   "desktop/src/components/chat/activityGroupModel.ts",
+   "desktop/src/i18n/locales/en.ts",
+   "desktop/src/i18n/locales/jp.ts",
+   "desktop/src/i18n/locales/kr.ts",
+   "desktop/src/i18n/locales/zh-TW.ts",
+   "desktop/src/i18n/locales/zh.ts",
+   "new/desktop/src/components/chat/ToolCallGroup.test.tsx"
+  ],
+  "files_n": 12,
+  "ins": 547,
+  "del": 15
+ },
+ "vcc-compact-fallback": {
+  "slot": 40,
+  "desc": "十三 vcc 失败降级兜底（抛错/空摘要 → 回落既有 LLM 摘要路径，避免自动压缩熔断静默停摆）",
+  "status": "✅ 已实施",
+  "files": [
+   "src/services/compact/compact.test.ts",
+   "src/services/compact/compact.ts"
+  ],
+  "files_n": 2,
+  "ins": 217,
+  "del": 10
+ },
+ "background-task-duration-restore": {
+  "slot": 41,
+  "desc": "二十一 子优化④ 补记二：后台任务耗时**恢复三层根因**（①`historyComplete=false` 时窗口被整空 → 跨度类重建改用已加载窗口；②通知型任务无起点 → 用其 `toolUseId` 的工具调用时刻回填；③**merge 把 restored `startedAt` 取成 `now`** → 保留调用方起点）+ 显示改紧凑 ASCII（`4m1s`）+ 消息列表内联卡耗时纳入「会话扩展信息」开关（6 文件 464 行）",
+  "status": "✅ 已实施",
+  "files": [
+   "desktop/src/components/activity/SessionActivityPanel.test.tsx",
+   "desktop/src/components/activity/SessionActivityPanel.tsx",
+   "desktop/src/components/chat/MessageList.test.tsx",
+   "desktop/src/components/chat/MessageList.tsx",
+   "desktop/src/stores/chatStore.test.ts",
+   "desktop/src/stores/chatStore.ts"
+  ],
+  "files_n": 6,
+  "ins": 261,
+  "del": 25
+ },
+ "tps-burst-anchor": {
+  "slot": 42,
+  "desc": "四 子优化⑤：**TPS 脉冲修复**——`value()` 缺「刚滑出窗口的样本」锚（`preWindowAt`），流切换处窗口塌缩时积压 token 被 400ms 地板除 ⇒ 生产实测爆到 1000-2000 t/s（真值 230-280，4-7×）；附估算校准接线 `setEstimationCalibration`（2 文件 175 增）",
+  "status": "✅ 已实施",
+  "files": [
+   "desktop/src/lib/tpsMeter.test.ts",
+   "desktop/src/lib/tpsMeter.ts"
+  ],
+  "files_n": 2,
+  "ins": 175,
+  "del": 5
+ },
+ "think-token-truth-chain": {
+  "slot": 43,
+  "desc": "二十一 子优化⑤：**思考 token 走引擎真值**——代理透传 `reasoning_tokens` → usage 保活强转 → `ProgressTracker` 逐轮「真值否则估算」→ `AgentTaskNotification` 带 `output_tokens`/`think_tokens` → 桌面拆分渲染；契约=**发射方决定形态**（21 文件 669 增）",
+  "status": "✅ 已实施",
+  "files": [
+   "desktop/src/api/subagents.ts",
+   "desktop/src/components/chat/MessageList.tsx",
+   "desktop/src/components/chat/ThinkingBlock.test.tsx",
+   "desktop/src/components/chat/ThinkingBlock.tsx",
+   "desktop/src/components/chat/ToolCallGroup.test.tsx",
+   "desktop/src/components/chat/ToolCallGroup.tsx",
+   "desktop/src/components/chat/activityGroupModel.ts",
+   "src/server/services/subagentRunService.ts",
+   "src/services/api/claude.ts",
+   "src/services/api/emptyUsage.ts",
+   "src/services/tokenEstimation.test.ts",
+   "src/services/tokenEstimation.ts",
+   "src/tasks/LocalAgentTask/LocalAgentTask.test.ts",
+   "src/tasks/LocalAgentTask/LocalAgentTask.tsx",
+   "src/tools/AgentTool/AgentTool.tsx",
+   "src/tools/AgentTool/agentToolUtils.test.ts",
+   "src/tools/AgentTool/agentToolUtils.ts",
+   "src/utils/sdkEventQueue.ts",
+   "src/utils/task/sdkProgress.ts",
+   "src/utils/taskNotificationPolicy.ts",
+   "src/utils/tokens.ts"
+  ],
+  "files_n": 21,
+  "ins": 669,
+  "del": 37
+ },
+ "tps-tokens-kind-and-reasoning-passthrough": {
+  "slot": 44,
+  "desc": "四 子优化⑥：`tps_tokens` 带 **kind**（thinking/content/tool）供思考徽章取**精确单块** token（转录无此字段，只能估）；代理层透传 `reasoning_tokens`（兼容 vLLM `completion_tokens_details` 与 Responses `output_tokens_details`，12 文件 232 增）",
+  "status": "✅ 已实施",
+  "files": [
+   "desktop/src/stores/chatStore.test.ts",
+   "desktop/src/stores/chatStore.ts",
+   "desktop/src/types/chat.ts",
+   "src/server/__tests__/proxy-transform.test.ts",
+   "src/server/index.ts",
+   "src/server/proxy/handler.ts",
+   "src/server/proxy/streaming/openaiChatStreamToAnthropic.test.ts",
+   "src/server/proxy/streaming/openaiChatStreamToAnthropic.ts",
+   "src/server/proxy/tpsTokenSink.ts",
+   "src/server/proxy/transform/types.ts",
+   "src/server/proxy/transform/usage.ts",
+   "src/server/ws/events.ts"
+  ],
+  "files_n": 12,
+  "ins": 232,
+  "del": 30
+ },
+ "file-download-attr": {
+  "slot": 45,
+  "desc": "五 子优化：`downloadLocalFile` 补 `anchor.download`——缺它则点击是**导航**而非下载，打包版渲染进程 `file://` 下该请求即跨站、被来源门控拒掉（「点了没反应」）；该入口此前**零测试**（2 文件 75 增，含 4 条测试）",
+  "status": "✅ 已实施",
+  "files": [
+   "desktop/src/lib/handlePreviewLink.test.ts",
+   "desktop/src/lib/handlePreviewLink.ts"
+  ],
+  "files_n": 2,
+  "ins": 75,
+  "del": 0
+ },
+ "local-index-extra-project-roots": {
+  "slot": 46,
+  "desc": "十 补记：`CC_HAHA_EXTRA_PROJECT_ROOTS` **额外索引根**——dev 实例用自己的 `CLAUDE_CONFIG_DIR` ⇒ 发现根随之变成自己的，真实目录的会话永不出现；该配置可额外索引真实 `projects/`（3 文件 222 增）",
+  "status": "✅ 已实施",
+  "files": [
+   "src/server/services/localIndex/config.ts",
+   "src/server/services/localIndex/coordinator.test.ts",
+   "src/server/services/localIndex/coordinator.ts"
+  ],
+  "files_n": 3,
+  "ins": 222,
+  "del": 98
+ },
+ "test-model-env-isolation": {
+  "slot": 47,
+  "desc": "十二 补记：三处模型 env 敏感用例接入 `isolateModelDefaultsEnv`——本机导出的 `CLAUDE_CODE_MODEL_CONTEXT_WINDOWS` 等泄漏致 `modelContextWindows`/`ultracode`/`processSlashCommand` **单跑也失败**；官方 runner 逐文件独立进程 + env 白名单故免疫（3 文件 20 增）",
+  "status": "✅ 已实施",
+  "files": [
+   "src/utils/model/modelContextWindows.test.ts",
+   "src/utils/processUserInput/processSlashCommand.test.ts",
+   "src/utils/workflows/ultracode.test.ts"
+  ],
+  "files_n": 3,
+  "ins": 20,
+  "del": 0
+ },
+ "session-list-multi-root-validation": {
+  "slot": 48,
+  "desc": "十 补记二：会话列表**逐行校验改按全部索引根**——只认本配置目录的根时，额外根来的行被判越界并被 `catch` **静默丢弃**（于是 `total` 报得对、行数只剩 2）；平铺 2 → 84、侧边栏分组恢复（1 文件 70 增）",
+  "status": "✅ 已实施",
+  "files": [
+   "src/server/services/sessionService.ts"
+  ],
+  "files_n": 1,
+  "ins": 70,
+  "del": 23
+ },
+ "subagent-usage-split-live": {
+  "slot": 49,
+  "desc": "二十一 子优化⑥：**还原会话的 think/非think 拆分 + 组栏运行中实时跟进**——服务端 `sessionUsageRollup` 按 `toolUseId` 从子代理转录推导 usage 随通知下发（完成态权威）；组栏改读**运行中记录**（`agentTaskLiveUsage`）并以完成通知**二次校正**；实时节奏对齐思考徽章 3s（13 文件 781 增）",
+  "status": "✅ 已实施",
+  "files": [
+   "desktop/src/components/chat/ActivityGroup.test.tsx",
+   "desktop/src/components/chat/MessageList.tsx",
+   "desktop/src/components/chat/ToolCallGroup.test.tsx",
+   "desktop/src/components/chat/ToolCallGroup.tsx",
+   "desktop/src/components/chat/activityGroupModel.ts",
+   "desktop/src/stores/chatStore.ts",
+   "desktop/src/stores/sessionUsageRestore.test.ts",
+   "src/server/api/sessions.ts",
+   "src/server/services/sessionService.ts",
+   "src/server/services/sessionUsageRollup.test.ts",
+   "src/server/services/sessionUsageRollup.ts",
+   "src/tasks/LocalAgentTask/LocalAgentTask.tsx",
+   "src/tools/AgentTool/agentToolUtils.ts"
+  ],
+  "files_n": 13,
+  "ins": 781,
+  "del": 51
+ },
+ "tps-phase-switch-steady-window": {
+  "slot": 50,
+  "desc": "四 子优化⑦：**TPS 相位切换脉冲真根因**——`total` 与 `span` 不是同一批 token 的时间：锚的条件太窄（停滞冲刷恰落在 `span==400ms` 地板故不进锚）、无前置样本时 `Math.max(span, 400ms)` 凭空造分母（整块交付读 22500）、`computeFallbackTps` 同病。收敛为一条规则：**一批 token 生成于它与前一批之间**（`sliceRate()`：原点取切片前一样本；无前置则丢弃最旧那批；不可计时则持有）。顺带修正稳态读数**系统性偏高 11%**（10 批除 9 个间隔）",
+  "status": "✅ 已实施",
+  "files": [
+   "desktop/src/lib/tpsMeter.test.ts",
+   "desktop/src/lib/tpsMeter.ts"
+  ],
+  "files_n": 2,
+  "ins": 156,
+  "del": 53
+ },
+ "file-download-blob": {
+  "slot": 51,
+  "desc": "五 子优化：**下载改走 `apiGetBlob`+blob**——`file://` 下 DOM 自发的下载请求其 Origin 序列化为 `null`（非 `file://`），服务端 403 `CORS origin not allowed` ⇒ 「无法从网站上提取文件」。**不放行 `null`**（那是所有不透明来源的值，恶意页面的 sandbox iframe 即是 ⇒ 等于给本地 API 开后门），改修调用方；同 app icon 的既有解法（4 文件 133 增）",
+  "status": "✅ 已实施",
+  "files": [
+   "desktop/src/components/workbench/WorkspaceFileTreePane.tsx",
+   "desktop/src/lib/handlePreviewLink.test.ts",
+   "desktop/src/lib/handlePreviewLink.ts",
+   "desktop/src/lib/openWithMenuItems.ts"
+  ],
+  "files_n": 4,
+  "ins": 133,
+  "del": 54
+ },
+ "split-no-double-count": {
+  "slot": 52,
+  "desc": "二十六 补记：**拆分「真实用量 0」**——一轮响应拆成两条记录（思考一条、正文一条，**共享 `message.id`**），只有带 usage 的那条能报 reasoning ⇒ 估算又叠真值（think 15.7k > total 9.3k）⇒ `max(0,total-think)` 恒 0。按响应 id 归组，真值胜过估算；**两处同病同修**（实时 tracker + 还原会话），实测 6/6 一致（4 文件 166 增）",
+  "status": "✅ 已实施",
+  "files": [
+   "src/server/services/sessionUsageRollup.test.ts",
+   "src/server/services/sessionUsageRollup.ts",
+   "src/tasks/LocalAgentTask/LocalAgentTask.test.ts",
+   "src/tasks/LocalAgentTask/LocalAgentTask.tsx"
+  ],
+  "files_n": 4,
+  "ins": 166,
+  "del": 14
+ },
+ "file-download-anchor": {
+  "slot": 53,
+  "desc": "五 补记（定稿）：**下载必须走 anchor 导航**——anchor 点击不带 Origin，服务端放行并给 `Content-Disposition`；我误把「`Origin: null` → 403」当成「DOM 下载会被拒」，改 fetch+blob 反而把它推进被拒路径且静默失败。回到初版写法，文件浏览/文件预览一处修好；删掉上一轮的 IPC 机件（2 文件，净 −282 行）",
+  "status": "✅ 已实施",
+  "files": [
+   "desktop/src/lib/handlePreviewLink.test.ts",
+   "desktop/src/lib/handlePreviewLink.ts"
+  ],
+  "files_n": 2,
+  "ins": 54,
+  "del": 106
+ },
+ "tps-batched-delivery": {
+  "slot": 54,
+  "desc": "四 补记二：**TPS 上千读数真因＝打包投递被当成生成节奏**——重放/整块交付/页面忙时排队的中转帧，其 token 生成时刻远早于投递时刻；逐样本只计入「到达间隔能支撑其实时速率」的样本（上限 5000），延迟交付的首批保留自身间隔故积压仍按其真实停顿评级。实测 7153→250、3603→383（4 文件）。**2026-09-29 修订（187→316 行）**：原过滤按「距**上一个样本**的间隔」判定，隐含**单流前提**；子代理文本折进父米表同一 `samples` 数组后多流交织（帧间隔中位数 0.246ms、66.5% <1ms），正常的 5 单位分片落在别的流之后 0.5ms 即算出 10000 t/s 而被当作「批量投递」丢弃，**实测丢弃 70–73%**，4 子代理并发时 UI 读数仅引擎真值的 1/3。改为**按流间隔**（`Sample.stream` + `ingestSubagentTps` 传 `runAgentId`；窗口内首样本回退 `origin` 保守保留），离线重放 74.7 → **244.5**（无过滤上限 252.7），端到端逐秒对齐。防「批量重放」的原意完整保留。4 文件",
+  "status": "✅ 已实施",
+  "files": [
+   "desktop/src/components/chat/TpsIndicator.test.tsx",
+   "desktop/src/components/chat/TpsIndicator.tsx",
+   "desktop/src/lib/tpsMeter.test.ts",
+   "desktop/src/lib/tpsMeter.ts"
+  ],
+  "files_n": 4,
+  "ins": 209,
+  "del": 16
+ },
+ "session-history-context-durable": {
+  "slot": 55,
+  "desc": "五 补记：**打开大会话「一直转圈」＝归属投影全量扫盘**——为一个 40,119 条消息的会话取一页要**扫 193MB / 2,949ms**（跳过投影仅 6ms）；索引原存 `mkdtemp`+内存 4 项+exit 即删 ⇒ 每次重启/淘汰重扫，还泄漏 634 目录/92MB。改为**索引落盘**（meta 表同事务存 identity/size/mtime/offset/suppressed/指纹，稳定路径 + 每周清理），**跨进程 2,949ms→37ms**（2 文件）",
+  "status": "✅ 已实施",
+  "files": [
+   "src/server/services/sessionHistoryContext.test.ts",
+   "src/server/services/sessionHistoryContext.ts"
+  ],
+  "files_n": 2,
+  "ins": 184,
+  "del": 15
+ },
+ "session-find-bounded-read": {
+  "slot": 56,
+  "desc": "五 补记二：**大会话一直转圈＝`findSessionFile` 全量解析转录**——判定「有没有真实对话」时把整个文件读完+逐行 JSON.parse，而同一 id 在多个发现根下各有一份（139.7MB+184.5MB）⇒ 每次解析约 320MB，**单次 4–6 秒**，且几乎每个会话端点都走它。改为只读文件头、命中即停（8MB 上限）。findSessionFile **4345→2ms**，大会话热态打开 **6.9s→0.010s**（2 文件）",
+  "status": "✅ 已实施",
+  "files": [
+   "src/server/__tests__/session-transcript-presence.test.ts",
+   "src/server/services/sessionService.ts"
+  ],
+  "files_n": 2,
+  "ins": 135,
+  "del": 6
+ },
+ "transcript-metadata-durable": {
+  "slot": 57,
+  "desc": "五 补记三：**元数据投影落盘**——冷进程首开大会话仍要 9.6s（该投影本就需要一次全量遍历算 messageCount/最后时间戳，且两份拷贝各建一次）；投影是几 KB 纯标量 ⇒ 落盘 + 只认同 signature，**10.24s → 0.016s**（链位 57/58 治重复开销，本条治冷启动）（3 文件）",
+  "status": "✅ 已实施",
+  "files": [
+   "src/server/__tests__/session-metadata-projection-durable.test.ts",
+   "src/server/services/sessionService.ts",
+   "src/server/services/transcriptMetadataCache.ts"
+  ],
+  "files_n": 3,
+  "ins": 207,
+  "del": 1
+ },
+ "subagent-live-metrics": {
+  "slot": 61,
+  "desc": "二十一 子优化⑤：**子代理运行中用量/耗时真正爬升 + 移动端紧凑 + TPS 汇聚子代理读数修复**——（a）`subagentLiveChars` 累积器 + 3s 节流把在飞子代理的用量写进 `backgroundAgentTasks`，收纳栏数字**运行中就爬升**而非末尾跳变；（b）`useCompactMetrics()`（新增）驱动紧凑形态，本次进一步收紧 `gap-px tracking-tighter`，并修掉内层 `data-agent-group-usage` **硬编码 `gap-[3px]` 不随 compact 收敛**的问题；（c）**TPS 主修复**：`tpsMeter` 的 `Sample` 加 `stream` 标记、`ingestSubagentTps` 传 `runAgentId`，使可行性过滤按**同一流**的间隔判定——多流交织下原「全局间隔」判定误杀约 70% 样本，4 子代理并发时 UI 只有引擎真值的 **1/3**（实测 80 vs 250；修后逐秒对齐 346/331、387/387、381/382）。**⚠️ 本条保留链尾（链位 61），未与链位 21 融合**（详见二十一章子优化⑤）（5 文件）",
+  "status": "✅ 已实施",
+  "files": [
+   "desktop/src/components/chat/MessageList.tsx",
+   "desktop/src/components/chat/ToolCallGroup.tsx",
+   "desktop/src/components/chat/TurnCompletionStamp.tsx",
+   "desktop/src/hooks/useCompactMetrics.ts",
+   "desktop/src/stores/chatStore.ts"
+  ],
+  "files_n": 5,
+  "ins": 136,
+  "del": 17
+ },
+ "subagent-usage-cross-client": {
+  "slot": 63,
+  "desc": "二十八 28.2：**子代理跨客户端用量一致性**——① **身份对齐**（真根因）：`runAgentId` 与「派发它的 Agent 工具调用 id」被混用（UI 按 `toolUseId` 读、实时写入方却填成 runAgentId）⇒ 后加入的客户端把数字写进一张**永远读不到**的行，直到跨过工具轮次边界才「突然出现」；服务端 `activeSubagentRuns` 改为返回 `{taskId, toolUseId}[]` 且**身份无总量也下发**（长生成期才是身份最要紧的时候）。② **服务端在飞外推**（新增 `agentRunUsageProjection.ts`）：在 `notifyOutputCallbacks` 之前按 run 计数（镜像客户端的 delta 规则**及「哪些不计」**），种子取 `max(rollup, projection)` ⇒ 后加入者不再从 0 起，且**估计绝不盖过终局真值**。③ 基准被采用后**必须记账**（`lastWritten = reported`），否则「无变化的写入被跳过」会让数字永远爬不动。④ 轮次页脚补 `text-[11px]`（5 文件→11 文件）",
+  "status": "✅ 已实施",
+  "files": [
+   "desktop/src/api/sessions.ts",
+   "desktop/src/components/chat/MessageActionBar.tsx",
+   "desktop/src/stores/chatStore.test.ts",
+   "desktop/src/stores/chatStore.ts",
+   "src/server/__tests__/session-messages-http.test.ts",
+   "src/server/api/sessions.ts",
+   "src/server/services/agentRunUsageProjection.test.ts",
+   "src/server/services/agentRunUsageProjection.ts",
+   "src/server/services/conversationService.ts",
+   "src/server/ws/agentTaskState.test.ts",
+   "src/server/ws/agentTaskState.ts"
+  ],
+  "files_n": 11,
+  "ins": 1067,
+  "del": 39
+ },
+ "tps-background-freeze": {
+  "slot": 64,
+  "desc": "二十八 28.4：**后台标签页切回后 TPS 飙高 / 卡着不动**——浏览器后台节流 JS，切回时整段积压**在同一瞬间交付**，落进同一个到达 125ms 桶（60s 冻结 ⇒ 6240 token/桶 ≈ 单桶 50k t/s）；而摊平只在**环内能找到更早有内容桶**时才做 ⇒ 长静默清环后 `previous === -1` 被当成「run 起点」**不摊平** ⇒ 整段按一个桶计费。实测读数序列 **0 → 25,012 → 16,709 → … → 6,331 → 104**：**「卡住」＝先读出 0 而被指示器的防闪规则无限期冻结，「飙高」＝紧随其后的巨桶**，同源。修法：无可归属区间的积压桶**丢弃**（并粘性化，防几单位几单位重建）+ 丢弃桶**不进分母**（是「没测到」不是「空 125ms」）+ 跨静默**保留最后读数**（`settle()` 不再用 0 覆盖）+ 指示器防闪保持**改为有界 1.5s**（无界会让任何持续 <0.5 t/s 的真实慢速冻住数字）（4 文件）",
+  "status": "✅ 已实施",
+  "files": [
+   "desktop/src/components/chat/TpsIndicator.test.tsx",
+   "desktop/src/components/chat/TpsIndicator.tsx",
+   "desktop/src/lib/tpsMeter.test.ts",
+   "desktop/src/lib/tpsMeter.ts"
+  ],
+  "files_n": 4,
+  "ins": 244,
+  "del": 11
+ },
+ "tps-bucket-engine-rewrite": {
+  "slot": 62,
+  "desc": "二十八 28.1：**TPS 速率引擎重写为 125ms 分桶**——按用户 5 条规格推倒旧连续滑窗（`sliceRate`/`SETTLE_MS`/`BURST_FLOOR_MS`/`MAX_INSTANT_TPS`/`preWindowAt` 等**整块删除**）：每 125ms 一桶、显示＝最近 8 桶均值（每秒 8 次，**只读已完成桶**，不足 8 桶除以已过桶数）、首桶不单独显示、末桶与倒数第二桶 50/50、结束后保持 5 分钟（**引擎真值优先**，否则 ≤1500ms 桶平均）、**生成钟优先到达钟兜底**。⚠️ 两钟**绝不可混算**（`serverTs` epoch vs `performance.now`），且时钟选择对每个米表**粘性**（收到无戳帧即永久降级）。实测：稳定 104 若把进行中的桶计入会被读成 **91**；环宽（64×125ms）才能让积压摊平生效（1200 单桶 9600→~1210）（19 文件）",
+  "status": "✅ 已实施",
+  "files": [
+   "desktop/src/components/chat/TpsIndicator.test.tsx",
+   "desktop/src/components/chat/TpsIndicator.tsx",
+   "desktop/src/components/chat/TurnCompletionStamp.tsx",
+   "desktop/src/components/layout/AppShell.test.tsx",
+   "desktop/src/i18n/locales/en.ts",
+   "desktop/src/i18n/locales/jp.ts",
+   "desktop/src/i18n/locales/kr.ts",
+   "desktop/src/i18n/locales/zh-TW.ts",
+   "desktop/src/i18n/locales/zh.ts",
+   "desktop/src/lib/tpsCalibration.ts",
+   "desktop/src/lib/tpsMeter.test.ts",
+   "desktop/src/lib/tpsMeter.ts",
+   "desktop/src/pages/SubagentRunPage.tsx",
+   "desktop/src/stores/chatStore.test.ts",
+   "desktop/src/stores/chatStore.ts",
+   "desktop/src/types/chat.ts",
+   "src/server/__tests__/websocket-handler.test.ts",
+   "src/server/ws/events.ts",
+   "src/server/ws/handler.ts"
+  ],
+  "files_n": 19,
+  "ins": 1619,
+  "del": 998
+ },
+ "chapter-27-residual-hunks": {
+  "slot": 60,
+  "desc": "二十七 27.3：**章内残余 hunk**——`api/claude.ts` bound-thinking 模型（Fable 5.1）需回放思考块（`modelUsesBoundThinking`，剥离会破坏 system 变更后的重放）；`providerModels` 排序固定 `'en'`（宿主 zh 会把 CJK 排到拉丁之前，「其他」组顶到真实 provider 名之上）；`TerminalSettings` 的 `createTerminalRequestId()` 在非安全上下文（H5 经 LAN IP）无 `crypto.randomUUID` 故回退时间戳+随机串；`package.json` 去掉与 `build`/`tsc -b` 口径重复的两个脚本；`PermissionUpdate` require 环改 **Proxy getter**（顶层 require 在环中拿到的是空命名空间且会一直返回它）。与 58/59 合计补齐 21 个「无补丁触及」的文件（5 文件）",
+  "status": "✅ 已实施",
+  "files": [
+   "desktop/package.json",
+   "desktop/src/lib/providerModels.ts",
+   "desktop/src/pages/TerminalSettings.tsx",
+   "src/services/api/claude.ts",
+   "src/utils/permissions/PermissionUpdate.ts"
+  ],
+  "files_n": 5,
+  "ins": 33,
+  "del": 6
+ },
+ "chapter-27-vcc-calibration-scripts": {
+  "slot": 59,
+  "desc": "二十七 27.2：**vcc 片段模式校准/判分脚本**——`scripts/vcc-slice-calibration.ts`(1076 行) + `scripts/vcc-slice-judge.ts`(439 行)，随「局部压缩接入 vcc 片段模式 + 语料校准」引入；`.gitignore` 排除**机器生成的报告**（含会话原文与真实语料，入库的是手写版）。属**测量工具**而非产品代码，故原未纳入章节（3 文件）",
+  "status": "✅ 已实施",
+  "files": [
+   ".gitignore",
+   "scripts/vcc-slice-calibration.ts",
+   "scripts/vcc-slice-judge.ts"
+  ],
+  "files_n": 3,
+  "ins": 1518,
+  "del": 0
+ },
+ "chapter-27-test-env-isolation": {
+  "slot": 58,
+  "desc": "二十七 27.1：**测试环境隔离与遗留失败清零**——新增 `src/testUtils/modelEnv.ts`（`isolateModelDefaultsEnv()` 存/剥离/还原模型相关 env），并接入 12 个用例（模型 4 个 + `effort.agent` + `thinking` + `print.sessionMessage` + `client` + `computerUse` + `builtInAgentOverrides` + `system` + `coreSchemas.modelInfo`）。根因＝**桌面 dev 会把 `CLAUDE_CODE_*` 导出进进程**，致同一批用例**单跑失败、官方 runner 全绿**——是环境泄漏不是真缺陷（13 文件）",
+  "status": "✅ 已实施",
+  "files": [
+   "src/cli/print.sessionMessage.test.ts",
+   "src/constants/system.test.ts",
+   "src/entrypoints/sdk/coreSchemas.modelInfo.test.ts",
+   "src/services/api/client.test.ts",
+   "src/skills/bundled/computerUse.test.ts",
+   "src/testUtils/modelEnv.ts",
+   "src/tools/AgentTool/builtInAgentOverrides.test.ts",
+   "src/utils/__tests__/thinking.test.ts",
+   "src/utils/effort.agent.test.ts",
+   "src/utils/model/agent.test.ts",
+   "src/utils/model/fable.test.ts",
+   "src/utils/model/opus5.test.ts",
+   "src/utils/model/opus55.test.ts"
+  ],
+  "files_n": 13,
+  "ins": 147,
+  "del": 22
+ }
+}

@@ -285,6 +285,38 @@ type UIStore = {
   closeModal: () => void
   addToast: (toast: Omit<Toast, 'id'>) => void
   removeToast: (id: string) => void
+  /**
+   * A file the user asked to open that this runtime cannot open, with the save
+   * offered instead.
+   *
+   * Deliberately not a toast: a toast has no room for the download the user
+   * actually needs, and this is a dead end that has to explain itself.
+   */
+  unavailableFile: UnavailableFile | null
+  showFileUnavailable: (file: UnavailableFile) => void
+  dismissFileUnavailable: () => void
+}
+
+export type UnavailableFile = {
+  /** The absolute path to hand to the download route. */
+  absolutePath: string
+  /** The name shown in the message — the file's last segment. */
+  name: string
+  /**
+   * Why it could not be opened, which decides what the message says. The three
+   * are different problems with different answers, so they are not one string.
+   */
+  reason: 'no-viewer' | 'too-large' | 'outside-workspace'
+  /** Size in bytes, for the "too large" message. */
+  size?: number
+  /**
+   * Whether the save can actually deliver the bytes.
+   *
+   * Not always true beside a reason: a path the server will not serve cannot be
+   * downloaded either, and offering a button that is certain to fail is worse
+   * than saying so.
+   */
+  canDownload: boolean
 }
 
 let toastCounter = 0
@@ -302,6 +334,7 @@ export const useUIStore = create<UIStore>((set) => ({
   pendingMemoryPath: null,
   activeModal: null,
   toasts: [],
+  unavailableFile: null,
 
   // Picking a palette while following the system does not fight the OS: it
   // becomes the preference for its own half and shows up once the OS is on
@@ -389,4 +422,7 @@ export const useUIStore = create<UIStore>((set) => ({
   },
 
   removeToast: (id) => set((s) => ({ toasts: s.toasts.filter((t) => t.id !== id) })),
+
+  showFileUnavailable: (file) => set({ unavailableFile: file }),
+  dismissFileUnavailable: () => set({ unavailableFile: null }),
 }))

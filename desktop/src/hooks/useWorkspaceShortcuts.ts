@@ -52,14 +52,14 @@ export function useWorkspaceShortcuts({ sessionId, cwd, enabled }: WorkspaceShor
       }
       switch (action) {
         case 'quick-open-file':
-          workspaceOpen.file(session, '', { preview: true })
+          workspaceOpen.file(session, '', { preview: true, requestedBy: 'user' })
           window.dispatchEvent(new CustomEvent('workspace-quick-open', { detail: { sessionId: session } }))
           break
         case 'new-browser-tab':
-          workspaceOpen.browser(session)
+          workspaceOpen.browser(session, undefined, { requestedBy: 'user' })
           break
         case 'open-review':
-          workspaceOpen.review(session)
+          workspaceOpen.review(session, { requestedBy: 'user' })
           break
         // Terminal defaults to the bottom dock; panel visibility is a distinct command.
         case 'toggle-terminal':

@@ -6,7 +6,7 @@ import { act, useState } from 'react'
 // ──────────────────────────────────────────────────────────────────────────────
 // Hoisted mocks (vi.hoisted runs before module evaluation)
 // ──────────────────────────────────────────────────────────────────────────────
-const { reviewOpenSpy, openPreviewSpy, browserOpenSpy, openTargetSpy, ensureTargetsMock, getTargetsForPathMock, openSystemFileSpy, panelState } = vi.hoisted(() => {
+const { reviewOpenSpy, openPreviewSpy, browserOpenSpy, openTargetSpy, ensureTargetsMock, getTargetsForPathMock, openSystemFileSpy, openOutsideWorkspaceSpy, panelState, shell } = vi.hoisted(() => {
   const reviewOpenSpy = vi.fn()
   const openPreviewSpy = vi.fn().mockResolvedValue(undefined)
   const browserOpenSpy = vi.fn()
@@ -17,8 +17,10 @@ const { reviewOpenSpy, openPreviewSpy, browserOpenSpy, openTargetSpy, ensureTarg
     { id: 'system-default', kind: 'system_default', label: 'System default', icon: '', platform: 'darwin' },
   ])
   const openSystemFileSpy = vi.fn().mockResolvedValue(undefined)
+  const openOutsideWorkspaceSpy = vi.fn()
   const panelState = { isOpen: false }
-  return { reviewOpenSpy, openPreviewSpy, browserOpenSpy, openTargetSpy, ensureTargetsMock, getTargetsForPathMock, openSystemFileSpy, panelState }
+  const shell = { available: true }
+  return { reviewOpenSpy, openPreviewSpy, browserOpenSpy, openTargetSpy, ensureTargetsMock, getTargetsForPathMock, openSystemFileSpy, openOutsideWorkspaceSpy, panelState, shell }
 })
 
 // Mock openTargetStore
@@ -71,13 +73,24 @@ vi.mock('../../lib/desktopRuntime', () => ({
 }))
 
 vi.mock('../../lib/systemFileOpen', () => ({
-  openLocalFileWithSystem: openSystemFileSpy,
+  // The card does not decide how a file opens any more: it hands the path to the
+  // shared opener, which owns the "no system application here" answer (the save
+  // dialog). What this suite asserts is that the path reaches it.
+  //
+  // A desktop runtime, because the outside-workspace cases below assert the
+  // in-app-browser branch, which only the shell-bearing runtime takes.
+  canOpenWithSystem: () => shell.available,
+  openFileWithSystemOrOfferSave: openSystemFileSpy,
   resolveAbsoluteOpenPath: (path: string, workDir?: string) => (
     path.startsWith('/') || !workDir ? path : `${workDir}/${path}`
   ),
 }))
 
 // Mock useTranslation: returns identity-ish t function
+vi.mock('../../lib/openOutsideWorkspaceFile', () => ({
+  openFileOutsideWorkspace: openOutsideWorkspaceSpy,
+}))
+
 vi.mock('../../i18n', () => ({
   useTranslation: () => (key: string, params?: Record<string, string | number>) => {
     if (params) {
@@ -230,6 +243,7 @@ describe('CurrentTurnChangeCard – rich file row (icon / name / type)', () => {
     ensureTargetsMock.mockResolvedValue(undefined)
     openPreviewSpy.mockResolvedValue(undefined)
     panelState.isOpen = false
+    shell.available = true
   })
 
   it('renders the filename (not just full path) for each file', () => {
@@ -351,6 +365,7 @@ describe('CurrentTurnChangeCard – rich file row (icon / name / type)', () => {
 describe('CurrentTurnChangeCard – row opens the workspace diff', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    shell.available = true
     ensureTargetsMock.mockResolvedValue(undefined)
     openPreviewSpy.mockResolvedValue(undefined)
   })
@@ -369,6 +384,23 @@ describe('CurrentTurnChangeCard – row opens the workspace diff', () => {
     const row = screen.getByRole('button', { name: /turnChangesOpenInWorkspaceAria/ })
     fireEvent.click(row)
     expect(openPreviewSpy).toHaveBeenCalledWith('s1', 'README.md', 'diff', expect.objectContaining({ sourceTurnKey: 'msg-1' }))
+  })
+
+  it('settles an outside-workspace click by size and reachability when there is no system app', () => {
+    // The reported bug: this used to open a tab the workspace route refused (so
+    // the click was dead) or hand the file to an application on the server.
+    shell.available = false
+    renderExpandedCard(['/other/place/notes.md'])
+    const row = screen.getByRole('button', { name: /turnChangesOpenInWorkspaceAria/ })
+
+    fireEvent.click(row)
+
+    expect(openOutsideWorkspaceSpy).toHaveBeenCalledWith(expect.objectContaining({
+      sessionId: 's1',
+      absolutePath: '/other/place/notes.md',
+      displayPath: '/other/place/notes.md',
+    }))
+    expect(openSystemFileSpy).not.toHaveBeenCalled()
   })
 
   it('clicking an outside-workspace html changed file opens the in-app browser via local-file', () => {
@@ -410,6 +442,7 @@ describe('CurrentTurnChangeCard – row opens the workspace diff', () => {
 describe('CurrentTurnChangeCard – a document the workspace can draw', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    shell.available = true
     openPreviewSpy.mockResolvedValue(undefined)
   })
 
@@ -482,6 +515,7 @@ describe('CurrentTurnChangeCard – a document the workspace can draw', () => {
 describe('CurrentTurnChangeCard – open-with buttons', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    shell.available = true
     ensureTargetsMock.mockResolvedValue(undefined)
     openPreviewSpy.mockResolvedValue(undefined)
   })
@@ -637,6 +671,7 @@ describe('CurrentTurnChangeCard – open-with buttons', () => {
 describe('CurrentTurnChangeCard – conversation continuity', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    shell.available = true
     panelState.isOpen = false
     openPreviewSpy.mockImplementation(async () => {
       panelState.isOpen = true
@@ -667,6 +702,7 @@ describe('CurrentTurnChangeCard – conversation continuity', () => {
 describe('CurrentTurnChangeCard – collapse long file lists', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    shell.available = true
     ensureTargetsMock.mockResolvedValue(undefined)
     openPreviewSpy.mockResolvedValue(undefined)
   })

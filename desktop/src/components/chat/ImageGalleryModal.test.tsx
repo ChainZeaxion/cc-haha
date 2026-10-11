@@ -9,6 +9,9 @@ import { useOverlayStore } from '../../stores/overlayStore'
 import { useSettingsStore } from '../../stores/settingsStore'
 
 vi.mock('../../lib/systemFileOpen', () => ({
+  // Desktop default: this suite asserts what a runtime with a system shell offers.
+  canOpenWithSystem: () => true,
+  openFileWithSystemOrOfferSave: vi.fn(),
   openLocalFileWithSystem: vi.fn().mockResolvedValue(undefined),
   reportOpenFailure: vi.fn(),
 }))

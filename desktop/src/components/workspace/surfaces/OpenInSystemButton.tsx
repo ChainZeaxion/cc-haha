@@ -1,27 +1,28 @@
-import { ExternalLink } from 'lucide-react'
+import { Download, ExternalLink } from 'lucide-react'
 import { Button } from '@/components/ui/Button'
-import { useTranslation } from '@/i18n'
-import { openLocalFileWithSystem, reportOpenFailure } from '@/lib/systemFileOpen'
+import { useSystemFileAction } from '@/hooks/useSystemFileAction'
 
 /**
  * The way out of every state the workspace cannot render — too large, damaged,
- * a format it has no viewer for: hand the file to the operating system.
+ * a format it has no viewer for.
  *
- * It says why it failed if it does (`reportOpenFailure` names the file); a click
- * that does nothing reads as a broken button.
+ * Which way out depends on the runtime, and only on the runtime: with a system
+ * shell the file goes to its default application, and without one the button
+ * becomes the save that does get the user the file. See `useSystemFileAction`.
  */
 export function OpenInSystemButton({ absolutePath }: { absolutePath: string }) {
-  const t = useTranslation()
+  const action = useSystemFileAction(absolutePath)
+
   return (
     <Button
       variant="secondary"
       size="sm"
-      icon={<ExternalLink size={14} strokeWidth={1.9} aria-hidden="true" />}
-      onClick={() => {
-        void openLocalFileWithSystem(absolutePath).catch(() => reportOpenFailure(absolutePath))
-      }}
+      icon={action.canOpen
+        ? <ExternalLink size={14} strokeWidth={1.9} aria-hidden="true" />
+        : <Download size={14} strokeWidth={1.9} aria-hidden="true" />}
+      onClick={action.run}
     >
-      {t('workspace.openInSystemApp')}
+      {action.label}
     </Button>
   )
 }

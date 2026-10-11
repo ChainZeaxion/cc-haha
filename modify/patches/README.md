@@ -2,11 +2,16 @@
 
 结构：`patches/<主题>/<主题>-<优化项>-patch<N>.patch`（一个优化项一个 patch；拆不开才 patch2/3）。
 
-**应用顺序 = `ORDER.md` 自上而下**（34 个 patch；项按最小链位排序，见下）。
+**应用顺序 = `ORDER.md` 自上而下**（37 个 patch；项按最小链位排序，见下）。
 
 ```bash
 while read -r p; do git apply -p1 "$p"; done < modify/patches/ORDER.md
 ```
+
+> ⚠️ **两个基座，不要混用**（2026-10-06 记录）
+> - **第 1–36 个**：基座 = 上游 `068b3ebd`（**0.6.6 血缘**），链终态 = `cchaha-06scode` 树（实测 `desktop/src` 差异 0）。这 36 条是 **PR 提交层**（`pr-prepare/`）的来源，目标 `NanmiCoder/cc-haha`。
+> - **第 37 个**（`h5/h5-file-open-patch1.patch`）：基座 = `cchaha-067scode` 的 **`align-latest` HEAD（0.6.7 血缘）**。本轮触及的 66 个文件里 56 个在 0.6.6 基座中**不存在或布局不同**（`components/workspace/surfaces/document/`、`OpenInSystemButton.tsx`、`MediaSurface.tsx` …），**无法**链尾追加，故**单独应用**。
+> - 判据：前 36 条中 `session-upstream-session-id` / `session-local-index-budget` 之所以能"链尾追加"，是因为其目标文件在两个血缘里**逐字节相同**（实测双方 `git apply --check` 均 OK）。
 
 ## h5/ — H5 远程访问与移动端支持（pr-1）
 
@@ -19,6 +24,7 @@ while read -r p; do git apply -p1 "$p"; done < modify/patches/ORDER.md
 | `h5-mobile-market-layout-patch1.patch` | 17,17 |
 | `h5-mobile-run-records-patch1.patch` | 34,34 |
 | `h5-local-index-multi-root-patch1.patch` | 46,46,48 |
+| `h5-file-open-patch1.patch` | 2026-10-06 新增（⚠️ 基座 = 067 `align-latest` HEAD，非 068b3ebd；H5 文件打开三轮修复，66 文件 / +1680−192） |
 
 ## session/ — 会话及相关优化（pr-2，含文件下载/大会话性能）
 
@@ -33,6 +39,8 @@ while read -r p; do git apply -p1 "$p"; done < modify/patches/ORDER.md
 | `session-history-transport-patch1.patch` | 23,23,24,26,31 |
 | `session-baseline-typecheck-patch1.patch` | 27,27 |
 | `session-open-speed-patch1.patch` | 55,55,56,57 |
+| `session-upstream-session-id-patch1.patch` | 2026-10-05 新增（私网上游补回会话 id） |
+| `session-local-index-budget-patch1.patch` | 2026-10-05 新增（本地索引元数据预算 32→64 MiB，记录数 50k→96k） |
 
 ## tps/ — TPS 实时解码速度指示器（pr-3）
 

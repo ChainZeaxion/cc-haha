@@ -1,0 +1,184 @@
+diff --git a/src/server/__tests__/proxy-anthropic-compat.test.ts b/src/server/__tests__/proxy-anthropic-compat.test.ts
+index 77c9dbae..9fa9a242 100644
+--- a/src/server/__tests__/proxy-anthropic-compat.test.ts
++++ b/src/server/__tests__/proxy-anthropic-compat.test.ts
+@@ -291,6 +291,72 @@ describe('proxy anthropic-compatible path', () => {
+     }
+   })
+ 
++  test('restores the CLI session id for a private-network upstream only', async () => {
++    const svc = new ProviderService()
++    const provider = await svc.addProvider({
++      presetId: 'custom',
++      name: 'Local Engine',
++      baseUrl: 'http://192.168.10.43:8878',
++      apiKey: '',
++      apiFormat: 'anthropic',
++      authStrategy: 'api_key',
++      supportsNestedToolResultMedia: false,
++      models: {
++        main: 'model-main',
++        haiku: 'model-main',
++        sonnet: 'model-main',
++        opus: 'model-main',
++      },
++    })
++
++    const originalFetch = globalThis.fetch
++    const captured: Array<{ init: RequestInit }> = []
++    globalThis.fetch = mock(async (_url: string | URL | Request, init?: RequestInit) => {
++      captured.push({ init: init ?? {} })
++      return new Response(JSON.stringify({
++        id: 'msg_local',
++        type: 'message',
++        role: 'assistant',
++        model: 'model-main',
++        content: [{ type: 'text', text: 'ok' }],
++        stop_reason: 'end_turn',
++        usage: { input_tokens: 1, output_tokens: 1 },
++      }), { status: 200, headers: { 'Content-Type': 'application/json' } })
++    }) as typeof fetch
++
++    try {
++      const req = new Request(
++        `http://localhost:3456/proxy/providers/${provider.id}/v1/messages`,
++        {
++          method: 'POST',
++          headers: {
++            'Content-Type': 'application/json',
++            'anthropic-version': '2023-06-01',
++            'x-claude-code-session-id': 'session-local-1',
++            'x-client-app': 'sdk-client',
++          },
++          body: JSON.stringify({
++            model: 'model-main',
++            max_tokens: 64,
++            messages: [{ role: 'user', content: 'hi' }],
++          }),
++        },
++      )
++
++      const res = await handleProxyRequest(req, new URL(req.url))
++      expect(res.status).toBe(200)
++
++      const headers = captured[0]!.init.headers as Record<string, string>
++      // Our own engine (bc/vLLM) keys session state on this id, so the
++      // private-only preset declaration is honoured for a LAN upstream…
++      expect(headers['x-claude-code-session-id']).toBe('session-local-1')
++      // …while the rest of the internal client headers stay stripped.
++      expect(headers['x-client-app']).toBeUndefined()
++    } finally {
++      globalThis.fetch = originalFetch
++    }
++  })
++
+   test('redacts forwarded custom header values in trace capture', async () => {
+     const svc = new ProviderService()
+     const provider = await svc.addProvider({
+diff --git a/src/server/config/providerPresets.json b/src/server/config/providerPresets.json
+index 0b014651..f92be1ee 100644
+--- a/src/server/config/providerPresets.json
++++ b/src/server/config/providerPresets.json
+@@ -453,6 +453,9 @@
+     },
+     "needsApiKey": true,
+     "websiteUrl": "",
+-    "authStrategy": "auth_token"
++    "authStrategy": "auth_token",
++    "upstreamHeadersPrivate": {
++      "x-claude-code-session-id": "$SESSION_ID"
++    }
+   }
+ ]
+diff --git a/src/server/config/providerPresets.ts b/src/server/config/providerPresets.ts
+index a0d40b9a..49c23ead 100644
+--- a/src/server/config/providerPresets.ts
++++ b/src/server/config/providerPresets.ts
+@@ -85,6 +85,18 @@ export const ProviderPresetSchema = z.object({
+     z.string().regex(UPSTREAM_HEADER_NAME_RE, 'must be a valid HTTP header name'),
+     z.string(),
+   ).optional(),
++  /**
++   * Like `upstreamHeaders`, but sent **only when the upstream is on a private
++   * network** (machine-local/LAN). Used for headers that identify the caller to
++   * our own engines — e.g. the CLI session id, which bc/vLLM use to key session
++   * state — without leaking them to a public gateway. A public upstream never
++   * receives these, so a preset shared by public and private providers (such as
++   * `custom`) stays safe.
++   */
++  upstreamHeadersPrivate: z.record(
++    z.string().regex(UPSTREAM_HEADER_NAME_RE, 'must be a valid HTTP header name'),
++    z.string(),
++  ).optional(),
+ })
+ 
+ const ProviderPresetsSchema = z.array(ProviderPresetSchema)
+diff --git a/src/server/proxy/handler.ts b/src/server/proxy/handler.ts
+index 3e2dbddb..f3980049 100644
+--- a/src/server/proxy/handler.ts
++++ b/src/server/proxy/handler.ts
+@@ -278,7 +278,15 @@ export async function handleProxyRequest(req: Request, url: URL): Promise<Respon
+   // Resolved per request because one provider record can serve several formats.
+   const modelApiFormat = resolveModelApiFormat(config.modelApiFormats, body.model)
+   const apiFormat = modelApiFormat ?? config.apiFormat
+-  const upstreamHeaders = resolveUpstreamHeaders(config.upstreamHeaders, { sessionId: inboundSessionId })
++  // A private-network (machine-local/LAN) upstream is our own engine, so the
++  // preset may declare per-gateway headers for it that must not reach a public
++  // host — canonically the CLI session id, which the pass-through below filters
++  // as an internal client header but bc/vLLM key their session state on. Merge
++  // those in only when the resolved upstream really is private.
++  const upstreamHeaderTemplate = isPrivateNetworkUrl(baseUrl)
++    ? { ...config.upstreamHeaders, ...config.upstreamHeadersPrivate }
++    : config.upstreamHeaders
++  const upstreamHeaders = resolveUpstreamHeaders(upstreamHeaderTemplate, { sessionId: inboundSessionId })
+ 
+   try {
+     if (apiFormat === 'anthropic') {
+diff --git a/src/server/services/providerRuntimeEnv.ts b/src/server/services/providerRuntimeEnv.ts
+index 71137e07..11c6b6f0 100644
+--- a/src/server/services/providerRuntimeEnv.ts
++++ b/src/server/services/providerRuntimeEnv.ts
+@@ -382,6 +382,15 @@ export function getPresetUpstreamHeaders(presetId: string): Record<string, strin
+   return PROVIDER_PRESETS.find((preset) => preset.id === presetId)?.upstreamHeaders ?? {}
+ }
+ 
++/**
++ * Headers sent **only to a private-network (machine-local/LAN) upstream**, so a
++ * preset shared between public and private providers never leaks them to a hosted
++ * gateway. See `upstreamHeadersPrivate` in the preset schema.
++ */
++export function getPresetPrivateUpstreamHeaders(presetId: string): Record<string, string> {
++  return PROVIDER_PRESETS.find((preset) => preset.id === presetId)?.upstreamHeadersPrivate ?? {}
++}
++
+ /**
+  * The format this provider's record stands for.
+  *
+diff --git a/src/server/services/providerService.ts b/src/server/services/providerService.ts
+index 9299487c..24597fc0 100644
+--- a/src/server/services/providerService.ts
++++ b/src/server/services/providerService.ts
+@@ -47,6 +47,7 @@ import {
+   getPresetAuthStrategy,
+   getPresetDefaultEnv,
+   getPresetModelApiFormats,
++  getPresetPrivateUpstreamHeaders,
+   getPresetUpstreamHeaders,
+   normalizeImageGeneration,
+   normalizeModelMapping,
+@@ -674,6 +675,7 @@ export class ProviderService {
+     authStrategy: ProviderAuthStrategy
+     modelApiFormats: ModelApiFormatRule<ApiFormat>[]
+     upstreamHeaders: Record<string, string>
++    upstreamHeadersPrivate: Record<string, string>
+     requestCompatibility?: RequestCompatibility
+   } | null> {
+     const toProxyConfig = (provider: SavedProvider) => {
+@@ -688,6 +690,7 @@ export class ProviderService {
+         authStrategy: provider.authStrategy ?? getPresetAuthStrategy(provider.presetId),
+         modelApiFormats: getPresetModelApiFormats(provider.presetId),
+         upstreamHeaders: getPresetUpstreamHeaders(provider.presetId),
++        upstreamHeadersPrivate: getPresetPrivateUpstreamHeaders(provider.presetId),
+         ...(provider.requestCompatibility !== undefined && { requestCompatibility: provider.requestCompatibility }),
+       }
+     }

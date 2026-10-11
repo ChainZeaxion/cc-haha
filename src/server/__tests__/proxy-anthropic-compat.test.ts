@@ -291,6 +291,72 @@ describe('proxy anthropic-compatible path', () => {
     }
   })
 
+  test('restores the CLI session id for a private-network upstream only', async () => {
+    const svc = new ProviderService()
+    const provider = await svc.addProvider({
+      presetId: 'custom',
+      name: 'Local Engine',
+      baseUrl: 'http://192.168.10.43:8878',
+      apiKey: '',
+      apiFormat: 'anthropic',
+      authStrategy: 'api_key',
+      supportsNestedToolResultMedia: false,
+      models: {
+        main: 'model-main',
+        haiku: 'model-main',
+        sonnet: 'model-main',
+        opus: 'model-main',
+      },
+    })
+
+    const originalFetch = globalThis.fetch
+    const captured: Array<{ init: RequestInit }> = []
+    globalThis.fetch = mock(async (_url: string | URL | Request, init?: RequestInit) => {
+      captured.push({ init: init ?? {} })
+      return new Response(JSON.stringify({
+        id: 'msg_local',
+        type: 'message',
+        role: 'assistant',
+        model: 'model-main',
+        content: [{ type: 'text', text: 'ok' }],
+        stop_reason: 'end_turn',
+        usage: { input_tokens: 1, output_tokens: 1 },
+      }), { status: 200, headers: { 'Content-Type': 'application/json' } })
+    }) as typeof fetch
+
+    try {
+      const req = new Request(
+        `http://localhost:3456/proxy/providers/${provider.id}/v1/messages`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'anthropic-version': '2023-06-01',
+            'x-claude-code-session-id': 'session-local-1',
+            'x-client-app': 'sdk-client',
+          },
+          body: JSON.stringify({
+            model: 'model-main',
+            max_tokens: 64,
+            messages: [{ role: 'user', content: 'hi' }],
+          }),
+        },
+      )
+
+      const res = await handleProxyRequest(req, new URL(req.url))
+      expect(res.status).toBe(200)
+
+      const headers = captured[0]!.init.headers as Record<string, string>
+      // Our own engine (bc/vLLM) keys session state on this id, so the
+      // private-only preset declaration is honoured for a LAN upstream…
+      expect(headers['x-claude-code-session-id']).toBe('session-local-1')
+      // …while the rest of the internal client headers stay stripped.
+      expect(headers['x-client-app']).toBeUndefined()
+    } finally {
+      globalThis.fetch = originalFetch
+    }
+  })
+
   test('redacts forwarded custom header values in trace capture', async () => {
     const svc = new ProviderService()
     const provider = await svc.addProvider({

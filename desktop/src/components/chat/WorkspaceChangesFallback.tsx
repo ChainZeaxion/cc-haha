@@ -50,7 +50,7 @@ export function WorkspaceChangesFallback({ sessionId, files }: WorkspaceChangesF
                 type="button"
                 aria-label={t('chat.workspaceChangesFallbackOpenFile', { path: file.path })}
                 title={file.path}
-                onClick={() => workspaceOpen.file(sessionId, file.path)}
+                onClick={() => workspaceOpen.file(sessionId, file.path, { requestedBy: 'user' })}
                 className="flex min-h-[44px] w-full min-w-0 items-center gap-3 rounded-[var(--radius-md)] px-3 text-left transition-colors hover:bg-[var(--color-surface-hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--color-border-focus)]"
               >
                 <FileTypeIcon path={file.path} size={20} />

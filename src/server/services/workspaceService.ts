@@ -21,7 +21,22 @@ import {
   type WorkspaceDocumentPreviewType,
 } from './workspaceDocumentPreview.js'
 
-const MAX_PREVIEW_BYTES = 1024 * 1024
+/**
+ * How much of a text file the preview carries.
+ *
+ * Past this the response keeps the head of the file and reports `truncated`, so a
+ * large log opens at all instead of being refused: what a reader wants from one is
+ * usually its start, and the rest is a save away.
+ */
+const MAX_PREVIEW_BYTES = 4 * 1024 * 1024
+/**
+ * How large an image may be before the preview refuses it.
+ *
+ * An image travels as a base64 data URL, so the whole thing is held and decoded
+ * before a single pixel appears — past this the tab says so and offers the save,
+ * rather than making the reader wait on a download that may not even display.
+ */
+const MAX_IMAGE_PREVIEW_BYTES = 16 * 1024 * 1024
 const MAX_UNTRACKED_STAT_BYTES = 256 * 1024
 const GIT_TIMEOUT_MS = 5_000
 const MAX_GIT_BUFFER_BYTES = 2_000_000
@@ -470,6 +485,20 @@ export class WorkspaceService {
         language: documentFormat.previewType,
         size: stat.stat.size,
         version: workspaceFileVersion(stat.stat),
+      }
+    }
+
+    // Decided before any byte is read, for the same reason as the document case
+    // above: the answer is the size, and reading 16 MiB to discover it would cost
+    // the memory the refusal exists to save.
+    if (imageMimeType && stat.stat.size > MAX_IMAGE_PREVIEW_BYTES) {
+      return {
+        state: 'too_large',
+        path: resolvedPath.relativePath,
+        previewType: 'image',
+        mimeType: imageMimeType,
+        language: 'image',
+        size: stat.stat.size,
       }
     }
 

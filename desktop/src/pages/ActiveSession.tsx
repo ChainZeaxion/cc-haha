@@ -31,6 +31,7 @@ import { Button } from '@/components/ui/Button'
 import { TpsIndicator } from '../components/chat/TpsIndicator'
 import { SessionCostBadge } from '../components/chat/SessionCostBadge'
 import { MobileQuickActions } from '../components/chat/MobileQuickActions'
+import { SideChatFloatingButton } from '../components/chat/SideChatFloatingButton'
 
 import { LoadingState } from '@/components/ui/LoadingState'
 import { Tooltip } from '@/components/ui/Tooltip'
@@ -432,6 +433,33 @@ export function ActiveSession({ sessionId, active = true }: { sessionId?: string
     mobileLayout !== 'hidden'
   // Reset the flag when the active task changes so the next task starts closed.
   useEffect(() => { setMobileWorkspaceOpen(false) }, [activeTabId])
+  /**
+   * A workspace open the *user* asked for brings the overlay up, wherever it was
+   * asked from.
+   *
+   * The flag above is local because a background open must not cover the
+   * conversation — but the mobile shell had no way to tell one from the other, so
+   * a file tapped in the turn-changes card wrote the store and showed nothing at
+   * all. `lastUserOpen` is that distinction, and its counter makes each tap its
+   * own event so tapping the same file twice reveals twice.
+   */
+  const lastUserOpenNonce = useWorkspaceStore((state) =>
+    activeTabId ? state.bySession[activeTabId]?.lastUserOpen?.nonce : undefined,
+  )
+  const seenUserOpenRef = useRef<{ sessionId: string | null; nonce: number | undefined }>({
+    sessionId: null,
+    nonce: undefined,
+  })
+  useEffect(() => {
+    const seen = seenUserOpenRef.current
+    // A task's opening nonce is recorded, not acted on: a later tap must open the
+    // overlay, but arriving at a task that was opened earlier in the run is not
+    // itself a tap — the reset above is what governs that.
+    const previousNonce = seen.sessionId === activeTabId ? seen.nonce : undefined
+    seenUserOpenRef.current = { sessionId: activeTabId ?? null, nonce: lastUserOpenNonce }
+    if (lastUserOpenNonce === undefined || lastUserOpenNonce === previousNonce) return
+    setMobileWorkspaceOpen(true)
+  }, [activeTabId, lastUserOpenNonce])
   // `path: ''` is the launcher form: it opens the file tree with an empty
   // content pane, exactly like the workspace launcher's "Files" entry, and the
   // preview flag keeps it replaceable by a real file pick. A terminal opens in
@@ -887,12 +915,20 @@ export function ActiveSession({ sessionId, active = true }: { sessionId?: string
         </>
       ) : null}</>}
     >
-          {(isEmpty || isMobileLayout) && (
+          {/* 移动端把入口浮在会话右上角，而不是占一行：那一行夹在移动端顶栏和
+              历史内容之间，白白吃掉一条高度。桌面端（含空会话态）保持不变。 */}
+          {isMobileLayout ? (
+            <SideChatFloatingButton
+              label={t('sideChat.title')}
+              pressed={sideChatOpen}
+              onPress={() => void openSideChat(activeTabId)}
+            />
+          ) : isEmpty ? (
             <div className="flex justify-end px-4 py-2">
               <IconButton icon={<MessageCircleQuestion size={18} />} label={t('sideChat.title')}
                 pressed={sideChatOpen} onClick={() => void openSideChat(activeTabId)} />
             </div>
-          )}
+          ) : null}
           {isEmpty ? (
             <div
               data-testid="empty-session-hero"

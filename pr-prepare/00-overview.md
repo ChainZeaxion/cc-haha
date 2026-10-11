@@ -1,103 +1,82 @@
-# 按功能拆分向上游 NanmiCoder/cc-haha 提交 PR — 方案总览
+# pr-prepare — 双层版总览（主题 / 优化项，对齐 `modify/patches/`）
 
-- 基座：`068b3ebd`（全链 patch 的重基基线，是上游 main 的祖先）
-- 上游 main 现状：`2ec845d0`（领先基座 45 个提交，503 个文件有改动）
-- 全链：64 个 patch（modify/patches/），按链位顺序 apply 可 100% 复现工作树终态
-- 策略：每组分支 = 基座 `068b3ebd` + 本组 patch 顺序应用（共享文件按「链内最后归属组」切分，import 闭包补齐至自洽）。**不整体合并上游 main**：上游已动 503 文件，整体合并会让每个 PR 混入大量无关提交；本组与上游改动的文件交集（冲突风险）见各组清单，上游若真冲突再三方合并。
-- PR 目标：`NanmiCoder/cc-haha`，head = `ChainZeaxion/cc-haha` fork 分支 `pr/<slug>`
-- 旧 PR #1394（43 项大合集）在拆分 PR 全部打开后 close（注明由本组 PR 取代）
+- 基座：`068b3ebd`（上游 main 的祖先）
+- 上游 main 现状：`6b9d2aec`（自基座改动 **820** 文件）
+- 结构：`pr-prepare/<主题>/`（= `modify/patches/<主题>/` 的 **PR 提交层**，多出 `00-group.patch` + `README.md` + `manifest.md`）
+- 全链：**34 个优化项 patch**（`modify/patches/<主题>/<主题>-<优化项>-patch<N>.patch`），按 `modify/patches/ORDER.md` 顺序 apply ⇒ 链终态 tree **`56923871`**
+- 提 PR 粒度：**整主题组补丁** `pr-prepare/<主题>/00-group.patch`（基座 `068b3ebd` → 该主题终态；**8 组并集 == 链终态**）
+- PR 目标：`NanmiCoder/cc-haha`，head = `ChainZeaxion/cc-haha` 分支 `pr/<slug>`（**2026-10-03 已按本轮链终态原地更新**）
+- 原「pr-N 目录 + 链位命名（64 项）」已归档：`pr-prepare/archive/pr-by-chain-20261003/`
 
-## PR 分组（10 组，按功能域）
+> 本文件是 `modify/patches/README.md` 所引的「链位 → PR 组」权威映射来源。
 
-| PR | 分支 | 功能域 | 章节 | patch 数 | 文件数 | 上游冲突风险文件 |
-|----|------|--------|------|---------|--------|------------------|
-| pr-1 | `h5-remote-access` | H5 远程访问与移动端支持 | 一/九/十一/十四/十五/十七/二十五/十补记 | 10 | 83 | 16 |
-| pr-2 | `session-core` | 会话基础功能（导出/刷新/禁更新/思考开关） | 二/三/六/八 | 4 | 52 | 11 |
-| pr-3 | `tps-indicator` | TPS 实时解码速度指示器（真实 token 口径 + 125ms 分桶引擎） | 四/二十八.1/二十八.4 | 10 | 60 | 18 |
-| pr-4 | `file-download-speed` | 文件下载桥接 + 大会话打开提速 | 五/五补记(链位55-57) | 7 | 35 | 8 |
-| pr-5 | `usage-billing` | 上下文缓存计费与用量聚合显示 | 七/十九/四子优化(速度配对) | 3 | 26 | 9 |
-| pr-6 | `test-baseline` | 测试环境隔离与基线修复（含章内残余 hunk） | 十二/二十七.1/二十七.3 | 4 | 31 | 4 |
-| pr-7 | `vcc-compaction` | vcc 算法压缩（pi-vcc 移植 + 窗口分档 + 降级兜底 + 校准脚本） | 十三/二十四/二十七.2 | 5 | 58 | 3 |
-| pr-8 | `computer-use-linux` | Computer Use 解锁 Linux(X11) + 连接器平台支持 | 十八/十六 | 4 | 40 | 7 |
-| pr-9 | `large-session-perf` | 大体积会话加载与传输性能（历史膨胀治理 + gzip 传输） | 二十二/二十 | 7 | 16 | 3 |
-| pr-10 | `thinking-subagent` | 思考计时与子代理用量（think 真值/耗时/跨客户端一致/实时跟进） | 二十一/二十六/二十八.2/二十五 | 10 | 73 | 18 |
+## 一、主题 → PR → 规模
 
-## patch → 组 对照（按链位）
+| 主题 | PR | 分支 | 功能域 | 项数 | 组行数 | 组文件 | 净新 | 上游也改过 | 组补丁 |
+|---|---|---|---|---|---|---|---|---|---|
+| `h5` | #1415 | `h5-remote-access` | H5 远程访问与移动端支持 | 7 | +8401−639 | 83 | 16 | 27 | `h5/00-group.patch` |
+| `session` | #1411 | `session-related-optimizations` | 会话及相关优化（会话基础 + 文件下载 + 大会话加载/传输性能 + 打开提速） | 9 | +7725−333 | 78 | 18 | 27 | `session/00-group.patch` |
+| `tps` | #1414 | `tps-indicator` | TPS 实时解码速度指示器 | 4 | +9052−212 | 74 | 24 | 26 | `tps/00-group.patch` |
+| `usage` | #1412 | `usage-billing` | 上下文缓存计费与用量聚合显示 | 3 | +1250−152 | 26 | 2 | 10 | `usage/00-group.patch` |
+| `test` | #1409 | `test-baseline` | 测试环境隔离与基线修复 | 2 | +461−45 | 31 | 1 | 9 | `test/00-group.patch` |
+| `vcc` | #1410 | `vcc-compaction` | vcc 算法压缩 | 4 | +7650−61 | 58 | 47 | 3 | `vcc/00-group.patch` |
+| `computer-use` | #1416 | `computer-use-linux` | Computer Use 解锁 Linux(X11) + 连接器平台 | 2 | +2113−110 | 40 | 3 | 7 | `computer-use/00-group.patch` |
+| `thinking-subagent` | #1417 | `thinking-subagent` | 思考计时与子代理用量 | 3 | +7850−255 | 72 | 12 | 21 | `thinking-subagent/00-group.patch` |
 
-| 链位 | patch | PR 组 |
-|------|-------|-------|
-| 1 | `h5-require-token.patch` | pr-1 |
-| 2 | `h5-auto-mode-optin.patch` | pr-1 |
-| 4 | `h5-settings-parity.patch` | pr-1 |
-| 5 | `h5-terminal-bridge.patch` | pr-1 |
-| 13 | `h5-mobile-quick-actions.patch` | pr-1 |
-| 15 | `h5-mobile-scheduled.patch` | pr-1 |
-| 17 | `h5-mobile-market-layout.patch` | pr-1 |
-| 34 | `h5-mobile-run-records.patch` | pr-1 |
-| 46 | `local-index-extra-project-roots.patch` | pr-1 |
-| 48 | `session-list-multi-root-validation.patch` | pr-1 |
-| 3 | `session-export.patch` | pr-2 |
-| 6 | `session-refresh.patch` | pr-2 |
-| 9 | `disable-updates.patch` | pr-2 |
-| 11 | `thinking-switch.patch` | pr-2 |
-| 7 | `tps-indicator.patch` | pr-3 |
-| 30 | `tps-centered-second-line.patch` | pr-3 |
-| 35 | `tps-real-token-accounting.patch` | pr-3 |
-| 38 | `tps-content-accounting.patch` | pr-3 |
-| 42 | `tps-burst-anchor.patch` | pr-3 |
-| 44 | `tps-tokens-kind-and-reasoning-passthrough.patch` | pr-3 |
-| 50 | `tps-phase-switch-steady-window.patch` | pr-3 |
-| 54 | `tps-batched-delivery.patch` | pr-3 |
-| 62 | `tps-bucket-engine-rewrite.patch` | pr-3 |
-| 64 | `tps-background-freeze.patch` | pr-3 |
-| 8 | `file-download.patch` | pr-4 |
-| 45 | `file-download-attr.patch` | pr-4 |
-| 51 | `file-download-blob.patch` | pr-4 |
-| 53 | `file-download-anchor.patch` | pr-4 |
-| 55 | `session-history-context-durable.patch` | pr-4 |
-| 56 | `session-find-bounded-read.patch` | pr-4 |
-| 57 | `transcript-metadata-durable.patch` | pr-4 |
-| 10 | `cache-billing.patch` | pr-5 |
-| 19 | `context-usage-anchor.patch` | pr-5 |
-| 37 | `session-speed-and-usage-pairing.patch` | pr-5 |
-| 12 | `server-test-baseline-zeroing.patch` | pr-6 |
-| 47 | `test-model-env-isolation.patch` | pr-6 |
-| 58 | `chapter-27-test-env-isolation.patch` | pr-6 |
-| 60 | `chapter-27-residual-hunks.patch` | pr-6 |
-| 14 | `vcc-compactor.patch` | pr-7 |
-| 22 | `autocompact-window-tiers.patch` | pr-7 |
-| 36 | `compact-dead-import-cleanup.patch` | pr-7 |
-| 40 | `vcc-compact-fallback.patch` | pr-7 |
-| 59 | `chapter-27-vcc-calibration-scripts.patch` | pr-7 |
-| 16 | `connector-linux-platform.patch` | pr-8 |
-| 18 | `computer-use-linux-x11.patch` | pr-8 |
-| 32 | `computer-use-platform-components.patch` | pr-8 |
-| 33 | `computer-use-python-path-fallback.patch` | pr-8 |
-| 20 | `h5-gzip-transport.patch` | pr-9 |
-| 23 | `history-transport-bounds.patch` | pr-9 |
-| 24 | `file-history-dedup.patch` | pr-9 |
-| 25 | `gzip-transport.patch` | pr-9 |
-| 26 | `history-first-paint-bound.patch` | pr-9 |
-| 27 | `baseline-typecheck-fixes.patch` | pr-9 |
-| 31 | `storage-original-file-bound.patch` | pr-9 |
-| 21 | `thinking-tool-timing.patch` | pr-10 |
-| 28 | `thinking-badge-order-and-duration.patch` | pr-10 |
-| 29 | `turn-usage.patch` | pr-10 |
-| 39 | `subagent-background-task-durations.patch` | pr-10 |
-| 41 | `background-task-duration-restore.patch` | pr-10 |
-| 43 | `think-token-truth-chain.patch` | pr-10 |
-| 49 | `subagent-usage-split-live.patch` | pr-10 |
-| 52 | `split-no-double-count.patch` | pr-10 |
-| 61 | `subagent-live-metrics.patch` | pr-10 |
-| 63 | `subagent-usage-cross-client.patch` | pr-10 |
+## 二、链位 → 主题 / 优化项（权威映射，34 项）
 
-## 组间关系与合入顺序建议
+| 主题 | 优化项 patch | 原链位 | 行数 | 文件数 |
+|---|---|---|---|---|
+| h5 | `h5-access-token-patch1.patch` | 1,2,5 | +2480−144 | 34 |
+| h5 | `h5-settings-parity-patch1.patch` | 4 | +212−134 | 4 |
+| h5 | `h5-mobile-quick-actions-patch1.patch` | 13 | +251−0 | 3 |
+| h5 | `h5-mobile-scheduled-patch1.patch` | 15 | +4−3 | 2 |
+| h5 | `h5-mobile-market-layout-patch1.patch` | 17 | +1−1 | 1 |
+| h5 | `h5-mobile-run-records-patch1.patch` | 34 | +52−1 | 2 |
+| h5 | `h5-local-index-multi-root-patch1.patch` | 46,48 | +292−121 | 4 |
+| session | `session-export-patch1.patch` | 3 | +493−38 | 5 |
+| session | `session-refresh-patch1.patch` | 6 | +183−7 | 2 |
+| session | `session-file-download-patch1.patch` | 8,45,51,53 | +644−44 | 15 |
+| session | `session-disable-updates-patch1.patch` | 9 | +145−1 | 4 |
+| session | `session-thinking-switch-patch1.patch` | 11 | +349−7 | 11 |
+| session | `session-gzip-transport-patch1.patch` | 20,25 | +415−1 | 3 |
+| session | `session-history-transport-patch1.patch` | 23,24,26,31 | +363−16 | 9 |
+| session | `session-baseline-typecheck-patch1.patch` | 27 | +7−4 | 2 |
+| session | `session-open-speed-patch1.patch` | 55,56,57 | +526−22 | 6 |
+| tps | `tps-indicator-patch1.patch` | 7,30,35,38,42,44,50,54 | +2743−14 | 25 |
+| tps | `tps-engine-rewrite-patch1.patch` | 62,64,65,67 | +2269−1002 | 25 |
+| tps | `tps-density-estimation-patch1.patch` | 66 | +728−43 | 10 |
+| tps | `tps-session-total-patch1.patch` | 新增 | +118−70 | 5 |
+| usage | `usage-cache-billing-patch1.patch` | 10 | +311−30 | 7 |
+| usage | `usage-context-usage-anchor-patch1.patch` | 19 | +74−12 | 4 |
+| usage | `usage-session-speed-usage-pairing-patch1.patch` | 37 | +375−41 | 11 |
+| test | `test-server-test-baseline-patch1.patch` | 12,47 | +115−16 | 10 |
+| test | `test-chapter-27-tests-patch1.patch` | 58,60 | +180−28 | 18 |
+| vcc | `vcc-compactor-patch1.patch` | 14,40 | +5794−35 | 48 |
+| vcc | `vcc-autocompact-window-tiers-patch1.patch` | 22 | +144−26 | 2 |
+| vcc | `vcc-compact-dead-import-patch1.patch` | 36 | +1−3 | 3 |
+| vcc | `vcc-calibration-scripts-patch1.patch` | 59 | +1518−0 | 3 |
+| computer-use | `computer-use-connector-linux-patch1.patch` | 16 | +21−11 | 4 |
+| computer-use | `computer-use-linux-patch1.patch` | 18,32,33 | +1473−81 | 31 |
+| thinking-subagent | `thinking-subagent-thinking-tool-timing-patch1.patch` | 21,28,29,39,41,43,49,61 | +3346−139 | 54 |
+| thinking-subagent | `thinking-subagent-split-no-double-count-patch1.patch` | 52 | +166−14 | 4 |
+| thinking-subagent | `thinking-subagent-subagent-usage-cross-client-patch1.patch` | 63 | +1067−39 | 11 |
 
-- **无强依赖**：每组自洽，各组终态组合=全链终态。
-- 建议合入顺序（减少后续组的冲突面）：pr-6 测试基线 → pr-7 vcc 压缩 → pr-9 大会话性能 → pr-2 会话基础 → pr-4 文件下载+提速 → pr-5 计费与用量 → pr-3 TPS → pr-1 H5/移动端 → pr-8 Computer Use Linux → pr-10 思考计时与子代理用量（依赖 pr-3 的 tpsMeter stream 标记与 pr-5 的 usage 口径）。
+## 三、组装规则（重要）
 
-## 每个 PR 的验收口径
+- **单项 patch**（`modify/patches/`）= 链内顺序产物；**必须按 `ORDER.md` 顺序 apply**（项按最小链位交错排序），单独抽一项按序 apply 不保证成功。
+- **组补丁**（`pr-prepare/<主题>/00-group.patch`）的文件集 = 本主题优化项**直接改动**的文件 ∪ 跨主题**共享文件**（按「本主题是该文件在链内**最后归属主题**」判定），共享文件内容取**链终态**。
+  → 组内自洽（typecheck 不缺符号）；**8 组的文件集并集 == 链终态的改动文件集**，且共享文件在各组中标为同一链终态内容（内容一致）。
+- ⚠️ **每个组补丁只在干净基座 `068b3ebd` 上单独 apply**（已验证：8/8 干净，且各自精确复现对应分支树）。**不要把 8 个组补丁在本机顺序叠加**——共享文件会被重复改写而报「补丁未应用」。上游侧逐 PR 合入时由 git 三方合并处理共享文件（内容相同 ⇒ 无冲突）。
+- 组件关系：**无强依赖**，每组自洽。
 
-- 桌面：`cd desktop && bunx vitest run`（必须在 desktop/ 下跑）
+## 四、建议合入顺序（减少后续组冲突面）
+
+`test` → `vcc` → `session` → `usage` → `tps` → `h5` → `computer-use` → `thinking-subagent`
+（`thinking-subagent` 依赖 `tps` 的 tpsMeter stream 标记与 `usage` 的 usage 口径；`usage` 依赖 `session` 的 `transcriptMetadataCache.ts`。）
+
+## 五、验收口径
+
+- 桌面：`cd desktop && bunx vitest run`（**必须在 `desktop/` 下跑**）
 - 服务端：`bun test src/server`（**勿**用 `bun test src`）
-- typecheck：`bunx tsc --noEmit`
+- typecheck：注意基座 `tsconfig.json` 的 `baseUrl` 会让 `tsc --noEmit` **在配置阶段中止（TS5102，空转）**，须去 `baseUrl` 后跑 —— 详见 `VERIFICATION.md`。

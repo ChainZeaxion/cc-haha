@@ -383,6 +383,15 @@ export function getPresetUpstreamHeaders(presetId: string): Record<string, strin
 }
 
 /**
+ * Headers sent **only to a private-network (machine-local/LAN) upstream**, so a
+ * preset shared between public and private providers never leaks them to a hosted
+ * gateway. See `upstreamHeadersPrivate` in the preset schema.
+ */
+export function getPresetPrivateUpstreamHeaders(presetId: string): Record<string, string> {
+  return PROVIDER_PRESETS.find((preset) => preset.id === presetId)?.upstreamHeadersPrivate ?? {}
+}
+
+/**
  * The format this provider's record stands for.
  *
  * Normally that is simply the saved `apiFormat`. A preset that declares per-model

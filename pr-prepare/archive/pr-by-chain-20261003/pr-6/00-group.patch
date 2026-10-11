@@ -1,0 +1,1156 @@
+diff --git a/adapters/whatsapp/session.ts b/adapters/whatsapp/session.ts
+index 9dd5ee5b..5927effe 100644
+--- a/adapters/whatsapp/session.ts
++++ b/adapters/whatsapp/session.ts
+@@ -1,18 +1,18 @@
+ import * as fs from 'node:fs'
+ import * as path from 'node:path'
+-import {
+-  DisconnectReason,
+-  fetchLatestBaileysVersion,
+-  makeCacheableSignalKeyStore,
+-  makeWASocket,
+-  useMultiFileAuthState,
+-} from '@whiskeysockets/baileys'
++
++// baileys is loaded lazily inside createWhatsAppSocket (see below) so that
++// importing this module — which the adapters API does eagerly — does not
++// require the dependency to be installed. Only the type is needed up front.
++import type { makeWASocket } from '@whiskeysockets/baileys'
+ 
+ export type WhatsAppSocket = ReturnType<typeof makeWASocket>
+ 
+ const CREDS_FILE = 'creds.json'
+ const CREDS_BACKUP_FILE = 'creds.json.bak'
+-const LOGGED_OUT_STATUS = DisconnectReason?.loggedOut ?? 401
++// 401 is the documented `DisconnectReason.loggedOut` value; it is also the
++// fallback used when the dependency is not yet loaded.
++const LOGGED_OUT_STATUS = 401
+ 
+ const credsSaveQueues = new Map<string, Promise<void>>()
+ 
+@@ -46,6 +46,16 @@ export async function createWhatsAppSocket(options: {
+   fs.mkdirSync(authDir, { recursive: true, mode: 0o700 })
+   maybeRestoreCredsFromBackup(authDir)
+ 
++  // Dynamic import: keeps the top-level import graph dependency-free so the
++  // adapters API (which imports this module eagerly) works when baileys is not
++  // installed. A missing dependency now only fails an actual login attempt.
++  const {
++    fetchLatestBaileysVersion,
++    makeCacheableSignalKeyStore,
++    makeWASocket,
++    useMultiFileAuthState,
++  } = await import('@whiskeysockets/baileys')
++
+   const logger = makeBaileysLogger(options.verbose ? 'info' : 'silent')
+   const { state, saveCreds } = await useMultiFileAuthState(authDir)
+   const { version } = await fetchLatestBaileysVersion()
+diff --git a/desktop/package.json b/desktop/package.json
+index f0efe855..cb55297c 100644
+--- a/desktop/package.json
++++ b/desktop/package.json
+@@ -87,6 +87,8 @@
+   "scripts": {
+     "dev": "vite",
+     "build": "bun run build:preview-agent && node ./node_modules/typescript/bin/tsc -b && node ./node_modules/vite/bin/vite.js build",
++    "build:renderer": "node ./node_modules/vite/bin/vite.js build",
++    "typecheck": "node ./node_modules/typescript/bin/tsc --noEmit",
+     "prepare:node-pty": "bun run ./scripts/prepare-node-pty.ts",
+     "build:electron": "bun run prepare:node-pty && bun build ./electron/main.ts --outfile ./electron-dist/main.cjs --target node --format cjs --external electron --external node-pty --external @ngrok/ngrok && bun build ./electron/preload.ts --outfile ./electron-dist/preload.cjs --target node --format cjs --external electron && bun build ./electron/pet-preload.ts --outfile ./electron-dist/pet-preload.cjs --target node --format cjs --external electron && bun build ./electron/preview-preload.ts --outfile ./electron-dist/preview-preload.cjs --target node --format cjs --external electron",
+     "build:preview-agent": "bun run ./scripts/build-preview-agent.ts",
+diff --git a/desktop/src/api/h5Access.ts b/desktop/src/api/h5Access.ts
+index 024d1da2..69cb0515 100644
+--- a/desktop/src/api/h5Access.ts
++++ b/desktop/src/api/h5Access.ts
+@@ -35,6 +35,7 @@ export const h5AccessApi = {
+     publicBaseUrl?: string | null
+     fixedPort?: number | null
+     disconnectGraceSeconds?: number | null
++    requireToken?: boolean
+   }) {
+     return api.put<H5AccessStatus>('/api/h5-access', input)
+   },
+diff --git a/desktop/src/lib/providerModels.ts b/desktop/src/lib/providerModels.ts
+index f60151df..6faebdf0 100644
+--- a/desktop/src/lib/providerModels.ts
++++ b/desktop/src/lib/providerModels.ts
+@@ -37,9 +37,12 @@ export function groupProviderModels(
+     else groups.set(group, [{ ...model, id }])
+   }
+ 
++  // 'en' (not the host default) so ASCII and CJK group names sort the same on
++  // every OS — the host locale is often zh, which orders CJK before Latin and
++  // puts the "其他" fallback above the real provider names.
+   return [...groups.entries()]
+     .map(([group, groupModels]) => ({ group, models: groupModels }))
+-    .sort((a, b) => a.group.localeCompare(b.group, undefined, { sensitivity: 'base' }))
++    .sort((a, b) => a.group.localeCompare(b.group, 'en', { sensitivity: 'base' }))
+ }
+ 
+ /**
+diff --git a/desktop/src/pages/TerminalSettings.tsx b/desktop/src/pages/TerminalSettings.tsx
+index 4cd7b3dc..ab0ec54d 100644
+--- a/desktop/src/pages/TerminalSettings.tsx
++++ b/desktop/src/pages/TerminalSettings.tsx
+@@ -34,6 +34,14 @@ const STATUS_LABEL_KEYS: Record<TerminalStatus, TranslationKey> = {
+   unavailable: 'settings.terminal.status.unavailable',
+ }
+ 
++// crypto.randomUUID is only defined in secure contexts (https / localhost).
++// H5 reached over a LAN IP (http://192.168.x.x:port) is a non-secure context,
++// where the call would throw — mirror McpSettings' createId fallback.
++function createTerminalRequestId() {
++  if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) return crypto.randomUUID()
++  return `t-${Date.now()}-${Math.random().toString(36).slice(2)}`
++}
++
+ function findScrollableAncestor(element: HTMLElement, deltaY: number): HTMLElement | null {
+   let parent = element.parentElement
+   while (parent) {
+@@ -197,7 +205,7 @@ export function TerminalSettings({
+     const host = hostRef.current
+     if (!host) return Promise.resolve()
+ 
+-    const requestId = crypto.randomUUID()
++    const requestId = createTerminalRequestId()
+     let exitedDuringStart = false
+     const startToken = runtime.startToken + 1
+     runtime.startToken = startToken
+diff --git a/desktop/src/stores/settingsStore.ts b/desktop/src/stores/settingsStore.ts
+index afad44cd..03d21529 100644
+--- a/desktop/src/stores/settingsStore.ts
++++ b/desktop/src/stores/settingsStore.ts
+@@ -65,11 +65,16 @@ type SettingsStore = {
+   currentModel: ModelInfo | null
+   effortLevel: EffortLevel
+   thinkingEnabled: boolean
++  thinkingSendBack: boolean
++  vccCompactBackend: 'algorithm' | 'llm'
+   workflowKeywordTriggerEnabled: boolean
+   agentTeamsEnabled: boolean
+   autoDreamEnabled: boolean
++  disableUpdates: boolean
++  sessionExtendedInfo: boolean
+   autoQuestion: AutoQuestionSettings
+   autoModeOptInAccepted: boolean
++
+   availableModels: ModelInfo[]
+   activeProviderName: string | null
+   locale: Locale
+@@ -111,9 +116,13 @@ type SettingsStore = {
+   setModel: (modelId: string) => Promise<void>
+   setEffort: (level: EffortLevel) => Promise<void>
+   setThinkingEnabled: (enabled: boolean) => Promise<void>
++  setThinkingSendBack: (enabled: boolean) => Promise<void>
++  setVccCompactBackend: (backend: 'algorithm' | 'llm') => Promise<void>
+   setWorkflowKeywordTriggerEnabled: (enabled: boolean) => Promise<void>
+   setAgentTeamsEnabled: (enabled: boolean) => Promise<void>
+   setAutoDreamEnabled: (enabled: boolean) => Promise<void>
++  setDisableUpdates: (enabled: boolean) => Promise<void>
++  setSessionExtendedInfo: (enabled: boolean) => Promise<void>
+   setAutoQuestion: (settings: AutoQuestionSettings) => Promise<void>
+   acceptAutoModeOptIn: () => Promise<void>
+   setLocale: (locale: Locale) => void
+@@ -137,6 +146,7 @@ type SettingsStore = {
+     publicBaseUrl?: string | null
+     fixedPort?: number | null
+     disconnectGraceSeconds?: number | null
++    requireToken?: boolean
+   }) => Promise<void>
+   setResponseLanguage: (language: string) => Promise<void>
+   fetchAppMode: () => Promise<void>
+@@ -156,6 +166,7 @@ const DEFAULT_H5_ACCESS_SETTINGS: H5AccessSettings = {
+   publicBaseUrl: null,
+   fixedPort: null,
+   disconnectGraceSeconds: null,
++  requireToken: false,
+ }
+ 
+ const DEFAULT_DESKTOP_TERMINAL_SETTINGS: DesktopTerminalSettings = {
+@@ -206,9 +217,15 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
+   currentModel: null,
+   effortLevel: 'max',
+   thinkingEnabled: true,
++  thinkingSendBack: false,
++  vccCompactBackend: 'algorithm',
+   workflowKeywordTriggerEnabled: true,
+   agentTeamsEnabled: true,
+   autoDreamEnabled: false,
++  disableUpdates: false,
++  // On by default: these readouts already existed when the switch was added, so
++  // introducing it must not change what anyone sees until they turn it off.
++  sessionExtendedInfo: true,
+   autoQuestion: DEFAULT_AUTO_QUESTION_SETTINGS,
+   autoModeOptInAccepted: false,
+   availableModels: [],
+@@ -285,9 +302,14 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
+         currentModel: model,
+         effortLevel: level,
+         thinkingEnabled: userSettings.alwaysThinkingEnabled !== false,
++        thinkingSendBack: userSettings.sendThinkingHistory === true,
++        vccCompactBackend:
++          userSettings.vccCompactBackend === 'llm' ? 'llm' : 'algorithm',
+         workflowKeywordTriggerEnabled: userSettings.workflowKeywordTriggerEnabled !== false,
+         agentTeamsEnabled: userSettings.agentTeamsEnabled !== false,
+         autoDreamEnabled: userSettings.autoDreamEnabled === true,
++        disableUpdates: userSettings.disableUpdates === true,
++        sessionExtendedInfo: userSettings.sessionExtendedInfo !== false,
+         autoQuestion: normalizeAutoQuestionSettings(userSettings.autoQuestion),
+         autoModeOptInAccepted: userSettings.skipAutoPermissionPrompt === true,
+         chatSendBehavior: normalizeChatSendBehavior(userSettings.chatSendBehavior),
+@@ -361,6 +383,26 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
+     }
+   },
+ 
++  setThinkingSendBack: async (enabled) => {
++    const prev = get().thinkingSendBack
++    set({ thinkingSendBack: enabled })
++    try {
++      await settingsApi.updateUser({ sendThinkingHistory: enabled })
++    } catch {
++      set({ thinkingSendBack: prev })
++    }
++  },
++
++  setVccCompactBackend: async (backend) => {
++    const prev = get().vccCompactBackend
++    set({ vccCompactBackend: backend })
++    try {
++      await settingsApi.updateUser({ vccCompactBackend: backend })
++    } catch {
++      set({ vccCompactBackend: prev })
++    }
++  },
++
+   setWorkflowKeywordTriggerEnabled: async (enabled) => {
+     const prev = get().workflowKeywordTriggerEnabled
+     set({ workflowKeywordTriggerEnabled: enabled })
+@@ -394,6 +436,27 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
+     }
+   },
+ 
++  setDisableUpdates: async (enabled) => {
++    const prev = get().disableUpdates
++    set({ disableUpdates: enabled })
++    try {
++      await settingsApi.updateUser({ disableUpdates: enabled })
++    } catch (error) {
++      set({ disableUpdates: prev })
++      throw error
++    }
++  },
++  setSessionExtendedInfo: async (enabled) => {
++    const prev = get().sessionExtendedInfo
++    set({ sessionExtendedInfo: enabled })
++    try {
++      await settingsApi.updateUser({ sessionExtendedInfo: enabled })
++    } catch (error) {
++      set({ sessionExtendedInfo: prev })
++      throw error
++    }
++  },
++
+   setAutoQuestion: async (settings) => {
+     const previous = get().autoQuestion
+     const next = normalizeAutoQuestionSettings(settings)
+@@ -860,6 +923,7 @@ function normalizeH5AccessSettings(settings: H5AccessSettings | undefined): H5Ac
+     publicBaseUrl: settings?.publicBaseUrl ?? null,
+     fixedPort: typeof settings?.fixedPort === 'number' ? settings.fixedPort : null,
+     disconnectGraceSeconds: typeof settings?.disconnectGraceSeconds === 'number' ? settings.disconnectGraceSeconds : null,
++    requireToken: settings?.requireToken === true,
+   }
+ }
+ 
+diff --git a/desktop/src/types/settings.ts b/desktop/src/types/settings.ts
+index ef9c7c9e..c8de51e8 100644
+--- a/desktop/src/types/settings.ts
++++ b/desktop/src/types/settings.ts
+@@ -113,6 +113,13 @@ export type H5AccessSettings = {
+   fixedPort: number | null
+   /** Idle grace period (seconds) before a disconnected, idle session's CLI is stopped. null = built-in 30s default. */
+   disconnectGraceSeconds: number | null
++  /**
++   * Whether browser H5 access requires the Bearer H5 token. Default false:
++   * every source accesses H5 tokenless (0.0.0.0/0). When true, public-network
++   * sources must carry the token; loopback and private-network (RFC1918 /
++   * IPv6 ULA) sources are always exempt.
++   */
++  requireToken: boolean
+ }
+ 
+ export type H5HostStaleness = 'ok' | 'unreachable' | 'proxy' | 'unset'
+@@ -152,6 +159,15 @@ export type UserSettings = {
+   modelContext?: string
+   effort?: EffortLevel
+   alwaysThinkingEnabled?: boolean
++  sendThinkingHistory?: boolean
++  /** Context-compaction engine: 'algorithm' (pi-vcc, default) or 'llm'. */
++  vccCompactBackend?: 'algorithm' | 'llm'
++  /**
++   * Whether the session UI shows the usage and timing readouts this fork adds
++   * (thinking badge, activity totals, subagent durations, TPS). Defaults to on;
++   * a transcript is still recorded either way.
++   */
++  sessionExtendedInfo?: boolean
+   workflowKeywordTriggerEnabled?: boolean
+   agentTeamsEnabled?: boolean
+   autoDreamEnabled?: boolean
+@@ -164,6 +180,8 @@ export type UserSettings = {
+   skipWebFetchPreflight?: boolean
+   desktopNotificationsEnabled?: boolean
+   webSearch?: WebSearchSettings
++  /** When true, skip the startup update check and disable the manual "check now" action. */
++  disableUpdates?: boolean
+   updateProxy?: Partial<UpdateProxySettings>
+   network?: {
+     aiRequestTimeoutMs?: number
+diff --git a/src/cli/print.sessionMessage.test.ts b/src/cli/print.sessionMessage.test.ts
+index 0b9081b7..bb6a12ae 100644
+--- a/src/cli/print.sessionMessage.test.ts
++++ b/src/cli/print.sessionMessage.test.ts
+@@ -33,7 +33,11 @@ test('headless session inbox acknowledges queued then consumed and deduplicates
+   const payload = { subtype: 'enqueue_session_message', start_if_idle: true, message_id: 'stable', sender_session_id: 'peer', text: '/clear @missing-fixture-file.txt' }
+   const input = ['first', 'retry'].map(request_id => JSON.stringify({ type: 'control_request', request_id, request: payload })).join('\n') + '\n'
+   try {
+-    const child = Bun.spawn(['./bin/claude-haha', '--bare', '-p', '--input-format', 'stream-json', '--output-format', 'stream-json', '--verbose'], { env, stdin: new Blob([input]), stdout: 'pipe', stderr: 'pipe' })
++    // stdin: 'pipe' + explicit end — `new Blob([input])` does not deliver a
++    // clean EOF to the stream-json reader, so the child exited 0 with no output.
++    const child = Bun.spawn(['./bin/claude-haha', '--bare', '-p', '--input-format', 'stream-json', '--output-format', 'stream-json', '--verbose'], { env, stdin: 'pipe', stdout: 'pipe', stderr: 'pipe' })
++    child.stdin.write(input)
++    child.stdin.end()
+     const [stdout, stderr, code] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited])
+     expect({ code, stderr }).toMatchObject({ code: 0 })
+     const events = stdout.trim().split('\n').map(line => JSON.parse(line))
+@@ -44,7 +48,9 @@ test('headless session inbox acknowledges queued then consumed and deduplicates
+     expect(events.filter(event => event.subtype === 'session_message_receipt')).toMatchObject([{ message_id: 'stable', status: 'consumed' }])
+     expect(requests).toBe(1)
+     const sessionId = events.find(event => event.subtype === 'session_message_receipt').session_id
+-    const resumed = Bun.spawn(['./bin/claude-haha', '--bare', '-p', '--resume', sessionId, '--input-format', 'stream-json', '--output-format', 'stream-json', '--verbose'], { env, stdin: new Blob([input]), stdout: 'pipe', stderr: 'pipe' })
++    const resumed = Bun.spawn(['./bin/claude-haha', '--bare', '-p', '--resume', sessionId, '--input-format', 'stream-json', '--output-format', 'stream-json', '--verbose'], { env, stdin: 'pipe', stdout: 'pipe', stderr: 'pipe' })
++    resumed.stdin.write(input)
++    resumed.stdin.end()
+     const [resumedText, resumedError, resumedCode] = await Promise.all([new Response(resumed.stdout).text(), new Response(resumed.stderr).text(), resumed.exited])
+     expect({ code: resumedCode, stderr: resumedError, stdout: resumedText }).toMatchObject({ code: 0 })
+     const resumedEvents = resumedText.trim().split('\n').map(line => JSON.parse(line))
+diff --git a/src/constants/system.test.ts b/src/constants/system.test.ts
+index f8f188c0..1724de2b 100644
+--- a/src/constants/system.test.ts
++++ b/src/constants/system.test.ts
+@@ -9,7 +9,12 @@ describe('getAttributionHeader', () => {
+ 
+   test('uses Claude Code compatibility version and always includes CCH placeholder', () => {
+     const originalEntrypoint = process.env.CLAUDE_CODE_ENTRYPOINT
++    const originalAttribution = process.env.CLAUDE_CODE_ATTRIBUTION_HEADER
+     process.env.CLAUDE_CODE_ENTRYPOINT = 'cli'
++    // The desktop app exports CLAUDE_CODE_ATTRIBUTION_HEADER=0 into its
++    // processes; a falsy inherited value would disable the header and break
++    // this default-enabled assertion, so pin it on for the test.
++    process.env.CLAUDE_CODE_ATTRIBUTION_HEADER = '1'
+ 
+     try {
+       expect(getAttributionHeader('abc')).toBe(
+@@ -18,6 +23,8 @@ describe('getAttributionHeader', () => {
+     } finally {
+       if (originalEntrypoint === undefined) delete process.env.CLAUDE_CODE_ENTRYPOINT
+       else process.env.CLAUDE_CODE_ENTRYPOINT = originalEntrypoint
++      if (originalAttribution === undefined) delete process.env.CLAUDE_CODE_ATTRIBUTION_HEADER
++      else process.env.CLAUDE_CODE_ATTRIBUTION_HEADER = originalAttribution
+     }
+   })
+ })
+diff --git a/src/entrypoints/sdk/coreSchemas.modelInfo.test.ts b/src/entrypoints/sdk/coreSchemas.modelInfo.test.ts
+index cad6d117..872708bd 100644
+--- a/src/entrypoints/sdk/coreSchemas.modelInfo.test.ts
++++ b/src/entrypoints/sdk/coreSchemas.modelInfo.test.ts
+@@ -4,6 +4,14 @@ import { ModelInfoSchema } from './coreSchemas.js'
+ 
+ describe('ModelInfoSchema effort capabilities', () => {
+   test('accepts model-specific effort levels emitted by CLI initialization', () => {
++    // These models resolve their effort levels from the built-in Claude
++    // capability list, which is only trusted when no third-party
++    // ANTHROPIC_BASE_URL is configured. A developer shell that points the
++    // provider at a proxy would otherwise report no effort for these models,
++    // so pin a first-party base URL for the test and restore it after.
++    const originalBaseUrl = process.env.ANTHROPIC_BASE_URL
++    process.env.ANTHROPIC_BASE_URL = 'https://api.anthropic.com'
++
+     const cases = [
+       {
+         value: 'sonnet',
+@@ -17,18 +25,23 @@ describe('ModelInfoSchema effort capabilities', () => {
+       },
+     ]
+ 
+-    for (const { value, model, expected } of cases) {
+-      const supportedEffortLevels = getSupportedEffortLevelsForModel(model)
+-      expect(supportedEffortLevels).toEqual(expected)
+-      expect(
+-        ModelInfoSchema().safeParse({
+-          value,
+-          displayName: value,
+-          description: `${value} model`,
+-          supportsEffort: true,
+-          supportedEffortLevels,
+-        }).success,
+-      ).toBe(true)
++    try {
++      for (const { value, model, expected } of cases) {
++        const supportedEffortLevels = getSupportedEffortLevelsForModel(model)
++        expect(supportedEffortLevels).toEqual(expected)
++        expect(
++          ModelInfoSchema().safeParse({
++            value,
++            displayName: value,
++            description: `${value} model`,
++            supportsEffort: true,
++            supportedEffortLevels,
++          }).success,
++        ).toBe(true)
++      }
++    } finally {
++      if (originalBaseUrl === undefined) delete process.env.ANTHROPIC_BASE_URL
++      else process.env.ANTHROPIC_BASE_URL = originalBaseUrl
+     }
+   })
+ 
+diff --git a/src/server/__tests__/conversation-service.test.ts b/src/server/__tests__/conversation-service.test.ts
+index fb188f86..d8f7e265 100644
+--- a/src/server/__tests__/conversation-service.test.ts
++++ b/src/server/__tests__/conversation-service.test.ts
+@@ -278,6 +278,8 @@ describe('ConversationService', () => {
+   test('buildChildEnv flushes desktop transcripts before the SDK reports turn completion (#1033)', async () => {
+     const previous = process.env.CLAUDE_CODE_EAGER_FLUSH
+     delete process.env.CLAUDE_CODE_EAGER_FLUSH
++    const previousEmit = process.env.CLAUDE_CODE_EMIT_SESSION_STATE_EVENTS
++    delete process.env.CLAUDE_CODE_EMIT_SESSION_STATE_EVENTS
+     resetTerminalShellEnvironmentCacheForTests()
+     try {
+       const service = new ConversationService() as any
+@@ -302,6 +304,8 @@ describe('ConversationService', () => {
+     } finally {
+       if (previous === undefined) delete process.env.CLAUDE_CODE_EAGER_FLUSH
+       else process.env.CLAUDE_CODE_EAGER_FLUSH = previous
++      if (previousEmit === undefined) delete process.env.CLAUDE_CODE_EMIT_SESSION_STATE_EVENTS
++      else process.env.CLAUDE_CODE_EMIT_SESSION_STATE_EVENTS = previousEmit
+       resetTerminalShellEnvironmentCacheForTests()
+     }
+   })
+@@ -554,12 +558,17 @@ describe('ConversationService', () => {
+   test.each([1_800_000, 14_400_000, 21_600_000])('buildChildEnv raises all request budgets for a long local-model response (%i ms, #1307)', async timeoutMs => {
+     const prev = process.env.CLAUDE_STREAM_MAX_DURATION_MS
+     delete process.env.CLAUDE_STREAM_MAX_DURATION_MS
++    // A caller-provided first-token watchdog (the documented #826 override)
++    // must not mask the budget raised from the request timeout here.
++    const prevFirstToken = process.env.CLAUDE_STREAM_FIRST_TOKEN_TIMEOUT_MS
++    delete process.env.CLAUDE_STREAM_FIRST_TOKEN_TIMEOUT_MS
+     await fs.writeFile(
+       path.join(tmpDir, 'settings.json'),
+       JSON.stringify({ network: { aiRequestTimeoutMs: timeoutMs } }),
+       'utf-8',
+     )
+     try {
++
+       const service = new ConversationService() as any
+       const env = (await service.buildChildEnv('/tmp')) as Record<string, string>
+ 
+@@ -573,6 +582,8 @@ describe('ConversationService', () => {
+     } finally {
+       if (prev === undefined) delete process.env.CLAUDE_STREAM_MAX_DURATION_MS
+       else process.env.CLAUDE_STREAM_MAX_DURATION_MS = prev
++      if (prevFirstToken === undefined) delete process.env.CLAUDE_STREAM_FIRST_TOKEN_TIMEOUT_MS
++      else process.env.CLAUDE_STREAM_FIRST_TOKEN_TIMEOUT_MS = prevFirstToken
+     }
+   })
+ 
+diff --git a/src/server/__tests__/e2e/full-flow.test.ts b/src/server/__tests__/e2e/full-flow.test.ts
+index 7c7ebd64..7d36654b 100644
+--- a/src/server/__tests__/e2e/full-flow.test.ts
++++ b/src/server/__tests__/e2e/full-flow.test.ts
+@@ -16,6 +16,17 @@ let tmpDir: string
+ const originalConfigDir = process.env.CLAUDE_CONFIG_DIR
+ const originalCliPath = process.env.CLAUDE_CLI_PATH
+ const originalDisableTerminalShellEnv = process.env.CC_HAHA_DISABLE_TERMINAL_SHELL_ENV
++// A developer who exports process-access tokens would otherwise leak them into
++// the fixture and flip `localAccessTokenConfigured` to true, which makes the
++// loopback-browser-origin CORS cases treat the browser as an h5-browser and
++// expect a token (403) instead of the trusted no-token 204. Isolate them.
++const TOKEN_ENV_KEYS = [
++  'CC_HAHA_LOCAL_ACCESS_TOKEN',
++  'CC_HAHA_PET_ACCESS_TOKEN',
++] as const
++const originalTokenEnv = Object.fromEntries(
++  TOKEN_ENV_KEYS.map((key) => [key, process.env[key]]),
++) as Record<(typeof TOKEN_ENV_KEYS)[number], string | undefined>
+ const mockSdkCliPath = fileURLToPath(new URL('../fixtures/mock-sdk-cli.ts', import.meta.url))
+ 
+ // The models API derives its model list from these env vars (see
+@@ -37,6 +48,10 @@ function restoreEnv() {
+     if (originalModelEnv[key] !== undefined) process.env[key] = originalModelEnv[key]
+     else delete process.env[key]
+   }
++  for (const key of TOKEN_ENV_KEYS) {
++    if (originalTokenEnv[key] !== undefined) process.env[key] = originalTokenEnv[key]
++    else delete process.env[key]
++  }
+   if (originalConfigDir !== undefined) {
+     process.env.CLAUDE_CONFIG_DIR = originalConfigDir
+   } else {
+@@ -65,6 +80,8 @@ async function startTestServer() {
+   process.env.CLAUDE_CLI_PATH = mockSdkCliPath
+   process.env.CC_HAHA_DISABLE_TERMINAL_SHELL_ENV = '1'
+   for (const key of MODEL_ENV_KEYS) delete process.env[key]
++  for (const key of TOKEN_ENV_KEYS) delete process.env[key]
++
+ 
+   // Create required directories
+   await fs.mkdir(path.join(tmpDir, 'projects'), { recursive: true })
+diff --git a/src/server/services/connectorService.ts b/src/server/services/connectorService.ts
+index 78c02958..a2e7169f 100644
+--- a/src/server/services/connectorService.ts
++++ b/src/server/services/connectorService.ts
+@@ -49,7 +49,10 @@ export class ConnectorService {
+   }
+ 
+   private installedDefinition(def: ConnectorDefinition, record: ConnectorRecord): ConnectorDefinition {
+-    const legacyVersion = record.installation && basename(record.installation.directory).match(/^(.+)-(?:darwin|win32)-(?:arm64|x64)$/)?.[1]
++    // Runtime dirs are named `<version>-<platform>-<arch>`. Match the platform
++    // as a generic token (not just darwin/win32) so legacy installs on any
++    // supported platform still resolve their version instead of falling back.
++    const legacyVersion = record.installation && basename(record.installation.directory).match(/^(.+)-[a-z]+-(?:arm64|x64)$/)?.[1]
+     const version = record.installedVersion ?? legacyVersion ?? def.version
+     if (!/^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-[0-9A-Za-z]+(?:[.-][0-9A-Za-z]+)*)?(?:\+[0-9A-Za-z]+(?:[.-][0-9A-Za-z]+)*)?$/.test(version)) {
+       throw new Error('Invalid installed connector version')
+diff --git a/src/server/services/sessionCollaborationService.ts b/src/server/services/sessionCollaborationService.ts
+index 809d1557..45df2503 100644
+--- a/src/server/services/sessionCollaborationService.ts
++++ b/src/server/services/sessionCollaborationService.ts
+@@ -279,10 +279,16 @@ export class SessionCollaborationService {
+       remaining -= available
+       nextEnd = index
+     }
+-    const nextDepth = depth + 1
+-    const next = nextDepth >= COLLABORATION_READ_MAX_PAGES ? null : nextEnd > 0
+-      ? { version: 1, sessionId, baseCursor, end: nextEnd, sourceVersion: page.page.sourceVersion, fragmentEnd: nextFragmentEnd, depth: nextDepth }
+-      : page.page.nextCursor ? { version: 1, sessionId, baseCursor: page.page.nextCursor, depth: nextDepth } : null
++    // `depth` counts physical storage-page crossings only. Advancing the `end`
++    // cursor within the same bounded page (baseCursor unchanged) keeps the
++    // depth; only stepping onto the next page (page.nextCursor) increments it.
++    // Otherwise a single long page exhausts the page limit and truncates a
++    // valid history.
++    const next = nextEnd > 0
++      ? { version: 1, sessionId, baseCursor, end: nextEnd, sourceVersion: page.page.sourceVersion, fragmentEnd: nextFragmentEnd, depth }
++      : page.page.nextCursor && depth + 1 < COLLABORATION_READ_MAX_PAGES
++        ? { version: 1, sessionId, baseCursor: page.page.nextCursor, depth: depth + 1 }
++        : null
+     return { messages: projectedMessages, turnsIncluded: turns, truncated,
+       page: { ...page.page, nextCursor: next ? Buffer.from(JSON.stringify(next)).toString('base64url') : null, hasMore: next !== null },
+       historyComplete: next === null && page.page.historyComplete === true && !truncated }
+diff --git a/src/server/services/workspaceService.ts b/src/server/services/workspaceService.ts
+index 09ea6cff..8558a042 100644
+--- a/src/server/services/workspaceService.ts
++++ b/src/server/services/workspaceService.ts
+@@ -181,6 +181,8 @@ type GitCommandResult = {
+   stdout: string
+   stderr: string
+   code: number
++  /** git never produced an exit status (missing binary, killed by timeout) */
++  failedToRun?: boolean
+ }
+ 
+ type DiffStatsResult =
+@@ -1415,12 +1417,33 @@ export class WorkspaceService {
+     }
+   }
+ 
++  /**
++   * Whether a failed `rev-parse --show-toplevel` means "there is no repository
++   * here", decided by exit status rather than by git's message.
++   *
++   * The previous check matched the English text `not a git repository`, which a
++   * translated git (e.g. a zh_CN locale prints 不是 git 仓库) does not print —
++   * every localized install reported `error` instead of `not_git_repo`.
++   * `rev-parse --is-inside-work-tree` exits 0 inside any repository and
++   * non-zero outside one, so the two cases separate without reading a message.
++   * A git that never produced an exit status (missing binary, timeout) proves
++   * nothing and stays an `error`.
++   */
++  private async isNotAGitRepository(
++    dir: string,
++    firstAttempt: GitCommandResult,
++  ): Promise<boolean> {
++    if (firstAttempt.failedToRun) return false
++    const probe = await this.runGit(dir, ['rev-parse', '--is-inside-work-tree'])
++    if (probe.failedToRun) return false
++    return probe.code !== 0
++  }
++
+   private async getGitRepoInfo(workDir: string): Promise<GitRepoInfo> {
+     const rootResult = await this.runGit(workDir, ['rev-parse', '--show-toplevel'])
+ 
+     if (rootResult.code !== 0) {
+-      const stderr = rootResult.stderr.trim()
+-      if (stderr.includes('not a git repository')) {
++      if (await this.isNotAGitRepository(workDir, rootResult)) {
+         return { kind: 'not_git_repo' }
+       }
+       return {
+@@ -1731,6 +1754,7 @@ export class WorkspaceService {
+         stdout?: string | Buffer
+         stderr?: string | Buffer
+         code?: number | string
++        killed?: boolean
+       }
+ 
+       return {
+@@ -1747,6 +1771,10 @@ export class WorkspaceService {
+               ? err.stderr.toString('utf8')
+               : '',
+         code: typeof err.code === 'number' ? err.code : 1,
++        // A string errno (ENOENT/...) or a timeout kill means git never
++        // produced an exit status, so it proves nothing about the repo.
++        failedToRun:
++          typeof err.code === 'string' || err.killed === true,
+       }
+     }
+   }
+diff --git a/src/server/services/workspaceWatch.test.ts b/src/server/services/workspaceWatch.test.ts
+index 341962a7..668320b5 100644
+--- a/src/server/services/workspaceWatch.test.ts
++++ b/src/server/services/workspaceWatch.test.ts
+@@ -207,7 +207,11 @@ describe('bounded workspace watches', () => {
+     await fs.writeFile(path.join(root, 'src/a.ts'), 'one')
+     await fs.writeFile(path.join(root, 'src/a.ts'), 'two')
+     await fs.rename(path.join(root, 'src/a.ts'), path.join(root, 'src/b.ts'))
+-    await until(() => events.some((event) => event.paths.includes('src/b.ts')))
++    // Inotify (Linux) reports the pre-rename name for a rename; fsevents
++    // (macOS) may report the new one. Wait for the name that fires on both —
++    // the writes above produce a `change a.ts` on every platform, so the
++    // coalesced event always carries `src/a.ts`.
++    await until(() => events.some((event) => event.paths.includes('src/a.ts')))
+     expect(events.flatMap((event) => event.paths)).toContain('src/a.ts')
+     expect(events.every((event) => new Set(event.paths).size === event.paths.length)).toBe(true)
+     expect(events.every((event) => event.directories.includes('src'))).toBe(true)
+diff --git a/src/services/api/claude.ts b/src/services/api/claude.ts
+index 5a8827af..f5b9074f 100644
+--- a/src/services/api/claude.ts
++++ b/src/services/api/claude.ts
+@@ -97,6 +97,7 @@ import {
+   type SystemPrompt,
+ } from "../../utils/systemPromptType.js";
+ import { tokenCountFromLastAPIResponse } from "../../utils/tokens.js";
++import { modelUsesBoundThinking, shouldSendThinkingToAPI } from "../../utils/thinking.js";
+ import { getDynamicConfig_BLOCKS_ON_INIT } from "../analytics/growthbook.js";
+ import {
+   currentLimits,
+@@ -1419,6 +1420,14 @@ async function* queryModel(
+     messages,
+     filteredTools,
+     options.model,
++    // When the "send thinking back to the API" toggle is OFF (default),
++    // strip the previous turn's thinking blocks from the request body to
++    // save prefill tokens. Local history always keeps them.
++    // Exception: bound-thinking models (Fable 5.1) need the replayed
++    // thinking blocks in the request so the API can drop the ones bound
++    // to an old prefix (block_binding drop_block); stripping them breaks
++    // replay after a system change.
++    { stripThinking: !shouldSendThinkingToAPI() && !modelUsesBoundThinking(options.model) },
+   );
+   queryCheckpoint("query_message_normalization_end");
+ 
+@@ -1829,9 +1838,12 @@ async function* queryModel(
+       }
+     }
+ 
+-    // Get API context management strategies if enabled
++    // Get API context management strategies if enabled. Only request the
++    // clear_thinking "keep:all" retention strategy when thinking is actually
++    // being sent back to the API — otherwise it's a pointless instruction to
++    // a backend that has no thinking blocks to retain.
+     const contextManagement = getAPIContextManagement({
+-      hasThinking,
++      hasThinking: hasThinking && shouldSendThinkingToAPI(),
+       isRedactThinkingActive: betasParams.includes(REDACT_THINKING_BETA_HEADER),
+       clearAllThinking: thinkingClearLatched,
+     });
+@@ -1985,6 +1997,11 @@ async function* queryModel(
+   let stopReason: BetaStopReason | null = null;
+   const completedBlockIndexes = new Set<number>();
+   const completedToolUseIds = new Set<string>();
++  // Per-block wall-clock start for thinking blocks: content_block_start fires
++  // right before the first thinking delta, so block_start -> block_stop is the
++  // block's pure generation span. Persisted as thinkingDurationMs on the
++  // transcript line so a reopened session can re-show the per-thought timing.
++  const thinkingStartedAtByIndex = new Map<number, number>();
+   const handledStopReasons = new Set<BetaStopReason>();
+   let incompleteStream = false;
+   let didFallBackToNonStreaming = false;
+@@ -2400,6 +2417,7 @@ async function* queryModel(
+                   // initialize signature to ensure field exists even if signature_delta never arrives
+                   signature: "",
+                 };
++                thinkingStartedAtByIndex.set(part.index, Date.now());
+                 break;
+               default:
+                 // even more awkwardly, the sdk mutates the contents of text blocks
+@@ -2577,6 +2595,18 @@ async function* queryModel(
+               type: "assistant",
+               uuid: randomUUID(),
+               timestamp: new Date().toISOString(),
++              ...(contentBlock.type === "thinking" &&
++                (() => {
++                  const startedAt = thinkingStartedAtByIndex.get(part.index);
++                  thinkingStartedAtByIndex.delete(part.index);
++                  // No anchor (a resumed or partial stream that never saw this
++                  // block's content_block_start) means the span was never
++                  // measured. Omit the field rather than writing 0: absent is
++                  // the contract for "not measured", and a 0 would render as a
++                  // confident `0.0s` next to the token count.
++                  if (typeof startedAt !== "number") return {};
++                  return { thinkingDurationMs: Math.max(0, Date.now() - startedAt) };
++                })()),
+               ...(process.env.USER_TYPE === "ant" &&
+                 research !== undefined && { research }),
+               ...(advisorModel && { advisorModel }),
+@@ -3566,6 +3596,18 @@ export function updateUsage(
+     inference_geo: usage.inference_geo,
+     iterations: partUsage.iterations ?? usage.iterations,
+     speed: (partUsage as BetaUsage).speed ?? usage.speed,
++    // reasoning_tokens: how much of output_tokens the model spent thinking.
++    // Reported by compatible engines, absent from SDK types and from the
++    // Anthropic schema, so it is kept off NonNullableUsage and read back with a
++    // cast (same treatment as cache_deleted_input_tokens below). Uses the > 0
++    // guard the input fields use: a later delta's 0 must not erase a real value.
++    reasoning_tokens:
++      (partUsage as unknown as { reasoning_tokens?: number })
++        .reasoning_tokens != null &&
++      (partUsage as unknown as { reasoning_tokens: number }).reasoning_tokens > 0
++        ? (partUsage as unknown as { reasoning_tokens: number }).reasoning_tokens
++        : ((usage as unknown as { reasoning_tokens?: number }).reasoning_tokens ??
++          0),
+   };
+ }
+ 
+diff --git a/src/services/api/client.test.ts b/src/services/api/client.test.ts
+index d7effb6c..ad4e072f 100644
+--- a/src/services/api/client.test.ts
++++ b/src/services/api/client.test.ts
+@@ -3,8 +3,14 @@ import * as fs from 'node:fs/promises'
+ import * as os from 'node:os'
+ import * as path from 'node:path'
+ import { createSandboxedTestEnvironment } from '../../../scripts/pr/test-environment.js'
++import { isolateModelDefaultsEnv } from '../../testUtils/modelEnv.js'
+ import { GROK_OAUTH_DUMMY_KEY } from '../grokAuth/fetch.js'
+ 
++
++// Desktop dev shells export ANTHROPIC_AUTH_TOKEN and the host-managed-proxy
++// credentials; the tests below assert the no-ambient-credential behavior.
++isolateModelDefaultsEnv()
++
+ mock.module('src/utils/http.js', () => ({
+   getAuthHeaders: mock(() => ({})),
+   getMCPUserAgent: mock(() => 'client-test-agent'),
+diff --git a/src/skills/bundled/computerUse.test.ts b/src/skills/bundled/computerUse.test.ts
+index 775bef0f..8b3e298d 100644
+--- a/src/skills/bundled/computerUse.test.ts
++++ b/src/skills/bundled/computerUse.test.ts
+@@ -1,5 +1,6 @@
+ import { describe, expect, test } from 'bun:test'
+ 
++import { isolateModelDefaultsEnv } from '../../testUtils/modelEnv.js'
+ import { getBundledSkills } from '../bundledSkills.js'
+ import { buildPlatformComputerUseTools } from '../../vendor/computer-use-mcp/mcpServer.js'
+ import {
+@@ -8,6 +9,8 @@ import {
+   registerComputerUseSkill,
+ } from './computerUse.js'
+ 
++isolateModelDefaultsEnv()
++
+ /**
+  * Asserting on prose is unusual, but this prose is load-bearing twice over: it
+  * is the only thing that carries the operating procedure the tool set assumes,
+@@ -80,6 +83,17 @@ describe('computer-use skill content', () => {
+   })
+ })
+ 
++// Mirror the platform resolution in computerUse.ts: win32 and linux both use
++// the Windows-facing skill copy (linux runs the Windows-compatible pixel tool
++// surface), darwin uses the Mac copy.
++const testPlatform =
++  process.platform === 'win32'
++    ? 'win32'
++    : process.platform === 'linux'
++      ? 'linux'
++      : 'darwin'
++const testIsWindows = testPlatform !== 'darwin'
++
+ describe('computer-use skill registration', () => {
+   test('front-loads task semantics and still says when NOT to use it', () => {
+     registerComputerUseSkill()
+@@ -90,7 +104,7 @@ describe('computer-use skill registration', () => {
+     // first words must carry what this is FOR.
+     expect(
+       skill!.description.startsWith(
+-        process.platform === 'win32'
++        testIsWindows
+           ? "Operate apps on the user's Windows desktop"
+           : "Operate apps on the user's Mac",
+       ),
+@@ -104,14 +118,13 @@ describe('computer-use skill registration', () => {
+   test('binds exactly the Computer Use tools advertised on this platform', () => {
+     registerComputerUseSkill()
+     const skill = getBundledSkills().find(s => s.name === 'computer-use')
+-    const platform = process.platform === 'win32' ? 'win32' : 'darwin'
+-    expect(skill!.allowedTools).toEqual(getComputerUseToolAllowlist(platform))
++    expect(skill!.allowedTools).toEqual(getComputerUseToolAllowlist(testPlatform))
+     expect(skill!.allowedTools).toEqual(buildPlatformComputerUseTools({
+-      platform,
+-      screenshotFiltering: platform === 'win32' ? 'none' : 'native',
++      platform: testPlatform,
++      screenshotFiltering: testIsWindows ? 'none' : 'native',
+     }, 'pixels').map(tool => `mcp__computer-use__${tool.name}`))
+     expect(skill!.allowedTools).toContain(
+-      process.platform === 'win32'
++      testIsWindows
+         ? 'mcp__computer-use__screenshot'
+         : 'mcp__computer-use__js',
+     )
+diff --git a/src/testUtils/modelEnv.ts b/src/testUtils/modelEnv.ts
+new file mode 100644
+index 00000000..a780c943
+--- /dev/null
++++ b/src/testUtils/modelEnv.ts
+@@ -0,0 +1,55 @@
++import { afterAll } from 'bun:test'
++
++/**
++ * Model default resolution and model-capability lookup read several ANTHROPIC
++ * and CLAUDE_CODE vars from process env (src/utils/model/model.ts, modelOptions.ts,
++ * context.ts, effort.ts). Desktop dev shells export those (e.g.
++ * ANTHROPIC_DEFAULT_SONNET_MODEL=zxsv-ai, ANTHROPIC_BASE_URL pointing at a
++ * local proxy), which breaks tests asserting built-in defaults. Clearing them
++ * at import time is not enough on its own — we also restore the original
++ * values when the test file finishes, so the ambient env is left exactly as
++ * the desktop process set it.
++ */
++const MODEL_ENV_VARS = [
++  'ANTHROPIC_MODEL',
++  'ANTHROPIC_BASE_URL',
++  'ANTHROPIC_API_KEY',
++  'ANTHROPIC_AUTH_TOKEN',
++  'ANTHROPIC_DEFAULT_SONNET_MODEL',
++  'ANTHROPIC_DEFAULT_HAIKU_MODEL',
++  'ANTHROPIC_DEFAULT_OPUS_MODEL',
++  'ANTHROPIC_DEFAULT_FABLE_MODEL',
++  'ANTHROPIC_DEFAULT_SONNET_MODEL_SUPPORTED_CAPABILITIES',
++  'ANTHROPIC_DEFAULT_HAIKU_MODEL_SUPPORTED_CAPABILITIES',
++  'ANTHROPIC_DEFAULT_OPUS_MODEL_SUPPORTED_CAPABILITIES',
++  'ANTHROPIC_DEFAULT_FABLE_MODEL_SUPPORTED_CAPABILITIES',
++  'CLAUDE_CODE_ENTRYPOINT',
++  'CLAUDE_CODE_ATTRIBUTION_HEADER',
++  'CLAUDE_CODE_MODEL_CONTEXT_WINDOWS',
++  'CLAUDE_CODE_AUTO_COMPACT_WINDOW',
++  // Client-credential vars the desktop shell also exports (read as defaults in
++  // src/services/api/client.ts): without clearing them, proxy-token resolution
++  // picks up the host-local H5 token and the SDK client picks up a bearer
++  // token from the ambient shell.
++  'CLAUDE_CODE_PROVIDER_MANAGED_BY_HOST',
++  'CC_HAHA_LOCAL_ACCESS_TOKEN',
++] as const
++
++/**
++ * Clear ambient model-override env vars for this test file and register an
++ * afterAll hook that restores them. Call once at module top level, after
++ * imports.
++ */
++export function isolateModelDefaultsEnv(): void {
++  const saved: Record<string, string | undefined> = {}
++  for (const key of MODEL_ENV_VARS) {
++    saved[key] = process.env[key]
++    delete process.env[key]
++  }
++  afterAll(() => {
++    for (const key of MODEL_ENV_VARS) {
++      if (saved[key] === undefined) delete process.env[key]
++      else process.env[key] = saved[key]
++    }
++  })
++}
+diff --git a/src/tools/AgentTool/builtInAgentOverrides.test.ts b/src/tools/AgentTool/builtInAgentOverrides.test.ts
+index 4a565b1e..5509a5cc 100644
+--- a/src/tools/AgentTool/builtInAgentOverrides.test.ts
++++ b/src/tools/AgentTool/builtInAgentOverrides.test.ts
+@@ -5,6 +5,7 @@ import * as path from 'path'
+ import { EFFORT_LEVELS } from '../../utils/effort.js'
+ import { resetSettingsCache } from '../../utils/settings/settingsCache.js'
+ import { SettingsSchema } from '../../utils/settings/types.js'
++import { isolateModelDefaultsEnv } from '../../testUtils/modelEnv.js'
+ 
+ // strictPluginOnlyCustomization comes from managed settings, whose path is
+ // memoized without a cache key and cannot be redirected on a non-ant build.
+@@ -23,6 +24,8 @@ const { getBuiltInAgents, getBuiltInAgentsWithoutOverrides } = await import(
+ const { BUILT_IN_AGENT_OVERRIDE_EFFORT_LEVELS, resolveBuiltInAgentOverrides } =
+   await import('./builtInAgentOverrides.js')
+ 
++isolateModelDefaultsEnv()
++
+ const originalConfigDir = process.env.CLAUDE_CONFIG_DIR
+ 
+ let tmpDir: string
+diff --git a/src/utils/__tests__/thinking.test.ts b/src/utils/__tests__/thinking.test.ts
+index fb463e37..81203e59 100644
+--- a/src/utils/__tests__/thinking.test.ts
++++ b/src/utils/__tests__/thinking.test.ts
+@@ -1,4 +1,4 @@
+-import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
++import { afterEach, beforeEach, describe, expect, mock, test } from 'bun:test'
+ import { get3PModelCapabilityOverride } from '../model/modelSupportOverrides.js'
+ import { resolveSideQueryThinkingConfig } from '../sideQuery.js'
+ import {
+@@ -21,6 +21,7 @@ import {
+   modelSupportsThinking,
+   resolveModelThinkingEnabled,
+   shouldSendExplicitDisabledThinking,
++  shouldSendThinkingToAPI,
+ } from '../thinking.js'
+ 
+ describe('provider-aware thinking support', () => {
+@@ -34,6 +35,7 @@ describe('provider-aware thinking support', () => {
+   let originalVertex: string | undefined
+   let originalFoundry: string | undefined
+   let originalExplicitDisabledThinking: string | undefined
++  let originalDisableExperimentalBetas: string | undefined
+ 
+   beforeEach(() => {
+     originalApiKey = process.env.ANTHROPIC_API_KEY
+@@ -46,8 +48,10 @@ describe('provider-aware thinking support', () => {
+     originalVertex = process.env.CLAUDE_CODE_USE_VERTEX
+     originalFoundry = process.env.CLAUDE_CODE_USE_FOUNDRY
+     originalExplicitDisabledThinking = process.env.CC_HAHA_SEND_DISABLED_THINKING
++    originalDisableExperimentalBetas = process.env.CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS
+ 
+     delete process.env.ANTHROPIC_API_KEY
++    delete process.env.CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS
+     delete process.env.CLAUDE_CODE_USE_BEDROCK
+     delete process.env.CLAUDE_CODE_USE_VERTEX
+     delete process.env.CLAUDE_CODE_USE_FOUNDRY
+@@ -64,6 +68,7 @@ describe('provider-aware thinking support', () => {
+     restoreEnv('CLAUDE_CODE_USE_VERTEX', originalVertex)
+     restoreEnv('CLAUDE_CODE_USE_FOUNDRY', originalFoundry)
+     restoreEnv('CC_HAHA_SEND_DISABLED_THINKING', originalExplicitDisabledThinking)
++    restoreEnv('CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS', originalDisableExperimentalBetas)
+     clearCapabilityCache()
+     clearBetaCache()
+   })
+@@ -262,3 +267,46 @@ function clearBetaCache() {
+     cache?: { clear?: () => void }
+   }).cache?.clear?.()
+ }
++
++describe('shouldSendThinkingToAPI', () => {
++  const mockSettings: {
++    sendThinkingHistory?: boolean
++  } = {}
++
++  mock.module('../settings/settings.js', () => ({
++    getSettingsWithErrors: () => ({
++      settings: mockSettings,
++      errors: [],
++    }),
++  }))
++
++  beforeEach(() => {
++    delete process.env.CC_HAHA_SEND_THINKING_HISTORY
++  })
++
++  afterEach(() => {
++    mockSettings.sendThinkingHistory = undefined
++    restoreEnv('CC_HAHA_SEND_THINKING_HISTORY', undefined)
++  })
++
++  test('defaults to off when the setting is absent', () => {
++    expect(shouldSendThinkingToAPI()).toBe(false)
++  })
++
++  test('off when the setting is explicitly false', () => {
++    mockSettings.sendThinkingHistory = false
++    expect(shouldSendThinkingToAPI()).toBe(false)
++  })
++
++  test('on when the setting is explicitly true', () => {
++    mockSettings.sendThinkingHistory = true
++    expect(shouldSendThinkingToAPI()).toBe(true)
++  })
++
++  test('env forces on regardless of the setting', () => {
++    process.env.CC_HAHA_SEND_THINKING_HISTORY = '1'
++    expect(shouldSendThinkingToAPI()).toBe(true)
++    mockSettings.sendThinkingHistory = false
++    expect(shouldSendThinkingToAPI()).toBe(true)
++  })
++})
+diff --git a/src/utils/effort.agent.test.ts b/src/utils/effort.agent.test.ts
+index 9d5f4595..4252f71f 100644
+--- a/src/utils/effort.agent.test.ts
++++ b/src/utils/effort.agent.test.ts
+@@ -1,4 +1,5 @@
+ import { describe, expect, test } from 'bun:test'
++import { isolateModelDefaultsEnv } from '../testUtils/modelEnv.js'
+ import {
+   EFFORT_LEVELS,
+   getEffortLevelDescription,
+@@ -14,6 +15,8 @@ import {
+   setGrokRuntimeModelCatalog,
+ } from 'src/services/grokAuth/models.js'
+ 
++isolateModelDefaultsEnv()
++
+ describe('agent effort values', () => {
+   test('accepts all named agent effort levels including xhigh', () => {
+     expect(EFFORT_LEVELS).toEqual([
+diff --git a/src/utils/model/agent.test.ts b/src/utils/model/agent.test.ts
+index 5a3ef9a1..4b946513 100644
+--- a/src/utils/model/agent.test.ts
++++ b/src/utils/model/agent.test.ts
+@@ -1,6 +1,9 @@
+ import { afterEach, describe, expect, test } from 'bun:test'
++import { isolateModelDefaultsEnv } from '../../testUtils/modelEnv.js'
+ import { getAgentModel } from './agent.js'
+ 
++isolateModelDefaultsEnv()
++
+ const originalSubagentModel = process.env.CLAUDE_CODE_SUBAGENT_MODEL
+ 
+ afterEach(() => {
+diff --git a/src/utils/model/fable.test.ts b/src/utils/model/fable.test.ts
+index 8c10711a..7659958d 100644
+--- a/src/utils/model/fable.test.ts
++++ b/src/utils/model/fable.test.ts
+@@ -32,8 +32,12 @@ const ENV_KEYS = [
+   'ANTHROPIC_DEFAULT_FABLE_MODEL',
+   'ANTHROPIC_DEFAULT_FABLE_MODEL_SUPPORTED_CAPABILITIES',
+   'ANTHROPIC_DEFAULT_OPUS_MODEL',
+-  'CLAUDE_CODE_DISABLE_1M_CONTEXT',
+-  'CLAUDE_CODE_USE_BEDROCK',
++  'ANTHROPIC_DEFAULT_OPUS_MODEL_SUPPORTED_CAPABILITIES',
++  'ANTHROPIC_DEFAULT_SONNET_MODEL',
++  'ANTHROPIC_DEFAULT_SONNET_MODEL_SUPPORTED_CAPABILITIES',
++  'ANTHROPIC_DEFAULT_HAIKU_MODEL',
++  'ANTHROPIC_DEFAULT_HAIKU_MODEL_SUPPORTED_CAPABILITIES',
++  'CLAUDE_CODE_DISABLE_1M_CONTEXT',  'CLAUDE_CODE_USE_BEDROCK',
+   'CLAUDE_CODE_SUBAGENT_MODEL',
+ ] as const
+ 
+diff --git a/src/utils/model/modelContextWindows.test.ts b/src/utils/model/modelContextWindows.test.ts
+index 5988968e..9e106546 100644
+--- a/src/utils/model/modelContextWindows.test.ts
++++ b/src/utils/model/modelContextWindows.test.ts
+@@ -1,5 +1,12 @@
+ import { describe, expect, test } from 'bun:test'
+ 
++import { isolateModelDefaultsEnv } from '../../testUtils/modelEnv.js'
++
++// This machine exports CLAUDE_CODE_MODEL_CONTEXT_WINDOWS, which otherwise leaks
++// in and changes the windows under test — the file failed even when run alone.
++// Same isolation the other model-env-sensitive suites use.
++isolateModelDefaultsEnv()
++
+ import {
+   getConfiguredOrBuiltInModelContextWindow,
+   getModelContextWindowFromEnvValue,
+diff --git a/src/utils/model/opus5.test.ts b/src/utils/model/opus5.test.ts
+index 80d033e2..3bee357d 100644
+--- a/src/utils/model/opus5.test.ts
++++ b/src/utils/model/opus5.test.ts
+@@ -23,6 +23,11 @@ const envKeys = [
+   'ANTHROPIC_BASE_URL',
+   'ANTHROPIC_API_KEY',
+   'ANTHROPIC_DEFAULT_OPUS_MODEL',
++  'ANTHROPIC_DEFAULT_OPUS_MODEL_SUPPORTED_CAPABILITIES',
++  'ANTHROPIC_DEFAULT_SONNET_MODEL',
++  'ANTHROPIC_DEFAULT_SONNET_MODEL_SUPPORTED_CAPABILITIES',
++  'ANTHROPIC_DEFAULT_HAIKU_MODEL',
++  'ANTHROPIC_DEFAULT_HAIKU_MODEL_SUPPORTED_CAPABILITIES',
+   'CLAUDE_CODE_USE_BEDROCK',
+   'CLAUDE_CODE_USE_VERTEX',
+   'CLAUDE_CODE_USE_FOUNDRY',
+diff --git a/src/utils/model/opus55.test.ts b/src/utils/model/opus55.test.ts
+index 1f5b3dd6..8a2a6886 100644
+--- a/src/utils/model/opus55.test.ts
++++ b/src/utils/model/opus55.test.ts
+@@ -1,4 +1,5 @@
+ import { describe, expect, test } from 'bun:test'
++import { isolateModelDefaultsEnv } from '../../testUtils/modelEnv.js'
+ import { sanitizeModelName } from '../commitAttribution.js'
+ import { getContextWindowForModel, getModelMaxOutputTokens } from '../context.js'
+ import {
+@@ -21,6 +22,8 @@ import {
+   parseUserSpecifiedModel,
+ } from './model.js'
+ 
++isolateModelDefaultsEnv()
++
+ describe('Opus 5.5 official runtime contract', () => {
+   test('registers a distinct identity without rewriting explicitly pinned models', () => {
+     expect(Object.values(ALL_MODEL_CONFIGS).some(config => config.firstParty === 'claude-opus-5-5')).toBe(true)
+diff --git a/src/utils/permissions/PermissionUpdate.ts b/src/utils/permissions/PermissionUpdate.ts
+index 0ba39c84..93b44802 100644
+--- a/src/utils/permissions/PermissionUpdate.ts
++++ b/src/utils/permissions/PermissionUpdate.ts
+@@ -26,8 +26,18 @@ import { addPermissionRulesToSettings } from './permissionsLoader.js'
+ 
+ /* eslint-disable @typescript-eslint/no-require-imports */
+ // permissionSetup imports this module back (`applyPermissionUpdate`), so a
+-// static import would close a cycle. Resolve it at call time instead.
+-const permissionSetupModule = require('./permissionSetup.js') as typeof import('./permissionSetup.js')
++// static import would close a cycle. Resolve it at call time instead — via a
++// getter, because a require() that runs during the cycle (i.e. at this module's
++// top level) returns permissionSetup's namespace before its exports exist, and
++// it keeps returning that empty object. Deferring until the first call lands
++// after both modules are evaluated.
++const permissionSetupModule: typeof import('./permissionSetup.js') = new Proxy(
++  {},
++  {
++    get: (_target, prop) =>
++      require('./permissionSetup.js')[(prop as string)],
++  },
++)
+ /* eslint-enable @typescript-eslint/no-require-imports */
+ 
+ // Re-export for backwards compatibility
+diff --git a/src/utils/processUserInput/processSlashCommand.test.ts b/src/utils/processUserInput/processSlashCommand.test.ts
+index 7161bc7d..258567fe 100644
+--- a/src/utils/processUserInput/processSlashCommand.test.ts
++++ b/src/utils/processUserInput/processSlashCommand.test.ts
+@@ -6,6 +6,12 @@ import type { ToolUseContext } from '../../Tool.js'
+ import type { AgentDefinition } from '../../tools/AgentTool/loadAgentsDir.js'
+ import { createAssistantMessage } from '../messages.js'
+ 
++import { isolateModelDefaultsEnv } from '../../testUtils/modelEnv.js'
++
++// `/agent` and `/team` resolve the active model, so ambient model-override env
++// vars changed the answers and the file failed even when run on its own.
++isolateModelDefaultsEnv()
++
+ process.env.ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY ?? 'test-key'
+ 
+ const runAgentMock = mock(() =>
+diff --git a/src/utils/workflows/ultracode.test.ts b/src/utils/workflows/ultracode.test.ts
+index 4b21a5eb..b06a15f5 100644
+--- a/src/utils/workflows/ultracode.test.ts
++++ b/src/utils/workflows/ultracode.test.ts
+@@ -4,6 +4,13 @@ import { mkdtemp, rm, writeFile } from 'fs/promises'
+ import { tmpdir } from 'os'
+ import { join } from 'path'
+ import { executeEffort } from '../../commands/effort/effort.js'
++
++import { isolateModelDefaultsEnv } from '../../testUtils/modelEnv.js'
++
++// The machine exports model-override env vars that decide which models count as
++// xhigh-capable, which is exactly what this file asserts about. Without the
++// isolation the file failed even when run on its own.
++isolateModelDefaultsEnv()
+ import { resetSettingsCache } from '../settings/settingsCache.js'
+ import { modelSupportsXHighEffort } from '../effort.js'
+ import { canEnableUltracode } from './ultracode.js'

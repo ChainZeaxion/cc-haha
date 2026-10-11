@@ -128,6 +128,8 @@ import {
   runVccSliceCompaction,
   type VccCompactionOutput,
 } from './vcc/vccCompact.js'
+import { getVccRetentionBudget } from './autoCompact.js'
+import { getMainLoopModel } from '../../utils/model/model.js'
 import { loadCcGlobalIndexByUuid } from './vcc/ccGlobalIndex.js'
 import type { CcMessage } from './vcc/adapter.js'
 import { parseKeepAndPrompt } from './vcc/vendor/core/compact-args.js'
@@ -438,6 +440,10 @@ export function maybeVccCompact(
       globalIndexByUuid,
       preCompactTokenCount,
       keepUserTurns,
+      // A compaction should land where the next one is not already due: the
+      // window share the forced trigger reserves, with the soft share as the
+      // most that may be kept when the live tail cannot fit that.
+      retentionBudget: getVccRetentionBudget(getMainLoopModel()),
     })
   } catch (error) {
     // pi-vcc is pure computation over message shapes ported from a different

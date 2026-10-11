@@ -20,6 +20,7 @@ import {
   SESSION_SUMMARY_PARSER_VERSION,
   MAX_PROJECTION_RECORD_BYTES,
   MAX_PROJECTION_RECORDS,
+  MAX_PROJECTION_METADATA_BYTES,
   MAX_PROJECTION_METADATA_VALUE_BYTES,
   createSessionProjector,
   type SessionSourceCandidate,
@@ -1313,16 +1314,23 @@ describe('session projector', () => {
 
   it('enforces aggregate retained metadata across appended windows', async () => {
     const root = await createTempDir('metadata-total-budget')
+    // Each record retains a 3 KB uuid, which the projector charges at ~3.3 KB
+    // (the uuid plus per-field overhead). Size the windows from the real
+    // aggregate budget so the first window fits and the appended total does
+    // not — keeping the assertion valid as the budget changes.
+    const perRecordBytes = 3_300
+    const firstCount = Math.floor(MAX_PROJECTION_METADATA_BYTES * 0.4 / perRecordBytes)
+    const appendCount = Math.ceil(MAX_PROJECTION_METADATA_BYTES * 0.8 / perRecordBytes)
     const record = (index: number) => line({ ...user('small', '2026-01-01T00:00:00.000Z'), uuid: `${index}:` + 'x'.repeat(3000) })
     const candidate = await createCandidate({ root, projectPath: '-repo-a', sessionId: 'metadata-total',
-      content: Array.from({ length: 8000 }, (_, index) => record(index)).join(''),
+      content: Array.from({ length: firstCount }, (_, index) => record(index)).join(''),
     })
     const database = openLocalIndexDatabase({ path: join(root, 'index.sqlite') })
     const index = createSessionIndex(database)
     const projector = createSessionProjector({ database, index, scope: root })
     try {
       expect(await projector.projectSource(candidate)).toMatchObject({ kind: 'indexed' })
-      await appendFile(candidate.path, Array.from({ length: 4000 }, (_, index) => record(index + 8000)).join(''))
+      await appendFile(candidate.path, Array.from({ length: appendCount }, (_, index) => record(index + firstCount)).join(''))
       await expect(projector.projectSource(candidate)).rejects.toMatchObject({ code: 'LOCAL_INDEX_SOURCE_LIMIT' })
     } finally { database.close() }
   })

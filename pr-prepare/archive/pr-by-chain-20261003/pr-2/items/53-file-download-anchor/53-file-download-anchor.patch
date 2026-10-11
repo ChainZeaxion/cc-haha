@@ -1,0 +1,224 @@
+diff --git a/desktop/src/lib/handlePreviewLink.test.ts b/desktop/src/lib/handlePreviewLink.test.ts
+index 6199eba4..0ddb4609 100644
+--- a/desktop/src/lib/handlePreviewLink.test.ts
++++ b/desktop/src/lib/handlePreviewLink.test.ts
+@@ -1,16 +1,12 @@
+-import { beforeEach, describe, expect, it, vi } from 'vitest'
++import { afterEach, describe, expect, it, vi } from 'vitest'
+ 
+-// jsdom implements neither, and the helper only needs them to produce a string.
+-if (typeof URL.createObjectURL !== 'function') {
+-  URL.createObjectURL = () => 'blob:test'
+-}
+-if (typeof URL.revokeObjectURL !== 'function') {
+-  URL.revokeObjectURL = () => {}
+-}
+-
+-const apiGetBlob = vi.fn()
+-vi.mock('../api/client', () => ({
+-  apiGetBlob: (...args: unknown[]) => apiGetBlob(...args),
++// A fixed base so the built URL is deterministic; the real one comes from the
++// desktop runtime, which has no meaning in jsdom.
++const getServerBaseUrl = vi.fn(() => 'http://127.0.0.1:8787')
++vi.mock('./desktopRuntime', async (importOriginal) => ({
++  // Keep the module's other exports: previewLinkRouter needs isLoopbackHostname.
++  ...(await importOriginal<typeof import('./desktopRuntime')>()),
++  getServerBaseUrl: () => getServerBaseUrl(),
+ }))
+ import {
+   downloadLocalFile,
+@@ -241,9 +237,13 @@ describe('previewFsUrl (unchanged, regression guard)', () => {
+ })
+ 
+ describe('downloadLocalFile', () => {
+-  // This entry had no test at all, which is how it shipped unable to download:
+-  // the only other entry (the list card) is an anchor the user clicks, and both
+-  // failed the same way for the same reason.
++  // A click on an anchor is a navigation, not a fetch: the browser attaches no
++  // Origin header, so the request reaches the server on the no-Origin path every
++  // other navigation uses and the file is served. This is the same shape the
++  // chat's download card has always used, and the only one that works from the
++  // packaged renderer, whose page is `file://` — an opaque origin can neither pass
++  // a CORS check (a fetch attaches `Origin: null`, which the server refuses) nor
++  // download a `blob:` URL it minted itself.
+   function clickDownload() {
+     const clicked: HTMLAnchorElement[] = []
+     const create = document.createElement.bind(document)
+@@ -258,77 +258,43 @@ describe('downloadLocalFile', () => {
+     return { clicked, restore: () => spy.mockRestore() }
+   }
+ 
+-  beforeEach(() => apiGetBlob.mockReset())
+-
+-  it('fetches the bytes through the API client rather than pointing the DOM at the route', async () => {
+-    // The whole point: a URL the DOM loads by itself carries neither the
+-    // Authorization header nor an Origin the server trusts, and the packaged
+-    // renderer's origin serializes to `null` for it — measured 403 against a
+-    // route that answers 200 to the API client.
+-    apiGetBlob.mockResolvedValue(new Blob(['hello']))
+-    const createSpy = vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:test-url')
++  afterEach(() => getServerBaseUrl.mockClear())
+ 
++  it('points an anchor straight at the server route', () => {
+     const { clicked, restore } = clickDownload()
+-    let saved: boolean | undefined
++    let initiated: boolean | undefined
+     try {
+-      saved = await downloadLocalFile('/home/me/notes.txt')
+-      expect(apiGetBlob).toHaveBeenCalledWith('/local-file/home/me/notes.txt?download=1')
+-      expect(createSpy).toHaveBeenCalledOnce()
+-      expect(clicked[0]?.href).toContain('blob:test-url')
+-      expect(clicked[0]?.download).toBe('notes.txt')
++      initiated = downloadLocalFile('/home/me/notes.txt')
+     } finally {
+       restore()
+-      createSpy.mockRestore()
+     }
+-    expect(saved).toBe(true)
++    expect(clicked[0]?.href).toBe('http://127.0.0.1:8787/local-file/home/me/notes.txt?download=1')
++    expect(clicked[0]?.download).toBe('notes.txt')
++    expect(initiated).toBe(true)
+   })
+ 
+-  it('keeps the server route and the saved name for a path with spaces', async () => {
+-    apiGetBlob.mockResolvedValue(new Blob(['x']))
++  it('keeps the route encoded and the saved name for a path with spaces', () => {
+     const { clicked, restore } = clickDownload()
+     try {
+-      await downloadLocalFile('/home/me/report final.pdf')
++      downloadLocalFile('/home/me/report final.pdf')
+     } finally {
+       restore()
+     }
+-    expect(apiGetBlob).toHaveBeenCalledWith('/local-file/home/me/report%20final.pdf?download=1')
++    expect(clicked[0]?.href).toBe(
++      'http://127.0.0.1:8787/local-file/home/me/report%20final.pdf?download=1',
++    )
+     expect(clicked[0]?.download).toBe('report final.pdf')
+   })
+ 
+-  it('leaves nothing behind in the document', async () => {
+-    apiGetBlob.mockResolvedValue(new Blob(['x']))
++  it('leaves nothing behind in the document', () => {
+     const { restore } = clickDownload()
+     try {
+-      await downloadLocalFile('/home/me/notes.txt')
++      downloadLocalFile('/home/me/notes.txt')
+     } finally {
+       restore()
+     }
+     expect(document.querySelector('a[download]')).toBeNull()
+   })
+-
+-  it('reports failure instead of throwing when the save path fails', async () => {
+-    // The callers are fire-and-forget menu handlers, so a rejection here would
+-    // become an unhandled one and the user would see nothing at all. The failure
+-    // is staged in the save step rather than in the mock: an exception thrown
+-    // from inside a vitest mock is recorded as a test failure of its own, which
+-    // would mask what this is checking.
+-    apiGetBlob.mockResolvedValue(new Blob(['x']))
+-    const createSpy = vi.spyOn(URL, 'createObjectURL').mockImplementation(() => {
+-      throw new Error('blob rejected')
+-    })
+-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+-    const { clicked, restore } = clickDownload()
+-    try {
+-      const saved = await downloadLocalFile('/home/me/notes.txt')
+-      expect(saved).toBe(false)
+-      expect(clicked).toHaveLength(0)
+-      expect(warn).toHaveBeenCalled()
+-    } finally {
+-      restore()
+-      createSpy.mockRestore()
+-      warn.mockRestore()
+-    }
+-  })
+ })
+ 
+ describe('fileNameFromPath', () => {
+diff --git a/desktop/src/lib/handlePreviewLink.ts b/desktop/src/lib/handlePreviewLink.ts
+index 6080cd13..572a306f 100644
+--- a/desktop/src/lib/handlePreviewLink.ts
++++ b/desktop/src/lib/handlePreviewLink.ts
+@@ -1,4 +1,4 @@
+-import { apiGetBlob } from '../api/client'
++import { getServerBaseUrl } from './desktopRuntime'
+ import { classifyPreviewLink } from './previewLinkRouter'
+ import { shouldOfferStaticHtmlPreview } from './htmlPreviewPolicy'
+ 
+@@ -62,51 +62,33 @@ export function localFileUrl(base: string, absPath: string): string {
+ }
+ 
+ /**
+- * Save a file through the local server's `/local-file/<abs-path>?download=1`
+- * route.
++ * Save a file by pointing an anchor at the local server's
++ * `/local-file/<abs-path>?download=1` route.
+  *
+- * The bytes are fetched through the app's own API client and handed to the DOM as
+- * a blob URL, instead of pointing an anchor straight at the route. A URL the DOM
+- * loads is a request the browser issues by itself, and it carries neither the
+- * Authorization header the API client attaches nor an Origin the server trusts:
+- * the packaged renderer runs at `file://`, whose origin serializes to `null` for
+- * exactly this kind of request, and the server refuses `null`. Measured against
+- * the running app — the same route answers 200 for no Origin and 403
+- * `CORS origin not allowed` for `Origin: null`, which is why the download began
+- * and then failed ("无法从网站上提取文件") rather than never starting.
++ * A click on an anchor is a navigation, not a fetch. The browser sends no Origin
++ * header with it, so the request reaches the server on the no-Origin path every
++ * other navigation uses and the file is served with its Content-Disposition
++ * intact. This is the only shape that works from the packaged renderer, whose
++ * page is `file://`: an opaque origin can neither pass a CORS check (the fetch
++ * path attaches `Origin: null`, which the server refuses) nor download a `blob:`
++ * URL it minted itself. Routing the bytes through `apiGetBlob` — and later through
++ * a main-process copy — is what reduced a working download to a click that did
++ * nothing.
+  *
+- * Fetching first uses the credential path every other call already uses;
+- * `apiGetBlob` documents the same reasoning for app icons, which hit the
+- * identical wall. The cost is that the file is held in memory to build the blob,
+- * the trade this app already makes for its icon and export downloads.
+- *
+- * @returns whether the file was handed to the browser to save.
++ * @returns whether the download was initiated.
+  */
+-export async function downloadLocalFile(absolutePath: string): Promise<boolean> {
+-  try {
+-    // An empty base so the helper yields the path the API client wants.
+-    const path = `${localFileUrl('', absolutePath)}?download=1`
+-    const blob = await apiGetBlob(path)
+-    const url = URL.createObjectURL(blob)
+-    const anchor = document.createElement('a')
+-    anchor.href = url
+-    // Still named here: the blob URL has no filename of its own, so the server's
+-    // Content-Disposition cannot drive the saved name through this path.
+-    anchor.download = fileNameFromPath(absolutePath)
+-    anchor.rel = 'noopener'
+-    document.body.appendChild(anchor)
+-    anchor.click()
+-    anchor.remove()
+-    // Released on the next task: the click above has already been dispatched, and
+-    // revoking synchronously can cancel a download that has not started yet.
+-    setTimeout(() => URL.revokeObjectURL(url), 0)
+-    return true
+-  } catch (error) {
+-    console.warn(
+-      `[download] ${absolutePath} failed: ${error instanceof Error ? error.message : String(error)}`,
+-    )
+-    return false
+-  }
++export function downloadLocalFile(absolutePath: string): boolean {
++  const url = `${localFileUrl(getServerBaseUrl(), absolutePath)}?download=1`
++  const anchor = document.createElement('a')
++  anchor.href = url
++  // The server's Content-Disposition names a cross-origin save; this names it for
++  // the same-origin case (the in-app browser) too.
++  anchor.download = fileNameFromPath(absolutePath)
++  anchor.rel = 'noopener'
++  document.body.appendChild(anchor)
++  anchor.click()
++  anchor.remove()
++  return true
+ }
+ 
+ /** Last path segment, for the download's suggested save name. */

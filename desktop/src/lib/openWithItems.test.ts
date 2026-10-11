@@ -105,6 +105,9 @@ function makeT() {
 
 function makeDeps(overrides?: Partial<OpenWithDeps>): OpenWithDeps {
   return {
+    // The desktop default: these tests were written against a runtime that can
+    // hand a file to the system, and the browser case is asserted separately.
+    systemOpenAvailable: true,
     openInAppBrowser: vi.fn(),
     openSystem: vi.fn(),
     openWorkspacePreview: vi.fn(),
@@ -143,6 +146,37 @@ describe('buildOpenWithItems – url context', () => {
     items[1]!.onSelect()
     expect(deps.openSystem).toHaveBeenCalledWith('https://example.com')
     expect(deps.openInAppBrowser).not.toHaveBeenCalled()
+  })
+})
+
+describe('buildOpenWithItems – a runtime with no system shell (browser / H5)', () => {
+  it('drops every row that would launch on the server, keeping preview and the save actions', () => {
+    const deps = makeDeps({
+      systemOpenAvailable: false,
+      copyPath: vi.fn(),
+      copyFileContent: vi.fn(),
+      downloadFile: vi.fn(),
+    })
+    const ctx: OpenWithContext = { kind: 'file', absolutePath: '/w/a.md', relPath: 'a.md', previewable: true }
+    const items = buildOpenWithItems(ctx, [systemTarget, ideTarget, appTarget, fmTarget], deps)
+
+    expect(items.map((i) => i.id)).toEqual(['preview', 'copy-path', 'copy-content', 'download'])
+  })
+
+  it('offers nothing that would reveal a folder on the server', () => {
+    const deps = makeDeps({ systemOpenAvailable: false })
+    const ctx: OpenWithContext = { kind: 'file', absolutePath: '/w/a.md', previewable: false }
+    expect(buildOpenWithItems(ctx, [fmTarget], deps)).toEqual([])
+  })
+
+  it('still saves a file it cannot open', () => {
+    const deps = makeDeps({ systemOpenAvailable: false, downloadFile: vi.fn() })
+    const ctx: OpenWithContext = { kind: 'file', absolutePath: '/w/song.mp3', previewable: false }
+    const items = buildOpenWithItems(ctx, [systemTarget, ideTarget], deps)
+
+    expect(items.map((i) => i.id)).toEqual(['download'])
+    items[0]!.onSelect()
+    expect(deps.downloadFile).toHaveBeenCalledWith('/w/song.mp3')
   })
 })
 

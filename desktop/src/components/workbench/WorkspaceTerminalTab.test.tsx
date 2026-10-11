@@ -72,6 +72,7 @@ beforeEach(() => {
         nextTerminalOrdinal: 2,
         focus: null,
         origin: null,
+        lastUserOpen: null,
       },
     },
   })
@@ -175,6 +176,7 @@ describe('restored terminals', () => {
           nextTerminalOrdinal: 2,
           focus: null,
           origin: null,
+        lastUserOpen: null,
         },
       },
     })

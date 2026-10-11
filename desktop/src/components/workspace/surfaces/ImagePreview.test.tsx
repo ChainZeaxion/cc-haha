@@ -1,14 +1,15 @@
 import '@testing-library/jest-dom/vitest'
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { useSettingsStore } from '@/stores/settingsStore'
 import { useWorkspaceContentStore, workspaceFileKey } from '@/stores/workspaceContentStore'
-import { openLocalFileWithSystem, reportOpenFailure } from '@/lib/systemFileOpen'
+import { openFileWithSystemOrOfferSave } from '@/lib/systemFileOpen'
 import { ImagePreview } from './ImagePreview'
 
 vi.mock('@/lib/systemFileOpen', () => ({
-  openLocalFileWithSystem: vi.fn(),
-  reportOpenFailure: vi.fn(),
+  // Desktop default: this suite asserts what a runtime with a system shell offers.
+  canOpenWithSystem: () => true,
+  openFileWithSystemOrOfferSave: vi.fn(),
 }))
 
 const dataUrl = 'data:image/png;base64,iVBORwoKGgo='
@@ -38,8 +39,7 @@ describe('ImagePreview', () => {
   beforeEach(() => {
     useSettingsStore.setState({ locale: 'en' })
     useWorkspaceContentStore.setState({ fileViewByKey: {} })
-    vi.mocked(openLocalFileWithSystem).mockReset().mockResolvedValue(undefined)
-    vi.mocked(reportOpenFailure).mockReset()
+    vi.mocked(openFileWithSystemOrOfferSave).mockReset()
   })
 
   afterEach(() => {
@@ -108,21 +108,12 @@ describe('ImagePreview', () => {
   })
 
   describe('system app', () => {
-    it('hands the original file to the operating system', () => {
+    it('asks the shared opener to hand the original file to the operating system', () => {
       render(<ImagePreview dataUrl={dataUrl} path="assets/logo.png" absolutePath="/work/assets/logo.png" />)
 
       fireEvent.click(screen.getByRole('button', { name: 'Open in system app' }))
 
-      expect(openLocalFileWithSystem).toHaveBeenCalledWith('/work/assets/logo.png')
-    })
-
-    it('says which file could not be opened instead of failing silently', async () => {
-      vi.mocked(openLocalFileWithSystem).mockRejectedValue(new Error('no application'))
-      render(<ImagePreview dataUrl={dataUrl} path="assets/logo.png" absolutePath="/work/assets/logo.png" />)
-
-      fireEvent.click(screen.getByRole('button', { name: 'Open in system app' }))
-
-      await waitFor(() => expect(reportOpenFailure).toHaveBeenCalledWith('/work/assets/logo.png'))
+      expect(openFileWithSystemOrOfferSave).toHaveBeenCalledWith('/work/assets/logo.png')
     })
 
     it('shows no such action without an absolute path to open', () => {
@@ -140,7 +131,7 @@ describe('ImagePreview', () => {
     expect(screen.queryByRole('img')).not.toBeInTheDocument()
     expect(screen.getByRole('status')).toHaveTextContent('Image preview is unavailable.')
     fireEvent.click(screen.getByRole('button', { name: 'Open in system app' }))
-    expect(openLocalFileWithSystem).toHaveBeenCalledWith('/work/assets/logo.png')
+    expect(openFileWithSystemOrOfferSave).toHaveBeenCalledWith('/work/assets/logo.png')
   })
 
   it('forgets a decode failure when the file changes to one that does decode', () => {

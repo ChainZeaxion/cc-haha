@@ -1,13 +1,14 @@
 import '@testing-library/jest-dom/vitest'
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { openLocalFileWithSystem, reportOpenFailure } from '@/lib/systemFileOpen'
+import { openFileWithSystemOrOfferSave } from '@/lib/systemFileOpen'
 import { useSettingsStore } from '@/stores/settingsStore'
 import { DocumentToolbar, type DocumentZoomState } from './DocumentToolbar'
 
 vi.mock('@/lib/systemFileOpen', () => ({
-  openLocalFileWithSystem: vi.fn(),
-  reportOpenFailure: vi.fn(),
+  // Desktop default: this suite asserts what a runtime with a system shell offers.
+  canOpenWithSystem: () => true,
+  openFileWithSystemOrOfferSave: vi.fn(),
 }))
 
 function zoomState(overrides: Partial<DocumentZoomState> = {}): DocumentZoomState {
@@ -25,8 +26,7 @@ function zoomState(overrides: Partial<DocumentZoomState> = {}): DocumentZoomStat
 
 beforeEach(() => {
   useSettingsStore.setState({ locale: 'en' })
-  vi.mocked(openLocalFileWithSystem).mockReset().mockResolvedValue(undefined)
-  vi.mocked(reportOpenFailure).mockReset()
+  vi.mocked(openFileWithSystemOrOfferSave).mockReset()
 })
 
 describe('DocumentToolbar', () => {
@@ -66,21 +66,12 @@ describe('DocumentToolbar', () => {
   })
 
   describe('the way out to the system app', () => {
-    it('hands the original file to the operating system', () => {
+    it('asks the shared opener to hand the original file to the operating system', () => {
       render(<DocumentToolbar absolutePath="/work/out/thesis.pdf" />)
 
       fireEvent.click(screen.getByRole('button', { name: 'Open in system app' }))
 
-      expect(openLocalFileWithSystem).toHaveBeenCalledWith('/work/out/thesis.pdf')
-    })
-
-    it('names the file it could not open instead of failing silently', async () => {
-      vi.mocked(openLocalFileWithSystem).mockRejectedValue(new Error('no application'))
-      render(<DocumentToolbar absolutePath="/work/out/thesis.pdf" />)
-
-      fireEvent.click(screen.getByRole('button', { name: 'Open in system app' }))
-
-      await waitFor(() => expect(reportOpenFailure).toHaveBeenCalledWith('/work/out/thesis.pdf'))
+      expect(openFileWithSystemOrOfferSave).toHaveBeenCalledWith('/work/out/thesis.pdf')
     })
 
     it.each(['out/thesis.pdf', ''])('is not offered for %j, which the OS could not resolve', (path) => {

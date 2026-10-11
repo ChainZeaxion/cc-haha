@@ -588,7 +588,7 @@ export function WorkspaceReviewTab({
                   wrapLines={wrapLines}
                   open={openByScope[reviewScope]?.[file.path] ?? !entry.viewedPaths.includes(file.path)}
                   onToggleOpen={() => setFileOpen(file.path, !(openByScope[reviewScope]?.[file.path] ?? !entry.viewedPaths.includes(file.path)))}
-                  onOpenFile={line => workspaceOpen.file(sessionId, file.path, { line, preview: false })}
+                  onOpenFile={line => workspaceOpen.file(sessionId, file.path, { line, preview: false, requestedBy: 'user' })}
                   onAddComment={(selection, note) => useWorkspaceChatContextStore.getState().addReference(sessionId, {
                     kind: 'code-comment', path: file.path, name: file.path.split('/').pop() ?? file.path,
                     diffSide: selection.side, lineStart: selection.lineStart, lineEnd: selection.lineEnd,

@@ -15,7 +15,8 @@ import { getServerBaseUrl } from '../../lib/desktopRuntime'
 import { useOpenTargetStore } from '../../stores/openTargetStore'
 import { workspaceOpen } from '../../lib/workspace/openTarget'
 import { isWorkspaceDocumentFile, isWorkspacePreviewableFile } from '../../lib/fileCapabilities'
-import { openLocalFileWithSystem, reportOpenFailure } from '../../lib/systemFileOpen'
+import { canOpenWithSystem, openFileWithSystemOrOfferSave } from '../../lib/systemFileOpen'
+import { openFileOutsideWorkspace } from '../../lib/openOutsideWorkspaceFile'
 
 type CurrentTurnChangeCardProps = {
   sessionId: string
@@ -79,26 +80,38 @@ export function CurrentTurnChangeCard({
       sourceTurnKey: renderItem?.dataset.chatRenderItemKey ?? checkpoint.target.targetUserMessageId,
       sourceElementId: event.currentTarget.id,
     }
-    if (!isWorkspacePreviewableFile(fileEntry.displayPath)) {
-      void openLocalFileWithSystem(fileEntry.apiPath).catch(() => reportOpenFailure(fileEntry.apiPath))
+    // A changed file outside the workdir (absolute displayPath — e.g. another
+    // drive) is its own case on a runtime with no system application: the
+    // workspace route may refuse it, and there is no application to hand it to
+    // instead. Size and reachability decide between a preview and an explanation.
+    const outsideWorkspace = isAbsoluteLocalPath(fileEntry.displayPath)
+    if (outsideWorkspace && !canOpenWithSystem()) {
+      openFileOutsideWorkspace({
+        sessionId,
+        absolutePath: fileEntry.apiPath,
+        displayPath: fileEntry.displayPath,
+        origin,
+      })
       return
     }
-    // A changed file outside the workdir (absolute displayPath — e.g. another
-    // drive) has no checkpoint baseline, so a diff is meaningless. Render html in
-    // the in-app browser and everything else as a file preview (served by its
-    // absolute path). In-workdir files keep the diff view.
-    if (isAbsoluteLocalPath(fileEntry.displayPath)) {
+    if (!isWorkspacePreviewableFile(fileEntry.displayPath)) {
+      openFileWithSystemOrOfferSave(fileEntry.apiPath)
+      return
+    }
+    // Render html in the in-app browser and everything else as a file preview
+    // (served by its absolute path). In-workdir files keep the diff view.
+    if (outsideWorkspace) {
       if (shouldOfferStaticHtmlPreview(fileEntry.displayPath, { siblingFiles: files.map((entry) => entry.displayPath) })) {
-        workspaceOpen.browser(sessionId, localFileUrl(getServerBaseUrl(), fileEntry.apiPath), { origin })
+        workspaceOpen.browser(sessionId, localFileUrl(getServerBaseUrl(), fileEntry.apiPath), { origin, requestedBy: 'user' })
         return
       }
-      workspaceOpen.file(sessionId, fileEntry.displayPath, { origin })
+      workspaceOpen.file(sessionId, fileEntry.displayPath, { origin, requestedBy: 'user' })
       return
     }
     // A document has no line diff: the turn's recorded change for it is empty, so
     // the review view would open onto nothing. What was asked for is the document.
     if (isWorkspaceDocumentFile(fileEntry.displayPath)) {
-      workspaceOpen.file(sessionId, fileEntry.displayPath, { origin })
+      workspaceOpen.file(sessionId, fileEntry.displayPath, { origin, requestedBy: 'user' })
       return
     }
     // Jump to the right-side workspace and show this turn's own recorded change
@@ -109,6 +122,7 @@ export function CurrentTurnChangeCard({
       source: { kind: 'turn', turnKey: checkpoint.target.targetUserMessageId ?? '', userMessageIndex: checkpoint.target.userMessageIndex },
       path: fileEntry.displayPath,
       origin,
+      requestedBy: 'user',
     })
   }, [checkpoint.target.targetUserMessageId, checkpoint.target.userMessageIndex, sessionId, files])
 

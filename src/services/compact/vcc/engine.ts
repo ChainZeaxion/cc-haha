@@ -33,6 +33,25 @@ export const MIN_SMART_TAIL_TOKENS = 5_000
 export const MAX_SMART_TAIL_TOKENS = 25_000
 export const OVERSIZED_TAIL_FACTOR = 2.5
 
+/**
+ * How much of the context a compaction may keep verbatim, minus whatever the
+ * summary itself costs.
+ *
+ * Two numbers rather than one because a tail is not freely divisible: the
+ * messages worth keeping are whole turns, and the newest turn may be larger
+ * than the target on its own.
+ *
+ * - `preferredTokens` — the budget to fill and to stay inside. The retained
+ *   tail is grown to use it, so the post-compaction context sits where the
+ *   forced trigger intends rather than in some arbitrary smaller place.
+ * - `ceilingTokens` — what may be kept when the newest turn does not fit the
+ *   target. Past it the tail is cut down from the end.
+ */
+export interface TailAllowance {
+  preferredTokens: number
+  ceilingTokens: number
+}
+
 export interface VccCutResult {
   ok: boolean
   /** Pi messages to summarize (everything before the kept tail). */
@@ -71,7 +90,7 @@ export const buildVccCut = (
   sourceIndices: Array<number | undefined>,
   ccIndices: number[],
   keepUserTurns: number,
-  opts: { charsPerToken?: number } = {},
+  opts: { charsPerToken?: number; tailAllowance?: TailAllowance } = {},
 ): VccCutResult => {
   const totalUserTurns = userTurnsOf(messages).length
   const finish = (core: CutCore): VccCutResult => {
@@ -121,9 +140,43 @@ export const buildVccCut = (
   for (let i = cutIdx; i < messages.length; i++)
     tailTokens += estimateMessageContentTokens(messages[i].content, cpt)
 
-  // Token-budget tail re-cut: only fires when the kept tail exceeds
-  // MAX * OVERSIZED_TAIL_FACTOR (mirrors pi-vcc's applyTailBudget case B).
-  if (tailTokens > MAX_SMART_TAIL_TOKENS * OVERSIZED_TAIL_FACTOR) {
+  // Token-budget tail re-cut. With an allowance the ceiling is the one the
+  // compaction budget set; without one it keeps the pre-budget rule (fires only
+  // past MAX * OVERSIZED_TAIL_FACTOR, mirrors pi-vcc's applyTailBudget case B).
+  const allowance = opts.tailAllowance
+
+  if (allowance) {
+    if (tailTokens > allowance.ceilingTokens) {
+      // The largest *suffix* that fits, so what is kept is as much of the recent
+      // past as the ceiling pays for. A tail is kept in whole messages: the
+      // newest message may be larger than the whole ceiling, and then nothing
+      // fits — keeping it anyway would leave the context no safer than before
+      // compacting, which is the opposite of what a compaction is for.
+      const start = largestSuffixWithin(messages, allowance.ceilingTokens, cpt)
+      if (start >= messages.length)
+        return finish({
+          cutPi: messages.length,
+          keptUserTurns: 0,
+          keepFallbackToCompactAll: true,
+          budgetCut: "oversized_tail",
+        })
+      // Snap forward off any toolResult to the next valid boundary.
+      let idx = start
+      for (let j = Math.max(start, 1); j < messages.length; j++) {
+        if (messages[j].role !== "toolResult") {
+          idx = j
+          break
+        }
+      }
+      if (idx > cutIdx)
+        return finish({
+          cutPi: idx,
+          keptUserTurns: messages.slice(idx).filter((m) => m.role === "user").length,
+          keepFallbackToCompactAll: false,
+          budgetCut: "oversized_tail",
+        })
+    }
+  } else if (tailTokens > MAX_SMART_TAIL_TOKENS * OVERSIZED_TAIL_FACTOR) {
     let acc = 0
     let crossed = -1
     for (let i = messages.length - 1; i >= 0; i--) {
@@ -160,6 +213,26 @@ export const buildVccCut = (
   })
 }
 
+/**
+ * Index of the first message of the longest trailing run whose tokens fit
+ * `budget`, or `messages.length` when even the last one does not.
+ */
+const largestSuffixWithin = (
+  messages: Message[],
+  budget: number,
+  cpt?: number,
+): number => {
+  let acc = 0
+  let start = messages.length
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const tokens = estimateMessageContentTokens(messages[i].content, cpt)
+    if (acc + tokens > budget) break
+    acc += tokens
+    start = i
+  }
+  return start
+}
+
 const tailTokensForKeep = (
   messages: Message[],
   userIndices: number[],
@@ -176,19 +249,46 @@ const tailTokensForKeep = (
 }
 
 /**
- * Smart keep-tail: if the keep:1 tail is <= MIN tokens, grow keep to the
- * largest N whose tail stays <= MAX tokens. Mirrors pi-vcc's
- * resolveSmartKeepUserTurns.
+ * Smart keep-tail: grow the kept tail to the largest N turns that fits.
+ *
+ * With `allowance` the budget is the context the compaction is meant to leave
+ * behind, so the tail is grown to *use* it — landing under the target is fine
+ * but landing far under it throws away verbatim history the target had already
+ * paid for. The newest turn is kept regardless of the target; {@link buildVccCut}
+ * is what enforces the ceiling when that turn does not fit.
+ *
+ * Without one (the slice/partial path, and pi-vcc parity callers) it falls back
+ * to the fixed MIN/MAX pair: grow only when keep:1 came in under MIN.
  */
 export const resolveSmartKeepUserTurns = (
   messages: Message[],
   calibration: TokenEstimateCalibration,
+  allowance?: TailAllowance,
 ): { keepUserTurns: number; smartAdjusted: boolean; fromKeep: number } => {
   const userIndices = userTurnsOf(messages)
   const baseKeep = 1
   const cpt = calibration.charsPerToken
 
   const baseTokens = tailTokensForKeep(messages, userIndices, baseKeep, cpt)
+
+  if (allowance) {
+    if (baseTokens == null)
+      return { keepUserTurns: baseKeep, smartAdjusted: false, fromKeep: baseKeep }
+    // `tailTokensForKeep` only grows with `k`, so a newest turn that is already
+    // over the target simply ends the loop at one turn kept.
+    let selected = baseKeep
+    for (let k = baseKeep + 1; k <= userIndices.length; k++) {
+      const tokens = tailTokensForKeep(messages, userIndices, k, cpt)
+      if (tokens == null || tokens > allowance.preferredTokens) break
+      selected = k
+    }
+    return {
+      keepUserTurns: selected,
+      smartAdjusted: selected !== baseKeep,
+      fromKeep: baseKeep,
+    }
+  }
+
   if (baseTokens == null || baseTokens > MIN_SMART_TAIL_TOKENS)
     return { keepUserTurns: baseKeep, smartAdjusted: false, fromKeep: baseKeep }
 

@@ -5,15 +5,16 @@ import { afterEach, beforeEach, describe, expect, it, vi, type MockInstance } fr
 import { ApiError } from '@/api/client'
 import { sessionsApi } from '@/api/sessions'
 import { resetDocumentBlobCacheForTests } from '@/lib/workspace/documentBlobCache'
-import { openLocalFileWithSystem } from '@/lib/systemFileOpen'
+import { openFileWithSystemOrOfferSave } from '@/lib/systemFileOpen'
 import { useSettingsStore } from '@/stores/settingsStore'
 import { useWorkspaceContentStore, workspaceFileKey } from '@/stores/workspaceContentStore'
 import { DocumentSurface, type DocumentSurfaceProps } from './DocumentSurface'
 import type { DocumentViewerProps, DocumentViewers } from './documentViewers'
 
 vi.mock('@/lib/systemFileOpen', () => ({
-  openLocalFileWithSystem: vi.fn(),
-  reportOpenFailure: vi.fn(),
+  // Desktop default: this suite asserts what a runtime with a system shell offers.
+  canOpenWithSystem: () => true,
+  openFileWithSystemOrOfferSave: vi.fn(),
 }))
 vi.mock('@/lib/diagnosticsCapture', () => ({
   reportReactError: vi.fn(),
@@ -66,7 +67,7 @@ beforeEach(() => {
   resetDocumentBlobCacheForTests()
   pending = []
   viewerProps = []
-  vi.mocked(openLocalFileWithSystem).mockReset().mockResolvedValue(undefined)
+  vi.mocked(openFileWithSystemOrOfferSave).mockReset()
   getWorkspaceRaw = vi.spyOn(sessionsApi, 'getWorkspaceRaw').mockImplementation(
     (_session, _path, signal) => new Promise<Blob>((resolve, reject) => {
       pending.push({ resolve, reject, signal })
@@ -122,7 +123,7 @@ describe('DocumentSurface', () => {
       expect(screen.getByRole('status')).toHaveTextContent("This file type can't be previewed here.")
       expect(getWorkspaceRaw).not.toHaveBeenCalled()
       fireEvent.click(screen.getByRole('button', { name: 'Open in system app' }))
-      expect(openLocalFileWithSystem).toHaveBeenCalledWith('/work/thesis.docx')
+      expect(openFileWithSystemOrOfferSave).toHaveBeenCalledWith('/work/thesis.docx')
     })
 
     it('offers no system action for a path that is not absolute', () => {
@@ -151,7 +152,7 @@ describe('DocumentSurface', () => {
 
       fireEvent.click(await screen.findByRole('button', { name: 'Open in system app' }))
 
-      expect(openLocalFileWithSystem).toHaveBeenCalledWith('/work/out/thesis.pdf')
+      expect(openFileWithSystemOrOfferSave).toHaveBeenCalledWith('/work/out/thesis.pdf')
     })
 
     it('offers a retry where trying again could help, and it works', async () => {

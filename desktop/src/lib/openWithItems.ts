@@ -64,6 +64,16 @@ export type OpenWithDeps = {
   openSystem: (urlOrPath: string) => void
   openWorkspacePreview: (relPath: string) => void
   openTarget: (targetId: string, absolutePath: string) => void
+  /**
+   * Whether this runtime has a system shell to hand the file to.
+   *
+   * When it does not, every row that would launch something on the host is left
+   * out rather than offered dead: the system-default and IDE rows are launched by
+   * the *server*, so on the H5 surface they open the file on the server's desktop,
+   * and the file-manager rows reveal a directory there. The download row is what
+   * replaces them, which is why it stays.
+   */
+  systemOpenAvailable: boolean
   /** Omit to leave the copy entries out (a URL context has nothing to copy). */
   copyPath?: (absolutePath: string) => void
   copyFileContent?: (path: string) => void
@@ -183,7 +193,9 @@ export function buildOpenWithItems(ctx: OpenWithContext, targets: OpenTarget[], 
     if (target === preferredEditor) continue
     openWith.push(openInItem(target, 'ide'))
   }
-  pushGroup(items, openWith)
+  // Without a shell there is nothing to launch with, and every target here is
+  // launched by the server — so the whole group goes, not just its label.
+  if (deps.systemOpenAvailable) pushGroup(items, openWith)
 
   // Copy entries sit between "open in…" and "reveal in…", matching the order the
   // platform file managers use.
@@ -206,15 +218,19 @@ export function buildOpenWithItems(ctx: OpenWithContext, targets: OpenTarget[], 
   }
   pushGroup(items, clipboard)
 
-  pushGroup(items, targets
-    .filter((target) => target.kind === 'file_manager')
-    .map((target) => ({
-      id: `fm:${target.id}`,
-      label: deps.t(revealKeyForPlatform(target.platform)),
-      icon: 'file-manager' as const,
-      target,
-      onSelect: () => deps.openTarget(target.id, ctx.absolutePath),
-    })))
+  // "Reveal in Finder" reveals a directory on the host running the server, which
+  // is the same wrong machine the system rows above are dropped for.
+  if (deps.systemOpenAvailable) {
+    pushGroup(items, targets
+      .filter((target) => target.kind === 'file_manager')
+      .map((target) => ({
+        id: `fm:${target.id}`,
+        label: deps.t(revealKeyForPlatform(target.platform)),
+        icon: 'file-manager' as const,
+        target,
+        onSelect: () => deps.openTarget(target.id, ctx.absolutePath),
+      })))
+  }
 
   return items
 }

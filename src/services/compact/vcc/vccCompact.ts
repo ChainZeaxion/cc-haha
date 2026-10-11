@@ -18,6 +18,10 @@ import {
 } from "./engine"
 import { compileRanked } from "./vendor/core/summarize"
 import { wrapLongLines } from "./vendor/core/format"
+import {
+  estimateMessageContentTokens,
+  estimateTokensFromChars,
+} from "./vendor/core/token-estimate"
 import type { FileOps } from "./vendor/types"
 
 // pi-vcc's before-compact ranking budget (0.8.0 hook): brief transcript
@@ -86,6 +90,13 @@ export interface VccCompactionInput {
    * > 0 it overrides the smart-keep resolution. `null`/absent = smart keep.
    */
   keepUserTurns?: number | null
+  /**
+   * What the post-compaction context may cost, in tokens — the window share the
+   * forced trigger reserves (`preferredTokens`) and, when the live tail cannot
+   * fit it, the soft share as an absolute ceiling (`ceilingTokens`). Omit to
+   * keep pi-vcc's fixed MIN/MAX tail rule.
+   */
+  retentionBudget?: { preferredTokens: number; ceilingTokens: number }
 }
 
 export interface VccCompactionOutput {
@@ -118,35 +129,49 @@ export const runVccCompaction = (input: VccCompactionInput): VccCompactionOutput
     adapted.messages,
     input.preCompactTokenCount,
   )
-  const keep =
-    input.keepUserTurns != null && input.keepUserTurns > 0
-      ? {
-          keepUserTurns: input.keepUserTurns,
-          smartAdjusted: false,
-          fromKeep: input.keepUserTurns,
-        }
-      : resolveSmartKeepUserTurns(adapted.messages, calibration)
-
-  const cut = buildVccCut(
-    adapted.messages,
-    adapted.sourceIndices,
-    adapted.ccIndices,
-    keep.keepUserTurns,
-    { charsPerToken: calibration.charsPerToken },
-  )
-
   const previousSummary = extractPreviousSummary(messages)
-
-  if (!cut.ok) {
-    // Too few live messages to form a useful summary. Fall back to a
-    // compact-all so the caller still produces a boundary.
-    const summary = compileRanked({
-      messages: adapted.messages,
-      sourceIndices: adapted.sourceIndices,
+  const compile = (msgs: CcMessage[], indices: Array<number | undefined>) =>
+    compileRanked({
+      messages: msgs,
+      sourceIndices: indices,
       previousSummary,
       fileOps: adapted.fileOps,
       ranking: rankingFor(adapted.fileOps, calibration.charsPerToken),
     })
+  const cpt = calibration.charsPerToken
+  const budget = input.retentionBudget
+
+  // What the summary costs is part of the budget, and its size is only known
+  // once compiled — and it is not bounded by the brief budget, because the
+  // structural sections (goals, changed files, commits) are sized separately.
+  // So the tail is first cut against a draft summary, then re-cut against the
+  // one actually built if that came out larger than the draft.
+  const draftReserve = budget
+    ? tokensOfText(compile(adapted.messages, adapted.sourceIndices), cpt)
+    : 0
+  let allowance = allowanceFor(budget, draftReserve)
+
+  const keepUserTurns =
+    input.keepUserTurns != null && input.keepUserTurns > 0
+      ? input.keepUserTurns
+      : resolveSmartKeepUserTurns(adapted.messages, calibration, allowance)
+        .keepUserTurns
+
+  const buildCut = (allow: ReturnType<typeof allowanceFor>) =>
+    buildVccCut(
+      adapted.messages,
+      adapted.sourceIndices,
+      adapted.ccIndices,
+      keepUserTurns,
+      { charsPerToken: cpt, tailAllowance: allow },
+    )
+
+  let cut = buildCut(allowance)
+
+  if (!cut.ok) {
+    // Too few live messages to form a useful summary. Fall back to a
+    // compact-all so the caller still produces a boundary.
+    const summary = compile(adapted.messages, adapted.sourceIndices)
     return {
       summary,
       messagesToKeep: [],
@@ -158,13 +183,22 @@ export const runVccCompaction = (input: VccCompactionInput): VccCompactionOutput
       sections: sectionsOf(summary),
     }
   }
-  const summary = compileRanked({
-    messages: cut.toSummarize,
-    sourceIndices: cut.toSummarizeIndices,
-    previousSummary,
-    fileOps: adapted.fileOps,
-    ranking: rankingFor(adapted.fileOps, calibration.charsPerToken),
-  })
+
+  let summary = compile(cut.toSummarize, cut.toSummarizeIndices)
+
+  if (budget) {
+    // A tail is kept in whole messages, so the first cut can overshoot the
+    // ceiling; `buildVccCut` only ever cuts the tail smaller, so this converges.
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const kept = tokensOfMessages(messages.slice(cut.keptCcStart), cpt)
+      if (tokensOfText(summary, cpt) + kept <= budget.ceilingTokens) break
+      const tightened = allowanceFor(budget, tokensOfText(summary, cpt))
+      const nextCut = buildCut(tightened)
+      if (nextCut.keptCcStart <= cut.keptCcStart) break
+      cut = nextCut
+      summary = compile(cut.toSummarize, cut.toSummarizeIndices)
+    }
+  }
 
   return {
     summary,
@@ -177,6 +211,31 @@ export const runVccCompaction = (input: VccCompactionInput): VccCompactionOutput
     sections: sectionsOf(summary),
   }
 }
+
+/**
+ * The tail's share of the retention budget: the whole budget minus what the
+ * summary costs. Floored at zero — a summary that alone fills the budget leaves
+ * no room to keep anything verbatim, which the cut then resolves.
+ */
+const allowanceFor = (
+  budget: { preferredTokens: number; ceilingTokens: number } | undefined,
+  reservedForSummary: number,
+) =>
+  budget == null
+    ? undefined
+    : {
+        preferredTokens: Math.max(budget.preferredTokens - reservedForSummary, 0),
+        ceilingTokens: Math.max(budget.ceilingTokens - reservedForSummary, 0),
+      }
+
+const tokensOfText = (text: string, charsPerToken: number): number =>
+  estimateTokensFromChars(text.length, charsPerToken)
+
+const tokensOfMessages = (msgs: CcMessage[], charsPerToken: number): number =>
+  msgs.reduce(
+    (total, m) => total + estimateMessageContentTokens(m.content, charsPerToken),
+    0,
+  )
 
 const rankingFor = (
   fileOps: FileOps,

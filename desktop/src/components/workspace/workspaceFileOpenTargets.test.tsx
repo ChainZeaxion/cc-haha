@@ -11,10 +11,15 @@ const fixture = vi.hoisted(() => ({
   openTarget: vi.fn<(id: string, path: string) => Promise<void>>(),
 }))
 const reportFailure = vi.hoisted(() => vi.fn())
+const shellAvailable = vi.hoisted(() => ({ value: true }))
 vi.mock('@/stores/openTargetStore', () => ({
   useOpenTargetStore: Object.assign((selector: (state: typeof fixture) => unknown) => selector(fixture), { getState: () => fixture }),
 }))
-vi.mock('@/lib/systemFileOpen', () => ({ reportOpenFailure: reportFailure }))
+vi.mock('@/lib/systemFileOpen', () => ({
+  reportOpenFailure: reportFailure,
+  canOpenWithSystem: () => shellAvailable.value,
+  openFileWithSystemOrOfferSave: vi.fn(),
+}))
 
 import { fileApplicationTargets, useWorkspaceFileOpenTargets } from './workspaceFileOpenTargets'
 

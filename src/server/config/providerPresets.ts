@@ -85,6 +85,18 @@ export const ProviderPresetSchema = z.object({
     z.string().regex(UPSTREAM_HEADER_NAME_RE, 'must be a valid HTTP header name'),
     z.string(),
   ).optional(),
+  /**
+   * Like `upstreamHeaders`, but sent **only when the upstream is on a private
+   * network** (machine-local/LAN). Used for headers that identify the caller to
+   * our own engines — e.g. the CLI session id, which bc/vLLM use to key session
+   * state — without leaking them to a public gateway. A public upstream never
+   * receives these, so a preset shared by public and private providers (such as
+   * `custom`) stays safe.
+   */
+  upstreamHeadersPrivate: z.record(
+    z.string().regex(UPSTREAM_HEADER_NAME_RE, 'must be a valid HTTP header name'),
+    z.string(),
+  ).optional(),
 })
 
 const ProviderPresetsSchema = z.array(ProviderPresetSchema)

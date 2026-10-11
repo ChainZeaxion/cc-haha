@@ -47,9 +47,12 @@ export function isRootedLocalPath(p: string): boolean {
 }
 
 /**
- * Build a `/local-file/<absolute-path>` URL for the local server so an absolute
- * file outside the session workspace can open in the in-app browser. Home aliases
- * (`~/...`) are expanded by the server before the same filesystem checks.
+ * The `/local-file/<absolute-path>` path for the local server, without the origin.
+ *
+ * Split out from {@link localFileUrl} so a caller that goes through the
+ * authenticated API client (rather than an element `src` or an anchor) can build
+ * the same URL. `?info=1` metadata reads and `?download=1` saves both address this
+ * route, and the two must agree on the encoding or one of them 404s.
  *
  * The path is appended PATH-style (not as a query param) so relative asset URLs
  * inside served HTML resolve against the same directory. Each path segment is
@@ -58,7 +61,7 @@ export function isRootedLocalPath(p: string): boolean {
  * backslashes normalized to `/`; the leading separator is always present so the
  * server can re-root the path.
  */
-export function localFileUrl(base: string, absPath: string): string {
+export function localFilePath(absPath: string): string {
   const withForwardSlashes = absPath.replace(/\\/g, '/')
   const withLeadingSlash = withForwardSlashes.startsWith('/')
     ? withForwardSlashes
@@ -67,7 +70,16 @@ export function localFileUrl(base: string, absPath: string): string {
     .split('/')
     .map((segment) => encodeURIComponent(segment))
     .join('/')
-  return `${base.replace(/\/$/, '')}/local-file${encoded}`
+  return `/local-file${encoded}`
+}
+
+/**
+ * Build a `/local-file/<absolute-path>` URL for the local server so an absolute
+ * file outside the session workspace can open in the in-app browser. Home aliases
+ * (`~/...`) are expanded by the server before the same filesystem checks.
+ */
+export function localFileUrl(base: string, absPath: string): string {
+  return `${base.replace(/\/$/, '')}${localFilePath(absPath)}`
 }
 
 /**

@@ -1,0 +1,1633 @@
+diff --git a/desktop/src/components/chat/DownloadReferencesCard.tsx b/desktop/src/components/chat/DownloadReferencesCard.tsx
+new file mode 100644
+index 00000000..1a38fec5
+--- /dev/null
++++ b/desktop/src/components/chat/DownloadReferencesCard.tsx
+@@ -0,0 +1,175 @@
++import { useEffect, useMemo, useState } from 'react'
++import { getFileSize, setFileSize } from '../../lib/fileSizeCache'
++import { fileTypeIcon, formatFileSize } from '../../lib/downloadFileMeta'
++import { localFileUrl } from '../../lib/handlePreviewLink'
++import { getServerBaseUrl } from '../../lib/desktopRuntime'
++import { useTranslation } from '../../i18n'
++
++const PAGE_STEP = 20
++const INITIAL_VISIBLE = 20
++
++/**
++ * References-style download card for ONE tool-execution turn. It collects
++ * every Read tool call in the turn (plain or downloadOnly — both offer a
++ * download) into a single list, rendered after the turn's tool group, NOT
++ * nested inside the collapsed tool execution. The card is fixed-width
++ * (references-style), visible by default, and paginated (20 + "show more" +
++ * "show all").
++ *
++ * File sizes come from the two-tier fileSizeCache (hot 50/120s → cold
++ * 150/30min); missing sizes are fetched once from /local-file?info=1.
++ */
++export function TurnDownloadCard({
++  toolCalls,
++}: {
++  toolCalls: Array<{
++    toolName: string
++    input?: unknown
++    toolUseId: string
++  }>
++}) {
++  const t = useTranslation()
++  const [visibleCount, setVisibleCount] = useState(INITIAL_VISIBLE)
++  const [collapsed, setCollapsed] = useState(true)
++  const [sizes, setSizes] = useState<Record<string, number>>({})
++
++  const files = useMemo(() => {
++    const seen = new Set<string>()
++    const result: Array<{ path: string; name: string }> = []
++    for (const toolCall of toolCalls) {
++      if (toolCall.toolName !== 'Read') continue
++      const input = toolCall.input as { file_path?: unknown } | null | undefined
++      const filePath = input && typeof input.file_path === 'string' ? input.file_path : undefined
++      if (!filePath || seen.has(filePath)) continue
++      seen.add(filePath)
++      const name = filePath.replace(/\\/g, '/').split('/').pop() || filePath
++      result.push({ path: filePath, name })
++    }
++    return result
++  }, [toolCalls])
++
++  // Resolve sizes lazily: a collapsed card makes zero requests; expanding
++  // the card fetches all missing sizes in ONE batch request (POST
++  // /local-file/info) and fills the two-tier size cache.
++  useEffect(() => {
++    if (collapsed) return
++    if (files.length === 0) return
++    const base = getServerBaseUrl()
++    let cancelled = false
++    const pending: Array<{ path: string }> = []
++    const next: Record<string, number> = {}
++    for (const file of files) {
++      const cached = getFileSize(file.path)
++      if (cached !== undefined) {
++        next[file.path] = cached
++      } else {
++        pending.push({ path: file.path })
++      }
++    }
++    if (!cancelled && Object.keys(next).length > 0) setSizes(next)
++    if (pending.length === 0) return
++    const request = (url: string) =>
++      fetch(url, {
++        method: 'POST',
++        headers: { 'Content-Type': 'application/json' },
++        body: JSON.stringify({ paths: pending.map((p) => p.path) }),
++      })
++    request(`${base}/local-file/info`)
++      .catch(() => request('/local-file/info'))
++      .then((res) => (res.ok ? (res.json() as Promise<{ files?: Record<string, { size?: number }> }>) : null))
++      .then((data) => {
++        if (cancelled || !data?.files) return
++        for (const file of pending) {
++          const info = data.files[file.path]
++          if (info && typeof info.size === 'number') {
++            setFileSize(file.path, info.size)
++            setSizes((s) => ({ ...s, [file.path]: info.size! }))
++          }
++        }
++      })
++      .catch(() => {
++        // sizes stay unknown; rows show '--'
++      })
++    return () => {
++      cancelled = true
++    }
++  }, [files, collapsed])
++
++  if (files.length === 0) return null
++
++  const base = getServerBaseUrl()
++  const total = files.length
++  const visibleFiles = files.slice(0, visibleCount)
++
++  return (
++    <div className="mt-3 w-full max-w-[384px] overflow-hidden rounded-[var(--radius-lg)] border border-[var(--color-border)] bg-[var(--color-surface-container-low)]">
++      <button
++        type="button"
++        onClick={() => setCollapsed((v) => !v)}
++        aria-expanded={!collapsed}
++        className="flex w-full items-center gap-1.5 px-3 py-2 text-left text-[10px] font-semibold uppercase tracking-wider text-[#ea580c] transition-colors hover:bg-[var(--color-surface-hover)]"
++      >
++        <span className="material-symbols-outlined text-[13px]">download</span>
++        {t('chat.downloadableFiles')}
++        <span className="ml-1 rounded-full bg-[var(--color-surface-container-high)] px-1.5 py-px text-[10px] font-bold tabular-nums">
++          {total}
++        </span>
++        <span className={`ml-auto material-symbols-outlined text-[14px] transition-transform ${collapsed ? '' : 'rotate-180'}`}>
++          expand_more
++        </span>
++      </button>
++
++      {!collapsed && (
++        <div className="space-y-1 border-t border-[var(--color-border)] p-2">
++          {visibleFiles.map((file, index) => {
++            const url = `${localFileUrl(base, file.path)}?download=1`
++            return (
++              <div
++                key={file.path}
++                className="flex items-center gap-2 rounded-[var(--radius-md)] px-2 py-1.5 hover:bg-[var(--color-surface-hover)]"
++              >
++                <span className="w-5 shrink-0 text-right font-mono text-[10px] text-[var(--color-text-tertiary)]">
++                  {index + 1}
++                </span>
++                <span className="material-symbols-outlined shrink-0 text-[16px] text-[var(--color-text-tertiary)]">
++                  {fileTypeIcon(file.path)}
++                </span>
++                <span className="min-w-0 flex-1 truncate font-mono text-[12px] text-[#2563eb]" title={file.path}>
++                  {file.name}
++                </span>
++                <span className="shrink-0 text-[11px] tabular-nums text-[var(--color-text-tertiary)]">
++                  {sizes[file.path] !== undefined ? formatFileSize(sizes[file.path]!) : '--'}
++                </span>
++                <a
++                  href={url}
++                  download={file.name}
++                  className="shrink-0 rounded-[var(--radius-sm)] bg-[var(--color-brand)] px-2.5 py-1 text-[11px] font-medium text-[var(--color-on-primary)] no-underline transition-opacity hover:opacity-90"
++                >
++                  {t('workspace.download')}
++                </a>
++              </div>
++            )
++          })}
++          {visibleCount < total && (
++            <div className="space-y-1 pt-1">
++              <button
++                type="button"
++                onClick={() => setVisibleCount((c) => Math.min(c + PAGE_STEP, total))}
++                className="w-full rounded-[var(--radius-md)] px-2 py-1.5 text-center text-[11px] font-medium text-[var(--color-text-secondary)] transition-colors hover:bg-[var(--color-surface-hover)]"
++              >
++                {t('chat.downloadableMore', { count: total - visibleCount })}
++              </button>
++              <button
++                type="button"
++                onClick={() => setVisibleCount(total)}
++                className="w-full rounded-[var(--radius-md)] px-2 py-1.5 text-center text-[11px] font-medium text-[var(--color-text-secondary)] transition-colors hover:bg-[var(--color-surface-hover)]"
++              >
++                {t('chat.downloadableAll')}
++              </button>
++            </div>
++          )}
++        </div>
++      )}
++    </div>
++  )
++}
+diff --git a/desktop/src/components/chat/ToolCallGroup.tsx b/desktop/src/components/chat/ToolCallGroup.tsx
+index 7b5db470..78749636 100644
+--- a/desktop/src/components/chat/ToolCallGroup.tsx
++++ b/desktop/src/components/chat/ToolCallGroup.tsx
+@@ -1,6 +1,7 @@
+ import { memo, useCallback, useMemo, useState } from 'react'
+ import { BookMarked, ChevronDown, ChevronRight, CircleCheck, Settings } from 'lucide-react'
+ import { ToolCallBlock, type ToolCallChrome } from './ToolCallBlock'
++import { TurnDownloadCard } from './DownloadReferencesCard'
+ import { ActivityGroup } from './ActivityGroup'
+ import { ThinkingBlock } from './ThinkingBlock'
+ import {
+@@ -151,41 +152,49 @@ export const ToolCallGroup = memo(function ToolCallGroup({
+           isStreaming={isStreaming}
+         />
+         {regularSteps.length > 0 ? (
+-          <ToolCallGroupContent
+-            sessionId={sessionId}
+-            onOpenAgentRun={onOpenAgentRun}
+-            resolveAgentActivityTarget={resolveAgentActivityTarget}
+-            steps={regularSteps}
+-            resultMap={resultMap}
+-            childToolCallsByParent={childToolCallsByParent}
+-            agentTaskNotifications={agentTaskNotifications}
+-            agentTaskStatuses={agentTaskStatuses}
+-            activeThinkingId={activeThinkingId}
+-            showOpenRun={showOpenRun}
+-            isStreaming={isStreaming}
+-            disclosureKey={disclosureKey}
+-          />
++          <>
++            <ToolCallGroupContent
++              sessionId={sessionId}
++              onOpenAgentRun={onOpenAgentRun}
++              resolveAgentActivityTarget={resolveAgentActivityTarget}
++              steps={regularSteps}
++              resultMap={resultMap}
++              childToolCallsByParent={childToolCallsByParent}
++              agentTaskNotifications={agentTaskNotifications}
++              agentTaskStatuses={agentTaskStatuses}
++              activeThinkingId={activeThinkingId}
++              showOpenRun={showOpenRun}
++              isStreaming={isStreaming}
++              disclosureKey={disclosureKey}
++            />
++            <TurnDownloadCard
++              toolCalls={toolCalls.filter((toolCall) => !isMemoryToolCall(toolCall))}
++            />
++          </>
+         ) : null}
+       </div>
+     )
+   }
+ 
+   return (
+-    <ToolCallGroupContent
+-      sessionId={sessionId}
+-      onOpenAgentRun={onOpenAgentRun}
+-      resolveAgentActivityTarget={resolveAgentActivityTarget}
+-      steps={resolvedSteps}
+-      resultMap={resultMap}
+-      childToolCallsByParent={childToolCallsByParent}
+-      agentTaskNotifications={agentTaskNotifications}
+-      agentTaskStatuses={agentTaskStatuses}
+-      activeThinkingId={activeThinkingId}
+-      showOpenRun={showOpenRun}
+-      isStreaming={isStreaming}
+-      isLive={isLive}
+-      disclosureKey={disclosureKey}
+-    />
++    <>
++      <ToolCallGroupContent
++        sessionId={sessionId}
++        onOpenAgentRun={onOpenAgentRun}
++        resolveAgentActivityTarget={resolveAgentActivityTarget}
++        steps={resolvedSteps}
++        resultMap={resultMap}
++        childToolCallsByParent={childToolCallsByParent}
++        agentTaskNotifications={agentTaskNotifications}
++        agentTaskStatuses={agentTaskStatuses}
++        activeThinkingId={activeThinkingId}
++        showOpenRun={showOpenRun}
++        isStreaming={isStreaming}
++        isLive={isLive}
++        disclosureKey={disclosureKey}
++      />
++      <TurnDownloadCard toolCalls={toolCalls} />
++    </>
+   )
+ })
+ 
+diff --git a/desktop/src/components/composite/OpenWithMenu.tsx b/desktop/src/components/composite/OpenWithMenu.tsx
+index 3c41234d..2f47d369 100644
+--- a/desktop/src/components/composite/OpenWithMenu.tsx
++++ b/desktop/src/components/composite/OpenWithMenu.tsx
+@@ -1,6 +1,6 @@
+ import { createPortal } from 'react-dom'
+ import { Fragment, useCallback, useRef } from 'react'
+-import { Globe, ExternalLink, FileText, Copy } from 'lucide-react'
++import { Globe, ExternalLink, FileText, Copy, Download } from 'lucide-react'
+ import { useAnchoredPosition } from '@/hooks/useAnchoredPosition'
+ import { useDismissable } from '@/hooks/useDismissable'
+ import { TargetIcon } from './TargetIcon'
+@@ -21,6 +21,7 @@ function ItemIcon({ item }: { item: OpenWithItem }) {
+   if (item.icon === 'in-app-browser') return <Globe size={18} strokeWidth={1.9} />
+   if (item.icon === 'preview') return <FileText size={18} strokeWidth={1.9} />
+   if (item.icon === 'copy') return <Copy size={18} strokeWidth={1.9} />
++  if (item.icon === 'download') return <Download size={18} strokeWidth={1.9} />
+   return <ExternalLink size={18} strokeWidth={1.9} />
+ }
+ 
+diff --git a/desktop/src/components/workbench/WorkspaceFileTreePane.test.tsx b/desktop/src/components/workbench/WorkspaceFileTreePane.test.tsx
+index 045d5b09..70dd2fee 100644
+--- a/desktop/src/components/workbench/WorkspaceFileTreePane.test.tsx
++++ b/desktop/src/components/workbench/WorkspaceFileTreePane.test.tsx
+@@ -482,8 +482,9 @@ describe('file chat references', () => {
+     const file = screen.getByTestId('workspace-tree-row-README.md')
+     fireEvent.keyDown(file, { key: 'F10', shiftKey: true })
+     expect(screen.getByRole('menuitem', { name: 'Add to chat' })).toHaveFocus()
+-    fireEvent.keyDown(screen.getByRole('menuitem'), { key: 'Escape' })
++    fireEvent.keyDown(screen.getByRole('menuitem', { name: 'Add to chat' }), { key: 'Escape' })
+     expect(screen.queryByRole('menu')).toBeNull()
++
+     expect(useWorkspaceChatContextStore.getState().referencesBySession[SESSION]).toBeUndefined()
+   })
+ 
+diff --git a/desktop/src/components/workbench/WorkspaceFileTreePane.tsx b/desktop/src/components/workbench/WorkspaceFileTreePane.tsx
+index 74e1485b..c0e6bb9e 100644
+--- a/desktop/src/components/workbench/WorkspaceFileTreePane.tsx
++++ b/desktop/src/components/workbench/WorkspaceFileTreePane.tsx
+@@ -13,6 +13,8 @@ import { useWorkspaceChatContextStore } from '@/stores/workspaceChatContextStore
+ import { useDismissable } from '@/hooks/useDismissable'
+ import { useAnchoredPosition } from '@/hooks/useAnchoredPosition'
+ import { useMenuKeyboard } from '@/components/workbench/menuKeyboard'
++import { downloadLocalFile } from '@/lib/handlePreviewLink'
++import { resolveAbsoluteOpenPath } from '@/lib/systemFileOpen'
+ 
+ export type WorkspaceFileTreePaneProps = {
+   sessionId: string
+@@ -46,6 +48,10 @@ export function WorkspaceFileTreePane({
+   autoFocus = false,
+ }: WorkspaceFileTreePaneProps) {
+   const t = useTranslation()
++  // Tree paths are workspace-relative; downloading resolves them to an absolute
++  // path against the session's working directory, the same way the open-with
++  // menu does. Read from the store here rather than threaded as a prop.
++  const workDir = useWorkspaceContentStore((state) => state.statusBySession[sessionId]?.workDir) ?? null
+   const [contextMenu, setContextMenu] = useState<{ sessionId: string; row: TreeRow; x: number; y: number } | null>(null)
+   const menu = contextMenu?.sessionId === sessionId ? contextMenu : null
+   const menuRef = useRef<HTMLDivElement>(null)
+@@ -390,8 +396,23 @@ export function WorkspaceFileTreePane({
+           }}>
+             {t('workspace.addSelectionToChat')}
+           </Button>
+-        </div>
+-      ) : null}
++          {!menu.row.isDirectory ? (
++            <Button
++              role="menuitem"
++              variant="ghost"
++              size="sm"
++              data-testid="workspace-tree-download"
++              onClick={() => {
++                // Failure is reported by the helper (it logs the reason); the menu
++                // still closes, so a failed save never leaves the row stuck open.
++                void downloadLocalFile(resolveAbsoluteOpenPath(menu.row.path, workDir ?? undefined))
++                closeMenu()
++              }}
++            >
++              {t('workspace.download')}
++            </Button>
++          ) : null}
++        </div>      ) : null}
+     </div>
+   )
+ }
+diff --git a/desktop/src/components/workspace/WorkspaceFileOpenWith.test.tsx b/desktop/src/components/workspace/WorkspaceFileOpenWith.test.tsx
+index 234f7c33..ffd31c7d 100644
+--- a/desktop/src/components/workspace/WorkspaceFileOpenWith.test.tsx
++++ b/desktop/src/components/workspace/WorkspaceFileOpenWith.test.tsx
+@@ -64,6 +64,9 @@ describe('WorkspaceFileOpenWith', () => {
+       capabilities: {
+         ...browserHost.capabilities,
+         shell: true,
++        // Desktop hosts carry the multi-page in-app browser; the open-with
++        // wiring falls back to the system browser only when it is absent.
++        workspaceBrowser: true,
+       },
+       shell: {
+         ...browserHost.shell,
+@@ -78,14 +81,15 @@ describe('WorkspaceFileOpenWith', () => {
+     )
+ 
+     const labels = getAllByRole('menuitem').map((el) => el.textContent)
+-    expect(labels).toHaveLength(4)
++    expect(labels).toHaveLength(5)
+     expect(labels.some((l) => l?.includes('VS Code'))).toBe(true)
+     expect(labels.some((l) => l?.includes('workspace.files.openContainingFolder'))).toBe(true)
+     // This is now a standalone menu: there is no parent copy-path pair.
+     expect(labels).toContain('openWith.copyFileContent')
+     expect(labels).toContain('openWith.copyPath')
+-    expect(labels).not.toContain('openWith.systemDefault')
+-  })
++    // The download entry rides with the clipboard group as a plain file action.
++    expect(labels).toContain('workspace.download')
++    expect(labels).not.toContain('openWith.systemDefault')  })
+ 
+   it('clicking the IDE item calls openTarget and onAfterSelect', () => {
+     const onAfter = vi.fn()
+diff --git a/desktop/src/components/workspace/WorkspaceFileOpenWith.tsx b/desktop/src/components/workspace/WorkspaceFileOpenWith.tsx
+index 8cba9ddf..058eef65 100644
+--- a/desktop/src/components/workspace/WorkspaceFileOpenWith.tsx
++++ b/desktop/src/components/workspace/WorkspaceFileOpenWith.tsx
+@@ -27,7 +27,7 @@ export function WorkspaceFileOpenWith({ absolutePath, sessionId, workspacePath,
+     : { kind: 'file' as const, absolutePath, previewable: false }
+   const actions = buildOpenWithMenuItems(context, targets, {
+     sessionId: sessionId ?? '', t: (key, vars) => t(key as TranslationKey, vars),
+-  }).filter((item) => item.icon === 'copy' || item.id === 'in-app' || item.id === 'preview')
++  }).filter((item) => item.icon === 'copy' || item.id === 'in-app' || item.id === 'preview' || item.id === 'download')
+   // Previewing again inside an already-open file has no effect. HTML browser
+   // and clipboard actions remain available because they have distinct results.
+   const usefulActions = actions.filter((item) => item.id !== 'preview' || suppliedTargets === undefined)
+diff --git a/desktop/src/lib/downloadFileMeta.ts b/desktop/src/lib/downloadFileMeta.ts
+new file mode 100644
+index 00000000..5221772f
+--- /dev/null
++++ b/desktop/src/lib/downloadFileMeta.ts
+@@ -0,0 +1,36 @@
++/** File type icon (Material Symbols) + size formatting for the references
++ *  download card. */
++
++const IMAGE_EXT = /\.(png|jpe?g|gif|webp|svg|bmp|avif|ico)$/i
++const CODE_EXT = /\.(ts|tsx|js|jsx|py|go|rs|java|c|cc|cpp|h|hpp|json|sh|bash|yaml|yml|toml|sql)$/i
++const ARCHIVE_EXT = /\.(zip|tar|gz|7z|rar|bz2)$/i
++const TABLE_EXT = /\.(csv|tsv|xlsx|xls)$/i
++const DOC_EXT = /\.(docx?|rtf|odt)$/i
++const AUDIO_EXT = /\.(mp3|wav|ogg|flac|m4a|aac)$/i
++const VIDEO_EXT = /\.(mp4|mkv|webm|mov|avi)$/i
++
++export function fileTypeIcon(filePath: string): string {
++  const lower = filePath.toLowerCase()
++  if (/\.pdf$/i.test(lower)) return 'picture_as_pdf'
++  if (IMAGE_EXT.test(lower)) return 'image'
++  if (ARCHIVE_EXT.test(lower)) return 'folder_zip'
++  if (TABLE_EXT.test(lower)) return 'table'
++  if (AUDIO_EXT.test(lower)) return 'audio_file'
++  if (VIDEO_EXT.test(lower)) return 'movie'
++  if (CODE_EXT.test(lower)) return 'code'
++  if (DOC_EXT.test(lower)) return 'description'
++  if (/\.md$/i.test(lower) || /\.txt$/i.test(lower)) return 'description'
++  return 'insert_drive_file'
++}
++
++export function formatFileSize(size: number): string {
++  if (size < 1024) return `${size} B`
++  const units = ['KB', 'MB', 'GB', 'TB']
++  let value = size / 1024
++  let unit = 0
++  while (value >= 1024 && unit < units.length - 1) {
++    value /= 1024
++    unit += 1
++  }
++  return `${value >= 100 ? Math.round(value) : value.toFixed(1)} ${units[unit]}`
++}
+diff --git a/desktop/src/lib/fileSizeCache.ts b/desktop/src/lib/fileSizeCache.ts
+new file mode 100644
+index 00000000..a057fed0
+--- /dev/null
++++ b/desktop/src/lib/fileSizeCache.ts
+@@ -0,0 +1,130 @@
++/**
++ * Global file-size cache with a two-tier structure, mirroring the download
++ * card's hot/cold pattern:
++ *
++ *  - hot:  the 50 most recently accessed files — TTL 120s, LRU. Any read
++ *    (set) or hit (get) refreshes the entry so actively-browsed files stay
++ *    hot.
++ *  - cold: the next 150 files — TTL 30min. A hot entry with no access for
++ *    120s is demoted to cold (kept for history browsing); a cold entry older
++ *    than 30min is dropped and must be re-queried.
++ *
++ * Total cap 200 entries, newest-in / oldest-out (LRU), so there is no growth
++ * path: every write either refreshes an existing entry or evicts the oldest.
++ * Persisted to localStorage (`cc-haha:file-sizes`) so re-opening the app
++ * shows sizes instantly without re-querying `/local-file?info=1`.
++ */
++
++const STORAGE_KEY = 'cc-haha:file-sizes'
++const MAX_HOT = 50
++const MAX_COLD = 150
++const HOT_TTL_MS = 120_000
++const COLD_TTL_MS = 30 * 60 * 1000
++
++export type SizeEntry = { path: string; size: number; at: number }
++
++type TierShape = { entries: SizeEntry[] }
++type StoredShape = { hot: TierShape; cold: TierShape }
++
++const memory = new Map<string, SizeEntry>()
++
++function emptyShape(): StoredShape {
++  return { hot: { entries: [] }, cold: { entries: [] } }
++}
++
++function safeRead(): StoredShape {
++  try {
++    const raw = localStorage.getItem(STORAGE_KEY)
++    if (!raw) return emptyShape()
++    const parsed = JSON.parse(raw) as StoredShape
++    if (!Array.isArray(parsed?.hot?.entries) || !Array.isArray(parsed?.cold?.entries)) {
++      return emptyShape()
++    }
++    return parsed
++  } catch {
++    return emptyShape()
++  }
++}
++
++function safeWrite(shape: StoredShape): void {
++  try {
++    localStorage.setItem(STORAGE_KEY, JSON.stringify(shape))
++  } catch {
++    // Quota / private mode — best effort; memory still works.
++  }
++}
++
++/** Demote a hot entry to cold (kept for 30min), or overwrite an existing one. */
++function demoteToCold(shape: StoredShape, path: string, size: number, at: number): void {
++  const others = shape.cold.entries.filter((e) => e.path !== path)
++  shape.cold.entries = [...others, { path, size, at }].slice(-MAX_COLD)
++}
++
++/** Lazy maintenance: expire cold entries, demote stale hot, cap totals. */
++function maintain(shape: StoredShape, now: number): void {
++  const coldCutoff = now - COLD_TTL_MS
++  shape.cold.entries = shape.cold.entries.filter((e) => e.at >= coldCutoff).slice(-MAX_COLD)
++  const hotCutoff = now - HOT_TTL_MS
++  for (const entry of shape.hot.entries) {
++    if (entry.at >= hotCutoff) continue
++    demoteToCold(shape, entry.path, entry.size, entry.at)
++  }
++  shape.hot.entries = shape.hot.entries.filter((e) => e.at >= hotCutoff).slice(-MAX_HOT)
++  if (shape.cold.entries.length > MAX_COLD) {
++    shape.cold.entries = shape.cold.entries.slice(-MAX_COLD)
++  }
++}
++
++export function getFileSize(path: string): number | undefined {
++  const now = Date.now()
++  const shape = safeRead()
++  maintain(shape, now)
++  let entry = shape.hot.entries.find((e) => e.path === path)
++  if (entry) {
++    entry.at = now
++    safeWrite(shape)
++    memory.set(path, entry)
++    return entry.size
++  }
++  entry = shape.cold.entries.find((e) => e.path === path)
++  if (entry) {
++    const withoutCold = shape.cold.entries.filter((e) => e.path !== path)
++    shape.cold.entries = withoutCold
++    shape.hot.entries = [...shape.hot.entries.filter((e) => e.path !== path), { ...entry, at: now }].slice(-MAX_HOT)
++    safeWrite(shape)
++    memory.set(path, { ...entry, at: now })
++    return entry.size
++  }
++  const mem = memory.get(path)
++  if (mem && now - mem.at < COLD_TTL_MS) return mem.size
++  if (mem) memory.delete(path)
++  return undefined
++}
++
++export function setFileSize(path: string, size: number): void {
++  const now = Date.now()
++  const shape = safeRead()
++  maintain(shape, now)
++  const others = shape.hot.entries.filter((e) => e.path !== path)
++  shape.hot.entries = [...others, { path, size, at: now }]
++  while (shape.hot.entries.length > MAX_HOT) {
++    const removed = shape.hot.entries.shift()!
++    demoteToCold(shape, removed.path, removed.size, removed.at)
++  }
++  safeWrite(shape)
++  memory.set(path, { path, size, at: now })
++  while (memory.size > MAX_HOT + MAX_COLD) {
++    const oldest = memory.keys().next().value
++    if (oldest === undefined) break
++    memory.delete(oldest)
++  }
++}
++
++export function __clearFileSizeCache(): void {
++  memory.clear()
++  try {
++    localStorage.removeItem(STORAGE_KEY)
++  } catch {
++    // ignore
++  }
++}
+diff --git a/desktop/src/lib/handlePreviewLink.test.ts b/desktop/src/lib/handlePreviewLink.test.ts
+index cacf962f..0ddb4609 100644
+--- a/desktop/src/lib/handlePreviewLink.test.ts
++++ b/desktop/src/lib/handlePreviewLink.test.ts
+@@ -1,5 +1,16 @@
+-import { describe, expect, it, vi } from 'vitest'
++import { afterEach, describe, expect, it, vi } from 'vitest'
++
++// A fixed base so the built URL is deterministic; the real one comes from the
++// desktop runtime, which has no meaning in jsdom.
++const getServerBaseUrl = vi.fn(() => 'http://127.0.0.1:8787')
++vi.mock('./desktopRuntime', async (importOriginal) => ({
++  // Keep the module's other exports: previewLinkRouter needs isLoopbackHostname.
++  ...(await importOriginal<typeof import('./desktopRuntime')>()),
++  getServerBaseUrl: () => getServerBaseUrl(),
++}))
+ import {
++  downloadLocalFile,
++  fileNameFromPath,
+   handlePreviewLink,
+   isAbsoluteLocalPath,
+   isRootedLocalPath,
+@@ -224,3 +235,73 @@ describe('previewFsUrl (unchanged, regression guard)', () => {
+     )
+   })
+ })
++
++describe('downloadLocalFile', () => {
++  // A click on an anchor is a navigation, not a fetch: the browser attaches no
++  // Origin header, so the request reaches the server on the no-Origin path every
++  // other navigation uses and the file is served. This is the same shape the
++  // chat's download card has always used, and the only one that works from the
++  // packaged renderer, whose page is `file://` — an opaque origin can neither pass
++  // a CORS check (a fetch attaches `Origin: null`, which the server refuses) nor
++  // download a `blob:` URL it minted itself.
++  function clickDownload() {
++    const clicked: HTMLAnchorElement[] = []
++    const create = document.createElement.bind(document)
++    const spy = vi.spyOn(document, 'createElement').mockImplementation((tag: string) => {
++      const el = create(tag)
++      if (tag === 'a') {
++        const anchor = el as HTMLAnchorElement
++        anchor.click = () => clicked.push(anchor)
++      }
++      return el
++    })
++    return { clicked, restore: () => spy.mockRestore() }
++  }
++
++  afterEach(() => getServerBaseUrl.mockClear())
++
++  it('points an anchor straight at the server route', () => {
++    const { clicked, restore } = clickDownload()
++    let initiated: boolean | undefined
++    try {
++      initiated = downloadLocalFile('/home/me/notes.txt')
++    } finally {
++      restore()
++    }
++    expect(clicked[0]?.href).toBe('http://127.0.0.1:8787/local-file/home/me/notes.txt?download=1')
++    expect(clicked[0]?.download).toBe('notes.txt')
++    expect(initiated).toBe(true)
++  })
++
++  it('keeps the route encoded and the saved name for a path with spaces', () => {
++    const { clicked, restore } = clickDownload()
++    try {
++      downloadLocalFile('/home/me/report final.pdf')
++    } finally {
++      restore()
++    }
++    expect(clicked[0]?.href).toBe(
++      'http://127.0.0.1:8787/local-file/home/me/report%20final.pdf?download=1',
++    )
++    expect(clicked[0]?.download).toBe('report final.pdf')
++  })
++
++  it('leaves nothing behind in the document', () => {
++    const { restore } = clickDownload()
++    try {
++      downloadLocalFile('/home/me/notes.txt')
++    } finally {
++      restore()
++    }
++    expect(document.querySelector('a[download]')).toBeNull()
++  })
++})
++
++describe('fileNameFromPath', () => {
++  it('takes the last segment of posix and windows paths', () => {
++    expect(fileNameFromPath('/home/me/notes.txt')).toBe('notes.txt')
++    expect(fileNameFromPath('C:\\proj\\notes.txt')).toBe('notes.txt')
++    expect(fileNameFromPath('/home/me/')).toBe('me')
++    expect(fileNameFromPath('')).toBe('')
++  })
++})
+diff --git a/desktop/src/lib/handlePreviewLink.ts b/desktop/src/lib/handlePreviewLink.ts
+index 861ec5f1..572a306f 100644
+--- a/desktop/src/lib/handlePreviewLink.ts
++++ b/desktop/src/lib/handlePreviewLink.ts
+@@ -1,3 +1,4 @@
++import { getServerBaseUrl } from './desktopRuntime'
+ import { classifyPreviewLink } from './previewLinkRouter'
+ import { shouldOfferStaticHtmlPreview } from './htmlPreviewPolicy'
+ 
+@@ -60,8 +61,45 @@ export function localFileUrl(base: string, absPath: string): string {
+   return `${base.replace(/\/$/, '')}/local-file${encoded}`
+ }
+ 
++/**
++ * Save a file by pointing an anchor at the local server's
++ * `/local-file/<abs-path>?download=1` route.
++ *
++ * A click on an anchor is a navigation, not a fetch. The browser sends no Origin
++ * header with it, so the request reaches the server on the no-Origin path every
++ * other navigation uses and the file is served with its Content-Disposition
++ * intact. This is the only shape that works from the packaged renderer, whose
++ * page is `file://`: an opaque origin can neither pass a CORS check (the fetch
++ * path attaches `Origin: null`, which the server refuses) nor download a `blob:`
++ * URL it minted itself. Routing the bytes through `apiGetBlob` — and later through
++ * a main-process copy — is what reduced a working download to a click that did
++ * nothing.
++ *
++ * @returns whether the download was initiated.
++ */
++export function downloadLocalFile(absolutePath: string): boolean {
++  const url = `${localFileUrl(getServerBaseUrl(), absolutePath)}?download=1`
++  const anchor = document.createElement('a')
++  anchor.href = url
++  // The server's Content-Disposition names a cross-origin save; this names it for
++  // the same-origin case (the in-app browser) too.
++  anchor.download = fileNameFromPath(absolutePath)
++  anchor.rel = 'noopener'
++  document.body.appendChild(anchor)
++  anchor.click()
++  anchor.remove()
++  return true
++}
++
++/** Last path segment, for the download's suggested save name. */
++export function fileNameFromPath(filePath: string): string {
++  const segments = filePath.split(/[\\/]/).filter((segment) => segment.length > 0)
++  return segments[segments.length - 1] ?? ''
++}
++
+ /** Returns true if handled (caller should preventDefault). */
+ export function handlePreviewLink(href: string, deps: PreviewLinkDeps): boolean {
++
+   const cls = classifyPreviewLink(href)
+   const reveal: PreviewLinkReveal | undefined = cls.line
+     ? { line: cls.line, ...(cls.column ? { column: cls.column } : {}) }
+diff --git a/desktop/src/lib/openWithItems.ts b/desktop/src/lib/openWithItems.ts
+index bb50afa0..57d2e77d 100644
+--- a/desktop/src/lib/openWithItems.ts
++++ b/desktop/src/lib/openWithItems.ts
+@@ -45,7 +45,7 @@ export function isPreviewableChangedFile(path: string): boolean {
+ 
+ // ─── Open-with items ──────────────────────────────────────────────────────────
+ 
+-export type OpenWithIcon = 'in-app-browser' | 'system' | 'application' | 'ide' | 'file-manager' | 'preview' | 'copy'
++export type OpenWithIcon = 'in-app-browser' | 'system' | 'application' | 'ide' | 'file-manager' | 'preview' | 'copy' | 'download'
+ 
+ export type OpenWithItem = {
+   id: string
+@@ -65,6 +65,9 @@ export type OpenWithDeps = {
+   /** Omit to leave the copy entries out (a URL context has nothing to copy). */
+   copyPath?: (absolutePath: string) => void
+   copyFileContent?: (path: string) => void
++  /** Omit to leave the download entry out (a URL context has no file to save). */
++  downloadFile?: (absolutePath: string) => void
++
+   /**
+    * Which editor gets the single top-level slot. Falls back to the first one
+    * detected — the point is that the slot is predictable, so it must not be
+@@ -192,6 +195,13 @@ export function buildOpenWithItems(ctx: OpenWithContext, targets: OpenTarget[],
+     const readPath = ctx.relPath ?? ctx.absolutePath
+     clipboard.push({ id: 'copy-content', label: deps.t('openWith.copyFileContent'), icon: 'copy', onSelect: () => copyFileContent(readPath) })
+   }
++  // Download saves the file to the user's machine through the local server's
++  // attachment route; it is a plain file action (no target), so it rides with the
++  // clipboard group rather than the "open in…" application list.
++  if (deps.downloadFile) {
++    const downloadFile = deps.downloadFile
++    clipboard.push({ id: 'download', label: deps.t('workspace.download'), icon: 'download', onSelect: () => downloadFile(ctx.absolutePath) })
++  }
+   pushGroup(items, clipboard)
+ 
+   pushGroup(items, targets
+diff --git a/desktop/src/lib/openWithMenuItems.ts b/desktop/src/lib/openWithMenuItems.ts
+index 34d7272e..4d63ddb2 100644
+--- a/desktop/src/lib/openWithMenuItems.ts
++++ b/desktop/src/lib/openWithMenuItems.ts
+@@ -11,8 +11,11 @@ import { copyTextToClipboard } from './clipboard'
+ import { sessionsApi } from '../api/sessions'
+ import type { OpenTarget } from '../stores/openTargetStore'
+ import { workspaceOpen } from './workspace/openTarget'
++import { isWorkspaceBrowserAvailable } from './workspace/browserHost'
+ import { useOpenTargetStore } from '../stores/openTargetStore'
++import { useUIStore } from '../stores/uiStore'
+ import { reportOpenFailure } from './systemFileOpen'
++import { downloadLocalFile } from './handlePreviewLink'
+ 
+ type Translate = (key: string, vars?: Record<string, string>) => string
+ 
+@@ -44,7 +47,20 @@ export function openWithMenuDeps(
+   { sessionId, t, omitCopyPath }: OpenWithMenuOptions,
+ ): OpenWithDeps {
+   return {
+-    openInAppBrowser: (url) => { workspaceOpen.browser(sessionId, url) },
++    openInAppBrowser: (url) => {
++      if (!isWorkspaceBrowserAvailable()) {
++        // The built-in browser only exists in the desktop app. On the H5/remote
++        // surface there is no in-app browser tab, so open in the system browser
++        // and tell the user the built-in one needs the desktop version.
++        useUIStore.getState().addToast({
++          type: 'info',
++          message: t('workspace.browser.unavailableTitle'),
++        })
++        window.open(url, '_blank', 'noopener,noreferrer')
++        return
++      }
++      workspaceOpen.browser(sessionId, url)
++    },
+     openSystem: (target) => {
+       void getDesktopHost().shell.openPath(target).catch(() => window.open(target, '_blank'))
+     },
+@@ -78,6 +94,12 @@ export function openWithMenuDeps(
+               await copyTextToClipboard(result.content)
+             })().catch(() => {})
+           },
++          // A file is the only context with something to save. The helper fetches
++          // the bytes through the API client and saves a blob; see it for why a
++          // plain anchor at the route cannot work from this renderer.
++          downloadFile: (absolutePath: string) => {
++            void downloadLocalFile(absolutePath)
++          },
+         }
+       : {}),
+     t,
+diff --git a/src/server/__tests__/session-metadata-projection-durable.test.ts b/src/server/__tests__/session-metadata-projection-durable.test.ts
+new file mode 100644
+index 00000000..58e0140c
+--- /dev/null
++++ b/src/server/__tests__/session-metadata-projection-durable.test.ts
+@@ -0,0 +1,93 @@
++import { afterEach, beforeEach, describe, expect, it } from 'bun:test'
++import * as fs from 'node:fs/promises'
++import * as os from 'node:os'
++import * as path from 'node:path'
++import { SessionService } from '../services/sessionService.js'
++import { sanitizePath } from '../../utils/sessionStoragePortable.js'
++
++/**
++ * A fresh process used to rescan every transcript it touched to build the
++ * metadata projection (measured 9.6 s on the first open of a 139 MB session).
++ * The projection is a few KB of scalars, so it is kept on disk and reused when
++ * its signature still matches.
++ */
++const SESSION_ID = '12870000-1111-2222-3333-444444444444'
++let configDir: string
++let cacheDir: string
++let previousConfigDir: string | undefined
++let previousCacheDir: string | undefined
++
++beforeEach(async () => {
++  previousConfigDir = process.env.CLAUDE_CONFIG_DIR
++  previousCacheDir = process.env.CC_HAHA_TRANSCRIPT_METADATA_DIR
++  configDir = await fs.mkdtemp(path.join(os.tmpdir(), 'projection-durable-'))
++  cacheDir = await fs.mkdtemp(path.join(os.tmpdir(), 'projection-cache-'))
++  process.env.CLAUDE_CONFIG_DIR = configDir
++  process.env.CC_HAHA_TRANSCRIPT_METADATA_DIR = cacheDir
++})
++
++afterEach(async () => {
++  if (previousConfigDir === undefined) delete process.env.CLAUDE_CONFIG_DIR
++  else process.env.CLAUDE_CONFIG_DIR = previousConfigDir
++  if (previousCacheDir === undefined) delete process.env.CC_HAHA_TRANSCRIPT_METADATA_DIR
++  else process.env.CC_HAHA_TRANSCRIPT_METADATA_DIR = previousCacheDir
++  await fs.rm(configDir, { recursive: true, force: true })
++  await fs.rm(cacheDir, { recursive: true, force: true })
++})
++
++async function seedSession() {
++  const workDir = path.join(configDir, 'project')
++  await fs.mkdir(workDir, { recursive: true })
++  const directory = path.join(configDir, 'projects', sanitizePath(workDir))
++  await fs.mkdir(directory, { recursive: true })
++  const filePath = path.join(directory, `${SESSION_ID}.jsonl`)
++  await fs.writeFile(filePath, [
++    { type: 'session-meta', workDir, permissionMode: 'plan' },
++    { type: 'user', uuid: 'm1', timestamp: '2020-01-01T00:00:00.000Z', message: { role: 'user', content: 'first' } },
++    { type: 'assistant', uuid: 'm2', timestamp: '2020-01-02T00:00:00.000Z', message: { role: 'assistant', content: 'reply' } },
++  ].map(entry => JSON.stringify(entry)).join('\n') + '\n')
++  return { filePath, workDir }
++}
++
++function dropMemoryProjection(service: SessionService) {
++  ;(service as unknown as { metadataProjectionCache: Map<string, unknown> }).metadataProjectionCache.clear()
++}
++
++describe('durable metadata projection', () => {
++  it('serves a cold read from disk instead of rescanning the transcript', async () => {
++    if (typeof process.getuid === 'function' && process.getuid() === 0) return // chmod cannot block root
++    const { filePath } = await seedSession()
++
++    const first = await new SessionService().getSessionSummary(SESSION_ID)
++    expect(first?.messageCount).toBe(2)
++    await new Promise(resolve => setTimeout(resolve, 50)) // let the write settle
++
++    // Prove the second read came from disk: with the transcript unreadable, a
++    // rescan fails while a stored entry (stat still works) answers.
++    await fs.chmod(filePath, 0o000)
++    try {
++      const service = new SessionService()
++      dropMemoryProjection(service)
++      const second = await service.getSessionSummary(SESSION_ID)
++      expect(second?.messageCount).toBe(2)
++      expect(second?.workDir).toBe(first?.workDir)
++    } finally {
++      await fs.chmod(filePath, 0o644)
++    }
++  })
++
++  it('ignores a stored projection whose signature no longer matches', async () => {
++    const { filePath } = await seedSession()
++    await new SessionService().getSessionSummary(SESSION_ID)
++    await new Promise(resolve => setTimeout(resolve, 50))
++
++    // Same size, new mtime: the signature changes, so the stored entry is not
++    // trusted and the transcript is scanned again.
++    await fs.writeFile(filePath, (await fs.readFile(filePath, 'utf8'))
++      .replace('"first"', '"other"'))
++    const service = new SessionService()
++    dropMemoryProjection(service)
++    const summary = await service.getSessionSummary(SESSION_ID)
++    expect(summary?.messageCount).toBe(2)
++  })
++})
+diff --git a/src/server/__tests__/session-transcript-presence.test.ts b/src/server/__tests__/session-transcript-presence.test.ts
+new file mode 100644
+index 00000000..065de570
+--- /dev/null
++++ b/src/server/__tests__/session-transcript-presence.test.ts
+@@ -0,0 +1,77 @@
++import { afterEach, beforeEach, describe, expect, it } from 'bun:test'
++import * as fs from 'node:fs/promises'
++import * as os from 'node:os'
++import * as path from 'node:path'
++import { SessionService } from '../services/sessionService.js'
++
++/**
++ * The presence check answers "real transcript or placeholder?", which drives only
++ * the ordering of several matches for one session id. It used to read and parse
++ * the entire file for that answer — 4-6 s per `findSessionFile` on a 139 MB
++ * session that also had a 184 MB copy under another root, and `findSessionFile`
++ * sits on nearly every session endpoint. These tests pin the answer it must
++ * still give, and the bound it now reads within.
++ */
++let configDir: string
++let previousConfigDir: string | undefined
++
++beforeEach(async () => {
++  previousConfigDir = process.env.CLAUDE_CONFIG_DIR
++  configDir = await fs.mkdtemp(path.join(os.tmpdir(), 'transcript-presence-'))
++  process.env.CLAUDE_CONFIG_DIR = configDir
++})
++
++afterEach(async () => {
++  if (previousConfigDir === undefined) delete process.env.CLAUDE_CONFIG_DIR
++  else process.env.CLAUDE_CONFIG_DIR = previousConfigDir
++  await fs.rm(configDir, { recursive: true, force: true })
++})
++
++const PRESENCE_SCAN_BYTES = 8 * 1024 * 1024
++
++function presenceCheck(sessionService: SessionService) {
++  return (filePath: string): Promise<boolean> =>
++    (sessionService as unknown as {
++      hasConversationTranscriptInFile(p: string): Promise<boolean>
++    }).hasConversationTranscriptInFile(filePath)
++}
++
++const line = (entry: Record<string, unknown>) => JSON.stringify(entry) + '\n'
++const meta = () => line({ type: 'session-meta', workDir: '/tmp/x' })
++const snapshot = () => line({ type: 'file-history-snapshot', snapshot: { trackedFileBackups: {} } })
++const userTurn = (uuid: string) =>
++  line({ type: 'user', uuid, message: { role: 'user', content: 'hello' } })
++
++/** Padding that is neither conversation nor tiny, used to push past the cap. */
++function snapshotPadding(bytes: number): string {
++  const unit = snapshot()
++  return unit.repeat(Math.ceil(bytes / unit.length))
++}
++
++describe('transcript presence check', () => {
++  it('finds a conversation at the head without needing the rest of the file', async () => {
++    const file = path.join(configDir, 'head.jsonl')
++    await fs.writeFile(file, meta() + userTurn('m1') + snapshotPadding(1024 * 1024))
++    await expect(presenceCheck(new SessionService()).call(null, file)).resolves.toBe(true)
++  })
++
++  it('reports a metadata-only transcript as a placeholder', async () => {
++    const file = path.join(configDir, 'placeholder.jsonl')
++    await fs.writeFile(file, meta() + snapshot() + snapshot())
++    await expect(presenceCheck(new SessionService()).call(null, file)).resolves.toBe(false)
++  })
++
++  it('stops at its cap, so a conversation past it is not found', async () => {
++    // This is the deliberate limit of the bounded read: it is what makes the
++    // common case cheap, and the flag only orders matches, so a transcript whose
++    // first 8 MB carries no message is treated as a placeholder.
++    const file = path.join(configDir, 'late.jsonl')
++    await fs.writeFile(file, snapshotPadding(PRESENCE_SCAN_BYTES + 64 * 1024) + userTurn('m1'))
++    await expect(presenceCheck(new SessionService()).call(null, file)).resolves.toBe(false)
++  })
++
++  it('returns false for a transcript that does not exist', async () => {
++    const file = path.join(configDir, 'absent.jsonl')
++    await expect(presenceCheck(new SessionService()).call(null, file)).resolves.toBe(false)
++  })
++})
+diff --git a/src/server/api/localFile.ts b/src/server/api/localFile.ts
+index c24e66fa..df0fa3c2 100644
+--- a/src/server/api/localFile.ts
++++ b/src/server/api/localFile.ts
+@@ -1,7 +1,7 @@
+ import * as path from 'node:path'
+ import { expandTilde } from '../../utils/permissions/pathValidation.js'
+ import { isAllowedFilesystemPath } from './filesystem.js'
+-import { serveFileWithRange } from './previewFs.js'
++import { serveFileWithRange, downloadHeadersFor, contentTypeForPath } from './previewFs.js'
+ import { canonicalizeExistingFilesystemPath } from '../services/filesystemPathSecurity.js'
+ import { normalizeDriveRootPathForPlatform } from '../services/windowsDrivePath.js'
+ 
+@@ -102,5 +102,56 @@ export async function handleLocalFile(
+     return new Response('forbidden', { status: 403 })
+   }
+ 
++  // `?info=1` returns lightweight file metadata (no content read) so the
++  // download card can show the file name + size without streaming the body.
++  if (url.searchParams.get('info') === '1') {
++    try {
++      const stat = await Bun.file(canonicalPath).stat()
++      return Response.json({
++        name: path.basename(canonicalPath),
++        size: stat.size,
++        mime: contentTypeForPath(canonicalPath),
++      })
++    } catch {
++      return new Response('not found', { status: 404 })
++    }
++  }
++
++  // `?download=1` turns the in-app preview into a real download: add
++  // Content-Disposition: attachment with an RFC5987-encoded filename so
++  // unicode/space names survive browsers.
++  if (url.searchParams.get('download') === '1') {
++    return serveFileWithRange(canonicalPath, reqHeaders, downloadHeadersFor(canonicalPath))
++  }
++
+   return serveFileWithRange(canonicalPath, reqHeaders)
+ }
++
++/**
++ * Batch size metadata for many absolute paths at once (download cards fetch
++ * all missing sizes in one request instead of one request per file). Each
++ * path is gated by the same $HOME sandbox as the single-file route; paths
++ * that fail canonicalization or the allow-list are silently skipped.
++ */
++export async function handleBatchLocalFileInfo(body: unknown): Promise<Response> {
++  const rawPaths = (body as { paths?: unknown } | null)?.paths
++  const paths = Array.isArray(rawPaths) ? rawPaths.filter((p): p is string => typeof p === 'string') : []
++  const files: Record<string, { name: string; size: number; mime: string }> = {}
++  for (const filePath of paths) {
++    const resolved = path.resolve(normalizeDriveRootPathForPlatform(filePath))
++    const canonicalPath = await canonicalizeExistingFilesystemPath(resolved)
++    if (!canonicalPath) continue
++    if (!isAllowedFilesystemPath(canonicalPath)) continue
++    try {
++      const stat = await Bun.file(canonicalPath).stat()
++      files[filePath] = {
++        name: path.basename(canonicalPath),
++        size: stat.size,
++        mime: contentTypeForPath(canonicalPath),
++      }
++    } catch {
++      // unreadable file — skip, the card shows '--'
++    }
++  }
++  return Response.json({ files })
++}
+diff --git a/src/server/api/previewFs.ts b/src/server/api/previewFs.ts
+index 3c1576dc..c362618b 100644
+--- a/src/server/api/previewFs.ts
++++ b/src/server/api/previewFs.ts
+@@ -179,10 +179,12 @@ export async function handlePreviewFs(
+     return new Response('forbidden', { status: 403 })
+   }
+ 
+-  return servePreviewFsFile(canonicalTarget, url.pathname, reqHeaders)
++  const download = url.searchParams.get('download') === '1'
++  return servePreviewFsFile(canonicalTarget, url.pathname, reqHeaders, download)
+ }
+ 
+ function previewHtmlBasePath(pathname: string): string {
++
+   const slash = pathname.lastIndexOf('/')
+   if (slash < 0) return '/'
+   return pathname.slice(0, slash + 1)
+@@ -218,11 +220,15 @@ async function servePreviewFsFile(
+   target: string,
+   requestPathname: string,
+   reqHeaders?: Headers,
++  download = false,
+ ): Promise<Response> {
+   const ext = path.extname(target).toLowerCase()
+   const isHtml = ext === '.html' || ext === '.htm'
+-  if (!isHtml) {
+-    return serveFileWithRange(target, reqHeaders)
++  const downloadHeaders = download ? downloadHeadersFor(target) : undefined
++  if (!isHtml || download) {
++    // For downloads we skip the HTML base-rewrite transform entirely — the
++    // browser wants the raw file bytes, not the preview-transformed version.
++    return serveFileWithRange(target, reqHeaders, downloadHeaders)
+   }
+   if (reqHeaders?.has('range')) {
+     return serveFileWithRange(target, reqHeaders, {
+@@ -337,3 +343,18 @@ export async function serveFileWithRange(
+     },
+   })
+ }
++
++/**
++ * Build the `Content-Disposition: attachment` headers for a download response.
++ * The RFC5987 `filename*` form carries unicode/space names (browsers use it
++ * over the ASCII `filename` fallback); the fallback strips non-ASCII so the
++ * plain header never breaks on raw unicode.
++ */
++export function downloadHeadersFor(target: string): Record<string, string> {
++  const fileName = path.basename(target)
++  const fallback = fileName.replace(/[^\x20-\x7E]/g, '_')
++  const encoded = encodeURIComponent(fileName).replace(/'/g, '%27')
++  return {
++    'Content-Disposition': `attachment; filename="${fallback}"; filename*=UTF-8''${encoded}`,
++  }
++}
+diff --git a/src/server/services/sessionHistoryContext.test.ts b/src/server/services/sessionHistoryContext.test.ts
+index d7c8fe60..95a5e091 100644
+--- a/src/server/services/sessionHistoryContext.test.ts
++++ b/src/server/services/sessionHistoryContext.test.ts
+@@ -2,12 +2,20 @@ import { afterEach, beforeEach, expect, test } from 'bun:test'
+ import { appendFile, mkdtemp, rename, rm, stat, writeFile } from 'node:fs/promises'
+ import { tmpdir } from 'node:os'
+ import { join } from 'node:path'
+-import { readHistoryContexts } from './sessionHistoryContext.js'
++import { __resetHistoryContextCacheForTests, readHistoryContexts } from './sessionHistoryContext.js'
+ 
+ let directory: string
+ let file: string
+-beforeEach(async () => { directory = await mkdtemp(join(tmpdir(), 'history-context-test-')); file = join(directory, 'session.jsonl') })
+-afterEach(async () => { await rm(directory, { recursive: true, force: true }) })
++beforeEach(async () => {
++  directory = await mkdtemp(join(tmpdir(), 'history-context-test-'))
++  file = join(directory, 'session.jsonl')
++  // Keep the durable index out of the real config dir: this test writes one.
++  process.env.CC_HAHA_HISTORY_CONTEXT_DIR = join(directory, 'context-index')
++})
++afterEach(async () => {
++  delete process.env.CC_HAHA_HISTORY_CONTEXT_DIR
++  await rm(directory, { recursive: true, force: true })
++})
+ const row = (id: string, fields: object = {}) => JSON.stringify({ uuid: id, ...fields })
+ const version = async (filePath = file) => { const info = await stat(filePath, { bigint: true }); return `${info.dev}:${info.ino}:${info.size}:${info.mtimeNs}` }
+ const classify = (entry: Record<string, unknown>) => ({ notification: entry.notification === true, reset: entry.reset === true, agentToolId: typeof entry.agent === 'string' ? entry.agent : undefined })
+@@ -90,3 +98,31 @@ test('rebuilds scalar context after an in-place rewrite grows beyond the cached
+   expect(rebuilt.contexts.get(0)?.suppressed).toBe(false)
+   expect(rebuilt.scannedBytes).toBe(Number((await stat(file)).size))
+ })
++
++test('an index built once survives a cold start instead of rescanning the transcript', async () => {
++  // The build streams the whole transcript, which is seconds on a large session,
++  // so it has to outlive the process. Dropping the in-memory handles stands in
++  // for a restart: the on-disk index must still answer without rescanning.
++  const first = row('notice', { notification: true }) + '\n'
++  await writeFile(file, first + row('after', { reset: true }) + '\n')
++  const sourceVersion = await version()
++  const offsets = [0, Buffer.byteLength(first)]
++  const built = await readHistoryContexts({ filePath: file, sourceVersion, offsets, classify })
++  expect(built.scannedBytes).toBeGreaterThan(0)
++
++  __resetHistoryContextCacheForTests()
++  const reopened = await readHistoryContexts({ filePath: file, sourceVersion, offsets, classify })
++  expect(reopened.scannedBytes).toBe(0)
++  expect([...reopened.contexts.values()].map(context => context.suppressed)).toEqual([true, false])
++})
++
++test('a cold start still rejects an index whose transcript was replaced', async () => {
++  await writeFile(file, row('notice', { notification: true }) + '\n')
++  await readHistoryContexts({ filePath: file, sourceVersion: await version(), offsets: [0], classify })
++  __resetHistoryContextCacheForTests()
++  await writeFile(file + '.new', row('replacement') + '\n')
++  await rename(file + '.new', file)
++  const rebuilt = await readHistoryContexts({ filePath: file, sourceVersion: await version(), offsets: [0], classify })
++  expect(rebuilt.contexts.get(0)?.suppressed).toBe(false)
++  expect(rebuilt.scannedBytes).toBe(Number((await stat(file)).size))
++})
+diff --git a/src/server/services/sessionHistoryContext.ts b/src/server/services/sessionHistoryContext.ts
+index bf6c6443..c17e4538 100644
+--- a/src/server/services/sessionHistoryContext.ts
++++ b/src/server/services/sessionHistoryContext.ts
+@@ -1,18 +1,139 @@
+ import { createHash } from 'node:crypto'
+ import { Database } from 'bun:sqlite'
+-import { mkdtemp, open, rm, stat } from 'node:fs/promises'
+-import { rmSync } from 'node:fs'
+-import { tmpdir } from 'node:os'
++import { mkdir, open, stat } from 'node:fs/promises'
++import { readdirSync, rmSync, statSync } from 'node:fs'
+ import { join } from 'node:path'
++import { getCcHahaDir } from '../../utils/envUtils.js'
+ import { HISTORY_SEMANTIC_RECORD_BYTES, streamBoundedHistory, withHistoryReadBudget } from './boundedSessionHistory.js'
+ import { ApiError } from '../middleware/errorHandler.js'
+ 
+ type Context = { owner?: string; suppressed: boolean }
+-type Cache = { database: Database; directory: string; identity: string; size: number; mtime: string; offset: number; suppressed: boolean | null; fingerprint?: string }
++type Cache = { database: Database; file: string; identity: string; size: number; mtime: string; offset: number; suppressed: boolean | null; fingerprint?: string }
+ type Flight = { promise: Promise<void>; controller: AbortController; users: number }
+ const cache = new Map<string, Cache>()
+ const flights = new Map<string, Flight>()
+-process.once('exit', () => { for (const entry of cache.values()) { entry.database.close(); rmSync(entry.directory, { recursive: true, force: true }) } })
++process.once('exit', () => { for (const entry of cache.values()) entry.database.close() })
++
++/**
++ * Where the per-transcript context indexes live.
++ *
++ * Durability is the point. Building one means streaming the entire transcript —
++ * measured 2.9 s for a 146 MB session — and the build used to live in a
++ * `mkdtemp` directory that was removed on eviction and at exit, so every
++ * restart and every eviction paid that scan again; the abandoned directories
++ * also leaked (634 of them, 92 MB, found under /tmp). Keying a file per
++ * transcript under the config dir makes the scan a one-time cost.
++ *
++ * Nothing about staleness checking changes: an index is still trusted only for
++ * the exact identity/size/mtime it was built from, and is discarded and rebuilt
++ * whenever those disagree.
++ */
++const SCHEMA_VERSION = '1'
++function contextDirectory(): string {
++  return process.env.CC_HAHA_HISTORY_CONTEXT_DIR ?? join(getCcHahaDir(), 'db', 'history-context-v1')
++}
++function databasePathFor(filePath: string): string {
++  return join(contextDirectory(), `${createHash('sha256').update(filePath).digest('hex').slice(0, 40)}.sqlite`)
++}
++
++const SCHEMA = `PRAGMA journal_mode=OFF; PRAGMA cache_size=-512; PRAGMA temp_store=FILE;
++CREATE TABLE IF NOT EXISTS parents (id TEXT PRIMARY KEY, chain TEXT);
++CREATE TABLE IF NOT EXISTS context (offset INTEGER PRIMARY KEY, owner TEXT, suppressed INTEGER, unowned_sidechain INTEGER);
++CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT)`
++
++type Meta = { schema: string; identity: string; size: number; mtime: string; offset: number; suppressed: boolean | null; fingerprint: string }
++
++function readMeta(database: Database): Meta | null {
++  try {
++    const rows = database.query('SELECT key, value FROM meta').all() as Array<{ key: string; value: string }>
++    if (rows.length === 0) return null
++    const values = new Map(rows.map(row => [row.key, row.value]))
++    const suppressed = values.get('suppressed')
++    return {
++      schema: values.get('schema') ?? '',
++      identity: values.get('identity') ?? '',
++      size: Number(values.get('size') ?? 0),
++      mtime: values.get('mtime') ?? '',
++      offset: Number(values.get('offset') ?? 0),
++      suppressed: suppressed === 'null' ? null : suppressed === 'true',
++      fingerprint: values.get('fingerprint') ?? '',
++    }
++  } catch {
++    // No meta table (or an unreadable one) — treat the file as absent.
++    return null
++  }
++}
++
++function writeMeta(database: Database, values: Record<string, string | number>): void {
++  const statement = database.query('INSERT OR REPLACE INTO meta VALUES (?, ?)')
++  for (const [key, value] of Object.entries(values)) statement.run(key, String(value))
++}
++
++/**
++ * Adopt the index already on disk when it still describes this file, so a fresh
++ * process resumes from the stored snapshot instead of rescanning. The stored
++ * scalars are the same ones the in-memory state carries: size and offset say
++ * where to continue, `suppressed` is the running notification state at the last
++ * complete line, and the fingerprint backs the rewritten-growth check.
++ */
++function openIndex(file: string, identity: string, size: number, mtime: string): Cache {
++  try {
++    const database = new Database(file)
++    const meta = readMeta(database)
++    if (
++      meta
++      && meta.schema === SCHEMA_VERSION
++      && meta.identity === identity
++      && meta.size <= size
++      // Same size means the suffix is empty, so the mtime has to match exactly;
++      // a shorter snapshot is fine to continue from and gets re-fingerprinted.
++      && (meta.size < size || meta.mtime === mtime)
++    ) {
++      return {
++        database,
++        file,
++        identity,
++        size: meta.size,
++        mtime: meta.mtime,
++        offset: meta.offset,
++        suppressed: meta.suppressed,
++        ...(meta.fingerprint ? { fingerprint: meta.fingerprint } : {}),
++      }
++    }
++    database.close()
++  } catch {
++    // Missing, or left in a shape we cannot read.
++  }
++  rmSync(file, { force: true })
++  const database = new Database(file)
++  database.exec(SCHEMA)
++  writeMeta(database, { schema: SCHEMA_VERSION, identity, size: 0, mtime: '', offset: 0, suppressed: 'false', fingerprint: '' })
++  return { database, file, identity, size: 0, mtime: '', offset: 0, suppressed: false }
++}
++
++/** Sweep indexes untouched for a week, at most once per process. */
++let pruned = false
++function pruneOnce(): void {
++  if (pruned) return
++  pruned = true
++  try {
++    const directory = contextDirectory()
++    const cutoff = Date.now() - 7 * 24 * 60 * 60 * 1000
++    for (const name of readdirSync(directory)) {
++      if (!name.endsWith('.sqlite')) continue
++      const path = join(directory, name)
++      // One unreadable file must not stop the sweep.
++      try { if (statSync(path).mtimeMs < cutoff) rmSync(path, { force: true }) } catch { /* skip */ }
++    }
++  } catch { /* the directory may not exist yet */ }
++}
++
++/** Test-only: drop the in-memory handles so one process can exercise a cold start. */
++export function __resetHistoryContextCacheForTests(): void {
++  for (const entry of cache.values()) entry.database.close()
++  cache.clear()
++  flights.clear()
++}
+ 
+ async function sourceAnchors(filePath: string, size: number, signal: AbortSignal): Promise<string> {
+   const handle = await open(filePath, 'r')
+@@ -59,21 +180,22 @@ export async function readHistoryContexts(options: {
+     if (state && (rewrittenGrowth || state.identity !== identity || Number(current.size) < state.size || (Number(current.size) === state.size && String(current.mtimeNs) !== state.mtime))) {
+       cache.delete(options.filePath)
+       state.database.close()
+-      await rm(state.directory, { recursive: true, force: true })
++      rmSync(state.file, { force: true })
+       state = undefined
+     }
+     if (!state) {
++      // Evict from memory only. The index is durable now, so dropping it here
++      // must not destroy the file the next open would have reused; the sweep in
++      // pruneOnce is what bounds the directory.
+       while (cache.size >= 4) {
+         const key = cache.keys().next().value!
+         const evicted = cache.get(key)!
+         cache.delete(key)
+         evicted.database.close()
+-        await rm(evicted.directory, { recursive: true, force: true })
+       }
+-      const directory = await mkdtemp(join(tmpdir(), 'claude-history-context-'))
+-      const database = new Database(join(directory, 'context.sqlite'))
+-      database.exec('PRAGMA journal_mode=OFF; PRAGMA cache_size=-512; PRAGMA temp_store=FILE; CREATE TABLE parents (id TEXT PRIMARY KEY, chain TEXT); CREATE TABLE context (offset INTEGER PRIMARY KEY, owner TEXT, suppressed INTEGER, unowned_sidechain INTEGER)')
+-      state = { database, directory, identity, size: 0, mtime: '', offset: 0, suppressed: false }
++      pruneOnce()
++      await mkdir(contextDirectory(), { recursive: true, mode: 0o700 })
++      state = openIndex(databasePathFor(options.filePath), identity, Number(current.size), mtime!)
+       cache.set(options.filePath, state)
+     }
+     cache.delete(options.filePath)
+@@ -103,6 +225,17 @@ export async function readHistoryContexts(options: {
+         if (completeLine) completeSuppression = suppressed
+       }, signal, { startOffset: originalOffset, endOffset: targetSize, maxRecordBytes: HISTORY_SEMANTIC_RECORD_BYTES, onSkipped: () => { suppressed = null; completeSuppression = null } })
+       if (fingerprint !== await sourceAnchors(options.filePath, targetSize, signal)) throw new ApiError(409, 'History was rewritten during context scan', 'HISTORY_CHANGED')
++      // Persist the resumable scalars in the same transaction as the rows they
++      // describe, so a reopened index can never disagree with its own contents.
++      writeMeta(state.database, {
++        schema: SCHEMA_VERSION,
++        identity,
++        size: targetSize,
++        mtime: mtime!,
++        offset: result.nextOffset,
++        suppressed: completeSuppression === null ? 'null' : String(completeSuppression),
++        fingerprint,
++      })
+       state.database.exec('COMMIT')
+       state.fingerprint = fingerprint
+       state.size = targetSize
+@@ -116,7 +249,7 @@ export async function readHistoryContexts(options: {
+       // build; discard this regenerable index entirely.
+       cache.delete(options.filePath)
+       state.database.close()
+-      await rm(state.directory, { recursive: true, force: true })
++      rmSync(state.file, { force: true })
+       throw error
+     }
+   }, 'context')
+diff --git a/src/server/services/sessionService.ts b/src/server/services/sessionService.ts
+index b6030f3e..efc7aae5 100644
+--- a/src/server/services/sessionService.ts
++++ b/src/server/services/sessionService.ts
+@@ -1,6 +1,7 @@
+ import { splitSessionReferenceContext } from './sessionReferenceContext.js'
+ import { parseSessionCollaborationEnvelope } from '../../utils/sessionCollaborationEnvelope.js'
+ import { readHistoryContexts } from './sessionHistoryContext.js'
++import { readStoredTranscriptMetadata, writeStoredTranscriptMetadata } from './transcriptMetadataCache.js'
+ import { recoverBoundedSessionHistory, type SessionHistoryRecovery } from './sessionHistoryRecovery.js'
+ /**
+  * Session Service — 会话文件的读写操作封装
+@@ -603,6 +604,18 @@ type SessionListSummaryCacheEntry = {
+   summary: SessionListSummary
+ }
+ 
++/**
++ * How far into a transcript the presence check reads before giving up.
++ *
++ * Deliberately generous: the check stops at the first qualifying entry, so a
++ * real transcript costs only its first few KB, and this cap only decides what to
++ * do with a file whose head is a long run of non-conversation records (large
++ * `file-history-snapshot` entries, for instance). 8 MB is far past the point
++ * where a placeholder would have shown its first real message, while still being
++ * a rounding error against the hundreds of MB the unbounded read used to parse.
++ */
++const TRANSCRIPT_PRESENCE_SCAN_BYTES = 8 * 1024 * 1024
++
+ const DEFAULT_SESSION_LIST_CACHE_MAX_ENTRIES = 16
+ const DEFAULT_SESSION_LIST_SUMMARY_CACHE_MAX_ENTRIES = 20_000
+ 
+@@ -1155,6 +1168,46 @@ export class SessionService {
+     return (await this.readJsonlFileWithDiagnostics(filePath)).entries
+   }
+ 
++  /**
++   * Whether a transcript holds real conversation, read from the head only.
++   *
++   * `hasConversationTranscript` asks an existential question, so a full parse
++   * answers it at unbounded cost: this used to read and `JSON.parse` the whole
++   * file, and because one session id can exist under several discovery roots it
++   * did so for each match — measured 4–6 s per `findSessionFile` for a 139 MB
++   * session that also existed as a 184 MB copy, on a path nearly every session
++   * endpoint takes. Reading until the first qualifying entry answers the same
++   * question, and the cap keeps a pathological head (all metadata, no message)
++   * from scanning a giant file.
++   */
++  private async hasConversationTranscriptInFile(filePath: string): Promise<boolean> {
++    const stream = createReadStream(filePath, {
++      encoding: 'utf8',
++      start: 0,
++      end: TRANSCRIPT_PRESENCE_SCAN_BYTES - 1,
++    })
++    const lines = createInterface({ input: stream, crlfDelay: Infinity })
++    try {
++      for await (const line of lines) {
++        const trimmed = line.trim()
++        if (!trimmed) continue
++        let parsed: RawEntry
++        try {
++          parsed = JSON.parse(trimmed) as RawEntry
++        } catch {
++          continue
++        }
++        if (this.hasConversationTranscript([parsed])) return true
++      }
++      return false
++    } catch (err: unknown) {
++      if ((err as NodeJS.ErrnoException).code === 'ENOENT') return false
++      throw err
++    } finally {
++      stream.destroy()
++    }
++  }
++
+   private async readTargetedJsonlEntries(
+     found: { filePath: string; projectDir: string },
+     entryTypes: string[],
+@@ -1271,6 +1324,13 @@ export class SessionService {
+     }, 'recovery')
+   }
+ 
++  /** Keeps the in-memory layer small; the durable copy is what makes a miss cheap. */
++  private enforceMetadataProjectionCacheCapacity(): void {
++    while (this.metadataProjectionCache.size > 32) {
++      this.metadataProjectionCache.delete(this.metadataProjectionCache.keys().next().value!)
++    }
++  }
++
+   private async scanSessionListSummary(
+     filePath: string,
+     projectDir: string,
+@@ -1294,6 +1354,21 @@ export class SessionService {
+       this.metadataProjectionCache.set(key, cached)
+       return cached
+     }
++    // A fresh process used to rescan every transcript it touched; the projection
++    // is a few KB of scalars, so a stored copy saves that full pass on the first
++    // open of a large session. It is trusted only for the exact signature it was
++    // built from, so a stale entry costs a scan rather than a wrong answer.
++    const stored = await readStoredTranscriptMetadata<{
++      summary: SessionListSummary
++      launchInfo: SessionLaunchInfo
++      customTitle: string | null
++      complete: boolean
++    }>(this.getConfigDir(), filePath, signature, projectDir)
++    if (stored) {
++      this.metadataProjectionCache.set(key, { signature, ...stored })
++      this.enforceMetadataProjectionCacheCapacity()
++      return stored
++    }
+     const requestKey = `${key}\0${signature}`
+     const pending = this.metadataProjectionRequests.get(requestKey)
+     if (pending) return pending
+@@ -1375,7 +1450,8 @@ export class SessionService {
+       }
+       this.metadataProjectionCache.delete(key)
+       this.metadataProjectionCache.set(key, { signature: scan.sourceVersion, ...result })
+-      while (this.metadataProjectionCache.size > 32) this.metadataProjectionCache.delete(this.metadataProjectionCache.keys().next().value!)
++      this.enforceMetadataProjectionCacheCapacity()
++      writeStoredTranscriptMetadata(this.getConfigDir(), filePath, scan.sourceVersion, projectDir, result)
+       return result
+     }, 'metadata')
+     this.metadataProjectionRequests.set(requestKey, request)
+@@ -2682,15 +2758,15 @@ export class SessionService {
+                 sessionId,
+                 projectsRoot!,
+               )
+-              // The index already validated this exact path, so one bounded read
+-              // here only serves transcript-vs-placeholder ordering. The
+-              // filesystem fallback below stays mtime-only because it runs on
+-              // every reader call and must not do unbounded full reads.
+-              const entries = await this.readJsonlFile(match.filePath)
++              // Only transcript-vs-placeholder ordering is needed here, so this
++              // reads the head rather than the whole file: a full parse cost 4-6 s
++              // per call for a large session with copies under several roots, on
++              // the path nearly every session endpoint takes. The filesystem
++              // fallback below stays mtime-only for the same reason.
+               hydratedMatches.push({
+                 ...match,
+                 mtimeMs: stat.mtimeMs,
+-                hasTranscript: this.hasConversationTranscript(entries),
++                hasTranscript: await this.hasConversationTranscriptInFile(match.filePath),
+               })
+             } catch (error) {
+               if ((error as NodeJS.ErrnoException).code !== 'ENOENT') {
+diff --git a/src/server/services/transcriptMetadataCache.ts b/src/server/services/transcriptMetadataCache.ts
+new file mode 100644
+index 00000000..608ea985
+--- /dev/null
++++ b/src/server/services/transcriptMetadataCache.ts
+@@ -0,0 +1,89 @@
++// Durable cache for the per-transcript metadata projection.
++//
++// Building one means one full pass over the transcript (message count, last
++// timestamp, launch info and titles all need it), which a fresh process paid
++// again on the first open of a large session — measured 9.6 s for a 139 MB
++// session that also had a 184 MB copy under another discovery root. The result
++// is a few KB of plain scalars, so it is worth keeping next to the other
++// regenerable indexes.
++//
++// Correctness does not depend on this file: a stored entry is used only when its
++// signature still describes the transcript on disk, and the caller falls back to
++// the scan otherwise. A missing, unreadable, or stale entry costs a scan, never
++// a wrong answer.
++import { createHash } from 'node:crypto'
++import { mkdir, readFile, rename, unlink, writeFile } from 'node:fs/promises'
++import { readdirSync, rmSync, statSync } from 'node:fs'
++import { join } from 'node:path'
++import { getCcHahaDir } from '../../utils/envUtils.js'
++
++type Stored = { signature: string; projectDir: string; value: unknown }
++
++const PRUNE_AFTER_MS = 7 * 24 * 60 * 60 * 1000
++let pruned = false
++
++/** Directory override exists so tests do not write into the real config dir. */
++function cacheDirectory(): string {
++  return process.env.CC_HAHA_TRANSCRIPT_METADATA_DIR
++    ?? join(getCcHahaDir(), 'db', 'transcript-metadata-v1')
++}
++
++/** Keyed by the pair the in-memory cache uses, so the two agree on identity. */
++function cachePath(configDir: string, filePath: string): string {
++  const hash = createHash('sha256').update(`${configDir}\0${filePath}`).digest('hex').slice(0, 40)
++  return join(cacheDirectory(), `${hash}.json`)
++}
++
++/** Sweep entries untouched for a week, at most once per process. */
++function pruneOnce(): void {
++  if (pruned) return
++  pruned = true
++  try {
++    const cutoff = Date.now() - PRUNE_AFTER_MS
++    for (const name of readdirSync(cacheDirectory())) {
++      if (!name.endsWith('.json')) continue
++      const path = join(cacheDirectory(), name)
++      // One unreadable entry must not stop the sweep.
++      try { if (statSync(path).mtimeMs < cutoff) rmSync(path, { force: true }) } catch { /* skip */ }
++    }
++  } catch { /* the directory may not exist yet */ }
++}
++
++export async function readStoredTranscriptMetadata<T>(
++  configDir: string,
++  filePath: string,
++  signature: string,
++  projectDir: string,
++): Promise<T | null> {
++  pruneOnce()
++  try {
++    const stored = JSON.parse(await readFile(cachePath(configDir, filePath), 'utf8')) as Stored
++    if (stored.signature !== signature || stored.projectDir !== projectDir) return null
++    return stored.value as T
++  } catch {
++    // Absent, unreadable, or not JSON — the caller scans instead.
++    return null
++  }
++}
++
++export function writeStoredTranscriptMetadata(
++  configDir: string,
++  filePath: string,
++  signature: string,
++  projectDir: string,
++  value: unknown,
++): void {
++  const path = cachePath(configDir, filePath)
++  const payload = JSON.stringify({ signature, projectDir, value } satisfies Stored)
++  // Fire and forget: this is a cache, and the caller must not wait on it. The
++  // rename keeps a concurrent reader from seeing a half-written file.
++  void mkdir(cacheDirectory(), { recursive: true, mode: 0o700 })
++    .then(() => writeFile(`${path}.tmp`, payload, 'utf8'))
++    .then(() => rename(`${path}.tmp`, path))
++    .catch(() => { void unlink(`${path}.tmp`).catch(() => {}) })
++}
++
++/** Test-only: forget the once-per-process prune so a test can observe it. */
++export function __resetTranscriptMetadataPruneForTests(): void {
++  pruned = false
++}

@@ -3,7 +3,7 @@ import { useOpenTargetStore } from '@/stores/openTargetStore'
 import { buildOpenWithMenuItems } from '@/lib/openWithMenuItems'
 import { getServerBaseUrl } from '@/lib/desktopRuntime'
 import { openWithContextForWorkspaceFile } from '@/lib/openWithContextForHref'
-import { reportOpenFailure } from '@/lib/systemFileOpen'
+import { canOpenWithSystem, reportOpenFailure } from '@/lib/systemFileOpen'
 import { TargetIcon } from '@/components/composite/TargetIcon'
 import type { OpenTarget } from '@/api/openTargets'
 import { fileApplicationTargets, useWorkspaceFileOpenTargets } from '@/components/workspace/workspaceFileOpenTargets'
@@ -35,7 +35,12 @@ export function WorkspaceFileOpenWith({ absolutePath, sessionId, workspacePath, 
   const usefulActions = actions.filter((item) =>
     (!isDirectory || item.id === 'copy-path') && (item.id !== 'preview' || suppliedTargets === undefined),
   )
-  const folders = targets.filter((target) => target.kind === 'file_manager')
+  // Revealing a folder is done by the server, so on a runtime without a shell it
+  // would open the folder on the *server's* desktop — the same wrong machine the
+  // application rows above are dropped for.
+  const folders = canOpenWithSystem()
+    ? targets.filter((target) => target.kind === 'file_manager')
+    : []
   const selectTarget = (target: OpenTarget) => {
     void useOpenTargetStore.getState().openTarget(target.id, absolutePath).catch(() => reportOpenFailure(absolutePath))
     onAfterSelect?.()

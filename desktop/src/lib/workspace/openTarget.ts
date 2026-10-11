@@ -8,6 +8,11 @@ export type WorkspaceOpenRequest = WorkspaceOpenOptions & {
   target: WorkspaceTarget
   /** Chat element that asked, so the conversation can scroll back to it. */
   origin?: WorkspaceOrigin
+  /**
+   * Who asked. Defaults to `'agent'` — see {@link WorkspaceOpenOptions.requestedBy}
+   * for why the safe default is the one nobody chose.
+   */
+  requestedBy?: 'user' | 'agent'
 }
 
 /**
@@ -24,7 +29,7 @@ export type WorkspaceOpenRequest = WorkspaceOpenOptions & {
  * addressed by `sessionId` and not by "the current session".
  */
 export function openWorkspaceTarget(request: WorkspaceOpenRequest): string | null {
-  const { sessionId, target, origin, ...options } = request
+  const { sessionId, target, origin, requestedBy = 'agent', ...options } = request
   const activeTabId = useTabStore.getState().activeTabId
   const isForeground = activeTabId === sessionId
 
@@ -32,6 +37,7 @@ export function openWorkspaceTarget(request: WorkspaceOpenRequest): string | nul
 
   return useWorkspaceStore.getState().openTarget(sessionId, target, {
     ...options,
+    requestedBy,
     background: options.background === true || !isForeground,
   })
 }
@@ -48,6 +54,7 @@ export const workspaceOpen = {
     background?: boolean
     replaceBlankPlaceholder?: boolean
     origin?: WorkspaceOrigin
+    requestedBy?: 'user' | 'agent'
   }) {
     return openWorkspaceTarget({
       sessionId,
@@ -62,23 +69,27 @@ export const workspaceOpen = {
       ...(options?.background ? { background: true } : {}),
       ...(options?.replaceBlankPlaceholder ? { replaceBlankPlaceholder: true } : {}),
       ...(options?.origin ? { origin: options.origin } : {}),
+      ...(options?.requestedBy ? { requestedBy: options.requestedBy } : {}),
     })
   },
   browser(sessionId: string, url?: string, options?: {
     background?: boolean
     origin?: WorkspaceOrigin
+    requestedBy?: 'user' | 'agent'
   }) {
     return openWorkspaceTarget({
       sessionId,
       target: { kind: 'browser', ...(url ? { url } : {}) },
       ...(options?.background ? { background: true } : {}),
       ...(options?.origin ? { origin: options.origin } : {}),
+      ...(options?.requestedBy ? { requestedBy: options.requestedBy } : {}),
     })
   },
   review(sessionId: string, options?: {
     source?: Extract<WorkspaceTarget, { kind: 'review' }>['source']
     path?: string
     origin?: WorkspaceOrigin
+    requestedBy?: 'user' | 'agent'
   }) {
     return openWorkspaceTarget({
       sessionId,
@@ -88,6 +99,7 @@ export const workspaceOpen = {
         ...(options?.path ? { path: options.path } : {}),
       },
       ...(options?.origin ? { origin: options.origin } : {}),
+      ...(options?.requestedBy ? { requestedBy: options.requestedBy } : {}),
     })
   },
   terminal(sessionId: string, cwd: string, options?: {

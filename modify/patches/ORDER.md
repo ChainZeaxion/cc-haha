@@ -1,5 +1,6 @@
 # 应用顺序（自上而下）
 #────────────────────────────────────────
+# 1–36：基座 = 上游 068b3ebd（0.6.6 血缘），链终态 = 06scode 树。
 patches/h5/h5-access-token-patch1.patch
 patches/session/session-export-patch1.patch
 patches/h5/h5-settings-parity-patch1.patch
@@ -34,3 +35,10 @@ patches/tps/tps-engine-rewrite-patch1.patch
 patches/thinking-subagent/thinking-subagent-subagent-usage-cross-client-patch1.patch
 patches/tps/tps-density-estimation-patch1.patch
 patches/tps/tps-session-total-patch1.patch
+patches/session/session-upstream-session-id-patch1.patch
+patches/session/session-local-index-budget-patch1.patch
+
+# 37：⚠️ 基座不同 —— = cchaha-067scode `align-latest` 的 HEAD（0.6.7 血缘），**不可**接到上面 36 条之后。
+# 该血缘里本轮触及的文件多数在 068b3ebd 基座中不存在或布局不同（如 `components/workspace/surfaces/document/`），
+# 故无法链尾追加；本 patch 独立应用（干净 HEAD 上 apply ⇒ 本轮 66 文件逐字节一致）。
+patches/h5/h5-file-open-patch1.patch

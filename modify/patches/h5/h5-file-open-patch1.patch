@@ -1,0 +1,3336 @@
+diff --git a/desktop/src/components/chat/AssistantMessage.filepaths.test.tsx b/desktop/src/components/chat/AssistantMessage.filepaths.test.tsx
+index 54cd45ee..7b1cff17 100644
+--- a/desktop/src/components/chat/AssistantMessage.filepaths.test.tsx
++++ b/desktop/src/components/chat/AssistantMessage.filepaths.test.tsx
+@@ -60,7 +60,8 @@ vi.mock('@tauri-apps/plugin-shell', () => ({ open: vi.fn().mockResolvedValue(und
+ 
+ const openPath = vi.hoisted(() => vi.fn().mockResolvedValue(undefined))
+ vi.mock('../../lib/desktopHost', () => ({
+-  getDesktopHost: () => ({ shell: { openPath } }),
++  // A desktop runtime: these cases are about what reaches the system app.
++  getDesktopHost: () => ({ capabilities: { shell: true }, shell: { openPath } }),
+ }))
+ 
+ vi.mock('../../i18n', () => ({
+@@ -92,19 +93,19 @@ describe('AssistantMessage file references', () => {
+     // #1146, and the contract src/constants/prompts.ts already asks the model for.
+     render(<AssistantMessage sessionId="s1" content={'越界在 desktop/src/lib/foo.ts:42'} isStreaming={false} />)
+     fireEvent.click(screen.getByRole('link', { name: 'desktop/src/lib/foo.ts:42' }))
+-    expect(openPreviewFn).toHaveBeenCalledWith('s1', 'desktop/src/lib/foo.ts', { line: 42 })
++    expect(openPreviewFn).toHaveBeenCalledWith('s1', 'desktop/src/lib/foo.ts', { line: 42, requestedBy: 'user' })
+   })
+ 
+   it('opens an inline-code reference through the same route', () => {
+     render(<AssistantMessage sessionId="s1" content={'改 `src/app.ts:7`'} isStreaming={false} />)
+     fireEvent.click(screen.getByRole('link', { name: 'src/app.ts:7' }))
+-    expect(openPreviewFn).toHaveBeenCalledWith('s1', 'src/app.ts', { line: 7 })
++    expect(openPreviewFn).toHaveBeenCalledWith('s1', 'src/app.ts', { line: 7, requestedBy: 'user' })
+   })
+ 
+   it('opens a source reference under the explicitly declared project root', () => {
+     render(<AssistantMessage sessionId="s1" content={'项目根目录是 `/other/promo/`：\n- `src/lib/shots.ts:7`'} />)
+     fireEvent.click(screen.getByRole('link', { name: 'src/lib/shots.ts:7' }))
+-    expect(openPreviewFn).toHaveBeenCalledWith('s1', '/other/promo/src/lib/shots.ts', { line: 7 })
++    expect(openPreviewFn).toHaveBeenCalledWith('s1', '/other/promo/src/lib/shots.ts', { line: 7, requestedBy: 'user' })
+   })
+ 
+   it('uses the declared root for prose context menus and copy path', async () => {
+@@ -127,20 +128,31 @@ describe('AssistantMessage file references', () => {
+     const { container } = render(<AssistantMessage sessionId="s1" content={content} turnChangedFiles={turnChangedFiles} />)
+     expect(container.querySelectorAll('video')).toHaveLength(1)
+     expect(container.querySelector('video')).toHaveAttribute('src', 'http://127.0.0.1:4321/local-file/other/promo/out/movie.mp4')
++    // Audio plays in the workspace now, so both the card and the prose open the
++    // preview rather than handing the file to the system application — which on
++    // the H5 surface meant the *server's* application.
+     fireEvent.click(screen.getByText('track.wav').closest('button')!)
+-    await waitFor(() => expect(openPath).toHaveBeenCalledWith('/other/promo/public/audio/track.wav'))
+-    openPath.mockClear()
++    await waitFor(() => expect(openPreviewFn).toHaveBeenCalledWith(
++      's1', '/other/promo/public/audio/track.wav', { requestedBy: 'user' },
++    ))
++    openPreviewFn.mockClear()
+     fireEvent.click(screen.getByRole('link', { name: 'public/audio/track.wav' }))
+-    await waitFor(() => expect(openPath).toHaveBeenCalledWith('/other/promo/public/audio/track.wav'))
++    await waitFor(() => expect(openPreviewFn).toHaveBeenCalledWith(
++      's1', '/other/promo/public/audio/track.wav', { requestedBy: 'user' },
++    ))
+   })
+ 
+   it('keeps prose and card destinations equal when the project root is stated later', async () => {
+     render(<AssistantMessage sessionId="s1" content={'`track.wav`\n\n项目根目录是 `/other/promo/`'} />)
+     fireEvent.click(screen.getByRole('link', { name: 'track.wav' }))
+-    await waitFor(() => expect(openPath).toHaveBeenLastCalledWith('/other/promo/track.wav'))
+-    openPath.mockClear()
++    await waitFor(() => expect(openPreviewFn).toHaveBeenLastCalledWith(
++      's1', '/other/promo/track.wav', { requestedBy: 'user' },
++    ))
++    openPreviewFn.mockClear()
+     fireEvent.click(screen.getByText('track.wav', { selector: 'span' }).closest('button')!)
+-    await waitFor(() => expect(openPath).toHaveBeenLastCalledWith('/other/promo/track.wav'))
++    await waitFor(() => expect(openPreviewFn).toHaveBeenLastCalledWith(
++      's1', '/other/promo/track.wav', { requestedBy: 'user' },
++    ))
+   })
+ 
+   it('does not linkify a bare path mid-stream', () => {
+diff --git a/desktop/src/components/chat/AssistantMessage.images.test.tsx b/desktop/src/components/chat/AssistantMessage.images.test.tsx
+index 25953277..015bc7d1 100644
+--- a/desktop/src/components/chat/AssistantMessage.images.test.tsx
++++ b/desktop/src/components/chat/AssistantMessage.images.test.tsx
+@@ -24,6 +24,9 @@ vi.mock('../../lib/desktopRuntime', async (orig) => ({
+   getServerBaseUrl: () => 'http://127.0.0.1:4321',
+ }))
+ vi.mock('../../lib/systemFileOpen', () => ({
++  // Desktop default: this suite asserts what a runtime with a system shell offers.
++  canOpenWithSystem: () => true,
++  openFileWithSystemOrOfferSave: vi.fn(),
+   openLocalFileWithSystem: vi.fn().mockResolvedValue(undefined),
+   reportOpenFailure: vi.fn(),
+ }))
+diff --git a/desktop/src/components/chat/AssistantMessage.linkrouting.test.tsx b/desktop/src/components/chat/AssistantMessage.linkrouting.test.tsx
+index 3149508a..e625f5a4 100644
+--- a/desktop/src/components/chat/AssistantMessage.linkrouting.test.tsx
++++ b/desktop/src/components/chat/AssistantMessage.linkrouting.test.tsx
+@@ -63,7 +63,7 @@ describe('AssistantMessage link routing', () => {
+     render(<AssistantMessage sessionId="s1" content={'打开 [预览](http://localhost:5173/)'} />)
+     // The clickable element is the rendered markdown anchor (the card title is a span).
+     fireEvent.click(screen.getByRole('link', { name: '预览' }))
+-    expect(openBrowser).toHaveBeenCalledWith('s1', 'http://localhost:5173/')
++    expect(openBrowser).toHaveBeenCalledWith('s1', 'http://localhost:5173/', { requestedBy: 'user' })
+   })
+ 
+   // #1145. Every case above this one leaves a space on both sides of the URL,
+@@ -79,7 +79,7 @@ describe('AssistantMessage link routing', () => {
+       />,
+     )
+     fireEvent.click(screen.getByRole('link', { name: 'http://localhost:5173' }))
+-    expect(openBrowser).toHaveBeenCalledWith('s1', 'http://localhost:5173/')
++    expect(openBrowser).toHaveBeenCalledWith('s1', 'http://localhost:5173/', { requestedBy: 'user' })
+   })
+ 
+   it('opens a clean URL when Han characters run straight into the link', () => {
+@@ -91,7 +91,7 @@ describe('AssistantMessage link routing', () => {
+       />,
+     )
+     fireEvent.click(screen.getByRole('link', { name: 'http://localhost:3000' }))
+-    expect(openBrowser).toHaveBeenCalledWith('s1', 'http://localhost:3000/')
++    expect(openBrowser).toHaveBeenCalledWith('s1', 'http://localhost:3000/', { requestedBy: 'user' })
+   })
+ 
+   it('routes an inline-code URL through the same preview handler', () => {
+@@ -103,7 +103,7 @@ describe('AssistantMessage link routing', () => {
+       />,
+     )
+     fireEvent.click(screen.getByRole('link', { name: 'http://localhost:3000' }))
+-    expect(openBrowser).toHaveBeenCalledWith('s1', 'http://localhost:3000/')
++    expect(openBrowser).toHaveBeenCalledWith('s1', 'http://localhost:3000/', { requestedBy: 'user' })
+   })
+ })
+ 
+diff --git a/desktop/src/components/chat/AssistantOutputTargetCard.test.tsx b/desktop/src/components/chat/AssistantOutputTargetCard.test.tsx
+index a63625ba..e7c3dc2e 100644
+--- a/desktop/src/components/chat/AssistantOutputTargetCard.test.tsx
++++ b/desktop/src/components/chat/AssistantOutputTargetCard.test.tsx
+@@ -107,13 +107,13 @@ describe('AssistantOutputTargetCard', () => {
+     fireEvent.click(screen.getByLabelText('assistantOutputs.open'))
+     // The trailing args are openPreview's optional `origin` and `reveal` (#1146);
+     // a card has no line number to reveal, hence undefined.
+-    expect(openPreviewFn).toHaveBeenCalledWith('s1', 'docs/readme.md', {})
++    expect(openPreviewFn).toHaveBeenCalledWith('s1', 'docs/readme.md', { requestedBy: 'user' })
+   })
+ 
+   it('routes Open to the in-app browser for a localhost target', () => {
+     render(<AssistantOutputTargetCard target={localhostTarget} sessionId="s1" />)
+     fireEvent.click(screen.getByLabelText('assistantOutputs.open'))
+-    expect(openBrowser).toHaveBeenCalledWith('s1', 'http://localhost:5173/')
++    expect(openBrowser).toHaveBeenCalledWith('s1', 'http://localhost:5173/', { requestedBy: 'user' })
+   })
+ 
+   // The trailing icon button is a discoverability affordance, not the hit area:
+@@ -121,14 +121,14 @@ describe('AssistantOutputTargetCard', () => {
+   it('opens the workspace preview when the row body is clicked', () => {
+     render(<AssistantOutputTargetCard target={markdownTarget} sessionId="s1" />)
+     fireEvent.click(screen.getByText('readme.md'))
+-    expect(openPreviewFn).toHaveBeenCalledWith('s1', 'docs/readme.md', {})
++    expect(openPreviewFn).toHaveBeenCalledWith('s1', 'docs/readme.md', { requestedBy: 'user' })
+   })
+ 
+   it('opens the in-app browser when a localhost row body is clicked', () => {
+     render(<AssistantOutputTargetCard target={localhostTarget} sessionId="s1" />)
+     // The badge sits inside the row body too — clicking it is not a dead zone.
+     fireEvent.click(screen.getByText('assistantOutputs.kind.localhost'))
+-    expect(openBrowser).toHaveBeenCalledWith('s1', 'http://localhost:5173/')
++    expect(openBrowser).toHaveBeenCalledWith('s1', 'http://localhost:5173/', { requestedBy: 'user' })
+   })
+ 
+   it('exposes the row body as a pointer-cursor button, since button cursors default to the arrow', () => {
+diff --git a/desktop/src/components/chat/AttachmentGallery.tsx b/desktop/src/components/chat/AttachmentGallery.tsx
+index 271cb37c..b4d8d646 100644
+--- a/desktop/src/components/chat/AttachmentGallery.tsx
++++ b/desktop/src/components/chat/AttachmentGallery.tsx
+@@ -136,6 +136,7 @@ export function AttachmentGallery({ attachments, variant = 'message', onRemove }
+         { kind: 'file', absolutePath: attachment.path! },
+         targets,
+         {
++          systemOpenAvailable: desktopHost.capabilities.shell,
+           openInAppBrowser: () => {},
+           openSystem: (path) => {
+             void desktopHost.shell.openPath(path).catch(() => showOpenFailure(attachment.name))
+diff --git a/desktop/src/components/chat/CurrentTurnChangeCard.test.tsx b/desktop/src/components/chat/CurrentTurnChangeCard.test.tsx
+index f206172d..bd189632 100644
+--- a/desktop/src/components/chat/CurrentTurnChangeCard.test.tsx
++++ b/desktop/src/components/chat/CurrentTurnChangeCard.test.tsx
+@@ -6,7 +6,7 @@ import { act, useState } from 'react'
+ // ──────────────────────────────────────────────────────────────────────────────
+ // Hoisted mocks (vi.hoisted runs before module evaluation)
+ // ──────────────────────────────────────────────────────────────────────────────
+-const { reviewOpenSpy, openPreviewSpy, browserOpenSpy, openTargetSpy, ensureTargetsMock, getTargetsForPathMock, openSystemFileSpy, panelState } = vi.hoisted(() => {
++const { reviewOpenSpy, openPreviewSpy, browserOpenSpy, openTargetSpy, ensureTargetsMock, getTargetsForPathMock, openSystemFileSpy, openOutsideWorkspaceSpy, panelState, shell } = vi.hoisted(() => {
+   const reviewOpenSpy = vi.fn()
+   const openPreviewSpy = vi.fn().mockResolvedValue(undefined)
+   const browserOpenSpy = vi.fn()
+@@ -17,8 +17,10 @@ const { reviewOpenSpy, openPreviewSpy, browserOpenSpy, openTargetSpy, ensureTarg
+     { id: 'system-default', kind: 'system_default', label: 'System default', icon: '', platform: 'darwin' },
+   ])
+   const openSystemFileSpy = vi.fn().mockResolvedValue(undefined)
++  const openOutsideWorkspaceSpy = vi.fn()
+   const panelState = { isOpen: false }
+-  return { reviewOpenSpy, openPreviewSpy, browserOpenSpy, openTargetSpy, ensureTargetsMock, getTargetsForPathMock, openSystemFileSpy, panelState }
++  const shell = { available: true }
++  return { reviewOpenSpy, openPreviewSpy, browserOpenSpy, openTargetSpy, ensureTargetsMock, getTargetsForPathMock, openSystemFileSpy, openOutsideWorkspaceSpy, panelState, shell }
+ })
+ 
+ // Mock openTargetStore
+@@ -71,13 +73,24 @@ vi.mock('../../lib/desktopRuntime', () => ({
+ }))
+ 
+ vi.mock('../../lib/systemFileOpen', () => ({
+-  openLocalFileWithSystem: openSystemFileSpy,
++  // The card does not decide how a file opens any more: it hands the path to the
++  // shared opener, which owns the "no system application here" answer (the save
++  // dialog). What this suite asserts is that the path reaches it.
++  //
++  // A desktop runtime, because the outside-workspace cases below assert the
++  // in-app-browser branch, which only the shell-bearing runtime takes.
++  canOpenWithSystem: () => shell.available,
++  openFileWithSystemOrOfferSave: openSystemFileSpy,
+   resolveAbsoluteOpenPath: (path: string, workDir?: string) => (
+     path.startsWith('/') || !workDir ? path : `${workDir}/${path}`
+   ),
+ }))
+ 
+ // Mock useTranslation: returns identity-ish t function
++vi.mock('../../lib/openOutsideWorkspaceFile', () => ({
++  openFileOutsideWorkspace: openOutsideWorkspaceSpy,
++}))
++
+ vi.mock('../../i18n', () => ({
+   useTranslation: () => (key: string, params?: Record<string, string | number>) => {
+     if (params) {
+@@ -230,6 +243,7 @@ describe('CurrentTurnChangeCard – rich file row (icon / name / type)', () => {
+     ensureTargetsMock.mockResolvedValue(undefined)
+     openPreviewSpy.mockResolvedValue(undefined)
+     panelState.isOpen = false
++    shell.available = true
+   })
+ 
+   it('renders the filename (not just full path) for each file', () => {
+@@ -351,6 +365,7 @@ describe('CurrentTurnChangeCard – rich file row (icon / name / type)', () => {
+ describe('CurrentTurnChangeCard – row opens the workspace diff', () => {
+   beforeEach(() => {
+     vi.clearAllMocks()
++    shell.available = true
+     ensureTargetsMock.mockResolvedValue(undefined)
+     openPreviewSpy.mockResolvedValue(undefined)
+   })
+@@ -371,6 +386,23 @@ describe('CurrentTurnChangeCard – row opens the workspace diff', () => {
+     expect(openPreviewSpy).toHaveBeenCalledWith('s1', 'README.md', 'diff', expect.objectContaining({ sourceTurnKey: 'msg-1' }))
+   })
+ 
++  it('settles an outside-workspace click by size and reachability when there is no system app', () => {
++    // The reported bug: this used to open a tab the workspace route refused (so
++    // the click was dead) or hand the file to an application on the server.
++    shell.available = false
++    renderExpandedCard(['/other/place/notes.md'])
++    const row = screen.getByRole('button', { name: /turnChangesOpenInWorkspaceAria/ })
++
++    fireEvent.click(row)
++
++    expect(openOutsideWorkspaceSpy).toHaveBeenCalledWith(expect.objectContaining({
++      sessionId: 's1',
++      absolutePath: '/other/place/notes.md',
++      displayPath: '/other/place/notes.md',
++    }))
++    expect(openSystemFileSpy).not.toHaveBeenCalled()
++  })
++
+   it('clicking an outside-workspace html changed file opens the in-app browser via local-file', () => {
+     // The file lives outside the workdir (absolute displayPath) — no diff baseline,
+     // so html renders directly in the in-app browser via the /local-file route.
+@@ -410,6 +442,7 @@ describe('CurrentTurnChangeCard – row opens the workspace diff', () => {
+ describe('CurrentTurnChangeCard – a document the workspace can draw', () => {
+   beforeEach(() => {
+     vi.clearAllMocks()
++    shell.available = true
+     openPreviewSpy.mockResolvedValue(undefined)
+   })
+ 
+@@ -482,6 +515,7 @@ describe('CurrentTurnChangeCard – a document the workspace can draw', () => {
+ describe('CurrentTurnChangeCard – open-with buttons', () => {
+   beforeEach(() => {
+     vi.clearAllMocks()
++    shell.available = true
+     ensureTargetsMock.mockResolvedValue(undefined)
+     openPreviewSpy.mockResolvedValue(undefined)
+   })
+@@ -637,6 +671,7 @@ describe('CurrentTurnChangeCard – open-with buttons', () => {
+ describe('CurrentTurnChangeCard – conversation continuity', () => {
+   beforeEach(() => {
+     vi.clearAllMocks()
++    shell.available = true
+     panelState.isOpen = false
+     openPreviewSpy.mockImplementation(async () => {
+       panelState.isOpen = true
+@@ -667,6 +702,7 @@ describe('CurrentTurnChangeCard – conversation continuity', () => {
+ describe('CurrentTurnChangeCard – collapse long file lists', () => {
+   beforeEach(() => {
+     vi.clearAllMocks()
++    shell.available = true
+     ensureTargetsMock.mockResolvedValue(undefined)
+     openPreviewSpy.mockResolvedValue(undefined)
+   })
+diff --git a/desktop/src/components/chat/CurrentTurnChangeCard.tsx b/desktop/src/components/chat/CurrentTurnChangeCard.tsx
+index 6e69717c..2a418c5e 100644
+--- a/desktop/src/components/chat/CurrentTurnChangeCard.tsx
++++ b/desktop/src/components/chat/CurrentTurnChangeCard.tsx
+@@ -15,7 +15,8 @@ import { getServerBaseUrl } from '../../lib/desktopRuntime'
+ import { useOpenTargetStore } from '../../stores/openTargetStore'
+ import { workspaceOpen } from '../../lib/workspace/openTarget'
+ import { isWorkspaceDocumentFile, isWorkspacePreviewableFile } from '../../lib/fileCapabilities'
+-import { openLocalFileWithSystem, reportOpenFailure } from '../../lib/systemFileOpen'
++import { canOpenWithSystem, openFileWithSystemOrOfferSave } from '../../lib/systemFileOpen'
++import { openFileOutsideWorkspace } from '../../lib/openOutsideWorkspaceFile'
+ 
+ type CurrentTurnChangeCardProps = {
+   sessionId: string
+@@ -79,26 +80,38 @@ export function CurrentTurnChangeCard({
+       sourceTurnKey: renderItem?.dataset.chatRenderItemKey ?? checkpoint.target.targetUserMessageId,
+       sourceElementId: event.currentTarget.id,
+     }
++    // A changed file outside the workdir (absolute displayPath — e.g. another
++    // drive) is its own case on a runtime with no system application: the
++    // workspace route may refuse it, and there is no application to hand it to
++    // instead. Size and reachability decide between a preview and an explanation.
++    const outsideWorkspace = isAbsoluteLocalPath(fileEntry.displayPath)
++    if (outsideWorkspace && !canOpenWithSystem()) {
++      openFileOutsideWorkspace({
++        sessionId,
++        absolutePath: fileEntry.apiPath,
++        displayPath: fileEntry.displayPath,
++        origin,
++      })
++      return
++    }
+     if (!isWorkspacePreviewableFile(fileEntry.displayPath)) {
+-      void openLocalFileWithSystem(fileEntry.apiPath).catch(() => reportOpenFailure(fileEntry.apiPath))
++      openFileWithSystemOrOfferSave(fileEntry.apiPath)
+       return
+     }
+-    // A changed file outside the workdir (absolute displayPath — e.g. another
+-    // drive) has no checkpoint baseline, so a diff is meaningless. Render html in
+-    // the in-app browser and everything else as a file preview (served by its
+-    // absolute path). In-workdir files keep the diff view.
+-    if (isAbsoluteLocalPath(fileEntry.displayPath)) {
++    // Render html in the in-app browser and everything else as a file preview
++    // (served by its absolute path). In-workdir files keep the diff view.
++    if (outsideWorkspace) {
+       if (shouldOfferStaticHtmlPreview(fileEntry.displayPath, { siblingFiles: files.map((entry) => entry.displayPath) })) {
+-        workspaceOpen.browser(sessionId, localFileUrl(getServerBaseUrl(), fileEntry.apiPath), { origin })
++        workspaceOpen.browser(sessionId, localFileUrl(getServerBaseUrl(), fileEntry.apiPath), { origin, requestedBy: 'user' })
+         return
+       }
+-      workspaceOpen.file(sessionId, fileEntry.displayPath, { origin })
++      workspaceOpen.file(sessionId, fileEntry.displayPath, { origin, requestedBy: 'user' })
+       return
+     }
+     // A document has no line diff: the turn's recorded change for it is empty, so
+     // the review view would open onto nothing. What was asked for is the document.
+     if (isWorkspaceDocumentFile(fileEntry.displayPath)) {
+-      workspaceOpen.file(sessionId, fileEntry.displayPath, { origin })
++      workspaceOpen.file(sessionId, fileEntry.displayPath, { origin, requestedBy: 'user' })
+       return
+     }
+     // Jump to the right-side workspace and show this turn's own recorded change
+@@ -109,6 +122,7 @@ export function CurrentTurnChangeCard({
+       source: { kind: 'turn', turnKey: checkpoint.target.targetUserMessageId ?? '', userMessageIndex: checkpoint.target.userMessageIndex },
+       path: fileEntry.displayPath,
+       origin,
++      requestedBy: 'user',
+     })
+   }, [checkpoint.target.targetUserMessageId, checkpoint.target.userMessageIndex, sessionId, files])
+ 
+diff --git a/desktop/src/components/chat/ImageGalleryModal.test.tsx b/desktop/src/components/chat/ImageGalleryModal.test.tsx
+index eb899ae4..7e3d5ee0 100644
+--- a/desktop/src/components/chat/ImageGalleryModal.test.tsx
++++ b/desktop/src/components/chat/ImageGalleryModal.test.tsx
+@@ -9,6 +9,9 @@ import { useOverlayStore } from '../../stores/overlayStore'
+ import { useSettingsStore } from '../../stores/settingsStore'
+ 
+ vi.mock('../../lib/systemFileOpen', () => ({
++  // Desktop default: this suite asserts what a runtime with a system shell offers.
++  canOpenWithSystem: () => true,
++  openFileWithSystemOrOfferSave: vi.fn(),
+   openLocalFileWithSystem: vi.fn().mockResolvedValue(undefined),
+   reportOpenFailure: vi.fn(),
+ }))
+diff --git a/desktop/src/components/chat/MessageList.test.tsx b/desktop/src/components/chat/MessageList.test.tsx
+index 7273c761..fffc903f 100644
+--- a/desktop/src/components/chat/MessageList.test.tsx
++++ b/desktop/src/components/chat/MessageList.test.tsx
+@@ -6202,7 +6202,7 @@ describe('MessageList nested tool calls', () => {
+     expect(within(fallback).getByText(/too long for turn previews or file undo/)).toBeTruthy()
+     expect(within(fallback).getByText(/current workspace changes/)).toBeTruthy()
+     fireEvent.click(within(fallback).getByRole('button', { name: 'Open current content of qa-status.txt' }))
+-    expect(openFile).toHaveBeenCalledWith(ACTIVE_TAB, 'qa-status.txt')
++    expect(openFile).toHaveBeenCalledWith(ACTIVE_TAB, 'qa-status.txt', { requestedBy: 'user' })
+     expect(openReview).not.toHaveBeenCalled()
+     expect(rewind).not.toHaveBeenCalled()
+     expect(screen.queryByLabelText('Turn changed files')).toBeNull()
+diff --git a/desktop/src/components/chat/WorkspaceChangesFallback.test.tsx b/desktop/src/components/chat/WorkspaceChangesFallback.test.tsx
+index e81544ae..91039cc9 100644
+--- a/desktop/src/components/chat/WorkspaceChangesFallback.test.tsx
++++ b/desktop/src/components/chat/WorkspaceChangesFallback.test.tsx
+@@ -26,7 +26,7 @@ describe('WorkspaceChangesFallback', () => {
+     const opener = within(region).getByRole('button', { name: 'Open current content of src/retained.ts' })
+     expect(opener).toHaveClass('focus-visible:ring-2')
+     fireEvent.click(opener)
+-    expect(workspaceOpen.file).toHaveBeenCalledWith('long-session', 'src/retained.ts')
++    expect(workspaceOpen.file).toHaveBeenCalledWith('long-session', 'src/retained.ts', { requestedBy: 'user' })
+     expect(workspaceOpen.review).not.toHaveBeenCalled()
+     expect(within(region).getAllByRole('button')).toHaveLength(1)
+   })
+@@ -41,7 +41,7 @@ describe('WorkspaceChangesFallback', () => {
+     expect(showMore).toHaveAttribute('aria-expanded', 'false')
+     fireEvent.click(showMore)
+     fireEvent.click(screen.getByRole('button', { name: 'Open current content of file-7.txt' }))
+-    expect(workspaceOpen.file).toHaveBeenCalledWith('long-session', 'file-7.txt')
++    expect(workspaceOpen.file).toHaveBeenCalledWith('long-session', 'file-7.txt', { requestedBy: 'user' })
+     fireEvent.click(screen.getByRole('button', { name: 'Show less' }))
+     expect(screen.queryByRole('button', { name: 'Open current content of file-7.txt' })).not.toBeInTheDocument()
+   })
+diff --git a/desktop/src/components/chat/WorkspaceChangesFallback.tsx b/desktop/src/components/chat/WorkspaceChangesFallback.tsx
+index 00d61d23..f2d9c87d 100644
+--- a/desktop/src/components/chat/WorkspaceChangesFallback.tsx
++++ b/desktop/src/components/chat/WorkspaceChangesFallback.tsx
+@@ -50,7 +50,7 @@ export function WorkspaceChangesFallback({ sessionId, files }: WorkspaceChangesF
+                 type="button"
+                 aria-label={t('chat.workspaceChangesFallbackOpenFile', { path: file.path })}
+                 title={file.path}
+-                onClick={() => workspaceOpen.file(sessionId, file.path)}
++                onClick={() => workspaceOpen.file(sessionId, file.path, { requestedBy: 'user' })}
+                 className="flex min-h-[44px] w-full min-w-0 items-center gap-3 rounded-[var(--radius-md)] px-3 text-left transition-colors hover:bg-[var(--color-surface-hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--color-border-focus)]"
+               >
+                 <FileTypeIcon path={file.path} size={20} />
+diff --git a/desktop/src/components/layout/AppShell.tsx b/desktop/src/components/layout/AppShell.tsx
+index 9de332e4..cac78239 100644
+--- a/desktop/src/components/layout/AppShell.tsx
++++ b/desktop/src/components/layout/AppShell.tsx
+@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type HTMLAttributes
+ import { Sidebar } from './Sidebar'
+ import { ContentRouter } from './ContentRouter'
+ import { ToastContainer } from '@/components/layout/Toast'
++import { FileUnavailableDialog } from '@/components/layout/FileUnavailableDialog'
+ import { UpdateChecker } from '@/components/layout/UpdateChecker'
+ import { StatusDot } from '@/components/ui/Badge'
+ import { IconButton } from '@/components/ui/IconButton'
+@@ -342,6 +343,7 @@ export function AppShell() {
+           <TraceList />
+         )}
+         <ToastContainer />
++        <FileUnavailableDialog />
+       </div>
+     )
+   }
+@@ -477,6 +479,7 @@ export function AppShell() {
+         </WorkspaceHeaderProvider>
+       </main>
+       <ToastContainer />
++      <FileUnavailableDialog />
+       <UpdateChecker />
+     </div>
+   )
+diff --git a/desktop/src/components/layout/FileUnavailableDialog.test.tsx b/desktop/src/components/layout/FileUnavailableDialog.test.tsx
+new file mode 100644
+index 00000000..60f76ea7
+--- /dev/null
++++ b/desktop/src/components/layout/FileUnavailableDialog.test.tsx
+@@ -0,0 +1,110 @@
++import '@testing-library/jest-dom/vitest'
++import { fireEvent, render, screen } from '@testing-library/react'
++import { beforeEach, describe, expect, it, vi } from 'vitest'
++import { useSettingsStore } from '@/stores/settingsStore'
++import { useUIStore } from '@/stores/uiStore'
++import { FileUnavailableDialog } from './FileUnavailableDialog'
++
++const download = vi.hoisted(() => vi.fn())
++vi.mock('@/lib/handlePreviewLink', async (importOriginal) => ({
++  ...(await importOriginal<typeof import('@/lib/handlePreviewLink')>()),
++  downloadLocalFile: download,
++}))
++
++beforeEach(() => {
++  useSettingsStore.setState({ locale: 'en' })
++  download.mockReset()
++  useUIStore.setState({ unavailableFile: null })
++})
++
++describe('FileUnavailableDialog', () => {
++  it('stays out of the way until there is something to explain', () => {
++    render(<FileUnavailableDialog />)
++
++    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
++  })
++
++  it('names the file and offers the save that still gets it onto the device', () => {
++    useUIStore.setState({
++      unavailableFile: {
++        absolutePath: '/w/out/launch.pptx',
++        name: 'launch.pptx',
++        reason: 'no-viewer',
++        canDownload: true,
++      },
++    })
++    render(<FileUnavailableDialog />)
++
++    expect(screen.getByRole('dialog', { name: 'Can’t open in the page' })).toBeInTheDocument()
++    expect(screen.getByText(/launch\.pptx/)).toBeInTheDocument()
++
++    fireEvent.click(screen.getByRole('button', { name: 'Download' }))
++
++    expect(download).toHaveBeenCalledWith('/w/out/launch.pptx')
++    // Dismissed from the same action that saved it: an open dialog over a file
++    // the user already dealt with is just in the way.
++    expect(useUIStore.getState().unavailableFile).toBeNull()
++  })
++
++  it('closes without saving', () => {
++    useUIStore.setState({
++      unavailableFile: {
++        absolutePath: '/w/a.zip',
++        name: 'a.zip',
++        reason: 'no-viewer',
++        canDownload: true,
++      },
++    })
++    render(<FileUnavailableDialog />)
++
++    fireEvent.click(screen.getByRole('button', { name: 'Close' }))
++
++    expect(download).not.toHaveBeenCalled()
++    expect(useUIStore.getState().unavailableFile).toBeNull()
++  })
++
++  it('gives the size when the file was too large, not a bare refusal', () => {
++    useUIStore.setState({
++      unavailableFile: {
++        absolutePath: '/w/huge.bin',
++        name: 'huge.bin',
++        reason: 'too-large',
++        size: 24 * 1024 * 1024,
++        canDownload: true,
++      },
++    })
++    render(<FileUnavailableDialog />)
++
++    expect(screen.getByText(/24 MB/)).toBeInTheDocument()
++  })
++
++  it('says a file is outside the workspace rather than that nothing can draw it', () => {
++    useUIStore.setState({
++      unavailableFile: {
++        absolutePath: '/elsewhere/notes.md',
++        name: 'notes.md',
++        reason: 'outside-workspace',
++        canDownload: true,
++      },
++    })
++    render(<FileUnavailableDialog />)
++
++    expect(screen.getByText(/outside the workspace/)).toBeInTheDocument()
++    expect(screen.getByRole('button', { name: 'Download' })).toBeInTheDocument()
++  })
++
++  it('offers no save for a path the server cannot serve, since it could only fail', () => {
++    useUIStore.setState({
++      unavailableFile: {
++        absolutePath: '/var/secret.txt',
++        name: 'secret.txt',
++        reason: 'outside-workspace',
++        canDownload: false,
++      },
++    })
++    render(<FileUnavailableDialog />)
++
++    expect(screen.queryByRole('button', { name: 'Download' })).not.toBeInTheDocument()
++    expect(screen.getByRole('button', { name: 'Close' })).toBeInTheDocument()
++  })
++})
+diff --git a/desktop/src/components/layout/FileUnavailableDialog.tsx b/desktop/src/components/layout/FileUnavailableDialog.tsx
+new file mode 100644
+index 00000000..6fbf9150
+--- /dev/null
++++ b/desktop/src/components/layout/FileUnavailableDialog.tsx
+@@ -0,0 +1,71 @@
++import { ActionDialog } from '@/components/ui/ActionDialog'
++import { useTranslation, type TranslationKey } from '@/i18n'
++import { formatBytes } from '@/lib/formatBytes'
++import { downloadLocalFile } from '@/lib/handlePreviewLink'
++import { useUIStore, type UnavailableFile } from '@/stores/uiStore'
++
++/**
++ * The way out when the user asked to open a file this runtime cannot open.
++ *
++ * Only the runtimes without a system shell reach it: there the file used to be
++ * launched on the *server's* desktop, which is where nobody was looking. A save
++ * to the device is the one action that still gets the user the file, so it is the
++ * action offered when it can work.
++ *
++ * Which reason it gives is the useful part — "too large", "outside the workspace"
++ * and "nothing here can draw this" are three different situations, and a single
++ * "could not open" would leave the user guessing which one they hit.
++ *
++ * Mounted once per shell, beside the toasts — see `AppShell`.
++ */
++export function FileUnavailableDialog() {
++  const t = useTranslation()
++  const file = useUIStore((state) => state.unavailableFile)
++  const dismiss = useUIStore((state) => state.dismissFileUnavailable)
++
++  return (
++    <ActionDialog
++      open={file !== null}
++      onClose={dismiss}
++      title={t('workspace.fileUnavailable.title')}
++      body={t(bodyKeyFor(file), bodyVarsFor(file))}
++      actions={[
++        ...(file?.canDownload
++          ? [{
++              label: t('workspace.download'),
++              variant: 'primary' as const,
++              onClick: () => {
++                downloadLocalFile(file.absolutePath)
++                dismiss()
++              },
++            }]
++          : []),
++        { label: t('common.close'), onClick: dismiss },
++      ]}
++    />
++  )
++}
++
++/** The message is chosen by *why* it could not be opened, not by the file's kind. */
++function bodyKeyFor(file: UnavailableFile | null): TranslationKey {
++  switch (file?.reason) {
++    case 'too-large':
++      return 'workspace.fileUnavailable.tooLargeBody'
++    case 'outside-workspace':
++      // A path the server will not serve cannot be saved either, so it says that
++      // instead of offering a download that is certain to fail.
++      return file.canDownload
++        ? 'workspace.fileUnavailable.outsideBody'
++        : 'workspace.fileUnavailable.unreachableBody'
++    default:
++      return 'workspace.fileUnavailable.body'
++  }
++}
++
++function bodyVarsFor(file: UnavailableFile | null): Record<string, string> {
++  const vars: Record<string, string> = { name: file?.name ?? '' }
++  if (file?.reason === 'too-large' && typeof file.size === 'number') {
++    vars.size = formatBytes(file.size)
++  }
++  return vars
++}
+diff --git a/desktop/src/components/workbench/WorkspaceFileTab.test.tsx b/desktop/src/components/workbench/WorkspaceFileTab.test.tsx
+index 3ecf91a7..a7a29fec 100644
+--- a/desktop/src/components/workbench/WorkspaceFileTab.test.tsx
++++ b/desktop/src/components/workbench/WorkspaceFileTab.test.tsx
+@@ -102,7 +102,13 @@ vi.mock('../workspace/surfaces/document/DocumentSurface', () => ({
+ 
+ vi.mock('../../lib/systemFileOpen', async (importOriginal) => ({
+   ...(await importOriginal<typeof import('../../lib/systemFileOpen')>()),
+-  openLocalFileWithSystem: vi.fn().mockResolvedValue(undefined),
++  // Desktop default: this suite asserts what a runtime with a system shell offers.
++  canOpenWithSystem: () => true,
++  openFileWithSystemOrOfferSave: vi.fn(),
++}))
++
++vi.mock('../workspace/surfaces/MediaSurface', () => ({
++  MediaSurface: ({ path }: { path: string }) => <div data-testid="media-surface">{path}</div>,
+ }))
+ 
+ vi.mock('../workspace/surfaces/MarkdownSurface', () => ({
+@@ -127,7 +133,7 @@ vi.mock('../workspace/WorkspaceFileOpenWith', () => ({
+ }))
+ 
+ import { WorkspaceFileTab } from './WorkspaceFileTab'
+-import { openLocalFileWithSystem } from '../../lib/systemFileOpen'
++import { openFileWithSystemOrOfferSave } from '../../lib/systemFileOpen'
+ import { useSettingsStore } from '../../stores/settingsStore'
+ import { useWorkspaceChatContextStore } from '../../stores/workspaceChatContextStore'
+ import { useWorkspaceContentStore, type WorkspaceFileEntry } from '../../stores/workspaceContentStore'
+@@ -244,6 +250,35 @@ describe('content states', () => {
+     expect(screen.queryByTestId('code-surface')).toBeNull()
+   })
+ 
++  it('says the file is only partly shown when the server truncated it', () => {
++    seedEntry('src/a.ts', {
++      state: 'ok',
++      content: 'export const value = 1',
++      language: 'typescript',
++      truncated: true,
++      size: 5 * 1024 * 1024,
++    })
++    renderTab('src/a.ts')
++
++    // Said above the content, because everything below it is only the head.
++    expect(screen.getByRole('status')).toHaveTextContent('5 MB')
++    expect(screen.getByTestId('code-surface')).toBeInTheDocument()
++  })
++
++  it('leaves a whole file unremarked', () => {
++    seedEntry('src/a.ts', { state: 'ok', content: 'export const value = 1', truncated: false, size: 25 })
++    renderTab('src/a.ts')
++
++    expect(screen.queryByText(/Only the beginning/)).toBeNull()
++  })
++
++  it('names the size when a file is past the limit, not only that it is', () => {
++    seedEntry('src/a.ts', { state: 'too_large', size: 17 * 1024 * 1024 })
++    renderTab('src/a.ts')
++
++    expect(screen.getByText(/17 MB/)).toBeInTheDocument()
++  })
++
+   it('reports the server reason for a failed read', () => {
+     seedEntry('src/a.ts', { state: 'error', error: 'EACCES: permission denied' })
+     renderTab('src/a.ts')
+@@ -370,7 +405,7 @@ describe('content states', () => {
+ 
+       fireEvent.click(screen.getByRole('button', { name: 'Open in system app' }))
+ 
+-      expect(openLocalFileWithSystem).toHaveBeenCalledWith('/repo/out/report.docx')
++      expect(openFileWithSystemOrOfferSave).toHaveBeenCalledWith('/repo/out/report.docx')
+     })
+ 
+     it('offers nothing for a file that is not there', () => {
+@@ -394,7 +429,24 @@ describe('content states', () => {
+ 
+       fireEvent.click(screen.getByRole('button', { name: 'Open in system app' }))
+ 
+-      expect(openLocalFileWithSystem).toHaveBeenCalledWith('/repo/assets/logo.png')
++      expect(openFileWithSystemOrOfferSave).toHaveBeenCalledWith('/repo/assets/logo.png')
++    })
++  })
++
++  describe('media', () => {
++    it('plays a video in the browser element rather than reading it as text', () => {
++      // Deliberately no seeded entry: media is loaded from the path, so the tab
++      // must not depend on the read that every other preview goes through.
++      renderTab('assets/demo.mp4')
++
++      expect(screen.getByTestId('media-surface')).toHaveTextContent('assets/demo.mp4')
++      expect(loadFile).not.toHaveBeenCalled()
++    })
++
++    it('plays audio the same way', () => {
++      renderTab('assets/voice.mp3')
++
++      expect(screen.getByTestId('media-surface')).toHaveTextContent('assets/voice.mp3')
+     })
+   })
+ 
+diff --git a/desktop/src/components/workbench/WorkspaceFileTab.tsx b/desktop/src/components/workbench/WorkspaceFileTab.tsx
+index 4cf00f56..254d9fc7 100644
+--- a/desktop/src/components/workbench/WorkspaceFileTab.tsx
++++ b/desktop/src/components/workbench/WorkspaceFileTab.tsx
+@@ -1,16 +1,20 @@
+ import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from 'react'
+-import { ChevronDown, ChevronRight, ExternalLink, FolderClosed, FolderOpen, PanelLeftClose, PanelLeftOpen } from 'lucide-react'
++import { ChevronDown, ChevronRight, Download, ExternalLink, FolderClosed, FolderOpen, PanelLeftClose, PanelLeftOpen } from 'lucide-react'
+ import { IconButton } from '@/components/ui/IconButton'
+ import { TargetIcon } from '@/components/composite/TargetIcon'
+ import { useWorkspaceFileOpenTargets } from '@/components/workspace/workspaceFileOpenTargets'
+ import { useDismissable } from '@/hooks/useDismissable'
++import { useSystemFileAction } from '@/hooks/useSystemFileAction'
+ import { useTranslation } from '../../i18n'
+ import { CodeSurface } from '../workspace/surfaces/CodeSurface'
+ import { DocumentSurface } from '../workspace/surfaces/document/DocumentSurface'
+ import { isDocumentPreviewType } from '../workspace/surfaces/document/documentViewers'
++import { isWorkspaceMediaFile } from '../../lib/fileCapabilities'
+ import { ImagePreview } from '../workspace/surfaces/ImagePreview'
+ import { MarkdownSurface } from '../workspace/surfaces/MarkdownSurface'
++import { MediaSurface } from '../workspace/surfaces/MediaSurface'
+ import { OpenInSystemButton } from '../workspace/surfaces/OpenInSystemButton'
++import { formatBytes } from '../../lib/formatBytes'
+ import { PanelMessage } from '../workspace/surfaces/PanelMessage'
+ import type { WorkspaceTextSelection } from '../workspace/surfaces/textSelection'
+ import { WorkspaceFileOpenWith } from '../workspace/WorkspaceFileOpenWith'
+@@ -125,7 +129,10 @@ export function WorkspaceFileTab({ sessionId, tab }: WorkspaceFileTabProps) {
+   }, [loadStatus, sessionId])
+ 
+   useEffect(() => {
+-    if (!path) return
++    // Media is played from the path, never from the read: this route fetches the
++    // first chunk of the file for a text preview, which for a video is both
++    // useless and a wasted read of a file that may be hundreds of megabytes.
++    if (!path || isWorkspaceMediaFile(path)) return
+     void loadFile(sessionId, path)
+   }, [loadFile, path, sessionId])
+ 
+@@ -187,6 +194,7 @@ export function WorkspaceFileTab({ sessionId, tab }: WorkspaceFileTabProps) {
+   const breadcrumbSegments = projectSegment ? [projectSegment, ...segments] : segments
+   const absolutePath = resolveAbsoluteOpenPath(path, workDir ?? undefined)
+   const fileOpen = useWorkspaceFileOpenTargets(path ? absolutePath : null)
++  const openAction = useSystemFileAction(absolutePath)
+   // Every state below that cannot show the file offers the way out that always
+   // works. It needs a real absolute path: until the workdir is known a relative
+   // one would have the OS open nothing.
+@@ -249,13 +257,25 @@ export function WorkspaceFileTab({ sessionId, tab }: WorkspaceFileTabProps) {
+               <button
+                 type="button"
+                 data-testid="workspace-file-open-primary"
+-                disabled={!fileOpen.primaryTarget}
+-                aria-label={fileOpen.primaryTarget ? t('openWith.openInTarget', { target: fileOpen.primaryTarget.label }) : t('workspace.files.openWith')}
+-                onClick={() => { if (fileOpen.primaryTarget) fileOpen.openTarget(fileOpen.primaryTarget) }}
++                // Without a shell there is no application to open *with*: the slot
++                // becomes the save, which is the only way the user gets the file.
++                disabled={!openAction.canOpen && !fileOpen.primaryTarget}
++                aria-label={openAction.canOpen
++                  ? (fileOpen.primaryTarget ? t('openWith.openInTarget', { target: fileOpen.primaryTarget.label }) : t('workspace.files.openWith'))
++                  : openAction.label}
++                onClick={() => {
++                  if (!openAction.canOpen) {
++                    openAction.run()
++                    return
++                  }
++                  if (fileOpen.primaryTarget) fileOpen.openTarget(fileOpen.primaryTarget)
++                }}
+                 className="flex min-w-0 items-center gap-2 rounded-l-[var(--radius-md)] px-2 text-[14px] text-[var(--color-text-primary)] hover:bg-[var(--color-surface-hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--color-border-focus)] disabled:opacity-50"
+               >
+-                <span aria-hidden="true">{fileOpen.primaryTarget ? <TargetIcon target={fileOpen.primaryTarget} size={16} /> : <ExternalLink size={16} />}</span>
+-                {t('workspace.files.openWith')}
++                <span aria-hidden="true">{fileOpen.primaryTarget
++                  ? <TargetIcon target={fileOpen.primaryTarget} size={16} />
++                  : openAction.canOpen ? <ExternalLink size={16} /> : <Download size={16} />}</span>
++                {openAction.canOpen ? t('workspace.files.openWith') : openAction.label}
+               </button>
+               <button
+                 ref={openWithTriggerRef}
+@@ -307,12 +327,37 @@ export function WorkspaceFileTab({ sessionId, tab }: WorkspaceFileTabProps) {
+             revealNonce: tab.reveal?.nonce,
+           })
+         }}>
+-          {!entry || entry.state === 'loading' ? (
++          {entry?.truncated && !isWorkspaceMediaFile(path) ? (
++            // Ahead of the content on purpose: the tail is missing, and a reader
++            // who is not told will read a file that ends mid-sentence as if that
++            // were the whole of it.
++            <div
++              role="status"
++              className="flex shrink-0 items-center gap-2 border-b border-[var(--color-border)] bg-[var(--color-surface-container-low)] px-3 py-1.5"
++            >
++              <p className="min-w-0 flex-1 text-[11px] text-[var(--color-text-secondary)]">
++                {t('workspace.previewState.truncated', { size: formatBytes(entry.size ?? 0) })}
++              </p>
++              {canOpenInSystem ? <OpenInSystemButton absolutePath={absolutePath} /> : null}
++            </div>
++          ) : null}
++          {isWorkspaceMediaFile(path) ? (
++            // Ahead of the load ladder on purpose: media is not loaded through it
++            // (see the effect above), so an absent entry would otherwise read as
++            // "still loading" forever.
++            <MediaSurface sessionId={sessionId} path={path} absolutePath={absolutePath} />
++          ) : !entry || entry.state === 'loading' ? (
+             <PanelMessage icon="hourglass_empty" message={t('workspace.previewState.loading')} />
+           ) : entry.state === 'missing' ? (
+             <PanelMessage icon="search_off" message={t('workspace.previewState.missing')} />
+           ) : entry.state === 'too_large' ? (
+-            <PanelMessage icon="database" message={t('workspace.previewState.tooLarge')} action={systemAction} />
++            <PanelMessage
++              icon="database"
++              message={entry.size === undefined
++                ? t('workspace.previewState.tooLarge')
++                : t('workspace.previewState.tooLargeSized', { size: formatBytes(entry.size) })}
++              action={systemAction}
++            />
+           ) : entry.state === 'binary' ? (
+             <PanelMessage icon="data_object" message={t('workspace.previewState.binary')} action={systemAction} />
+           ) : entry.state === 'error' ? (
+@@ -373,7 +418,7 @@ export function WorkspaceFileTab({ sessionId, tab }: WorkspaceFileTabProps) {
+               // A pick from the tree is a permanent tab of its own. Only the
+               // empty Files launcher this tree is hosted in gets replaced —
+               // everything else adds, so ten picks mean ten tabs.
+-              workspaceOpen.file(sessionId, nextPath, { replaceBlankPlaceholder: true })
++              workspaceOpen.file(sessionId, nextPath, { replaceBlankPlaceholder: true, requestedBy: 'user' })
+             }}
+           />
+       </WorkspaceTreeSidebar>
+diff --git a/desktop/src/components/workbench/WorkspaceFileTreePane.test.tsx b/desktop/src/components/workbench/WorkspaceFileTreePane.test.tsx
+index 38bcc9b4..43f4ede5 100644
+--- a/desktop/src/components/workbench/WorkspaceFileTreePane.test.tsx
++++ b/desktop/src/components/workbench/WorkspaceFileTreePane.test.tsx
+@@ -1,5 +1,11 @@
+ import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
+ import '@testing-library/jest-dom'
++
++// The pane's open-with menu is built against the desktop runtime, so the system
++// application rows exist to assert on.
++vi.mock('@/lib/desktopHost', () => ({
++  getDesktopHost: () => ({ capabilities: { shell: true } }),
++}))
+ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+ 
+ const mocks = vi.hoisted(() => ({
+diff --git a/desktop/src/components/workbench/WorkspaceReviewTab.tsx b/desktop/src/components/workbench/WorkspaceReviewTab.tsx
+index 7e0eee58..68e479fd 100644
+--- a/desktop/src/components/workbench/WorkspaceReviewTab.tsx
++++ b/desktop/src/components/workbench/WorkspaceReviewTab.tsx
+@@ -588,7 +588,7 @@ export function WorkspaceReviewTab({
+                   wrapLines={wrapLines}
+                   open={openByScope[reviewScope]?.[file.path] ?? !entry.viewedPaths.includes(file.path)}
+                   onToggleOpen={() => setFileOpen(file.path, !(openByScope[reviewScope]?.[file.path] ?? !entry.viewedPaths.includes(file.path)))}
+-                  onOpenFile={line => workspaceOpen.file(sessionId, file.path, { line, preview: false })}
++                  onOpenFile={line => workspaceOpen.file(sessionId, file.path, { line, preview: false, requestedBy: 'user' })}
+                   onAddComment={(selection, note) => useWorkspaceChatContextStore.getState().addReference(sessionId, {
+                     kind: 'code-comment', path: file.path, name: file.path.split('/').pop() ?? file.path,
+                     diffSide: selection.side, lineStart: selection.lineStart, lineEnd: selection.lineEnd,
+diff --git a/desktop/src/components/workbench/WorkspaceTerminalTab.test.tsx b/desktop/src/components/workbench/WorkspaceTerminalTab.test.tsx
+index 997ce62d..dcf2541a 100644
+--- a/desktop/src/components/workbench/WorkspaceTerminalTab.test.tsx
++++ b/desktop/src/components/workbench/WorkspaceTerminalTab.test.tsx
+@@ -72,6 +72,7 @@ beforeEach(() => {
+         nextTerminalOrdinal: 2,
+         focus: null,
+         origin: null,
++        lastUserOpen: null,
+       },
+     },
+   })
+@@ -175,6 +176,7 @@ describe('restored terminals', () => {
+           nextTerminalOrdinal: 2,
+           focus: null,
+           origin: null,
++        lastUserOpen: null,
+         },
+       },
+     })
+diff --git a/desktop/src/components/workspace/WorkspaceFileOpenWith.test.tsx b/desktop/src/components/workspace/WorkspaceFileOpenWith.test.tsx
+index 3c2c4461..a60a49a8 100644
+--- a/desktop/src/components/workspace/WorkspaceFileOpenWith.test.tsx
++++ b/desktop/src/components/workspace/WorkspaceFileOpenWith.test.tsx
+@@ -91,6 +91,21 @@ describe('WorkspaceFileOpenWith', () => {
+     expect(labels).toContain('workspace.download')
+     expect(labels).not.toContain('openWith.systemDefault')  })
+ 
++  it('offers only what the browser can actually do: no application rows, no reveal', () => {
++    // Everything the dropped rows do is done by the *server*, which on the H5
++    // surface is a different machine from the one the user is holding.
++    window.desktopHost = { ...browserHost, kind: 'browser', isDesktop: false }
++
++    const { getAllByRole } = render(<WorkspaceFileOpenWith absolutePath="/w/report.md" />)
++
++    const labels = getAllByRole('menuitem').map((el) => el.textContent)
++    expect(labels.some((l) => l?.includes('VS Code'))).toBe(false)
++    expect(labels.some((l) => l?.includes('workspace.files.openContainingFolder'))).toBe(false)
++    // The ways to still get the file survive.
++    expect(labels).toContain('workspace.download')
++    expect(labels).toContain('openWith.copyPath')
++  })
++
+   it('clicking the IDE item calls openTarget and onAfterSelect', () => {
+     const onAfter = vi.fn()
+     const { getAllByRole } = render(
+@@ -195,6 +210,7 @@ describe('WorkspaceFileOpenWith', () => {
+     expect(browserOpen).toHaveBeenCalledWith(
+       's1',
+       'http://127.0.0.1:3456/preview-fs/s1/66estmutl_files/index.html',
++      { requestedBy: 'user' },
+     )
+   })
+ 
+@@ -213,7 +229,7 @@ describe('WorkspaceFileOpenWith', () => {
+ 
+     fireEvent.click(previewItem)
+ 
+-    expect(openPreview).toHaveBeenCalledWith('s1', 'report.md')
++    expect(openPreview).toHaveBeenCalledWith('s1', 'report.md', { requestedBy: 'user' })
+   })
+ 
+   it('omits file-only actions for directories, even with a file-like name', () => {
+diff --git a/desktop/src/components/workspace/WorkspaceFileOpenWith.tsx b/desktop/src/components/workspace/WorkspaceFileOpenWith.tsx
+index 79afaecd..26646413 100644
+--- a/desktop/src/components/workspace/WorkspaceFileOpenWith.tsx
++++ b/desktop/src/components/workspace/WorkspaceFileOpenWith.tsx
+@@ -3,7 +3,7 @@ import { useOpenTargetStore } from '@/stores/openTargetStore'
+ import { buildOpenWithMenuItems } from '@/lib/openWithMenuItems'
+ import { getServerBaseUrl } from '@/lib/desktopRuntime'
+ import { openWithContextForWorkspaceFile } from '@/lib/openWithContextForHref'
+-import { reportOpenFailure } from '@/lib/systemFileOpen'
++import { canOpenWithSystem, reportOpenFailure } from '@/lib/systemFileOpen'
+ import { TargetIcon } from '@/components/composite/TargetIcon'
+ import type { OpenTarget } from '@/api/openTargets'
+ import { fileApplicationTargets, useWorkspaceFileOpenTargets } from '@/components/workspace/workspaceFileOpenTargets'
+@@ -35,7 +35,12 @@ export function WorkspaceFileOpenWith({ absolutePath, sessionId, workspacePath,
+   const usefulActions = actions.filter((item) =>
+     (!isDirectory || item.id === 'copy-path') && (item.id !== 'preview' || suppliedTargets === undefined),
+   )
+-  const folders = targets.filter((target) => target.kind === 'file_manager')
++  // Revealing a folder is done by the server, so on a runtime without a shell it
++  // would open the folder on the *server's* desktop — the same wrong machine the
++  // application rows above are dropped for.
++  const folders = canOpenWithSystem()
++    ? targets.filter((target) => target.kind === 'file_manager')
++    : []
+   const selectTarget = (target: OpenTarget) => {
+     void useOpenTargetStore.getState().openTarget(target.id, absolutePath).catch(() => reportOpenFailure(absolutePath))
+     onAfterSelect?.()
+diff --git a/desktop/src/components/workspace/surfaces/ImagePreview.test.tsx b/desktop/src/components/workspace/surfaces/ImagePreview.test.tsx
+index a304ddd8..41ae0967 100644
+--- a/desktop/src/components/workspace/surfaces/ImagePreview.test.tsx
++++ b/desktop/src/components/workspace/surfaces/ImagePreview.test.tsx
+@@ -1,14 +1,15 @@
+ import '@testing-library/jest-dom/vitest'
+-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
++import { act, fireEvent, render, screen } from '@testing-library/react'
+ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+ import { useSettingsStore } from '@/stores/settingsStore'
+ import { useWorkspaceContentStore, workspaceFileKey } from '@/stores/workspaceContentStore'
+-import { openLocalFileWithSystem, reportOpenFailure } from '@/lib/systemFileOpen'
++import { openFileWithSystemOrOfferSave } from '@/lib/systemFileOpen'
+ import { ImagePreview } from './ImagePreview'
+ 
+ vi.mock('@/lib/systemFileOpen', () => ({
+-  openLocalFileWithSystem: vi.fn(),
+-  reportOpenFailure: vi.fn(),
++  // Desktop default: this suite asserts what a runtime with a system shell offers.
++  canOpenWithSystem: () => true,
++  openFileWithSystemOrOfferSave: vi.fn(),
+ }))
+ 
+ const dataUrl = 'data:image/png;base64,iVBORwoKGgo='
+@@ -38,8 +39,7 @@ describe('ImagePreview', () => {
+   beforeEach(() => {
+     useSettingsStore.setState({ locale: 'en' })
+     useWorkspaceContentStore.setState({ fileViewByKey: {} })
+-    vi.mocked(openLocalFileWithSystem).mockReset().mockResolvedValue(undefined)
+-    vi.mocked(reportOpenFailure).mockReset()
++    vi.mocked(openFileWithSystemOrOfferSave).mockReset()
+   })
+ 
+   afterEach(() => {
+@@ -108,21 +108,12 @@ describe('ImagePreview', () => {
+   })
+ 
+   describe('system app', () => {
+-    it('hands the original file to the operating system', () => {
++    it('asks the shared opener to hand the original file to the operating system', () => {
+       render(<ImagePreview dataUrl={dataUrl} path="assets/logo.png" absolutePath="/work/assets/logo.png" />)
+ 
+       fireEvent.click(screen.getByRole('button', { name: 'Open in system app' }))
+ 
+-      expect(openLocalFileWithSystem).toHaveBeenCalledWith('/work/assets/logo.png')
+-    })
+-
+-    it('says which file could not be opened instead of failing silently', async () => {
+-      vi.mocked(openLocalFileWithSystem).mockRejectedValue(new Error('no application'))
+-      render(<ImagePreview dataUrl={dataUrl} path="assets/logo.png" absolutePath="/work/assets/logo.png" />)
+-
+-      fireEvent.click(screen.getByRole('button', { name: 'Open in system app' }))
+-
+-      await waitFor(() => expect(reportOpenFailure).toHaveBeenCalledWith('/work/assets/logo.png'))
++      expect(openFileWithSystemOrOfferSave).toHaveBeenCalledWith('/work/assets/logo.png')
+     })
+ 
+     it('shows no such action without an absolute path to open', () => {
+@@ -140,7 +131,7 @@ describe('ImagePreview', () => {
+     expect(screen.queryByRole('img')).not.toBeInTheDocument()
+     expect(screen.getByRole('status')).toHaveTextContent('Image preview is unavailable.')
+     fireEvent.click(screen.getByRole('button', { name: 'Open in system app' }))
+-    expect(openLocalFileWithSystem).toHaveBeenCalledWith('/work/assets/logo.png')
++    expect(openFileWithSystemOrOfferSave).toHaveBeenCalledWith('/work/assets/logo.png')
+   })
+ 
+   it('forgets a decode failure when the file changes to one that does decode', () => {
+diff --git a/desktop/src/components/workspace/surfaces/ImagePreview.tsx b/desktop/src/components/workspace/surfaces/ImagePreview.tsx
+index 08f1ea04..9bda9ca0 100644
+--- a/desktop/src/components/workspace/surfaces/ImagePreview.tsx
++++ b/desktop/src/components/workspace/surfaces/ImagePreview.tsx
+@@ -1,9 +1,9 @@
+ import { useState } from 'react'
+-import { ExternalLink } from 'lucide-react'
++import { Download, ExternalLink } from 'lucide-react'
+ import { IconButton } from '@/components/ui/IconButton'
+ import { ZoomableImage, type ImageZoom } from '@/components/ui/ZoomableImage'
+ import { useTranslation } from '@/i18n'
+-import { openLocalFileWithSystem, reportOpenFailure } from '@/lib/systemFileOpen'
++import { useSystemFileAction } from '@/hooks/useSystemFileAction'
+ import { useWorkspaceContentStore, workspaceFileKey, type WorkspaceFileView } from '@/stores/workspaceContentStore'
+ import { OpenInSystemButton } from './OpenInSystemButton'
+ import { PanelMessage } from './PanelMessage'
+@@ -34,6 +34,8 @@ export function ImagePreview({
+ }) {
+   const t = useTranslation()
+   const [failedUrl, setFailedUrl] = useState<string | null>(null)
++  // Called before the failure return below, since a hook cannot be skipped.
++  const systemAction = useSystemFileAction(absolutePath ?? '')
+   const storedZoom = useWorkspaceContentStore((state) => (
+     sessionId ? state.fileViewByKey[workspaceFileKey(sessionId, path)]?.zoom : undefined
+   ))
+@@ -70,13 +72,13 @@ export function ImagePreview({
+       }}
+       actions={absolutePath ? (
+         <IconButton
+-          icon={<ExternalLink size={16} strokeWidth={1.9} />}
+-          label={t('workspace.openInSystemApp')}
++          icon={systemAction.canOpen
++            ? <ExternalLink size={16} strokeWidth={1.9} />
++            : <Download size={16} strokeWidth={1.9} />}
++          label={systemAction.label}
+           size="md"
+           tone="secondary"
+-          onClick={() => {
+-            void openLocalFileWithSystem(absolutePath).catch(() => reportOpenFailure(absolutePath))
+-          }}
++          onClick={systemAction.run}
+         />
+       ) : undefined}
+     />
+diff --git a/desktop/src/components/workspace/surfaces/MediaSurface.test.tsx b/desktop/src/components/workspace/surfaces/MediaSurface.test.tsx
+new file mode 100644
+index 00000000..07b1ab2d
+--- /dev/null
++++ b/desktop/src/components/workspace/surfaces/MediaSurface.test.tsx
+@@ -0,0 +1,74 @@
++import '@testing-library/jest-dom/vitest'
++import { fireEvent, render, screen } from '@testing-library/react'
++import { beforeEach, describe, expect, it, vi } from 'vitest'
++import { useSettingsStore } from '@/stores/settingsStore'
++import { MediaSurface } from './MediaSurface'
++
++vi.mock('@/lib/desktopRuntime', () => ({
++  getServerBaseUrl: () => 'http://127.0.0.1:4321',
++}))
++
++// Defaults to the browser host, which is where the media element matters most:
++// it is the only way the file plays on the device at all.
++const shell = vi.hoisted(() => ({ available: false }))
++vi.mock('@/lib/systemFileOpen', async (importOriginal) => ({
++  ...(await importOriginal<typeof import('@/lib/systemFileOpen')>()),
++  canOpenWithSystem: () => shell.available,
++}))
++
++beforeEach(() => {
++  useSettingsStore.setState({ locale: 'en' })
++  shell.available = false
++})
++
++describe('MediaSurface', () => {
++  it('plays a video with the browser element, from a URL that can seek', () => {
++    render(<MediaSurface sessionId="s1" path="clip.mp4" absolutePath="/w/clip.mp4" />)
++
++    const video = screen.getByTestId('workspace-media-video')
++    // The filesystem route, not the `raw` document route: only this one streams
++    // with range support, without which a video cannot be seeked or scrubbed.
++    expect(video).toHaveAttribute('src', 'http://127.0.0.1:4321/local-file/w/clip.mp4')
++    expect(video).toHaveAttribute('controls')
++  })
++
++  it('plays audio with the audio element', () => {
++    render(<MediaSurface sessionId="s1" path="voice.mp3" absolutePath="/w/voice.mp3" />)
++
++    expect(screen.getByTestId('workspace-media-audio')).toHaveAttribute(
++      'src',
++      'http://127.0.0.1:4321/local-file/w/voice.mp3',
++    )
++  })
++
++  it('falls back to the session route when the path could not be rooted', () => {
++    // `workDir` has not loaded, so `absolutePath` is still the relative path: a
++    // `/local-file` URL built from it would name a file that is not there.
++    render(<MediaSurface sessionId="s1" path="out/clip.mp4" absolutePath="out/clip.mp4" />)
++
++    expect(screen.getByTestId('workspace-media-video')).toHaveAttribute(
++      'src',
++      'http://127.0.0.1:4321/preview-fs/s1/out/clip.mp4',
++    )
++  })
++
++  it('replaces a container the browser cannot decode with a way out', () => {
++    render(<MediaSurface sessionId="s1" path="film.mkv" absolutePath="/w/film.mkv" />)
++
++    fireEvent.error(screen.getByTestId('workspace-media-video'))
++
++    expect(screen.queryByTestId('workspace-media-video')).not.toBeInTheDocument()
++    expect(screen.getByRole('status')).toHaveTextContent('This media can’t be played here.')
++    // No system player exists on this runtime, so the way out is the save.
++    expect(screen.getByRole('button', { name: 'Download' })).toBeInTheDocument()
++  })
++
++  it('offers the system player for an undecodable container on the desktop', () => {
++    shell.available = true
++    render(<MediaSurface sessionId="s1" path="film.mkv" absolutePath="/w/film.mkv" />)
++
++    fireEvent.error(screen.getByTestId('workspace-media-video'))
++
++    expect(screen.getByRole('button', { name: 'Open in system app' })).toBeInTheDocument()
++  })
++})
+diff --git a/desktop/src/components/workspace/surfaces/MediaSurface.tsx b/desktop/src/components/workspace/surfaces/MediaSurface.tsx
+new file mode 100644
+index 00000000..c7600ce5
+--- /dev/null
++++ b/desktop/src/components/workspace/surfaces/MediaSurface.tsx
+@@ -0,0 +1,83 @@
++import { useState } from 'react'
++import { useTranslation } from '@/i18n'
++import { getServerBaseUrl } from '@/lib/desktopRuntime'
++import { isRootedLocalPath, localFileUrl, previewFsUrl } from '@/lib/handlePreviewLink'
++import { isWorkspaceVideoFile } from '@/lib/fileCapabilities'
++import { OpenInSystemButton } from './OpenInSystemButton'
++import { PanelMessage } from './PanelMessage'
++
++/**
++ * The workspace's player for audio and video.
++ *
++ * Media is the one file kind the document viewers cannot cover. They read through
++ * the `raw` route, which serves whole documents and cannot seek — and a video that
++ * cannot seek is not playable — so this uses the filesystem routes, which stream
++ * with range support and let the browser's own element seek.
++ *
++ * The element gets a bare URL because an `<audio>`/`<video src>` cannot carry an
++ * Authorization header. That is also why media is the one preview the H5 surface
++ * plays *on the phone*: there, the same-origin subresource rule authorizes exactly
++ * these loads, and there is no system player to hand the file to instead.
++ *
++ * A container the browser cannot decode (`.mkv`, `.avi`) lands in the failure
++ * state rather than a broken element, which offers the system player on the
++ * desktop and a save everywhere else — see `OpenInSystemButton`.
++ */
++export function MediaSurface({
++  sessionId,
++  path,
++  absolutePath,
++}: {
++  sessionId: string
++  path: string
++  absolutePath: string
++}) {
++  const t = useTranslation()
++  const [failed, setFailed] = useState(false)
++
++  if (failed) {
++    return (
++      <PanelMessage
++        icon="movie"
++        message={t('workspace.mediaUnavailable')}
++        action={<OpenInSystemButton absolutePath={absolutePath} />}
++      />
++    )
++  }
++
++  const base = getServerBaseUrl()
++  // A path the workspace could root goes through the session-scoped route; one it
++  // could not (`workDir` has not loaded yet) would build a nonsense `/local-file`
++  // URL, so it keeps the relative form the preview route resolves server-side.
++  const src = isRootedLocalPath(absolutePath)
++    ? localFileUrl(base, absolutePath)
++    : previewFsUrl(base, sessionId, path)
++  const onError = () => setFailed(true)
++
++  if (isWorkspaceVideoFile(path)) {
++    return (
++      <video
++        data-testid="workspace-media-video"
++        src={src}
++        controls
++        preload="metadata"
++        playsInline
++        onError={onError}
++        className="max-h-full w-full bg-black"
++      />
++    )
++  }
++
++  return (
++    <div className="flex min-h-0 flex-1 items-center justify-center p-6">
++      <audio
++        data-testid="workspace-media-audio"
++        src={src}
++        controls
++        preload="metadata"
++        onError={onError}
++        className="w-full max-w-[520px]"
++      />
++    </div>
++  )
++}
+diff --git a/desktop/src/components/workspace/surfaces/OpenInSystemButton.test.tsx b/desktop/src/components/workspace/surfaces/OpenInSystemButton.test.tsx
+index 27aa578e..0884cfba 100644
+--- a/desktop/src/components/workspace/surfaces/OpenInSystemButton.test.tsx
++++ b/desktop/src/components/workspace/surfaces/OpenInSystemButton.test.tsx
+@@ -1,19 +1,29 @@
+ import '@testing-library/jest-dom/vitest'
+-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
++import { fireEvent, render, screen } from '@testing-library/react'
+ import { beforeEach, describe, expect, it, vi } from 'vitest'
+-import { openLocalFileWithSystem, reportOpenFailure } from '@/lib/systemFileOpen'
+ import { useSettingsStore } from '@/stores/settingsStore'
+ import { OpenInSystemButton } from './OpenInSystemButton'
+ 
++const fixture = vi.hoisted(() => ({
++  shell: true,
++  openFileWithSystemOrOfferSave: vi.fn(),
++  downloadLocalFile: vi.fn(),
++}))
++
+ vi.mock('@/lib/systemFileOpen', () => ({
+-  openLocalFileWithSystem: vi.fn(),
+-  reportOpenFailure: vi.fn(),
++  canOpenWithSystem: () => fixture.shell,
++  openFileWithSystemOrOfferSave: fixture.openFileWithSystemOrOfferSave,
++}))
++vi.mock('@/lib/handlePreviewLink', async (importOriginal) => ({
++  ...(await importOriginal<typeof import('@/lib/handlePreviewLink')>()),
++  downloadLocalFile: fixture.downloadLocalFile,
+ }))
+ 
+ beforeEach(() => {
+   useSettingsStore.setState({ locale: 'en' })
+-  vi.mocked(openLocalFileWithSystem).mockReset().mockResolvedValue(undefined)
+-  vi.mocked(reportOpenFailure).mockReset()
++  fixture.shell = true
++  fixture.openFileWithSystemOrOfferSave.mockReset()
++  fixture.downloadLocalFile.mockReset()
+ })
+ 
+ describe('OpenInSystemButton', () => {
+@@ -28,24 +38,18 @@ describe('OpenInSystemButton', () => {
+ 
+     fireEvent.click(screen.getByRole('button'))
+ 
+-    expect(openLocalFileWithSystem).toHaveBeenCalledWith('/work/out/thesis.pdf')
+-  })
+-
+-  it('says nothing when the file opened', async () => {
+-    render(<OpenInSystemButton absolutePath="/work/out/thesis.pdf" />)
+-
+-    fireEvent.click(screen.getByRole('button'))
+-    await waitFor(() => expect(openLocalFileWithSystem).toHaveBeenCalled())
+-
+-    expect(reportOpenFailure).not.toHaveBeenCalled()
++    expect(fixture.openFileWithSystemOrOfferSave).toHaveBeenCalledWith('/work/out/thesis.pdf')
+   })
+ 
+-  it('names the file it could not open: a click that does nothing reads as a broken button', async () => {
+-    vi.mocked(openLocalFileWithSystem).mockRejectedValue(new Error('no application'))
++  // The failure reporting and the save dialog belong to the shared opener, which
++  // has its own suite. What is asserted here is only that this button asks for it.
++  it('becomes the save where there is no system shell, instead of promising an open it cannot do', () => {
++    fixture.shell = false
+     render(<OpenInSystemButton absolutePath="/work/out/thesis.pdf" />)
+ 
+-    fireEvent.click(screen.getByRole('button'))
++    fireEvent.click(screen.getByRole('button', { name: 'Download' }))
+ 
+-    await waitFor(() => expect(reportOpenFailure).toHaveBeenCalledWith('/work/out/thesis.pdf'))
++    expect(fixture.downloadLocalFile).toHaveBeenCalledWith('/work/out/thesis.pdf')
++    expect(fixture.openFileWithSystemOrOfferSave).not.toHaveBeenCalled()
+   })
+ })
+diff --git a/desktop/src/components/workspace/surfaces/OpenInSystemButton.tsx b/desktop/src/components/workspace/surfaces/OpenInSystemButton.tsx
+index b4b3e88e..8f97bd5c 100644
+--- a/desktop/src/components/workspace/surfaces/OpenInSystemButton.tsx
++++ b/desktop/src/components/workspace/surfaces/OpenInSystemButton.tsx
+@@ -1,27 +1,28 @@
+-import { ExternalLink } from 'lucide-react'
++import { Download, ExternalLink } from 'lucide-react'
+ import { Button } from '@/components/ui/Button'
+-import { useTranslation } from '@/i18n'
+-import { openLocalFileWithSystem, reportOpenFailure } from '@/lib/systemFileOpen'
++import { useSystemFileAction } from '@/hooks/useSystemFileAction'
+ 
+ /**
+  * The way out of every state the workspace cannot render — too large, damaged,
+- * a format it has no viewer for: hand the file to the operating system.
++ * a format it has no viewer for.
+  *
+- * It says why it failed if it does (`reportOpenFailure` names the file); a click
+- * that does nothing reads as a broken button.
++ * Which way out depends on the runtime, and only on the runtime: with a system
++ * shell the file goes to its default application, and without one the button
++ * becomes the save that does get the user the file. See `useSystemFileAction`.
+  */
+ export function OpenInSystemButton({ absolutePath }: { absolutePath: string }) {
+-  const t = useTranslation()
++  const action = useSystemFileAction(absolutePath)
++
+   return (
+     <Button
+       variant="secondary"
+       size="sm"
+-      icon={<ExternalLink size={14} strokeWidth={1.9} aria-hidden="true" />}
+-      onClick={() => {
+-        void openLocalFileWithSystem(absolutePath).catch(() => reportOpenFailure(absolutePath))
+-      }}
++      icon={action.canOpen
++        ? <ExternalLink size={14} strokeWidth={1.9} aria-hidden="true" />
++        : <Download size={14} strokeWidth={1.9} aria-hidden="true" />}
++      onClick={action.run}
+     >
+-      {t('workspace.openInSystemApp')}
++      {action.label}
+     </Button>
+   )
+ }
+diff --git a/desktop/src/components/workspace/surfaces/document/DocumentFailure.test.tsx b/desktop/src/components/workspace/surfaces/document/DocumentFailure.test.tsx
+index a134586b..4d8801a6 100644
+--- a/desktop/src/components/workspace/surfaces/document/DocumentFailure.test.tsx
++++ b/desktop/src/components/workspace/surfaces/document/DocumentFailure.test.tsx
+@@ -5,6 +5,9 @@ import { useSettingsStore } from '@/stores/settingsStore'
+ import { DocumentFailure } from './DocumentFailure'
+ 
+ vi.mock('@/lib/systemFileOpen', () => ({
++  // Desktop default: this suite asserts what a runtime with a system shell offers.
++  canOpenWithSystem: () => true,
++  openFileWithSystemOrOfferSave: vi.fn(),
+   openLocalFileWithSystem: vi.fn().mockResolvedValue(undefined),
+   reportOpenFailure: vi.fn(),
+ }))
+diff --git a/desktop/src/components/workspace/surfaces/document/DocumentSurface.test.tsx b/desktop/src/components/workspace/surfaces/document/DocumentSurface.test.tsx
+index f58b0322..f580a253 100644
+--- a/desktop/src/components/workspace/surfaces/document/DocumentSurface.test.tsx
++++ b/desktop/src/components/workspace/surfaces/document/DocumentSurface.test.tsx
+@@ -5,15 +5,16 @@ import { afterEach, beforeEach, describe, expect, it, vi, type MockInstance } fr
+ import { ApiError } from '@/api/client'
+ import { sessionsApi } from '@/api/sessions'
+ import { resetDocumentBlobCacheForTests } from '@/lib/workspace/documentBlobCache'
+-import { openLocalFileWithSystem } from '@/lib/systemFileOpen'
++import { openFileWithSystemOrOfferSave } from '@/lib/systemFileOpen'
+ import { useSettingsStore } from '@/stores/settingsStore'
+ import { useWorkspaceContentStore, workspaceFileKey } from '@/stores/workspaceContentStore'
+ import { DocumentSurface, type DocumentSurfaceProps } from './DocumentSurface'
+ import type { DocumentViewerProps, DocumentViewers } from './documentViewers'
+ 
+ vi.mock('@/lib/systemFileOpen', () => ({
+-  openLocalFileWithSystem: vi.fn(),
+-  reportOpenFailure: vi.fn(),
++  // Desktop default: this suite asserts what a runtime with a system shell offers.
++  canOpenWithSystem: () => true,
++  openFileWithSystemOrOfferSave: vi.fn(),
+ }))
+ vi.mock('@/lib/diagnosticsCapture', () => ({
+   reportReactError: vi.fn(),
+@@ -66,7 +67,7 @@ beforeEach(() => {
+   resetDocumentBlobCacheForTests()
+   pending = []
+   viewerProps = []
+-  vi.mocked(openLocalFileWithSystem).mockReset().mockResolvedValue(undefined)
++  vi.mocked(openFileWithSystemOrOfferSave).mockReset()
+   getWorkspaceRaw = vi.spyOn(sessionsApi, 'getWorkspaceRaw').mockImplementation(
+     (_session, _path, signal) => new Promise<Blob>((resolve, reject) => {
+       pending.push({ resolve, reject, signal })
+@@ -122,7 +123,7 @@ describe('DocumentSurface', () => {
+       expect(screen.getByRole('status')).toHaveTextContent("This file type can't be previewed here.")
+       expect(getWorkspaceRaw).not.toHaveBeenCalled()
+       fireEvent.click(screen.getByRole('button', { name: 'Open in system app' }))
+-      expect(openLocalFileWithSystem).toHaveBeenCalledWith('/work/thesis.docx')
++      expect(openFileWithSystemOrOfferSave).toHaveBeenCalledWith('/work/thesis.docx')
+     })
+ 
+     it('offers no system action for a path that is not absolute', () => {
+@@ -151,7 +152,7 @@ describe('DocumentSurface', () => {
+ 
+       fireEvent.click(await screen.findByRole('button', { name: 'Open in system app' }))
+ 
+-      expect(openLocalFileWithSystem).toHaveBeenCalledWith('/work/out/thesis.pdf')
++      expect(openFileWithSystemOrOfferSave).toHaveBeenCalledWith('/work/out/thesis.pdf')
+     })
+ 
+     it('offers a retry where trying again could help, and it works', async () => {
+diff --git a/desktop/src/components/workspace/surfaces/document/DocumentToolbar.test.tsx b/desktop/src/components/workspace/surfaces/document/DocumentToolbar.test.tsx
+index f89c9025..b5ab4757 100644
+--- a/desktop/src/components/workspace/surfaces/document/DocumentToolbar.test.tsx
++++ b/desktop/src/components/workspace/surfaces/document/DocumentToolbar.test.tsx
+@@ -1,13 +1,14 @@
+ import '@testing-library/jest-dom/vitest'
+-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
++import { fireEvent, render, screen } from '@testing-library/react'
+ import { beforeEach, describe, expect, it, vi } from 'vitest'
+-import { openLocalFileWithSystem, reportOpenFailure } from '@/lib/systemFileOpen'
++import { openFileWithSystemOrOfferSave } from '@/lib/systemFileOpen'
+ import { useSettingsStore } from '@/stores/settingsStore'
+ import { DocumentToolbar, type DocumentZoomState } from './DocumentToolbar'
+ 
+ vi.mock('@/lib/systemFileOpen', () => ({
+-  openLocalFileWithSystem: vi.fn(),
+-  reportOpenFailure: vi.fn(),
++  // Desktop default: this suite asserts what a runtime with a system shell offers.
++  canOpenWithSystem: () => true,
++  openFileWithSystemOrOfferSave: vi.fn(),
+ }))
+ 
+ function zoomState(overrides: Partial<DocumentZoomState> = {}): DocumentZoomState {
+@@ -25,8 +26,7 @@ function zoomState(overrides: Partial<DocumentZoomState> = {}): DocumentZoomStat
+ 
+ beforeEach(() => {
+   useSettingsStore.setState({ locale: 'en' })
+-  vi.mocked(openLocalFileWithSystem).mockReset().mockResolvedValue(undefined)
+-  vi.mocked(reportOpenFailure).mockReset()
++  vi.mocked(openFileWithSystemOrOfferSave).mockReset()
+ })
+ 
+ describe('DocumentToolbar', () => {
+@@ -66,21 +66,12 @@ describe('DocumentToolbar', () => {
+   })
+ 
+   describe('the way out to the system app', () => {
+-    it('hands the original file to the operating system', () => {
++    it('asks the shared opener to hand the original file to the operating system', () => {
+       render(<DocumentToolbar absolutePath="/work/out/thesis.pdf" />)
+ 
+       fireEvent.click(screen.getByRole('button', { name: 'Open in system app' }))
+ 
+-      expect(openLocalFileWithSystem).toHaveBeenCalledWith('/work/out/thesis.pdf')
+-    })
+-
+-    it('names the file it could not open instead of failing silently', async () => {
+-      vi.mocked(openLocalFileWithSystem).mockRejectedValue(new Error('no application'))
+-      render(<DocumentToolbar absolutePath="/work/out/thesis.pdf" />)
+-
+-      fireEvent.click(screen.getByRole('button', { name: 'Open in system app' }))
+-
+-      await waitFor(() => expect(reportOpenFailure).toHaveBeenCalledWith('/work/out/thesis.pdf'))
++      expect(openFileWithSystemOrOfferSave).toHaveBeenCalledWith('/work/out/thesis.pdf')
+     })
+ 
+     it.each(['out/thesis.pdf', ''])('is not offered for %j, which the OS could not resolve', (path) => {
+diff --git a/desktop/src/components/workspace/surfaces/document/DocumentToolbar.tsx b/desktop/src/components/workspace/surfaces/document/DocumentToolbar.tsx
+index 0f7dca5d..72c72cd2 100644
+--- a/desktop/src/components/workspace/surfaces/document/DocumentToolbar.tsx
++++ b/desktop/src/components/workspace/surfaces/document/DocumentToolbar.tsx
+@@ -1,10 +1,10 @@
+ import type { ReactNode } from 'react'
+-import { ExternalLink } from 'lucide-react'
++import { Download, ExternalLink } from 'lucide-react'
+ import { IconButton } from '@/components/ui/IconButton'
+ import { ZoomControls, type ZoomControlsProps } from '@/components/ui/ZoomControls'
+ import { useTranslation } from '@/i18n'
++import { useSystemFileAction } from '@/hooks/useSystemFileAction'
+ import { isRootedLocalPath } from '@/lib/handlePreviewLink'
+-import { openLocalFileWithSystem, reportOpenFailure } from '@/lib/systemFileOpen'
+ 
+ export type DocumentZoomState = Omit<ZoomControlsProps, 'labels' | 'surface' | 'flat' | 'fitMode' | 'className'>
+ 
+@@ -30,6 +30,7 @@ export function DocumentToolbar({
+   note?: string
+ }) {
+   const t = useTranslation()
++  const systemAction = useSystemFileAction(absolutePath)
+   const canOpenInSystem = isRootedLocalPath(absolutePath)
+ 
+   return (
+@@ -51,13 +52,13 @@ export function DocumentToolbar({
+         ) : null}
+         {canOpenInSystem ? (
+           <IconButton
+-            icon={<ExternalLink size={16} strokeWidth={1.9} />}
+-            label={t('workspace.openInSystemApp')}
++            icon={systemAction.canOpen
++              ? <ExternalLink size={16} strokeWidth={1.9} />
++              : <Download size={16} strokeWidth={1.9} />}
++            label={systemAction.label}
+             size="md"
+             tone="secondary"
+-            onClick={() => {
+-              void openLocalFileWithSystem(absolutePath).catch(() => reportOpenFailure(absolutePath))
+-            }}
++            onClick={systemAction.run}
+           />
+         ) : null}
+       </div>
+diff --git a/desktop/src/components/workspace/surfaces/document/DocxSurface.test.tsx b/desktop/src/components/workspace/surfaces/document/DocxSurface.test.tsx
+index 558fada6..a3f66507 100644
+--- a/desktop/src/components/workspace/surfaces/document/DocxSurface.test.tsx
++++ b/desktop/src/components/workspace/surfaces/document/DocxSurface.test.tsx
+@@ -15,6 +15,9 @@ import { FRAME_SANDBOX, INNER_CSP } from './docxFrame'
+ import DocxSurface from './DocxSurface'
+ 
+ vi.mock('@/lib/systemFileOpen', () => ({
++  // Desktop default: this suite asserts what a runtime with a system shell offers.
++  canOpenWithSystem: () => true,
++  openFileWithSystemOrOfferSave: vi.fn(),
+   openLocalFileWithSystem: vi.fn().mockResolvedValue(undefined),
+   reportOpenFailure: vi.fn(),
+ }))
+diff --git a/desktop/src/components/workspace/surfaces/document/PdfSurface.test.tsx b/desktop/src/components/workspace/surfaces/document/PdfSurface.test.tsx
+index d263179e..1b759362 100644
+--- a/desktop/src/components/workspace/surfaces/document/PdfSurface.test.tsx
++++ b/desktop/src/components/workspace/surfaces/document/PdfSurface.test.tsx
+@@ -25,6 +25,9 @@ import {
+ import PdfSurface from './PdfSurface'
+ 
+ vi.mock('@/lib/systemFileOpen', () => ({
++  // Desktop default: this suite asserts what a runtime with a system shell offers.
++  canOpenWithSystem: () => true,
++  openFileWithSystemOrOfferSave: vi.fn(),
+   openLocalFileWithSystem: vi.fn().mockResolvedValue(undefined),
+   reportOpenFailure: vi.fn(),
+ }))
+diff --git a/desktop/src/components/workspace/surfaces/document/SpreadsheetSurface.test.tsx b/desktop/src/components/workspace/surfaces/document/SpreadsheetSurface.test.tsx
+index 3df95730..7454b857 100644
+--- a/desktop/src/components/workspace/surfaces/document/SpreadsheetSurface.test.tsx
++++ b/desktop/src/components/workspace/surfaces/document/SpreadsheetSurface.test.tsx
+@@ -10,6 +10,9 @@ import { SpreadsheetError, type SpreadsheetEngine } from './spreadsheetEngine'
+ import SpreadsheetSurface from './SpreadsheetSurface'
+ 
+ vi.mock('@/lib/systemFileOpen', () => ({
++  // Desktop default: this suite asserts what a runtime with a system shell offers.
++  canOpenWithSystem: () => true,
++  openFileWithSystemOrOfferSave: vi.fn(),
+   openLocalFileWithSystem: vi.fn().mockResolvedValue(undefined),
+   reportOpenFailure: vi.fn(),
+ }))
+diff --git a/desktop/src/components/workspace/workspaceFileOpenTargets.test.tsx b/desktop/src/components/workspace/workspaceFileOpenTargets.test.tsx
+index d5b060e4..07f0f713 100644
+--- a/desktop/src/components/workspace/workspaceFileOpenTargets.test.tsx
++++ b/desktop/src/components/workspace/workspaceFileOpenTargets.test.tsx
+@@ -11,10 +11,15 @@ const fixture = vi.hoisted(() => ({
+   openTarget: vi.fn<(id: string, path: string) => Promise<void>>(),
+ }))
+ const reportFailure = vi.hoisted(() => vi.fn())
++const shellAvailable = vi.hoisted(() => ({ value: true }))
+ vi.mock('@/stores/openTargetStore', () => ({
+   useOpenTargetStore: Object.assign((selector: (state: typeof fixture) => unknown) => selector(fixture), { getState: () => fixture }),
+ }))
+-vi.mock('@/lib/systemFileOpen', () => ({ reportOpenFailure: reportFailure }))
++vi.mock('@/lib/systemFileOpen', () => ({
++  reportOpenFailure: reportFailure,
++  canOpenWithSystem: () => shellAvailable.value,
++  openFileWithSystemOrOfferSave: vi.fn(),
++}))
+ 
+ import { fileApplicationTargets, useWorkspaceFileOpenTargets } from './workspaceFileOpenTargets'
+ 
+diff --git a/desktop/src/components/workspace/workspaceFileOpenTargets.ts b/desktop/src/components/workspace/workspaceFileOpenTargets.ts
+index a286cdf8..76b5a731 100644
+--- a/desktop/src/components/workspace/workspaceFileOpenTargets.ts
++++ b/desktop/src/components/workspace/workspaceFileOpenTargets.ts
+@@ -1,9 +1,13 @@
+ import { useEffect, useState } from 'react'
+ import { useOpenTargetStore, type OpenTarget } from '@/stores/openTargetStore'
+ import { isEditorOpenableFile } from '@/lib/fileCapabilities'
+-import { reportOpenFailure } from '@/lib/systemFileOpen'
++import { canOpenWithSystem, reportOpenFailure } from '@/lib/systemFileOpen'
+ 
+ export function fileApplicationTargets(path: string, targets: OpenTarget[]): OpenTarget[] {
++  // Every target here is launched by the server, so on a runtime with no shell
++  // there is none of them to offer — and picking one used to open the file in the
++  // server's desktop session rather than on the device in front of the user.
++  if (!canOpenWithSystem()) return []
+   const seen = new Set<string>()
+   return targets.filter((target) => {
+     if (target.kind === 'file_manager' || (target.kind === 'ide' && !isEditorOpenableFile(path))) return false
+diff --git a/desktop/src/hooks/useSystemFileAction.ts b/desktop/src/hooks/useSystemFileAction.ts
+new file mode 100644
+index 00000000..1087e54e
+--- /dev/null
++++ b/desktop/src/hooks/useSystemFileAction.ts
+@@ -0,0 +1,38 @@
++import { useTranslation } from '@/i18n'
++import { downloadLocalFile } from '@/lib/handlePreviewLink'
++import { canOpenWithSystem, openFileWithSystemOrOfferSave } from '@/lib/systemFileOpen'
++
++export type SystemFileAction = {
++  /** Whether this runtime can hand the file to a system application at all. */
++  canOpen: boolean
++  /** The action's own name — "open in system app", or the save that replaces it. */
++  label: string
++  run: () => void
++}
++
++/**
++ * What "open this file outside the workspace" means on this runtime.
++ *
++ * One decision in one place, because the answer is a property of the runtime and
++ * not of the surface asking: where a system shell exists the file goes to its
++ * default application, and where none does (the browser and the H5 surface) "the
++ * system" would be the *server's* desktop — so the same affordance becomes a save
++ * to the user's own device.
++ *
++ * Callers read the label from here as well as the action, so no surface promises
++ * an open it cannot perform. Icons stay at the call site, since they are sized to
++ * the surrounding toolbar.
++ */
++export function useSystemFileAction(absolutePath: string): SystemFileAction {
++  const t = useTranslation()
++  const canOpen = canOpenWithSystem()
++
++  return {
++    canOpen,
++    label: canOpen ? t('workspace.openInSystemApp') : t('workspace.download'),
++    run: () => {
++      if (canOpen) openFileWithSystemOrOfferSave(absolutePath)
++      else downloadLocalFile(absolutePath)
++    },
++  }
++}
+diff --git a/desktop/src/hooks/useWorkspaceShortcuts.ts b/desktop/src/hooks/useWorkspaceShortcuts.ts
+index a37ed91f..16268bad 100644
+--- a/desktop/src/hooks/useWorkspaceShortcuts.ts
++++ b/desktop/src/hooks/useWorkspaceShortcuts.ts
+@@ -52,14 +52,14 @@ export function useWorkspaceShortcuts({ sessionId, cwd, enabled }: WorkspaceShor
+       }
+       switch (action) {
+         case 'quick-open-file':
+-          workspaceOpen.file(session, '', { preview: true })
++          workspaceOpen.file(session, '', { preview: true, requestedBy: 'user' })
+           window.dispatchEvent(new CustomEvent('workspace-quick-open', { detail: { sessionId: session } }))
+           break
+         case 'new-browser-tab':
+-          workspaceOpen.browser(session)
++          workspaceOpen.browser(session, undefined, { requestedBy: 'user' })
+           break
+         case 'open-review':
+-          workspaceOpen.review(session)
++          workspaceOpen.review(session, { requestedBy: 'user' })
+           break
+         // Terminal defaults to the bottom dock; panel visibility is a distinct command.
+         case 'toggle-terminal':
+diff --git a/desktop/src/i18n/locales/en.ts b/desktop/src/i18n/locales/en.ts
+index 9828773a..b62675bd 100644
+--- a/desktop/src/i18n/locales/en.ts
++++ b/desktop/src/i18n/locales/en.ts
+@@ -933,6 +933,8 @@ export const en = {
+   'workspace.previewState.loading': 'Loading preview...',
+   'workspace.previewState.binary': 'Binary file preview is unavailable.',
+   'workspace.previewState.tooLarge': 'File is too large to preview.',
++  'workspace.previewState.tooLargeSized': '{name} is {size} — past what the browser preview will carry. Download it to read the whole file.',
++  'workspace.previewState.truncated': 'Only the beginning of this {size} file is shown. Download it to read the whole of it.',
+   'workspace.previewState.missing': 'File not found.',
+   'workspace.imagePreviewUnavailable': 'Image preview is unavailable.',
+   'workspace.zoom.group': 'Zoom controls',
+@@ -941,6 +943,14 @@ export const en = {
+   'workspace.zoom.fitWindow': 'Fit to window',
+   'workspace.zoom.fitWidth': 'Fit to width',
+   'workspace.openInSystemApp': 'Open in system app',
++  // The browser surface has no system application to hand a file to, and on the
++  // H5 surface "the system" would be the *server*, so the way out is a save.
++  'workspace.mediaUnavailable': 'This media can’t be played here.',
++  'workspace.fileUnavailable.title': 'Can’t open in the page',
++  'workspace.fileUnavailable.body': '{name} can’t be previewed in the browser. Download it to open it with an app on this device.',
++  'workspace.fileUnavailable.tooLargeBody': '{name} is too large ({size}) to preview in the browser. Download it to open it with an app on this device.',
++  'workspace.fileUnavailable.outsideBody': '{name} is outside the workspace and can’t be previewed in the browser. Download it to open it with an app on this device.',
++  'workspace.fileUnavailable.unreachableBody': '{name} is outside the workspace and the server can’t provide it, so it can’t be opened or downloaded from here.',
+   'workspace.document.loading': 'Loading document...',
+   'workspace.document.updating': 'Updating preview...',
+   'workspace.document.parseFailed': 'This document could not be displayed.',
+diff --git a/desktop/src/i18n/locales/jp.ts b/desktop/src/i18n/locales/jp.ts
+index c9e9d9ba..0b0b146c 100644
+--- a/desktop/src/i18n/locales/jp.ts
++++ b/desktop/src/i18n/locales/jp.ts
+@@ -934,6 +934,8 @@ export const jp: Record<TranslationKey, string> = {
+   'workspace.previewState.loading': 'プレビューを読み込み中...',
+   'workspace.previewState.binary': 'バイナリファイルはプレビューできません。',
+   'workspace.previewState.tooLarge': 'ファイルが大きすぎてプレビューできません。',
++  'workspace.previewState.tooLargeSized': '{name} はサイズが約 {size} で、ページ内プレビューの上限を超えています。ダウンロードすると全体を確認できます。',
++  'workspace.previewState.truncated': 'このファイルは約 {size} のため、先頭部分のみ表示しています。ダウンロードすると全体を確認できます。',
+   'workspace.previewState.missing': 'ファイルが見つかりません。',
+   'workspace.imagePreviewUnavailable': '画像をプレビューできません。',
+   'workspace.zoom.group': 'ズーム操作',
+@@ -942,6 +944,12 @@ export const jp: Record<TranslationKey, string> = {
+   'workspace.zoom.fitWindow': 'ウィンドウに合わせる',
+   'workspace.zoom.fitWidth': '幅に合わせる',
+   'workspace.openInSystemApp': 'システムのアプリで開く',
++  'workspace.mediaUnavailable': 'このメディアはページ内で再生できません。',
++  'workspace.fileUnavailable.title': 'ページ内で開けません',
++  'workspace.fileUnavailable.body': '{name} はブラウザ内でプレビューできません。ダウンロードして端末のアプリで開いてください。',
++  'workspace.fileUnavailable.tooLargeBody': '{name} はサイズが約 {size} と大きいため、ブラウザ内でプレビューできません。ダウンロードして端末のアプリで開いてください。',
++  'workspace.fileUnavailable.outsideBody': '{name} はワークスペース外のため、ブラウザ内でプレビューできません。ダウンロードして端末のアプリで開いてください。',
++  'workspace.fileUnavailable.unreachableBody': '{name} はワークスペース外で、サーバーから取得できないため、ここで開くこともダウンロードもできません。',
+   'workspace.document.loading': 'ドキュメントを読み込み中...',
+   'workspace.document.updating': 'プレビューを更新中...',
+   'workspace.document.parseFailed': 'このドキュメントを表示できませんでした。',
+diff --git a/desktop/src/i18n/locales/kr.ts b/desktop/src/i18n/locales/kr.ts
+index 3aa23bf2..b9283ef3 100644
+--- a/desktop/src/i18n/locales/kr.ts
++++ b/desktop/src/i18n/locales/kr.ts
+@@ -936,6 +936,8 @@ export const kr: Record<TranslationKey, string> = {
+   'workspace.previewState.loading': '미리 보기 불러오는 중...',
+   'workspace.previewState.binary': '바이너리 파일은 미리 볼 수 없습니다.',
+   'workspace.previewState.tooLarge': '파일이 너무 커서 미리 볼 수 없습니다.',
++  'workspace.previewState.tooLargeSized': '{name} 파일은 크기가 약 {size}로 페이지 내 미리보기 상한을 넘습니다. 다운로드하면 전체 내용을 볼 수 있습니다.',
++  'workspace.previewState.truncated': '이 파일은 약 {size}로, 앞부분만 표시합니다. 다운로드하면 전체 내용을 볼 수 있습니다.',
+   'workspace.previewState.missing': '파일을 찾을 수 없습니다.',
+   'workspace.imagePreviewUnavailable': '이미지를 미리 볼 수 없습니다.',
+   'workspace.zoom.group': '확대/축소 컨트롤',
+@@ -944,6 +946,12 @@ export const kr: Record<TranslationKey, string> = {
+   'workspace.zoom.fitWindow': '창에 맞춤',
+   'workspace.zoom.fitWidth': '너비에 맞춤',
+   'workspace.openInSystemApp': '시스템 앱으로 열기',
++  'workspace.mediaUnavailable': '이 미디어는 페이지에서 재생할 수 없습니다.',
++  'workspace.fileUnavailable.title': '페이지에서 열 수 없음',
++  'workspace.fileUnavailable.body': '{name} 파일은 브라우저에서 미리 볼 수 없습니다. 다운로드한 뒤 기기의 앱으로 열어 주세요.',
++  'workspace.fileUnavailable.tooLargeBody': '{name} 파일은 크기가 약 {size}로 너무 커서 브라우저에서 미리 볼 수 없습니다. 다운로드한 뒤 기기의 앱으로 열어 주세요.',
++  'workspace.fileUnavailable.outsideBody': '{name} 파일은 워크스페이스 밖에 있어 브라우저에서 미리 볼 수 없습니다. 다운로드한 뒤 기기의 앱으로 열어 주세요.',
++  'workspace.fileUnavailable.unreachableBody': '{name} 파일은 워크스페이스 밖에 있고 서버에서 제공할 수 없어 여기서 열거나 다운로드할 수 없습니다.',
+   'workspace.document.loading': '문서 불러오는 중...',
+   'workspace.document.updating': '미리 보기 업데이트 중...',
+   'workspace.document.parseFailed': '이 문서를 표시할 수 없습니다.',
+diff --git a/desktop/src/i18n/locales/zh-TW.ts b/desktop/src/i18n/locales/zh-TW.ts
+index 622a104c..708a5cfe 100644
+--- a/desktop/src/i18n/locales/zh-TW.ts
++++ b/desktop/src/i18n/locales/zh-TW.ts
+@@ -933,6 +933,8 @@ export const zh: Record<TranslationKey, string> = {
+   'workspace.previewState.loading': '正在載入預覽...',
+   'workspace.previewState.binary': '二進位制檔案暫不支援預覽。',
+   'workspace.previewState.tooLarge': '檔案過大，無法預覽。',
++  'workspace.previewState.tooLargeSized': '{name} 體積約 {size}，超出可在頁面內預覽的上限。下載後可查看完整內容。',
++  'workspace.previewState.truncated': '此檔案約 {size}，僅顯示開頭部分。下載後可查看完整內容。',
+   'workspace.previewState.missing': '檔案不存在。',
+   'workspace.imagePreviewUnavailable': '圖片無法預覽。',
+   'workspace.zoom.group': '縮放控制項',
+@@ -941,6 +943,12 @@ export const zh: Record<TranslationKey, string> = {
+   'workspace.zoom.fitWindow': '符合視窗大小',
+   'workspace.zoom.fitWidth': '符合寬度',
+   'workspace.openInSystemApp': '用系統程式開啟',
++  'workspace.mediaUnavailable': '此媒體無法在頁面內播放。',
++  'workspace.fileUnavailable.title': '無法在頁面內開啟',
++  'workspace.fileUnavailable.body': '{name} 無法在瀏覽器內預覽。下載後可用本機應用程式開啟。',
++  'workspace.fileUnavailable.tooLargeBody': '{name} 體積約 {size}，過大無法在瀏覽器內預覽。下載後可用本機應用程式開啟。',
++  'workspace.fileUnavailable.outsideBody': '{name} 不在本工作區內，無法在瀏覽器內預覽。下載後可用本機應用程式開啟。',
++  'workspace.fileUnavailable.unreachableBody': '{name} 不在本工作區內，且伺服器無法提供該檔案，因此無法在此開啟或下載。',
+   'workspace.document.loading': '正在載入文件...',
+   'workspace.document.updating': '正在更新預覽...',
+   'workspace.document.parseFailed': '無法顯示此文件。',
+diff --git a/desktop/src/i18n/locales/zh.ts b/desktop/src/i18n/locales/zh.ts
+index e57d5066..b5d0f3c9 100644
+--- a/desktop/src/i18n/locales/zh.ts
++++ b/desktop/src/i18n/locales/zh.ts
+@@ -933,6 +933,8 @@ export const zh: Record<TranslationKey, string> = {
+   'workspace.previewState.loading': '正在加载预览...',
+   'workspace.previewState.binary': '二进制文件暂不支持预览。',
+   'workspace.previewState.tooLarge': '文件过大，无法预览。',
++  'workspace.previewState.tooLargeSized': '{name} 体积约 {size}，超出可在页面内预览的上限。下载后可查看完整内容。',
++  'workspace.previewState.truncated': '此文件约 {size}，仅显示开头部分。下载后可查看完整内容。',
+   'workspace.previewState.missing': '文件不存在。',
+   'workspace.imagePreviewUnavailable': '图片无法预览。',
+   'workspace.zoom.group': '缩放控件',
+@@ -941,6 +943,12 @@ export const zh: Record<TranslationKey, string> = {
+   'workspace.zoom.fitWindow': '适应窗口',
+   'workspace.zoom.fitWidth': '适应宽度',
+   'workspace.openInSystemApp': '用系统程序打开',
++  'workspace.mediaUnavailable': '此媒体无法在页面内播放。',
++  'workspace.fileUnavailable.title': '无法在页面内打开',
++  'workspace.fileUnavailable.body': '{name} 无法在浏览器内预览。下载后可用本机应用打开。',
++  'workspace.fileUnavailable.tooLargeBody': '{name} 体积约 {size}，过大无法在浏览器内预览。下载后可用本机应用打开。',
++  'workspace.fileUnavailable.outsideBody': '{name} 不在本工作区内，无法在浏览器内预览。下载后可用本机应用打开。',
++  'workspace.fileUnavailable.unreachableBody': '{name} 不在本工作区内，且服务器无法提供该文件，因此无法在此打开或下载。',
+   'workspace.document.loading': '正在加载文档...',
+   'workspace.document.updating': '正在更新预览...',
+   'workspace.document.parseFailed': '无法显示此文档。',
+diff --git a/desktop/src/lib/fileCapabilities.test.ts b/desktop/src/lib/fileCapabilities.test.ts
+index 53a48f9a..885e8751 100644
+--- a/desktop/src/lib/fileCapabilities.test.ts
++++ b/desktop/src/lib/fileCapabilities.test.ts
+@@ -5,8 +5,11 @@ import {
+   isEditorOpenableFile,
+   isGeneratedArtifactFile,
+   isOutputResourceFile,
++  isWorkspaceAudioFile,
+   isWorkspaceDocumentFile,
++  isWorkspaceMediaFile,
+   isWorkspacePreviewableFile,
++  isWorkspaceVideoFile,
+ } from './fileCapabilities'
+ 
+ describe('the workspace document gate', () => {
+@@ -29,13 +32,42 @@ describe('the workspace document gate', () => {
+   })
+ 
+   it('leaves formats the workspace cannot draw with the system application', () => {
+-    for (const path of ['deck.pptx', 'legacy.doc', 'archive.zip', 'song.mp3', 'clip.mp4', 'book.pages']) {
++    for (const path of ['deck.pptx', 'legacy.doc', 'archive.zip', 'book.pages']) {
+       expect(isWorkspaceDocumentFile(path)).toBe(false)
+       expect(isWorkspacePreviewableFile(path)).toBe(false)
+       expect(isEditorOpenableFile(path)).toBe(false)
+     }
+   })
+ 
++  it('plays audio and video itself: the browser has the player, so the tab renders them', () => {
++    // These used to be handed to the system application, which is exactly what
++    // opened them on the *server* host from the H5 surface. The media element is
++    // the only way they open inside the page — and the only way a phone can play
++    // them at all.
++    for (const path of ['song.mp3', 'clip.mp4', 'voice.wav', 'take.MOV']) {
++      expect(isWorkspaceMediaFile(path)).toBe(true)
++      expect(isWorkspacePreviewableFile(path)).toBe(true)
++    }
++    for (const path of ['song.mp3', 'clip.mp4']) {
++      expect(isWorkspaceAudioFile(path)).toBe(path.endsWith('.mp3'))
++      expect(isWorkspaceVideoFile(path)).toBe(path.endsWith('.mp4'))
++    }
++  })
++
++  it('still keeps media away from code editors: playing it is not editing it', () => {
++    for (const path of ['song.mp3', 'clip.mp4']) {
++      expect(isEditorOpenableFile(path)).toBe(false)
++      expect(isWorkspaceDocumentFile(path)).toBe(false)
++    }
++  })
++
++  it('keeps media in the turn outputs now that the workspace renders it', () => {
++    // The strip's second clause is the non-previewable half, so playing media in
++    // the workspace would silently drop a produced recording out of the outputs.
++    expect(isOutputResourceFile('clip.mp4')).toBe(true)
++    expect(isOutputResourceFile('song.mp3')).toBe(true)
++  })
++
+   it('does not disturb what was previewable before: source, markdown, images, extensionless files', () => {
+     for (const path of ['src/app.ts', 'README.md', 'logo.png', 'Makefile', 'notes.txt']) {
+       expect(isWorkspacePreviewableFile(path)).toBe(true)
+diff --git a/desktop/src/lib/fileCapabilities.ts b/desktop/src/lib/fileCapabilities.ts
+index 9daf3408..3e153f72 100644
+--- a/desktop/src/lib/fileCapabilities.ts
++++ b/desktop/src/lib/fileCapabilities.ts
+@@ -23,6 +23,31 @@ const SYSTEM_OPEN_EXTENSIONS: ReadonlySet<string> = new Set([
+  */
+ export const WORKSPACE_DOCUMENT_EXTENSIONS: ReadonlySet<string> = new Set<string>(['pdf', 'docx', 'xlsx', 'xlsm', 'xls'])
+ 
++/**
++ * Media the workspace tab plays itself, through the browser's own element.
++ *
++ * These stay in {@link SYSTEM_OPEN_EXTENSIONS} on purpose: a code editor is still
++ * the wrong place for a `.mp4`, so they are not editor-openable. But unlike an
++ * Office package or an archive, the browser has a native player, so a workspace
++ * tab can render one — which is the only way audio or video opens *inside* the
++ * page, and on the H5 surface the only way it opens on the user's device at all.
++ *
++ * Their bytes come from the filesystem routes (`/preview-fs`, `/local-file`),
++ * which stream with Range support — the `raw` route the document viewers use
++ * deliberately serves whole documents only and cannot seek.
++ */
++export const WORKSPACE_AUDIO_EXTENSIONS: ReadonlySet<string> = new Set<string>([
++  'mp3', 'wav', 'm4a', 'flac', 'aac', 'ogg', 'opus',
++])
++
++export const WORKSPACE_VIDEO_EXTENSIONS: ReadonlySet<string> = new Set<string>([
++  'mp4', 'mov', 'm4v', 'webm', 'mkv', 'avi',
++])
++
++export const WORKSPACE_IMAGE_EXTENSIONS: ReadonlySet<string> = new Set<string>([
++  'png', 'jpg', 'jpeg', 'gif', 'webp', 'avif', 'bmp', 'ico', 'svg',
++])
++
+ // These are user-facing deliverables often created without being repeated in the
+ // final prose. Source files stay in the changed-file card unless the assistant
+ // explicitly cites them, so a large code change does not become a wall of cards.
+@@ -84,11 +109,38 @@ export function isWorkspaceDocumentFile(path: string): boolean {
+   return WORKSPACE_DOCUMENT_EXTENSIONS.has(fileExtension(path))
+ }
+ 
+-/** Whether the workspace can render this path as text/source, an image or a document. */
++/** Whether the workspace plays this path with an `<audio>` element. */
++export function isWorkspaceAudioFile(path: string): boolean {
++  return WORKSPACE_AUDIO_EXTENSIONS.has(fileExtension(path))
++}
++
++/** Whether the workspace plays this path with a `<video>` element. */
++export function isWorkspaceVideoFile(path: string): boolean {
++  return WORKSPACE_VIDEO_EXTENSIONS.has(fileExtension(path))
++}
++
++/**
++ * Whether the workspace shows this path as a picture.
++ *
++ * Worth its own predicate because an image is the one preview the server carries
++ * whole (as a base64 data URL) instead of streaming or truncating it, so it is the
++ * one whose size has to be weighed before opening.
++ */
++export function isWorkspaceImageFile(path: string): boolean {
++  return WORKSPACE_IMAGE_EXTENSIONS.has(fileExtension(path))
++}
++
++/** Whether the workspace plays this path itself, rather than handing it to the system. */
++export function isWorkspaceMediaFile(path: string): boolean {
++  return isWorkspaceAudioFile(path) || isWorkspaceVideoFile(path)
++}
++
++/** Whether the workspace can render this path as text/source, an image, a document or media. */
+ export function isWorkspacePreviewableFile(path: string): boolean {
+   const extension = fileExtension(path)
+   if (!extension) return true
+   if (WORKSPACE_DOCUMENT_EXTENSIONS.has(extension)) return true
++  if (WORKSPACE_AUDIO_EXTENSIONS.has(extension) || WORKSPACE_VIDEO_EXTENSIONS.has(extension)) return true
+   return LINKABLE_FILE_EXTENSIONS.has(extension) && !SYSTEM_OPEN_EXTENSIONS.has(extension)
+ }
+ 
+@@ -99,6 +151,10 @@ export function isGeneratedArtifactFile(path: string): boolean {
+ 
+ /** Whether a cited path belongs in the final-output resource strip. */
+ export function isOutputResourceFile(path: string): boolean {
++  // Media is named explicitly because the second clause is the *non*-previewable
++  // half: the workspace now plays a `.mp4` itself, which would otherwise drop it
++  // out of the strip and out of the chat's prose deliverable cards entirely.
+   return isGeneratedArtifactFile(path)
++    || isWorkspaceMediaFile(path)
+     || (LINKABLE_FILE_EXTENSIONS.has(fileExtension(path)) && !isWorkspacePreviewableFile(path))
+ }
+diff --git a/desktop/src/lib/handlePreviewLink.ts b/desktop/src/lib/handlePreviewLink.ts
+index 64200547..05eb0338 100644
+--- a/desktop/src/lib/handlePreviewLink.ts
++++ b/desktop/src/lib/handlePreviewLink.ts
+@@ -47,9 +47,12 @@ export function isRootedLocalPath(p: string): boolean {
+ }
+ 
+ /**
+- * Build a `/local-file/<absolute-path>` URL for the local server so an absolute
+- * file outside the session workspace can open in the in-app browser. Home aliases
+- * (`~/...`) are expanded by the server before the same filesystem checks.
++ * The `/local-file/<absolute-path>` path for the local server, without the origin.
++ *
++ * Split out from {@link localFileUrl} so a caller that goes through the
++ * authenticated API client (rather than an element `src` or an anchor) can build
++ * the same URL. `?info=1` metadata reads and `?download=1` saves both address this
++ * route, and the two must agree on the encoding or one of them 404s.
+  *
+  * The path is appended PATH-style (not as a query param) so relative asset URLs
+  * inside served HTML resolve against the same directory. Each path segment is
+@@ -58,7 +61,7 @@ export function isRootedLocalPath(p: string): boolean {
+  * backslashes normalized to `/`; the leading separator is always present so the
+  * server can re-root the path.
+  */
+-export function localFileUrl(base: string, absPath: string): string {
++export function localFilePath(absPath: string): string {
+   const withForwardSlashes = absPath.replace(/\\/g, '/')
+   const withLeadingSlash = withForwardSlashes.startsWith('/')
+     ? withForwardSlashes
+@@ -67,7 +70,16 @@ export function localFileUrl(base: string, absPath: string): string {
+     .split('/')
+     .map((segment) => encodeURIComponent(segment))
+     .join('/')
+-  return `${base.replace(/\/$/, '')}/local-file${encoded}`
++  return `/local-file${encoded}`
++}
++
++/**
++ * Build a `/local-file/<absolute-path>` URL for the local server so an absolute
++ * file outside the session workspace can open in the in-app browser. Home aliases
++ * (`~/...`) are expanded by the server before the same filesystem checks.
++ */
++export function localFileUrl(base: string, absPath: string): string {
++  return `${base.replace(/\/$/, '')}${localFilePath(absPath)}`
+ }
+ 
+ /**
+diff --git a/desktop/src/lib/openOutsideWorkspaceFile.test.ts b/desktop/src/lib/openOutsideWorkspaceFile.test.ts
+new file mode 100644
+index 00000000..5a037c69
+--- /dev/null
++++ b/desktop/src/lib/openOutsideWorkspaceFile.test.ts
+@@ -0,0 +1,120 @@
++import { beforeEach, describe, expect, it, vi } from 'vitest'
++
++const apiGet = vi.hoisted(() => vi.fn())
++const getWorkspaceFile = vi.hoisted(() => vi.fn())
++const fileSpy = vi.hoisted(() => vi.fn())
++
++vi.mock('@/api/client', () => ({ api: { get: apiGet } }))
++vi.mock('@/api/sessions', () => ({ sessionsApi: { getWorkspaceFile } }))
++vi.mock('./workspace/openTarget', () => ({
++  workspaceOpen: { file: fileSpy, browser: vi.fn(), review: vi.fn(), terminal: vi.fn() },
++}))
++
++import { MAX_IMAGE_PREVIEW_BYTES, openFileOutsideWorkspace } from './openOutsideWorkspaceFile'
++import { useUIStore } from '@/stores/uiStore'
++
++const info = (size: number) => ({ name: 'notes.md', size, mime: 'text/markdown' })
++const unavailable = () => useUIStore.getState().unavailableFile
++const settle = () => vi.waitFor(() => {
++  if (unavailable() === null && fileSpy.mock.calls.length === 0) throw new Error('still deciding')
++})
++
++beforeEach(() => {
++  vi.clearAllMocks()
++  useUIStore.setState({ unavailableFile: null })
++  getWorkspaceFile.mockResolvedValue({ state: 'ok' })
++})
++
++describe('openFileOutsideWorkspace', () => {
++  it('asks the server for the size before anything is transferred', async () => {
++    apiGet.mockResolvedValue(info(1024))
++    openFileOutsideWorkspace({ sessionId: 's1', absolutePath: '/elsewhere/notes.md', displayPath: '/elsewhere/notes.md' })
++    await settle()
++
++    expect(apiGet).toHaveBeenCalledWith('/local-file/elsewhere/notes.md?info=1')
++  })
++
++  it('shows a small text file in the workspace', async () => {
++    apiGet.mockResolvedValue(info(1024))
++    openFileOutsideWorkspace({ sessionId: 's1', absolutePath: '/elsewhere/notes.md', displayPath: '/elsewhere/notes.md' })
++    await settle()
++
++    expect(fileSpy).toHaveBeenCalledWith('s1', '/elsewhere/notes.md', { requestedBy: 'user' })
++    expect(unavailable()).toBeNull()
++  })
++
++  it('refuses an image past the size limit, saying how big it is, and still saves it', async () => {
++    const size = MAX_IMAGE_PREVIEW_BYTES + 1
++    apiGet.mockResolvedValue({ name: 'shot.png', size, mime: 'image/png' })
++    openFileOutsideWorkspace({ sessionId: 's1', absolutePath: '/elsewhere/shot.png', displayPath: '/elsewhere/shot.png' })
++    await settle()
++
++    expect(fileSpy).not.toHaveBeenCalled()
++    expect(unavailable()).toMatchObject({ reason: 'too-large', size, canDownload: true })
++    // The size probe is the only request: nothing was read.
++    expect(getWorkspaceFile).not.toHaveBeenCalled()
++  })
++
++  it('opens a large text file anyway, since the server sends its head to be read', async () => {
++    // The ceiling is about what has to be carried whole. Text is truncated
++    // instead, so a big one still opens — sized well past the image limit on
++    // purpose, to pin that the two are not the same rule.
++    apiGet.mockResolvedValue({ name: 'server.log', size: 64 * 1024 * 1024, mime: 'text/plain' })
++    openFileOutsideWorkspace({ sessionId: 's1', absolutePath: '/elsewhere/server.log', displayPath: '/elsewhere/server.log' })
++    await settle()
++
++    expect(fileSpy).toHaveBeenCalledWith('s1', '/elsewhere/server.log', { requestedBy: 'user' })
++    expect(unavailable()).toBeNull()
++  })
++
++  it('does not open a tab the workspace route would refuse', async () => {
++    apiGet.mockResolvedValue(info(1024))
++    getWorkspaceFile.mockRejectedValue(new Error('403 Path is outside workspace'))
++    openFileOutsideWorkspace({ sessionId: 's1', absolutePath: '/elsewhere/notes.md', displayPath: '/elsewhere/notes.md' })
++    await settle()
++
++    expect(fileSpy).not.toHaveBeenCalled()
++    expect(unavailable()).toMatchObject({ reason: 'outside-workspace', canDownload: true })
++  })
++
++  it('offers no save when the server will not serve the path at all', async () => {
++    apiGet.mockRejectedValue(new Error('403 forbidden'))
++    openFileOutsideWorkspace({ sessionId: 's1', absolutePath: '/var/secret.txt', displayPath: '/var/secret.txt' })
++    await settle()
++
++    // Both the preview and the download go through the server, so neither can work.
++    expect(unavailable()).toMatchObject({ reason: 'outside-workspace', canDownload: false })
++  })
++
++  it('skips the workspace-route question for media, which is served by the other route', async () => {
++    apiGet.mockResolvedValue({ name: 'clip.mp4', size: 2048, mime: 'video/mp4' })
++    openFileOutsideWorkspace({ sessionId: 's1', absolutePath: '/elsewhere/clip.mp4', displayPath: '/elsewhere/clip.mp4' })
++    await settle()
++
++    expect(fileSpy).toHaveBeenCalledWith('s1', '/elsewhere/clip.mp4', { requestedBy: 'user' })
++    expect(getWorkspaceFile).not.toHaveBeenCalled()
++  })
++
++  it('names the reason a small file cannot be drawn here, keeping the save', async () => {
++    apiGet.mockResolvedValue({ name: 'deck.pptx', size: 4096, mime: 'application/vnd.ms-powerpoint' })
++    openFileOutsideWorkspace({ sessionId: 's1', absolutePath: '/elsewhere/deck.pptx', displayPath: '/elsewhere/deck.pptx' })
++    await settle()
++
++    expect(fileSpy).not.toHaveBeenCalled()
++    expect(unavailable()).toMatchObject({ reason: 'no-viewer', canDownload: true })
++  })
++
++  it('keeps the chat origin so the conversation can scroll back', async () => {
++    apiGet.mockResolvedValue(info(1024))
++    const origin = { sourceTurnKey: 'turn-1', sourceElementId: 'el-1' }
++    openFileOutsideWorkspace({
++      sessionId: 's1',
++      absolutePath: '/elsewhere/notes.md',
++      displayPath: '/elsewhere/notes.md',
++      origin,
++    })
++    await settle()
++
++    expect(fileSpy).toHaveBeenCalledWith('s1', '/elsewhere/notes.md', { origin, requestedBy: 'user' })
++  })
++})
+diff --git a/desktop/src/lib/openOutsideWorkspaceFile.ts b/desktop/src/lib/openOutsideWorkspaceFile.ts
+new file mode 100644
+index 00000000..a870118f
+--- /dev/null
++++ b/desktop/src/lib/openOutsideWorkspaceFile.ts
+@@ -0,0 +1,118 @@
++import { api } from '@/api/client'
++import { sessionsApi } from '@/api/sessions'
++import { isWorkspaceImageFile, isWorkspaceMediaFile, isWorkspacePreviewableFile } from './fileCapabilities'
++import { fileNameFromPath, localFilePath } from './handlePreviewLink'
++import { workspaceOpen } from './workspace/openTarget'
++import type { WorkspaceOrigin } from '@/stores/workspaceStore'
++import { useUIStore } from '@/stores/uiStore'
++
++/**
++ * The size past which an image is refused rather than drawn.
++ *
++ * Images only: an image is the one preview the server carries whole, as a base64
++ * data URL, so its size is memory on both ends and has to be weighed before the
++ * click. Text is not capped here — the server sends its head and flags it, which
++ * is a better answer than a refusal (see `MAX_PREVIEW_BYTES`), and media streams
++ * from the path. Mirrors the server's own ceiling.
++ */
++export const MAX_IMAGE_PREVIEW_BYTES = 16 * 1024 * 1024
++
++type LocalFileInfo = { name: string; size: number; mime: string }
++
++/**
++ * Ask the server about a path it may not be willing to serve, without reading it.
++ *
++ * `/local-file/:path?info=1` returns name, size and mime from a `stat` alone, and
++ * refuses a path outside the roots it serves the same way the content routes do —
++ * so a `null` here is the honest answer to "can this be shown or saved at all",
++ * and the size is known before anything is transferred.
++ */
++export async function fetchLocalFileInfo(absolutePath: string): Promise<LocalFileInfo | null> {
++  try {
++    return await api.get<LocalFileInfo>(`${localFilePath(absolutePath)}?info=1`)
++  } catch {
++    return null
++  }
++}
++
++/**
++ * Whether the *workspace* routes will serve this path.
++ *
++ * A different gate from `/local-file`'s: the workspace route accepts an absolute
++ * path only inside a registered root, so a file can be servable by one route and
++ * refused by the other. Asking first is what keeps a click from opening a tab
++ * that renders a refusal.
++ */
++async function workspaceCanServe(sessionId: string, absolutePath: string): Promise<boolean> {
++  try {
++    await sessionsApi.getWorkspaceFile(sessionId, absolutePath)
++    return true
++  } catch {
++    return false
++  }
++}
++
++/**
++ * Open a file that lives outside the session workspace — or explain why it cannot
++ * be opened here.
++ *
++ * Called instead of a bare `workspaceOpen.file` because that is what made these
++ * clicks dead: the workspace route refuses a path outside its roots, so the tab
++ * opened onto a 403 and the download beneath it was never reached either. The
++ * decision is made from the server's own answers (size, then reachability) rather
++ * than from the extension or from a guess.
++ */
++export function openFileOutsideWorkspace(options: {
++  sessionId: string
++  /** Absolute, or `~/`-rooted: what the filesystem routes take. */
++  absolutePath: string
++  /** The path as the conversation wrote it, used for the extension and the name. */
++  displayPath: string
++  reveal?: { line: number; column?: number }
++  /** Chat element that asked, so the conversation can scroll back to it. */
++  origin?: WorkspaceOrigin
++}): void {
++  const { sessionId, absolutePath, displayPath, reveal, origin } = options
++  const name = fileNameFromPath(absolutePath) || displayPath
++  const report = (reason: 'no-viewer' | 'too-large' | 'outside-workspace', extra?: { size?: number; canDownload: boolean }) =>
++    useUIStore.getState().showFileUnavailable({
++      absolutePath,
++      name,
++      reason,
++      canDownload: extra?.canDownload ?? true,
++      ...(extra?.size === undefined ? {} : { size: extra.size }),
++    })
++
++  void (async () => {
++    const info = await fetchLocalFileInfo(absolutePath)
++    if (!info) {
++      // Outside every root the server serves. Nothing here can show *or* save it,
++      // so the message says that instead of offering a save that cannot work.
++      report('outside-workspace', { canDownload: false })
++      return
++    }
++    if (isWorkspaceImageFile(displayPath) && info.size > MAX_IMAGE_PREVIEW_BYTES) {
++      report('too-large', { size: info.size, canDownload: true })
++      return
++    }
++    if (!isWorkspacePreviewableFile(displayPath)) {
++      // Small enough to fetch, but this runtime has no surface that draws it —
++      // an Office package, an archive. There is no system application either, so
++      // the save is the whole answer.
++      report('no-viewer', { canDownload: true })
++      return
++    }
++    // Media is played from the path by `/local-file`, which the metadata read
++    // above already proved serves it, so the workspace route's answer is beside
++    // the point for it.
++    if (!isWorkspaceMediaFile(displayPath) && !(await workspaceCanServe(sessionId, absolutePath))) {
++      report('outside-workspace', { canDownload: true })
++      return
++    }
++    workspaceOpen.file(sessionId, absolutePath, {
++      ...(reveal ? { line: reveal.line, ...(reveal.column ? { column: reveal.column } : {}) } : {}),
++      ...(origin ? { origin } : {}),
++      requestedBy: 'user',
++    })
++  })()
++}
+diff --git a/desktop/src/lib/openPreviewLink.test.ts b/desktop/src/lib/openPreviewLink.test.ts
+index 1f10c245..1c9e5e4d 100644
+--- a/desktop/src/lib/openPreviewLink.test.ts
++++ b/desktop/src/lib/openPreviewLink.test.ts
+@@ -12,6 +12,8 @@ vi.mock('../api/sessions', () => ({
+ 
+ vi.mock('./desktopHost', () => ({
+   getDesktopHost: () => ({
++    // A desktop runtime: these cases are about which paths reach the system app.
++    capabilities: { shell: true },
+     shell: {
+       open: vi.fn().mockResolvedValue(undefined),
+       openPath,
+@@ -57,21 +59,21 @@ describe('openPreviewLink for a document the workspace can draw', () => {
+   it('previews a workspace-relative document, which the server resolves against the workdir', () => {
+     expect(openPreviewLink('out/thesis.pdf', 's1')).toBe(true)
+ 
+-    expect(workspaceOpen.file).toHaveBeenCalledWith('s1', 'out/thesis.pdf', {})
++    expect(workspaceOpen.file).toHaveBeenCalledWith('s1', 'out/thesis.pdf', { requestedBy: 'user' })
+     expect(openPath).not.toHaveBeenCalled()
+   })
+ 
+   it('previews a Word document the same way as a PDF', () => {
+     expect(openPreviewLink('out/thesis.docx', 's1')).toBe(true)
+ 
+-    expect(workspaceOpen.file).toHaveBeenCalledWith('s1', 'out/thesis.docx', {})
++    expect(workspaceOpen.file).toHaveBeenCalledWith('s1', 'out/thesis.docx', { requestedBy: 'user' })
+     expect(openPath).not.toHaveBeenCalled()
+   })
+ 
+   it.each(['out/budget.xlsx', 'out/legacy.xls'])('previews an Excel workbook (%s) the same way', (path) => {
+     expect(openPreviewLink(path, 's1')).toBe(true)
+ 
+-    expect(workspaceOpen.file).toHaveBeenCalledWith('s1', path, {})
++    expect(workspaceOpen.file).toHaveBeenCalledWith('s1', path, { requestedBy: 'user' })
+     expect(openPath).not.toHaveBeenCalled()
+   })
+ 
+@@ -85,7 +87,7 @@ describe('openPreviewLink for a document the workspace can draw', () => {
+   it('previews an absolute path that sits inside the session directory', () => {
+     openPreviewLink('/work/out/thesis.pdf', 's1')
+ 
+-    expect(workspaceOpen.file).toHaveBeenCalledWith('s1', '/work/out/thesis.pdf', {})
++    expect(workspaceOpen.file).toHaveBeenCalledWith('s1', '/work/out/thesis.pdf', { requestedBy: 'user' })
+     expect(openPath).not.toHaveBeenCalled()
+   })
+ 
+@@ -114,7 +116,7 @@ describe('openPreviewLink for a document the workspace can draw', () => {
+   it('still previews a relative document that only steps out of a folder and back in', () => {
+     openPreviewLink('out/../out/thesis.pdf', 's1')
+ 
+-    expect(workspaceOpen.file).toHaveBeenCalledWith('s1', 'out/../out/thesis.pdf', {})
++    expect(workspaceOpen.file).toHaveBeenCalledWith('s1', 'out/../out/thesis.pdf', { requestedBy: 'user' })
+     expect(openPath).not.toHaveBeenCalled()
+   })
+ 
+@@ -133,7 +135,7 @@ describe('openPreviewLink for a document the workspace can draw', () => {
+ 
+     openPreviewLink('/work/out/thesis.pdf', 's2')
+ 
+-    await waitFor(() => expect(workspaceOpen.file).toHaveBeenCalledWith('s2', '/work/out/thesis.pdf', {}))
++    await waitFor(() => expect(workspaceOpen.file).toHaveBeenCalledWith('s2', '/work/out/thesis.pdf', { requestedBy: 'user' }))
+     expect(openPath).not.toHaveBeenCalled()
+   })
+ 
+@@ -145,7 +147,7 @@ describe('openPreviewLink for a document the workspace can draw', () => {
+ 
+     expect(openPreviewLink('/tmp/app/report.pdf', 's3')).toBe(true)
+ 
+-    await waitFor(() => expect(workspaceOpen.file).toHaveBeenCalledWith('s3', '/tmp/app/report.pdf', {}))
++    await waitFor(() => expect(workspaceOpen.file).toHaveBeenCalledWith('s3', '/tmp/app/report.pdf', { requestedBy: 'user' }))
+     expect(getWorkspaceFile).toHaveBeenCalledWith('s3', '/tmp/app/report.pdf')
+     expect(openPath).not.toHaveBeenCalled()
+   })
+@@ -159,13 +161,13 @@ describe('openPreviewLink for a document the workspace can draw', () => {
+   it('still previews a relative document while the workdir is unknown', () => {
+     openPreviewLink('out/thesis.pdf', 's2')
+ 
+-    expect(workspaceOpen.file).toHaveBeenCalledWith('s2', 'out/thesis.pdf', {})
++    expect(workspaceOpen.file).toHaveBeenCalledWith('s2', 'out/thesis.pdf', { requestedBy: 'user' })
+   })
+ 
+   it('applies only to documents: source files outside the workdir open in the code view as before', () => {
+     openPreviewLink('/Users/x/notes/app.ts', 's1')
+ 
+-    expect(workspaceOpen.file).toHaveBeenCalledWith('s1', '/Users/x/notes/app.ts', {})
++    expect(workspaceOpen.file).toHaveBeenCalledWith('s1', '/Users/x/notes/app.ts', { requestedBy: 'user' })
+     expect(openPath).not.toHaveBeenCalled()
+   })
+ 
+@@ -188,6 +190,6 @@ describe('openPreviewLink', () => {
+     // The output card for `README-拍摄大纲.md` rendered but its click returned
+     // false: the path parser was ASCII-only and the router answered `ignored`.
+     expect(openPreviewLink('README-拍摄大纲.md', 's1')).toBe(true)
+-    expect(workspaceOpen.file).toHaveBeenCalledWith('s1', 'README-拍摄大纲.md', {})
++    expect(workspaceOpen.file).toHaveBeenCalledWith('s1', 'README-拍摄大纲.md', { requestedBy: 'user' })
+   })
+ })
+diff --git a/desktop/src/lib/openPreviewLink.ts b/desktop/src/lib/openPreviewLink.ts
+index bf4f5bc1..cfd97795 100644
+--- a/desktop/src/lib/openPreviewLink.ts
++++ b/desktop/src/lib/openPreviewLink.ts
+@@ -6,7 +6,8 @@ import { isWorkspaceDocumentFile } from './fileCapabilities'
+ import { useWorkspaceContentStore } from '../stores/workspaceContentStore'
+ import { sessionsApi } from '../api/sessions'
+ import { workspaceOpen } from './workspace/openTarget'
+-import { openLocalFileWithSystem, reportOpenFailure, resolveAbsoluteOpenPath } from './systemFileOpen'
++import { canOpenWithSystem, openFileWithSystemOrOfferSave, resolveAbsoluteOpenPath } from './systemFileOpen'
++import { openFileOutsideWorkspace } from './openOutsideWorkspaceFile'
+ 
+ /**
+  * Cheap, synchronous guess at whether the workspace preview can reach this document.
+@@ -58,21 +59,49 @@ async function documentReachableOnServer(sessionId: string, path: string): Promi
+ export function openPreviewLink(href: string, sessionId: string): boolean {
+   const currentWorkDir = () => useWorkspaceContentStore.getState().statusBySession[sessionId]?.workDir
+   const openSystemFile = (path: string) => {
+-    const absolutePath = resolveAbsoluteOpenPath(path, currentWorkDir())
+-    void openLocalFileWithSystem(absolutePath).catch(() => reportOpenFailure(absolutePath))
++    const workDir = currentWorkDir()
++    const absolutePath = resolveAbsoluteOpenPath(path, workDir)
++    // A path outside the workspace is a different problem on a runtime with no
++    // system application: there is nothing to hand it to, and the workspace route
++    // may refuse it. Settle which, by size and reachability, rather than letting
++    // it fall through to a generic "cannot open".
++    if (!canOpenWithSystem() && !documentReachableInWorkspace(path, workDir)) {
++      openFileOutsideWorkspace({ sessionId, absolutePath, displayPath: path })
++      return
++    }
++    openFileWithSystemOrOfferSave(absolutePath)
+   }
+ 
+   return handlePreviewLink(href, {
+     sessionId,
+     serverBaseUrl: getServerBaseUrl(),
+-    openBrowser: (id, url) => { workspaceOpen.browser(id, url) },
++    openBrowser: (id, url) => { workspaceOpen.browser(id, url, { requestedBy: 'user' }) },
+     openFilePreview: (id, path, reveal) => {
+       const openInWorkspace = () => {
+         workspaceOpen.file(id, path, {
+           ...(reveal ? { line: reveal.line, ...(reveal.column ? { column: reveal.column } : {}) } : {}),
++          requestedBy: 'user',
+         })
+       }
+-      if (!isWorkspaceDocumentFile(path) || documentReachableInWorkspace(path, currentWorkDir())) {
++      const workDir = currentWorkDir()
++      if (documentReachableInWorkspace(path, workDir)) {
++        openInWorkspace()
++        return
++      }
++      // Outside the workspace. On the desktop the reachability question is worth
++      // asking of the server, because a registered root may still cover it; with
++      // no shell the answer decides between an in-page preview and an explanation,
++      // and the size has to be weighed in too.
++      if (!canOpenWithSystem()) {
++        openFileOutsideWorkspace({
++          sessionId: id,
++          absolutePath: resolveAbsoluteOpenPath(path, workDir),
++          displayPath: path,
++          ...(reveal ? { reveal } : {}),
++        })
++        return
++      }
++      if (!isWorkspaceDocumentFile(path)) {
+         openInWorkspace()
+         return
+       }
+diff --git a/desktop/src/lib/openWithItems.test.ts b/desktop/src/lib/openWithItems.test.ts
+index c99ca0a9..b3f65233 100644
+--- a/desktop/src/lib/openWithItems.test.ts
++++ b/desktop/src/lib/openWithItems.test.ts
+@@ -105,6 +105,9 @@ function makeT() {
+ 
+ function makeDeps(overrides?: Partial<OpenWithDeps>): OpenWithDeps {
+   return {
++    // The desktop default: these tests were written against a runtime that can
++    // hand a file to the system, and the browser case is asserted separately.
++    systemOpenAvailable: true,
+     openInAppBrowser: vi.fn(),
+     openSystem: vi.fn(),
+     openWorkspacePreview: vi.fn(),
+@@ -146,6 +149,37 @@ describe('buildOpenWithItems – url context', () => {
+   })
+ })
+ 
++describe('buildOpenWithItems – a runtime with no system shell (browser / H5)', () => {
++  it('drops every row that would launch on the server, keeping preview and the save actions', () => {
++    const deps = makeDeps({
++      systemOpenAvailable: false,
++      copyPath: vi.fn(),
++      copyFileContent: vi.fn(),
++      downloadFile: vi.fn(),
++    })
++    const ctx: OpenWithContext = { kind: 'file', absolutePath: '/w/a.md', relPath: 'a.md', previewable: true }
++    const items = buildOpenWithItems(ctx, [systemTarget, ideTarget, appTarget, fmTarget], deps)
++
++    expect(items.map((i) => i.id)).toEqual(['preview', 'copy-path', 'copy-content', 'download'])
++  })
++
++  it('offers nothing that would reveal a folder on the server', () => {
++    const deps = makeDeps({ systemOpenAvailable: false })
++    const ctx: OpenWithContext = { kind: 'file', absolutePath: '/w/a.md', previewable: false }
++    expect(buildOpenWithItems(ctx, [fmTarget], deps)).toEqual([])
++  })
++
++  it('still saves a file it cannot open', () => {
++    const deps = makeDeps({ systemOpenAvailable: false, downloadFile: vi.fn() })
++    const ctx: OpenWithContext = { kind: 'file', absolutePath: '/w/song.mp3', previewable: false }
++    const items = buildOpenWithItems(ctx, [systemTarget, ideTarget], deps)
++
++    expect(items.map((i) => i.id)).toEqual(['download'])
++    items[0]!.onSelect()
++    expect(deps.downloadFile).toHaveBeenCalledWith('/w/song.mp3')
++  })
++})
++
+ describe('buildOpenWithItems – file context with targets', () => {
+   it('keeps system-default opening available immediately after workspace preview', () => {
+     const deps = makeDeps()
+diff --git a/desktop/src/lib/openWithItems.ts b/desktop/src/lib/openWithItems.ts
+index 540214f5..62bac78f 100644
+--- a/desktop/src/lib/openWithItems.ts
++++ b/desktop/src/lib/openWithItems.ts
+@@ -64,6 +64,16 @@ export type OpenWithDeps = {
+   openSystem: (urlOrPath: string) => void
+   openWorkspacePreview: (relPath: string) => void
+   openTarget: (targetId: string, absolutePath: string) => void
++  /**
++   * Whether this runtime has a system shell to hand the file to.
++   *
++   * When it does not, every row that would launch something on the host is left
++   * out rather than offered dead: the system-default and IDE rows are launched by
++   * the *server*, so on the H5 surface they open the file on the server's desktop,
++   * and the file-manager rows reveal a directory there. The download row is what
++   * replaces them, which is why it stays.
++   */
++  systemOpenAvailable: boolean
+   /** Omit to leave the copy entries out (a URL context has nothing to copy). */
+   copyPath?: (absolutePath: string) => void
+   copyFileContent?: (path: string) => void
+@@ -183,7 +193,9 @@ export function buildOpenWithItems(ctx: OpenWithContext, targets: OpenTarget[],
+     if (target === preferredEditor) continue
+     openWith.push(openInItem(target, 'ide'))
+   }
+-  pushGroup(items, openWith)
++  // Without a shell there is nothing to launch with, and every target here is
++  // launched by the server — so the whole group goes, not just its label.
++  if (deps.systemOpenAvailable) pushGroup(items, openWith)
+ 
+   // Copy entries sit between "open in…" and "reveal in…", matching the order the
+   // platform file managers use.
+@@ -206,15 +218,19 @@ export function buildOpenWithItems(ctx: OpenWithContext, targets: OpenTarget[],
+   }
+   pushGroup(items, clipboard)
+ 
+-  pushGroup(items, targets
+-    .filter((target) => target.kind === 'file_manager')
+-    .map((target) => ({
+-      id: `fm:${target.id}`,
+-      label: deps.t(revealKeyForPlatform(target.platform)),
+-      icon: 'file-manager' as const,
+-      target,
+-      onSelect: () => deps.openTarget(target.id, ctx.absolutePath),
+-    })))
++  // "Reveal in Finder" reveals a directory on the host running the server, which
++  // is the same wrong machine the system rows above are dropped for.
++  if (deps.systemOpenAvailable) {
++    pushGroup(items, targets
++      .filter((target) => target.kind === 'file_manager')
++      .map((target) => ({
++        id: `fm:${target.id}`,
++        label: deps.t(revealKeyForPlatform(target.platform)),
++        icon: 'file-manager' as const,
++        target,
++        onSelect: () => deps.openTarget(target.id, ctx.absolutePath),
++      })))
++  }
+ 
+   return items
+ }
+diff --git a/desktop/src/lib/openWithMenuItems.test.ts b/desktop/src/lib/openWithMenuItems.test.ts
+index 11c97f16..bc9e64e7 100644
+--- a/desktop/src/lib/openWithMenuItems.test.ts
++++ b/desktop/src/lib/openWithMenuItems.test.ts
+@@ -12,6 +12,12 @@ vi.mock('./desktopRuntime', async (orig) => ({
+   getServerBaseUrl: () => 'http://127.0.0.1:4321',
+ }))
+ 
++// A desktop runtime: these cases assert the menu a machine with a system shell
++// builds. What the browser surface drops is covered in openWithItems.test.ts.
++vi.mock('./desktopHost', () => ({
++  getDesktopHost: () => ({ capabilities: { shell: true } }),
++}))
++
+ import { buildOpenWithMenuItemsForHref } from './openWithMenuItems'
+ import { useUIStore } from '../stores/uiStore'
+ 
+diff --git a/desktop/src/lib/openWithMenuItems.ts b/desktop/src/lib/openWithMenuItems.ts
+index 4d63ddb2..d97b8cf7 100644
+--- a/desktop/src/lib/openWithMenuItems.ts
++++ b/desktop/src/lib/openWithMenuItems.ts
+@@ -47,6 +47,7 @@ export function openWithMenuDeps(
+   { sessionId, t, omitCopyPath }: OpenWithMenuOptions,
+ ): OpenWithDeps {
+   return {
++    systemOpenAvailable: getDesktopHost().capabilities.shell,
+     openInAppBrowser: (url) => {
+       if (!isWorkspaceBrowserAvailable()) {
+         // The built-in browser only exists in the desktop app. On the H5/remote
+@@ -59,13 +60,13 @@ export function openWithMenuDeps(
+         window.open(url, '_blank', 'noopener,noreferrer')
+         return
+       }
+-      workspaceOpen.browser(sessionId, url)
++      workspaceOpen.browser(sessionId, url, { requestedBy: 'user' })
+     },
+     openSystem: (target) => {
+       void getDesktopHost().shell.openPath(target).catch(() => window.open(target, '_blank'))
+     },
+     openWorkspacePreview: (relPath) => {
+-      workspaceOpen.file(sessionId, relPath)
++      workspaceOpen.file(sessionId, relPath, { requestedBy: 'user' })
+     },
+     openTarget: (id, absolutePath) => {
+       void useOpenTargetStore.getState().openTarget(id, absolutePath)
+diff --git a/desktop/src/lib/previewLinkRouter.test.ts b/desktop/src/lib/previewLinkRouter.test.ts
+index 97e7fc93..e9ecc529 100644
+--- a/desktop/src/lib/previewLinkRouter.test.ts
++++ b/desktop/src/lib/previewLinkRouter.test.ts
+@@ -25,10 +25,18 @@ describe('classifyPreviewLink for a document the workspace can draw', () => {
+   })
+ 
+   it('still sends formats the workspace cannot draw to the system application', () => {
+-    for (const path of ['reports/launch.pptx', 'reports/legacy.doc', 'exports/archive.zip', 'media/clip.mp4']) {
++    for (const path of ['reports/launch.pptx', 'reports/legacy.doc', 'exports/archive.zip']) {
+       expect(classifyPreviewLink(path).kind).toBe('system-file')
+     }
+   })
++
++  it('previews media in the workspace, which plays it, rather than handing it to the system', () => {
++    // `system-file` means "launch it on the host", and on the H5 surface the host
++    // is not where the user is — that is what opened a clip on the server.
++    for (const path of ['media/clip.mp4', 'media/voice.wav']) {
++      expect(classifyPreviewLink(path)).toMatchObject({ kind: 'file-preview', path })
++    }
++  })
+ })
+ 
+ describe('classifyPreviewLink', () => {
+diff --git a/desktop/src/lib/systemFileOpen.test.ts b/desktop/src/lib/systemFileOpen.test.ts
+index 5acce547..b02eb597 100644
+--- a/desktop/src/lib/systemFileOpen.test.ts
++++ b/desktop/src/lib/systemFileOpen.test.ts
+@@ -1,13 +1,17 @@
+ import { beforeEach, describe, expect, it, vi } from 'vitest'
+ 
+ const mocks = vi.hoisted(() => ({
++  shellAvailable: true,
+   openPath: vi.fn(),
+   listForPath: vi.fn(),
+   openTarget: vi.fn(),
+ }))
+ 
+ vi.mock('./desktopHost', () => ({
+-  getDesktopHost: () => ({ shell: { openPath: mocks.openPath } }),
++  getDesktopHost: () => ({
++    capabilities: { shell: mocks.shellAvailable },
++    shell: { openPath: mocks.openPath },
++  }),
+ }))
+ 
+ vi.mock('../api/openTargets', () => ({
+@@ -17,12 +21,21 @@ vi.mock('../api/openTargets', () => ({
+   },
+ }))
+ 
+-import { openLocalFileWithSystem, resolveAbsoluteOpenPath } from './systemFileOpen'
++import {
++  SystemOpenUnavailableError,
++  canOpenWithSystem,
++  openFileWithSystemOrOfferSave,
++  openLocalFileWithSystem,
++  resolveAbsoluteOpenPath,
++} from './systemFileOpen'
++import { useUIStore } from '../stores/uiStore'
+ 
+ describe('systemFileOpen', () => {
+   beforeEach(() => {
+     vi.clearAllMocks()
++    mocks.shellAvailable = true
+     mocks.openPath.mockResolvedValue(undefined)
++    useUIStore.setState({ unavailableFile: null, toasts: [] })
+   })
+ 
+   it('resolves relative files against the session work directory', () => {
+@@ -53,4 +66,46 @@ describe('systemFileOpen', () => {
+     expect(mocks.listForPath).toHaveBeenCalledWith('/tmp/brief.docx')
+     expect(mocks.openTarget).toHaveBeenCalledWith('system-default', '/tmp/brief.docx')
+   })
++
++  describe('a runtime with no system shell (browser / H5)', () => {
++    beforeEach(() => {
++      mocks.shellAvailable = false
++    })
++
++    it('reports the capability honestly', () => {
++      expect(canOpenWithSystem()).toBe(false)
++    })
++
++    it('refuses instead of launching the file on the server', async () => {
++      // The server fallback is what opened the file in the *server's* desktop
++      // session — the machine the user is not looking at.
++      await expect(openLocalFileWithSystem('/w/song.mp3')).rejects.toBeInstanceOf(SystemOpenUnavailableError)
++      expect(mocks.listForPath).not.toHaveBeenCalled()
++      expect(mocks.openTarget).not.toHaveBeenCalled()
++      expect(mocks.openPath).not.toHaveBeenCalled()
++    })
++
++    it('answers an open click with the save dialog rather than an error naming the file', async () => {
++      openFileWithSystemOrOfferSave('/w/out/launch.pptx')
++      await vi.waitFor(() => expect(useUIStore.getState().unavailableFile).not.toBeNull())
++
++      expect(useUIStore.getState().unavailableFile).toEqual({
++        absolutePath: '/w/out/launch.pptx',
++        name: 'launch.pptx',
++        reason: 'no-viewer',
++        canDownload: true,
++      })
++      expect(useUIStore.getState().toasts).toHaveLength(0)
++    })
++  })
++
++  it('reports a genuine failure by name, with the toast the user can act on', async () => {
++    mocks.openPath.mockRejectedValue(new Error('no application'))
++    mocks.listForPath.mockRejectedValue(new Error('server refused'))
++
++    openFileWithSystemOrOfferSave('/w/out/thesis.pdf')
++    await vi.waitFor(() => expect(useUIStore.getState().toasts).toHaveLength(1))
++
++    expect(useUIStore.getState().unavailableFile).toBeNull()
++  })
+ })
+diff --git a/desktop/src/lib/systemFileOpen.ts b/desktop/src/lib/systemFileOpen.ts
+index fed464df..f2b1a22d 100644
+--- a/desktop/src/lib/systemFileOpen.ts
++++ b/desktop/src/lib/systemFileOpen.ts
+@@ -23,10 +23,37 @@ export function resolveAbsoluteOpenPath(path: string, workDir?: string): string
+ }
+ 
+ /**
+- * Prefer Electron's guarded shell bridge. Browser/H5 builds have no native shell,
+- * so fall back to the local server's equally validated system-default target.
++ * Raised when there is no desktop shell to open a file with.
++ *
++ * Distinct from a failed open: the caller can offer a different way out (a
++ * download), whereas a genuine failure deserves the error toast.
++ */
++export class SystemOpenUnavailableError extends Error {
++  readonly code = 'system-open-unavailable'
++
++  constructor(path: string) {
++    super(`Opening ${path} with a system application requires the desktop app runtime.`)
++    this.name = 'SystemOpenUnavailableError'
++  }
++}
++
++/** Whether this runtime has a system shell to hand a file to. */
++export function canOpenWithSystem(): boolean {
++  return getDesktopHost().capabilities.shell
++}
++
++/**
++ * Prefer Electron's guarded shell bridge. Desktop builds fall back to the local
++ * server's equally validated system-default target when the bridge fails.
++ *
++ * A runtime with no shell throws {@link SystemOpenUnavailableError} *before* that
++ * fallback is reached. The fallback launches the file through the server host —
++ * the right answer when the server *is* the user's machine, and the wrong one on
++ * the H5 surface, where it opened the file in the server's desktop session
++ * instead of on the phone. There the user gets a download instead.
+  */
+ export async function openLocalFileWithSystem(path: string): Promise<void> {
++  if (!canOpenWithSystem()) throw new SystemOpenUnavailableError(path)
+   try {
+     await getDesktopHost().shell.openPath(path)
+     return
+@@ -37,3 +64,29 @@ export async function openLocalFileWithSystem(path: string): Promise<void> {
+     await openTargetsApi.open(target.id, path)
+   }
+ }
++
++/**
++ * The one entry point for a click that means "open this file", wherever it came
++ * from — a turn-changes row, a link in the prose, an output card.
++ *
++ * It exists so that "there is no system application here" is answered the same
++ * way everywhere: with the save dialog, instead of the error toast a genuine
++ * failure gets. Left to each call site, the browser surface's answer drifted into
++ * an error toast that named the file and offered nothing to do about it.
++ *
++ * `path` must be absolute — it is what the save dialog downloads.
++ */
++export function openFileWithSystemOrOfferSave(path: string): void {
++  void openLocalFileWithSystem(path).catch((error: unknown) => {
++    if (error instanceof SystemOpenUnavailableError) {
++      useUIStore.getState().showFileUnavailable({
++        absolutePath: path,
++        name: path.split(/[\\/]/).filter(Boolean).pop() ?? path,
++        reason: 'no-viewer',
++        canDownload: true,
++      })
++      return
++    }
++    reportOpenFailure(path)
++  })
++}
+diff --git a/desktop/src/lib/workspace/openTarget.ts b/desktop/src/lib/workspace/openTarget.ts
+index ae89a8cf..40bd7286 100644
+--- a/desktop/src/lib/workspace/openTarget.ts
++++ b/desktop/src/lib/workspace/openTarget.ts
+@@ -8,6 +8,11 @@ export type WorkspaceOpenRequest = WorkspaceOpenOptions & {
+   target: WorkspaceTarget
+   /** Chat element that asked, so the conversation can scroll back to it. */
+   origin?: WorkspaceOrigin
++  /**
++   * Who asked. Defaults to `'agent'` — see {@link WorkspaceOpenOptions.requestedBy}
++   * for why the safe default is the one nobody chose.
++   */
++  requestedBy?: 'user' | 'agent'
+ }
+ 
+ /**
+@@ -24,7 +29,7 @@ export type WorkspaceOpenRequest = WorkspaceOpenOptions & {
+  * addressed by `sessionId` and not by "the current session".
+  */
+ export function openWorkspaceTarget(request: WorkspaceOpenRequest): string | null {
+-  const { sessionId, target, origin, ...options } = request
++  const { sessionId, target, origin, requestedBy = 'agent', ...options } = request
+   const activeTabId = useTabStore.getState().activeTabId
+   const isForeground = activeTabId === sessionId
+ 
+@@ -32,6 +37,7 @@ export function openWorkspaceTarget(request: WorkspaceOpenRequest): string | nul
+ 
+   return useWorkspaceStore.getState().openTarget(sessionId, target, {
+     ...options,
++    requestedBy,
+     background: options.background === true || !isForeground,
+   })
+ }
+@@ -48,6 +54,7 @@ export const workspaceOpen = {
+     background?: boolean
+     replaceBlankPlaceholder?: boolean
+     origin?: WorkspaceOrigin
++    requestedBy?: 'user' | 'agent'
+   }) {
+     return openWorkspaceTarget({
+       sessionId,
+@@ -62,23 +69,27 @@ export const workspaceOpen = {
+       ...(options?.background ? { background: true } : {}),
+       ...(options?.replaceBlankPlaceholder ? { replaceBlankPlaceholder: true } : {}),
+       ...(options?.origin ? { origin: options.origin } : {}),
++      ...(options?.requestedBy ? { requestedBy: options.requestedBy } : {}),
+     })
+   },
+   browser(sessionId: string, url?: string, options?: {
+     background?: boolean
+     origin?: WorkspaceOrigin
++    requestedBy?: 'user' | 'agent'
+   }) {
+     return openWorkspaceTarget({
+       sessionId,
+       target: { kind: 'browser', ...(url ? { url } : {}) },
+       ...(options?.background ? { background: true } : {}),
+       ...(options?.origin ? { origin: options.origin } : {}),
++      ...(options?.requestedBy ? { requestedBy: options.requestedBy } : {}),
+     })
+   },
+   review(sessionId: string, options?: {
+     source?: Extract<WorkspaceTarget, { kind: 'review' }>['source']
+     path?: string
+     origin?: WorkspaceOrigin
++    requestedBy?: 'user' | 'agent'
+   }) {
+     return openWorkspaceTarget({
+       sessionId,
+@@ -88,6 +99,7 @@ export const workspaceOpen = {
+         ...(options?.path ? { path: options.path } : {}),
+       },
+       ...(options?.origin ? { origin: options.origin } : {}),
++      ...(options?.requestedBy ? { requestedBy: options.requestedBy } : {}),
+     })
+   },
+   terminal(sessionId: string, cwd: string, options?: {
+diff --git a/desktop/src/lib/workspace/types.ts b/desktop/src/lib/workspace/types.ts
+index 5fa620e1..116d7c4e 100644
+--- a/desktop/src/lib/workspace/types.ts
++++ b/desktop/src/lib/workspace/types.ts
+@@ -182,8 +182,14 @@ export type WorkspaceOpenOptions = {
+   /** Leave the current tab active — used by background/agent-driven opens. */
+   background?: boolean
+   /**
+-   * Identity of the task that asked. A request that names a task other than
+-   * the foreground one lands in that task's workspace and never steals focus.
++   * Who asked — a person clicking, or the agent/prose opening something on its
++   * own.
++   *
++   * Only explicit user gestures may reveal a panel the user is not already
++   * looking at: on the mobile shell an open that the user asked for brings the
++   * workspace overlay up, and one the agent asked for lands silently behind the
++   * conversation. Callers that do not know should leave it unset; the default is
++   * `'agent'`, so an unmarked path can never pop the panel.
+    */
+   requestedBy?: 'user' | 'agent'
+   /**
+diff --git a/desktop/src/pages/ActiveSession.test.tsx b/desktop/src/pages/ActiveSession.test.tsx
+index c4af20fb..9e7e8953 100644
+--- a/desktop/src/pages/ActiveSession.test.tsx
++++ b/desktop/src/pages/ActiveSession.test.tsx
+@@ -2325,6 +2325,87 @@ describe('ActiveSession task polling', () => {
+     expect(useWorkspaceStore.getState().bySession[sessionId]?.layout).toBe('hidden')
+   })
+ 
++  // The turn-changes card and a prose file link both open through the workspace
++  // store. On mobile that used to write the store and show nothing at all,
++  // because only the quick actions could lift the overlay.
++  function seedMobileSession(sessionId: string) {
++    viewportMocks.isMobile = true
++    useSessionStore.setState({
++      sessions: [{
++        id: sessionId,
++        title: 'Mobile Workspace Session',
++        createdAt: '2026-04-10T00:00:00.000Z',
++        modifiedAt: '2026-04-10T00:00:00.000Z',
++        messageCount: 1,
++        projectPath: '/tmp/project-root',
++        workDir: '/tmp/project-root',
++        workDirExists: true,
++      }],
++      activeSessionId: sessionId,
++      isLoading: false,
++      error: null,
++    })
++    useTabStore.setState({
++      tabs: [{ sessionId, title: 'Mobile Workspace Session', type: 'session', status: 'idle' }],
++      activeTabId: sessionId,
++    })
++    useChatStore.setState({
++      sessions: {
++        [sessionId]: {
++          messages: [{ id: 'msg-1', type: 'assistant_text', content: 'hello', timestamp: 1 }],
++          chatState: 'idle',
++          connectionState: 'connected',
++          streamingText: '',
++          streamingToolInput: '',
++          activeToolUseId: null,
++          activeToolName: null,
++          activeThinkingId: null,
++          pendingPermission: null,
++          pendingComputerUsePermission: null,
++          tokenUsage: { input_tokens: 0, output_tokens: 0 },
++          streamingResponseChars: 0,
++          elapsedSeconds: 0,
++          statusVerb: '',
++          slashCommands: [],
++          agentTaskNotifications: {},
++          elapsedTimer: null,
++        },
++      },
++    })
++    return sessionId
++  }
++
++  it('reveals the overlay for a workspace open the user asked for from the conversation', async () => {
++    const sessionId = seedMobileSession('mobile-user-open-session')
++
++    render(<ActiveSession />)
++    expect(screen.queryByTestId('mobile-workspace-overlay')).not.toBeInTheDocument()
++
++    act(() => {
++      useWorkspaceStore.getState().openTarget(
++        sessionId,
++        { kind: 'file', path: 'out/report.md' },
++        { requestedBy: 'user' },
++      )
++    })
++
++    await waitFor(() => {
++      expect(screen.getByTestId('mobile-workspace-overlay')).toBeInTheDocument()
++    })
++  })
++
++  it('leaves a background open behind the conversation, not over it', () => {
++    const sessionId = seedMobileSession('mobile-background-open-session')
++
++    render(<ActiveSession />)
++
++    act(() => {
++      useWorkspaceStore.getState().openTarget(sessionId, { kind: 'file', path: 'out/report.md' })
++    })
++
++    expect(screen.queryByTestId('mobile-workspace-overlay')).not.toBeInTheDocument()
++  })
++
+   it('renders a bottom terminal panel in the current session cwd and can promote it to a tab', async () => {
+     const sessionId = 'terminal-session'
+ 
+diff --git a/desktop/src/pages/ActiveSession.tsx b/desktop/src/pages/ActiveSession.tsx
+index e59f492d..02dd8962 100644
+--- a/desktop/src/pages/ActiveSession.tsx
++++ b/desktop/src/pages/ActiveSession.tsx
+@@ -432,6 +432,33 @@ export function ActiveSession({ sessionId, active = true }: { sessionId?: string
+     mobileLayout !== 'hidden'
+   // Reset the flag when the active task changes so the next task starts closed.
+   useEffect(() => { setMobileWorkspaceOpen(false) }, [activeTabId])
++  /**
++   * A workspace open the *user* asked for brings the overlay up, wherever it was
++   * asked from.
++   *
++   * The flag above is local because a background open must not cover the
++   * conversation — but the mobile shell had no way to tell one from the other, so
++   * a file tapped in the turn-changes card wrote the store and showed nothing at
++   * all. `lastUserOpen` is that distinction, and its counter makes each tap its
++   * own event so tapping the same file twice reveals twice.
++   */
++  const lastUserOpenNonce = useWorkspaceStore((state) =>
++    activeTabId ? state.bySession[activeTabId]?.lastUserOpen?.nonce : undefined,
++  )
++  const seenUserOpenRef = useRef<{ sessionId: string | null; nonce: number | undefined }>({
++    sessionId: null,
++    nonce: undefined,
++  })
++  useEffect(() => {
++    const seen = seenUserOpenRef.current
++    // A task's opening nonce is recorded, not acted on: a later tap must open the
++    // overlay, but arriving at a task that was opened earlier in the run is not
++    // itself a tap — the reset above is what governs that.
++    const previousNonce = seen.sessionId === activeTabId ? seen.nonce : undefined
++    seenUserOpenRef.current = { sessionId: activeTabId ?? null, nonce: lastUserOpenNonce }
++    if (lastUserOpenNonce === undefined || lastUserOpenNonce === previousNonce) return
++    setMobileWorkspaceOpen(true)
++  }, [activeTabId, lastUserOpenNonce])
+   // `path: ''` is the launcher form: it opens the file tree with an empty
+   // content pane, exactly like the workspace launcher's "Files" entry, and the
+   // preview flag keeps it replaceable by a real file pick. A terminal opens in
+diff --git a/desktop/src/stores/uiStore.ts b/desktop/src/stores/uiStore.ts
+index 1bb53f4d..ce262f14 100644
+--- a/desktop/src/stores/uiStore.ts
++++ b/desktop/src/stores/uiStore.ts
+@@ -285,6 +285,38 @@ type UIStore = {
+   closeModal: () => void
+   addToast: (toast: Omit<Toast, 'id'>) => void
+   removeToast: (id: string) => void
++  /**
++   * A file the user asked to open that this runtime cannot open, with the save
++   * offered instead.
++   *
++   * Deliberately not a toast: a toast has no room for the download the user
++   * actually needs, and this is a dead end that has to explain itself.
++   */
++  unavailableFile: UnavailableFile | null
++  showFileUnavailable: (file: UnavailableFile) => void
++  dismissFileUnavailable: () => void
++}
++
++export type UnavailableFile = {
++  /** The absolute path to hand to the download route. */
++  absolutePath: string
++  /** The name shown in the message — the file's last segment. */
++  name: string
++  /**
++   * Why it could not be opened, which decides what the message says. The three
++   * are different problems with different answers, so they are not one string.
++   */
++  reason: 'no-viewer' | 'too-large' | 'outside-workspace'
++  /** Size in bytes, for the "too large" message. */
++  size?: number
++  /**
++   * Whether the save can actually deliver the bytes.
++   *
++   * Not always true beside a reason: a path the server will not serve cannot be
++   * downloaded either, and offering a button that is certain to fail is worse
++   * than saying so.
++   */
++  canDownload: boolean
+ }
+ 
+ let toastCounter = 0
+@@ -302,6 +334,7 @@ export const useUIStore = create<UIStore>((set) => ({
+   pendingMemoryPath: null,
+   activeModal: null,
+   toasts: [],
++  unavailableFile: null,
+ 
+   // Picking a palette while following the system does not fight the OS: it
+   // becomes the preference for its own half and shows up once the OS is on
+@@ -389,4 +422,7 @@ export const useUIStore = create<UIStore>((set) => ({
+   },
+ 
+   removeToast: (id) => set((s) => ({ toasts: s.toasts.filter((t) => t.id !== id) })),
++
++  showFileUnavailable: (file) => set({ unavailableFile: file }),
++  dismissFileUnavailable: () => set({ unavailableFile: null }),
+ }))
+diff --git a/desktop/src/stores/workspaceStore.test.ts b/desktop/src/stores/workspaceStore.test.ts
+index 4e97b1f9..cc4c4cd7 100644
+--- a/desktop/src/stores/workspaceStore.test.ts
++++ b/desktop/src/stores/workspaceStore.test.ts
+@@ -703,3 +703,40 @@ it('keeps side chats alive on navigation and releases them only on close without
+   expect(store().getTab(SESSION, fileId)).not.toBeNull()
+   expect(store().bySession[SESSION]?.closed.flatMap(group => group.tabs)).toEqual([])
+ })
++
++describe('a user-requested open', () => {
++  // The mobile shell shows its workspace overlay for an explicit tap and stays out
++  // of the way for everything else. This counter is how it tells them apart.
++  const lastUserOpenNonce = () => store().bySession[SESSION]?.lastUserOpen?.nonce
++
++  it('is recorded, so the shell can reveal what was asked for', () => {
++    store().openTarget(SESSION, { kind: 'file', path: '/repo/a.ts' }, { requestedBy: 'user' })
++
++    expect(lastUserOpenNonce()).toBeTypeOf('number')
++  })
++
++  it('is not recorded for an agent open, which must never pop the panel', () => {
++    store().openTarget(SESSION, { kind: 'file', path: '/repo/a.ts' }, { requestedBy: 'agent' })
++    store().openTarget(SESSION, { kind: 'file', path: '/repo/b.ts' })
++
++    expect(lastUserOpenNonce()).toBeUndefined()
++  })
++
++  it('is not recorded for a background open, which leaves the reader where they are', () => {
++    store().openTarget(
++      SESSION,
++      { kind: 'file', path: '/repo/a.ts' },
++      { requestedBy: 'user', background: true },
++    )
++
++    expect(lastUserOpenNonce()).toBeUndefined()
++  })
++
++  it('counts up, so the same file tapped twice reveals twice', () => {
++    store().openTarget(SESSION, { kind: 'file', path: '/repo/a.ts' }, { requestedBy: 'user' })
++    const first = lastUserOpenNonce()
++    store().openTarget(SESSION, { kind: 'file', path: '/repo/a.ts' }, { requestedBy: 'user' })
++
++    expect(lastUserOpenNonce()).toBeGreaterThan(first!)
++  })
++})
+diff --git a/desktop/src/stores/workspaceStore.ts b/desktop/src/stores/workspaceStore.ts
+index d2c15aec..9660ca2c 100644
+--- a/desktop/src/stores/workspaceStore.ts
++++ b/desktop/src/stores/workspaceStore.ts
+@@ -75,6 +75,15 @@ export type WorkspaceSessionState = {
+   nextTerminalOrdinal: number
+   focus: WorkspaceFocusRequest | null
+   origin: WorkspaceOrigin | null
++  /**
++   * The last open this session got that the *user* asked for, as a counter.
++   *
++   * A count rather than a flag so a repeat open re-fires: the mobile shell shows
++   * its workspace overlay on an explicit tap, and two taps in a row (or the same
++   * file twice) are two tap-to-reveal events. Never serialized — it describes one
++   * interaction, not the workspace's shape.
++   */
++  lastUserOpen: { nonce: number } | null
+ }
+ 
+ type WorkspaceStore = {
+@@ -145,6 +154,7 @@ export const EMPTY_WORKSPACE_SESSION: WorkspaceSessionState = {
+   nextTerminalOrdinal: 1,
+   focus: null,
+   origin: null,
++  lastUserOpen: null,
+ }
+ 
+ let idCounter = 0
+@@ -160,6 +170,15 @@ export function __resetWorkspaceIdCounterForTest() {
+ 
+ let focusNonce = 0
+ 
++/**
++ * Monotonic, so no two user opens ever look alike.
++ *
++ * Reusing the value of a previous open — as a boolean flag or a constant would —
++ * makes the *second* tap indistinguishable from the first to anything watching
++ * for a change, and the panel would simply not open.
++ */
++let userOpenNonce = 0
++
+ export function clampWorkspaceSideWidth(width: number) {
+   if (!Number.isFinite(width)) return WORKSPACE_SIDE_DEFAULT_WIDTH
+   return Math.min(WORKSPACE_SIDE_MAX_WIDTH, Math.max(WORKSPACE_SIDE_MIN_WIDTH, Math.round(width)))
+@@ -634,6 +653,20 @@ export const useWorkspaceStore = create<WorkspaceStore>((set, get) => ({
+       return { bySession: { ...store.bySession, [sessionId]: next } }
+     })
+ 
++    // Stamped after the open has settled rather than inside each branch: the
++    // event is "the user asked, and the workspace honoured it", which every one
++    // of those branches shares. A background open is not a user gesture in the
++    // sense the mobile shell cares about — it must not pop the panel over what
++    // the user is reading.
++    if (options.requestedBy === 'user' && options.background !== true) {
++      set((store) => ({
++        bySession: {
++          ...store.bySession,
++          [sessionId]: { ...session(store.bySession, sessionId), lastUserOpen: { nonce: ++userOpenNonce } },
++        },
++      }))
++    }
++
+     return createdId
+   },
+ 
+diff --git a/src/server/__tests__/workspace-service.test.ts b/src/server/__tests__/workspace-service.test.ts
+index 6d6670d7..cc9241d2 100644
+--- a/src/server/__tests__/workspace-service.test.ts
++++ b/src/server/__tests__/workspace-service.test.ts
+@@ -496,7 +496,7 @@ describe('WorkspaceService', () => {
+       path.join(workDir, 'large-image.png'),
+       Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47]), Buffer.alloc(ONE_MIB + 1, 0xff)]),
+     )
+-    await fs.writeFile(path.join(workDir, 'large.txt'), Buffer.alloc(ONE_MIB + 1, 'a'))
++    await fs.writeFile(path.join(workDir, 'large.txt'), Buffer.alloc(4 * ONE_MIB + 1, 'a'))
+     await fs.mkdir(path.join(workDir, 'folder'))
+ 
+     await expect(service.readFile('session-1', 'note.ts')).resolves.toMatchObject({
+@@ -531,10 +531,10 @@ describe('WorkspaceService', () => {
+       state: 'ok',
+       previewType: 'text',
+       language: 'text',
+-      size: ONE_MIB + 1,
+-      readBytes: ONE_MIB,
++      size: 4 * ONE_MIB + 1,
++      readBytes: 4 * ONE_MIB,
+       truncated: true,
+-      content: 'a'.repeat(ONE_MIB),
++      content: 'a'.repeat(4 * ONE_MIB),
+     })
+     await expect(service.readFile('session-1', 'missing.txt')).resolves.toMatchObject({
+       state: 'missing',
+@@ -907,4 +907,61 @@ describe('WorkspaceService document previews', () => {
+       await expect(service.resolveRawFile('session-1', 'huge.xlsx')).rejects.toMatchObject({ statusCode: 413 })
+     })
+   })
++
++  describe('preview limits', () => {
++    it('shows the head of a text file past the limit and says how big the whole is', async () => {
++      const workDir = await makeTempDir('workspace-service-big-text-')
++      const service = new WorkspaceService(async () => workDir)
++      const size = 5 * ONE_MIB
++      await fs.writeFile(path.join(workDir, 'server.log'), 'x'.repeat(size))
++
++      const result = await service.readFile('session-1', 'server.log')
++
++      expect(result.state).toBe('ok')
++      expect(result.previewType).toBe('text')
++      // The reader is told, and told the real size — a preview that stops without
++      // saying so reads as a file that ends there.
++      expect(result.truncated).toBe(true)
++      expect(result.size).toBe(size)
++      expect(result.readBytes).toBe(4 * ONE_MIB)
++    })
++
++    it('shows a text file under the limit whole, with no truncation to report', async () => {
++      const workDir = await makeTempDir('workspace-service-small-text-')
++      const service = new WorkspaceService(async () => workDir)
++      const size = 2 * ONE_MIB
++      await fs.writeFile(path.join(workDir, 'notes.txt'), 'y'.repeat(size))
++
++      const result = await service.readFile('session-1', 'notes.txt')
++
++      expect(result.truncated).toBe(false)
++      expect(result.readBytes).toBe(size)
++    })
++
++    it('refuses an image past its own limit without carrying it', async () => {
++      const workDir = await makeTempDir('workspace-service-big-image-')
++      const service = new WorkspaceService(async () => workDir)
++      const target = path.join(workDir, 'huge.png')
++      await fs.writeFile(target, '')
++      await fs.truncate(target, 17 * ONE_MIB)
++
++      const result = await service.readFile('session-1', 'huge.png')
++
++      expect(result.state).toBe('too_large')
++      expect(result.previewType).toBe('image')
++      expect(result.size).toBe(17 * ONE_MIB)
++      expect(result).not.toHaveProperty('dataUrl')
++    })
++
++    it('still draws an image under the limit', async () => {
++      const workDir = await makeTempDir('workspace-service-small-image-')
++      const service = new WorkspaceService(async () => workDir)
++      await fs.writeFile(path.join(workDir, 'pixel.png'), Buffer.from([0x89, 0x50, 0x4e, 0x47]))
++
++      const result = await service.readFile('session-1', 'pixel.png')
++
++      expect(result.state).toBe('ok')
++      expect(result.dataUrl).toStartWith('data:image/png;base64,')
++    })
++  })
+ })
+diff --git a/src/server/services/workspaceService.ts b/src/server/services/workspaceService.ts
+index b61f6a0c..c8c55ae6 100644
+--- a/src/server/services/workspaceService.ts
++++ b/src/server/services/workspaceService.ts
+@@ -21,7 +21,22 @@ import {
+   type WorkspaceDocumentPreviewType,
+ } from './workspaceDocumentPreview.js'
+ 
+-const MAX_PREVIEW_BYTES = 1024 * 1024
++/**
++ * How much of a text file the preview carries.
++ *
++ * Past this the response keeps the head of the file and reports `truncated`, so a
++ * large log opens at all instead of being refused: what a reader wants from one is
++ * usually its start, and the rest is a save away.
++ */
++const MAX_PREVIEW_BYTES = 4 * 1024 * 1024
++/**
++ * How large an image may be before the preview refuses it.
++ *
++ * An image travels as a base64 data URL, so the whole thing is held and decoded
++ * before a single pixel appears — past this the tab says so and offers the save,
++ * rather than making the reader wait on a download that may not even display.
++ */
++const MAX_IMAGE_PREVIEW_BYTES = 16 * 1024 * 1024
+ const MAX_UNTRACKED_STAT_BYTES = 256 * 1024
+ const GIT_TIMEOUT_MS = 5_000
+ const MAX_GIT_BUFFER_BYTES = 2_000_000
+@@ -473,6 +488,20 @@ export class WorkspaceService {
+       }
+     }
+ 
++    // Decided before any byte is read, for the same reason as the document case
++    // above: the answer is the size, and reading 16 MiB to discover it would cost
++    // the memory the refusal exists to save.
++    if (imageMimeType && stat.stat.size > MAX_IMAGE_PREVIEW_BYTES) {
++      return {
++        state: 'too_large',
++        path: resolvedPath.relativePath,
++        previewType: 'image',
++        mimeType: imageMimeType,
++        language: 'image',
++        size: stat.stat.size,
++      }
++    }
++
+     let content: Buffer
+     try {
+       if (!imageMimeType && stat.stat.size > MAX_PREVIEW_BYTES) {

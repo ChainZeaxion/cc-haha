@@ -47,6 +47,7 @@ export function openWithMenuDeps(
   { sessionId, t, omitCopyPath }: OpenWithMenuOptions,
 ): OpenWithDeps {
   return {
+    systemOpenAvailable: getDesktopHost().capabilities.shell,
     openInAppBrowser: (url) => {
       if (!isWorkspaceBrowserAvailable()) {
         // The built-in browser only exists in the desktop app. On the H5/remote
@@ -59,13 +60,13 @@ export function openWithMenuDeps(
         window.open(url, '_blank', 'noopener,noreferrer')
         return
       }
-      workspaceOpen.browser(sessionId, url)
+      workspaceOpen.browser(sessionId, url, { requestedBy: 'user' })
     },
     openSystem: (target) => {
       void getDesktopHost().shell.openPath(target).catch(() => window.open(target, '_blank'))
     },
     openWorkspacePreview: (relPath) => {
-      workspaceOpen.file(sessionId, relPath)
+      workspaceOpen.file(sessionId, relPath, { requestedBy: 'user' })
     },
     openTarget: (id, absolutePath) => {
       void useOpenTargetStore.getState().openTarget(id, absolutePath)

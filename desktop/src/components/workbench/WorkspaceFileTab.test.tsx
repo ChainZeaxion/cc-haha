@@ -102,7 +102,13 @@ vi.mock('../workspace/surfaces/document/DocumentSurface', () => ({
 
 vi.mock('../../lib/systemFileOpen', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../lib/systemFileOpen')>()),
-  openLocalFileWithSystem: vi.fn().mockResolvedValue(undefined),
+  // Desktop default: this suite asserts what a runtime with a system shell offers.
+  canOpenWithSystem: () => true,
+  openFileWithSystemOrOfferSave: vi.fn(),
+}))
+
+vi.mock('../workspace/surfaces/MediaSurface', () => ({
+  MediaSurface: ({ path }: { path: string }) => <div data-testid="media-surface">{path}</div>,
 }))
 
 vi.mock('../workspace/surfaces/MarkdownSurface', () => ({
@@ -127,7 +133,7 @@ vi.mock('../workspace/WorkspaceFileOpenWith', () => ({
 }))
 
 import { WorkspaceFileTab } from './WorkspaceFileTab'
-import { openLocalFileWithSystem } from '../../lib/systemFileOpen'
+import { openFileWithSystemOrOfferSave } from '../../lib/systemFileOpen'
 import { useSettingsStore } from '../../stores/settingsStore'
 import { useWorkspaceChatContextStore } from '../../stores/workspaceChatContextStore'
 import { useWorkspaceContentStore, type WorkspaceFileEntry } from '../../stores/workspaceContentStore'
@@ -242,6 +248,35 @@ describe('content states', () => {
 
     expect(screen.getByText(message)).toBeInTheDocument()
     expect(screen.queryByTestId('code-surface')).toBeNull()
+  })
+
+  it('says the file is only partly shown when the server truncated it', () => {
+    seedEntry('src/a.ts', {
+      state: 'ok',
+      content: 'export const value = 1',
+      language: 'typescript',
+      truncated: true,
+      size: 5 * 1024 * 1024,
+    })
+    renderTab('src/a.ts')
+
+    // Said above the content, because everything below it is only the head.
+    expect(screen.getByRole('status')).toHaveTextContent('5 MB')
+    expect(screen.getByTestId('code-surface')).toBeInTheDocument()
+  })
+
+  it('leaves a whole file unremarked', () => {
+    seedEntry('src/a.ts', { state: 'ok', content: 'export const value = 1', truncated: false, size: 25 })
+    renderTab('src/a.ts')
+
+    expect(screen.queryByText(/Only the beginning/)).toBeNull()
+  })
+
+  it('names the size when a file is past the limit, not only that it is', () => {
+    seedEntry('src/a.ts', { state: 'too_large', size: 17 * 1024 * 1024 })
+    renderTab('src/a.ts')
+
+    expect(screen.getByText(/17 MB/)).toBeInTheDocument()
   })
 
   it('reports the server reason for a failed read', () => {
@@ -370,7 +405,7 @@ describe('content states', () => {
 
       fireEvent.click(screen.getByRole('button', { name: 'Open in system app' }))
 
-      expect(openLocalFileWithSystem).toHaveBeenCalledWith('/repo/out/report.docx')
+      expect(openFileWithSystemOrOfferSave).toHaveBeenCalledWith('/repo/out/report.docx')
     })
 
     it('offers nothing for a file that is not there', () => {
@@ -394,7 +429,24 @@ describe('content states', () => {
 
       fireEvent.click(screen.getByRole('button', { name: 'Open in system app' }))
 
-      expect(openLocalFileWithSystem).toHaveBeenCalledWith('/repo/assets/logo.png')
+      expect(openFileWithSystemOrOfferSave).toHaveBeenCalledWith('/repo/assets/logo.png')
+    })
+  })
+
+  describe('media', () => {
+    it('plays a video in the browser element rather than reading it as text', () => {
+      // Deliberately no seeded entry: media is loaded from the path, so the tab
+      // must not depend on the read that every other preview goes through.
+      renderTab('assets/demo.mp4')
+
+      expect(screen.getByTestId('media-surface')).toHaveTextContent('assets/demo.mp4')
+      expect(loadFile).not.toHaveBeenCalled()
+    })
+
+    it('plays audio the same way', () => {
+      renderTab('assets/voice.mp3')
+
+      expect(screen.getByTestId('media-surface')).toHaveTextContent('assets/voice.mp3')
     })
   })
 

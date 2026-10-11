@@ -24,6 +24,9 @@ vi.mock('../../lib/desktopRuntime', async (orig) => ({
   getServerBaseUrl: () => 'http://127.0.0.1:4321',
 }))
 vi.mock('../../lib/systemFileOpen', () => ({
+  // Desktop default: this suite asserts what a runtime with a system shell offers.
+  canOpenWithSystem: () => true,
+  openFileWithSystemOrOfferSave: vi.fn(),
   openLocalFileWithSystem: vi.fn().mockResolvedValue(undefined),
   reportOpenFailure: vi.fn(),
 }))

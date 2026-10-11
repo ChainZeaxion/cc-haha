@@ -12,6 +12,12 @@ vi.mock('./desktopRuntime', async (orig) => ({
   getServerBaseUrl: () => 'http://127.0.0.1:4321',
 }))
 
+// A desktop runtime: these cases assert the menu a machine with a system shell
+// builds. What the browser surface drops is covered in openWithItems.test.ts.
+vi.mock('./desktopHost', () => ({
+  getDesktopHost: () => ({ capabilities: { shell: true } }),
+}))
+
 import { buildOpenWithMenuItemsForHref } from './openWithMenuItems'
 import { useUIStore } from '../stores/uiStore'
 

@@ -1,9 +1,13 @@
 import { useEffect, useState } from 'react'
 import { useOpenTargetStore, type OpenTarget } from '@/stores/openTargetStore'
 import { isEditorOpenableFile } from '@/lib/fileCapabilities'
-import { reportOpenFailure } from '@/lib/systemFileOpen'
+import { canOpenWithSystem, reportOpenFailure } from '@/lib/systemFileOpen'
 
 export function fileApplicationTargets(path: string, targets: OpenTarget[]): OpenTarget[] {
+  // Every target here is launched by the server, so on a runtime with no shell
+  // there is none of them to offer — and picking one used to open the file in the
+  // server's desktop session rather than on the device in front of the user.
+  if (!canOpenWithSystem()) return []
   const seen = new Set<string>()
   return targets.filter((target) => {
     if (target.kind === 'file_manager' || (target.kind === 'ide' && !isEditorOpenableFile(path))) return false
