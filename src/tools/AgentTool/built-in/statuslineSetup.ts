@@ -1,4 +1,5 @@
 import type { BuiltInAgentDefinition } from '../loadAgentsDir.js'
+import { localizedPrompt } from '../../../prompts/i18n/index.js'
 
 const STATUSLINE_SYSTEM_PROMPT = `You are a status line setup agent for Claude Code. Your job is to create or update the statusLine command in the user's Claude Code settings.
 
@@ -140,5 +141,5 @@ export const STATUSLINE_SETUP_AGENT: BuiltInAgentDefinition = {
   baseDir: 'built-in',
   model: 'sonnet',
   color: 'orange',
-  getSystemPrompt: () => STATUSLINE_SYSTEM_PROMPT,
+  getSystemPrompt: () => localizedPrompt('agent.statusline.system', STATUSLINE_SYSTEM_PROMPT),
 }

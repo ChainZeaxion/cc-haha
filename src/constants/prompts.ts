@@ -151,8 +151,12 @@ function getLanguageSection(
 ): string | null {
   if (!languagePreference) return null
 
-  return `# Language
-Always respond in ${languagePreference}. Use ${languagePreference} for all explanations, comments, and communications with the user. Technical terms and code identifiers should remain in their original form.`
+  return localizedPrompt(
+    'system.language',
+    `# Language
+Always respond in ${languagePreference}. Use ${languagePreference} for all explanations, comments, and communications with the user. Technical terms and code identifiers should remain in their original form.`,
+    { language: languagePreference },
+  )
 }
 
 function getOutputStyleSection(
@@ -160,7 +164,7 @@ function getOutputStyleSection(
 ): string | null {
   if (outputStyleConfig === null) return null
 
-  return `# Output Style: ${outputStyleConfig.name}
+  return `${localizedPrompt('system.outputStyle.header', '# Output Style: {name}', { name: outputStyleConfig.name })}
 ${outputStyleConfig.prompt}`
 }
 
@@ -193,7 +197,7 @@ You are an interactive agent that helps users ${styleClause} Use the instruction
 
 ${CYBER_RISK_INSTRUCTION}
 IMPORTANT: You must NEVER generate or guess URLs for the user unless you are confident that the URLs are for helping the user with programming. You may use URLs provided by the user in their messages or local files.`,
-    { cyberRisk: CYBER_RISK_INSTRUCTION },
+    { cyberRisk: localizedPrompt('system.cyberRisk', CYBER_RISK_INSTRUCTION) },
   )
 }
 
@@ -349,7 +353,11 @@ function getDiscoverSkillsGuidance(): string | null {
     feature('EXPERIMENTAL_SKILL_SEARCH') &&
     DISCOVER_SKILLS_TOOL_NAME !== null
   ) {
-    return `Relevant skills are automatically surfaced each turn as "Skills relevant to your task:" reminders. If you're about to do something those don't cover — a mid-task pivot, an unusual workflow, a multi-step plan — call ${DISCOVER_SKILLS_TOOL_NAME} with a specific description of what you're doing. Skills already visible or loaded are filtered automatically. Skip this if the surfaced skills already cover your next action.`
+    return localizedPrompt(
+      'system.discoverSkills',
+      `Relevant skills are automatically surfaced each turn as "Skills relevant to your task:" reminders. If you're about to do something those don't cover — a mid-task pivot, an unusual workflow, a multi-step plan — call ${DISCOVER_SKILLS_TOOL_NAME} with a specific description of what you're doing. Skills already visible or loaded are filtered automatically. Skip this if the surfaced skills already cover your next action.`,
+      { tool: DISCOVER_SKILLS_TOOL_NAME },
+    )
   }
   return null
 }
@@ -377,11 +385,18 @@ function getSessionSpecificGuidanceSection(
 
   const items = [
     hasAskUserQuestionTool
-      ? `If you do not understand why the user has denied a tool call, use the ${ASK_USER_QUESTION_TOOL_NAME} to ask them.`
+      ? localizedPrompt(
+          'system.sessionGuidance.askUserQuestionLimit',
+          `If you do not understand why the user has denied a tool call, use the ${ASK_USER_QUESTION_TOOL_NAME} to ask them.`,
+          { tool: ASK_USER_QUESTION_TOOL_NAME },
+        )
       : null,
     getIsNonInteractiveSession()
       ? null
-      : `If you need the user to run a shell command themselves (e.g., an interactive login like \`gcloud auth login\`), suggest they type \`! <command>\` in the prompt — the \`!\` prefix runs the command in this session so its output lands directly in the conversation.`,
+      : localizedPrompt(
+          'system.sessionGuidance.shellSelfRun',
+          `If you need the user to run a shell command themselves (e.g., an interactive login like \`gcloud auth login\`), suggest they type \`! <command>\` in the prompt — the \`!\` prefix runs the command in this session so its output lands directly in the conversation.`,
+        ),
     // isForkSubagentEnabled() reads getIsNonInteractiveSession() — must be
     // post-boundary or it fragments the static prefix on session type.
     hasAgentTool ? getAgentToolSection() : null,
@@ -617,11 +632,15 @@ ${client.instructions}`
     })
     .join('\n\n')
 
-  return `# MCP Server Instructions
+  return localizedPrompt(
+    'system.mcp.instructions',
+    `# MCP Server Instructions
 
 The following MCP servers have provided instructions for how to use their tools and resources:
 
-${instructionBlocks}`
+${instructionBlocks}`,
+    { blocks: instructionBlocks },
+  )
 }
 
 export async function computeEnvInfo(
@@ -644,21 +663,36 @@ export async function computeEnvInfo(
   } else {
     const marketingName = getMarketingNameForModel(modelId)
     modelDescription = marketingName
-      ? `You are powered by the model named ${marketingName}. The exact model ID is ${modelId}.`
-      : `You are powered by the model ${modelId}.`
+      ? localizedPrompt(
+          'system.env.modelNamed',
+          `You are powered by the model named ${marketingName}. The exact model ID is ${modelId}.`,
+          { name: marketingName, id: modelId },
+        )
+      : localizedPrompt('system.env.model', `You are powered by the model ${modelId}.`, { id: modelId })
   }
 
   const additionalDirsInfo =
     additionalWorkingDirectories && additionalWorkingDirectories.length > 0
-      ? `Additional working directories: ${additionalWorkingDirectories.join(', ')}\n`
+      ? localizedPrompt(
+          'system.env.additionalDirsInline',
+          `Additional working directories: ${additionalWorkingDirectories.join(', ')}\n`,
+          { dirs: additionalWorkingDirectories.join(', ') },
+        )
       : ''
 
   const cutoff = getKnowledgeCutoff(modelId)
   const knowledgeCutoffMessage = cutoff
-    ? `\n\nAssistant knowledge cutoff is ${cutoff}.`
+    ? localizedPrompt('system.env.knowledgeCutoffInline', `\n\nAssistant knowledge cutoff is ${cutoff}.`, { cutoff })
     : ''
 
-  return `Here is useful information about the environment you are running in:
+  const gitLabel = localizedPrompt(
+    isGit ? 'system.env.yes' : 'system.env.no',
+    isGit ? 'Yes' : 'No',
+  )
+
+  return localizedPrompt(
+    'system.env.subagent',
+    `Here is useful information about the environment you are running in:
 <env>
 Working directory: ${getCwd()}
 Is directory a git repo: ${isGit ? 'Yes' : 'No'}
@@ -666,7 +700,18 @@ ${additionalDirsInfo}Platform: ${env.platform}
 ${getShellInfoLine()}
 OS Version: ${unameSR}
 </env>
-${modelDescription}${knowledgeCutoffMessage}`
+${modelDescription}${knowledgeCutoffMessage}`,
+    {
+      cwd: getCwd(),
+      isGit: gitLabel,
+      dirs: additionalDirsInfo,
+      platform: env.platform,
+      shell: getShellInfoLine(),
+      os: unameSR,
+      model: modelDescription,
+      cutoff: knowledgeCutoffMessage,
+    },
+  )
 }
 
 export async function computeSimpleEnvInfo(
@@ -683,49 +728,71 @@ export async function computeSimpleEnvInfo(
   } else {
     const marketingName = getMarketingNameForModel(modelId)
     modelDescription = marketingName
-      ? `You are powered by the model named ${marketingName}. The exact model ID is ${modelId}.`
-      : `You are powered by the model ${modelId}.`
+      ? localizedPrompt(
+          'system.env.modelNamed',
+          `You are powered by the model named ${marketingName}. The exact model ID is ${modelId}.`,
+          { name: marketingName, id: modelId },
+        )
+      : localizedPrompt('system.env.model', `You are powered by the model ${modelId}.`, { id: modelId })
   }
 
   const cutoff = getKnowledgeCutoff(modelId)
   const knowledgeCutoffMessage = cutoff
-    ? `Assistant knowledge cutoff is ${cutoff}.`
+    ? localizedPrompt('system.env.knowledgeCutoff', `Assistant knowledge cutoff is ${cutoff}.`, { cutoff })
     : null
 
   const cwd = getCwd()
   const isWorktree = getCurrentWorktreeSession() !== null
 
   const envItems = [
-    `Primary working directory: ${cwd}`,
+    localizedPrompt('system.env.cwd', `Primary working directory: ${cwd}`, { cwd }),
     isWorktree
-      ? `This is a git worktree — an isolated copy of the repository. Run all commands from this directory. Do NOT \`cd\` to the original repository root.`
+      ? localizedPrompt(
+          'system.env.worktree',
+          `This is a git worktree — an isolated copy of the repository. Run all commands from this directory. Do NOT \`cd\` to the original repository root.`,
+        )
       : null,
-    [`Is a git repository: ${isGit}`],
+    [localizedPrompt('system.env.isGit', `Is a git repository: ${isGit}`, { isGit: String(isGit) })],
     additionalWorkingDirectories && additionalWorkingDirectories.length > 0
-      ? `Additional working directories:`
+      ? localizedPrompt('system.env.additionalDirs', `Additional working directories:`)
       : null,
     additionalWorkingDirectories && additionalWorkingDirectories.length > 0
       ? additionalWorkingDirectories
       : null,
-    `Platform: ${env.platform}`,
+    localizedPrompt('system.env.platform', `Platform: ${env.platform}`, { platform: env.platform }),
     getShellInfoLine(),
-    `OS Version: ${unameSR}`,
+    localizedPrompt('system.env.osVersion', `OS Version: ${unameSR}`, { os: unameSR }),
     modelDescription,
     knowledgeCutoffMessage,
     process.env.USER_TYPE === 'ant' && isUndercover()
       ? null
-      : `The most recent Claude models are the Claude 5 family and Haiku 4.5. Model IDs — Fable 5.1: '${LATEST_CLAUDE_MODEL_IDS.fable}', Opus 5.5: '${LATEST_CLAUDE_MODEL_IDS.opus}', Sonnet 5.5: '${LATEST_CLAUDE_MODEL_IDS.sonnet}', Haiku 4.5: '${LATEST_CLAUDE_MODEL_IDS.haiku}'. When building AI applications, default to the latest and most capable Claude models.`,
+      : localizedPrompt(
+          'system.env.modelCatalog',
+          `The most recent Claude models are the Claude 5 family and Haiku 4.5. Model IDs — Fable 5.1: '${LATEST_CLAUDE_MODEL_IDS.fable}', Opus 5.5: '${LATEST_CLAUDE_MODEL_IDS.opus}', Sonnet 5.5: '${LATEST_CLAUDE_MODEL_IDS.sonnet}', Haiku 4.5: '${LATEST_CLAUDE_MODEL_IDS.haiku}'. When building AI applications, default to the latest and most capable Claude models.`,
+          {
+            fable: LATEST_CLAUDE_MODEL_IDS.fable,
+            opus: LATEST_CLAUDE_MODEL_IDS.opus,
+            sonnet: LATEST_CLAUDE_MODEL_IDS.sonnet,
+            haiku: LATEST_CLAUDE_MODEL_IDS.haiku,
+          },
+        ),
     process.env.USER_TYPE === 'ant' && isUndercover()
       ? null
-      : `Claude Code is available as a CLI in the terminal, desktop app (Mac/Windows), web app (claude.ai/code), and IDE extensions (VS Code, JetBrains).`,
+      : localizedPrompt(
+          'system.env.availability',
+          `Claude Code is available as a CLI in the terminal, desktop app (Mac/Windows), web app (claude.ai/code), and IDE extensions (VS Code, JetBrains).`,
+        ),
     process.env.USER_TYPE === 'ant' && isUndercover()
       ? null
-      : `Fast mode for Claude Code uses Claude Opus with faster output (it does not downgrade to a smaller model). It can be toggled with /fast.`,
+      : localizedPrompt(
+          'system.env.fastMode',
+          `Fast mode for Claude Code uses Claude Opus with faster output (it does not downgrade to a smaller model). It can be toggled with /fast.`,
+        ),
   ].filter(item => item !== null)
 
   return [
-    `# Environment`,
-    `You have been invoked in the following environment: `,
+    localizedPrompt('system.env.header', `# Environment`),
+    localizedPrompt('system.env.intro', `You have been invoked in the following environment: `),
     ...prependBullets(envItems),
   ].join(`\n`)
 }
@@ -773,9 +840,13 @@ function getShellInfoLine(): string {
       ? 'bash'
       : shell
   if (env.platform === 'win32') {
-    return `Shell: ${shellName} (use Unix shell syntax, not Windows — e.g., /dev/null not NUL, forward slashes in paths)`
+    return localizedPrompt(
+      'system.env.shellWin32',
+      `Shell: ${shellName} (use Unix shell syntax, not Windows — e.g., /dev/null not NUL, forward slashes in paths)`,
+      { shell: shellName },
+    )
   }
-  return `Shell: ${shellName}`
+  return localizedPrompt('system.env.shell', `Shell: ${shellName}`, { shell: shellName })
 }
 
 export function getUnameSR(): string {
@@ -791,7 +862,12 @@ export function getUnameSR(): string {
   return `${osType()} ${osRelease()}`
 }
 
-export const DEFAULT_AGENT_PROMPT = `You are an agent for Claude Code, Anthropic's official CLI for Claude. Given the user's message, you should use the tools available to complete the task. Complete the task fully—don't gold-plate, but don't leave it half-done. When you complete the task, respond with a concise report covering what was done and any key findings — the caller will relay this to the user, so it only needs the essentials.`
+export function getDefaultAgentPrompt(): string {
+  return localizedPrompt(
+    'agent.default',
+    `You are an agent for Claude Code, Anthropic's official CLI for Claude. Given the user's message, you should use the tools available to complete the task. Complete the task fully—don't gold-plate, but don't leave it half-done. When you complete the task, respond with a concise report covering what was done and any key findings — the caller will relay this to the user, so it only needs the essentials.`,
+  )
+}
 
 export async function enhanceSystemPromptWithEnvDetails(
   existingSystemPrompt: string[],
@@ -799,11 +875,14 @@ export async function enhanceSystemPromptWithEnvDetails(
   additionalWorkingDirectories?: string[],
   enabledToolNames?: ReadonlySet<string>,
 ): Promise<string[]> {
-  const notes = `Notes:
+  const notes = localizedPrompt(
+    'agent.envNotes',
+    `Notes:
 - Agent threads always have their cwd reset between bash calls, as a result please only use absolute file paths.
 - In your final response, share file paths (always absolute, never relative) that are relevant to the task. Include code snippets only when the exact text is load-bearing (e.g., a bug you found, a function signature the caller asked for) — do not recap code you merely read.
 - For clear communication with the user the assistant MUST avoid using emojis.
-- Do not use a colon before tool calls. Text like "Let me read the file:" followed by a read tool call should just be "Let me read the file." with a period.`
+- Do not use a colon before tool calls. Text like "Let me read the file:" followed by a read tool call should just be "Let me read the file." with a period.`,
+  )
   // Subagents get skill_discovery attachments (prefetch.ts runs in query(),
   // no agentId guard since #22830) but don't go through getSystemPrompt —
   // surface the same DiscoverSkills framing the main session gets. Gated on

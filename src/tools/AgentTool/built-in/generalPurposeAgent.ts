@@ -19,7 +19,7 @@ Guidelines:
 // Note: absolute-path + emoji guidance is appended by enhanceSystemPromptWithEnvDetails.
 function getGeneralPurposeSystemPrompt(): string {
   const guidelines = localizedPrompt('agent.generalPurpose.guidelines', SHARED_GUIDELINES)
-  return `${SHARED_PREFIX} When you complete the task, respond with a concise report covering what was done and any key findings — the caller will relay this to the user, so it only needs the essentials.
+  return `${localizedPrompt('agent.generalPurpose.prefix', SHARED_PREFIX)} ${localizedPrompt('agent.generalPurpose.report', "When you complete the task, respond with a concise report covering what was done and any key findings — the caller will relay this to the user, so it only needs the essentials.")}
 
 ${guidelines}`
 }

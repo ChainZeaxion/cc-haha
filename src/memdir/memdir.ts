@@ -25,7 +25,7 @@ import { getProjectDir } from '../utils/sessionStorage.js'
 import { getInitialSettings } from '../utils/settings/settings.js'
 import { localizedPrompt } from '../prompts/i18n/index.js'
 import {
-  MEMORY_FRONTMATTER_EXAMPLE,
+  buildMemoryFrontmatterExample,
   buildTrustingRecallSection,
   buildIndividualTypesSection,
   buildWhatNotToSaveSection,
@@ -228,7 +228,7 @@ export function buildMemoryLines(
           'Write each memory to its own file (e.g., `user_role.md`, `feedback_testing.md`) using this frontmatter format:',
         ),
         '',
-        ...MEMORY_FRONTMATTER_EXAMPLE,
+        ...buildMemoryFrontmatterExample(),
         '',
         localizedPrompt('memdir.howToSave.keepFields', '- Keep the name, description, and type fields in memory files up-to-date with the content'),
         localizedPrompt('memdir.howToSave.organize', '- Organize memory semantically by topic, not chronologically'),
@@ -245,7 +245,7 @@ export function buildMemoryLines(
           '**Step 1** — write the memory to its own file (e.g., `user_role.md`, `feedback_testing.md`) using this frontmatter format:',
         ),
         '',
-        ...MEMORY_FRONTMATTER_EXAMPLE,
+        ...buildMemoryFrontmatterExample(),
         '',
         localizedPrompt(
           'memdir.howToSave.step2',
@@ -415,7 +415,10 @@ function buildAssistantDailyLogPrompt(skipIndex = false): string {
     ),
     '',
     localizedPrompt('memdir.daily.whatToLog.header', '## What to log'),
-    '- User corrections and preferences ("use bun, not npm"; "stop summarizing diffs")',
+    localizedPrompt(
+      'memdir.daily.log1',
+      '- User corrections and preferences ("use bun, not npm"; "stop summarizing diffs")',
+    ),
     localizedPrompt('memdir.daily.log2', '- Facts about the user, their role, or their goals'),
     localizedPrompt('memdir.daily.log3', '- Project context that is not derivable from the code (deadlines, incidents, decisions and their rationale)'),
     localizedPrompt('memdir.daily.log4', '- Pointers to external systems (dashboards, Linear projects, Slack channels)'),
@@ -461,18 +464,18 @@ export function buildSearchingPastContextSection(autoMemDir: string): string[] {
     ? `grep -rn "<search term>" ${projectDir}/ --include="*.jsonl"`
     : `${GREP_TOOL_NAME} with pattern="<search term>" path="${projectDir}/" glob="*.jsonl"`
   return [
-    '## Searching past context',
+    localizedPrompt('memdir.searchPast.header', '## Searching past context'),
     '',
-    'When looking for past context:',
-    '1. Search topic files in your memory directory:',
+    localizedPrompt('memdir.searchPast.intro', 'When looking for past context:'),
+    localizedPrompt('memdir.searchPast.step1', '1. Search topic files in your memory directory:'),
     '```',
     memSearch,
     '```',
-    '2. Session transcript logs (last resort — large files, slow):',
+    localizedPrompt('memdir.searchPast.step2', '2. Session transcript logs (last resort — large files, slow):'),
     '```',
     transcriptSearch,
     '```',
-    'Use narrow search terms (error messages, file paths, function names) rather than broad keywords.',
+    localizedPrompt('memdir.searchPast.narrow', 'Use narrow search terms (error messages, file paths, function names) rather than broad keywords.'),
     '',
   ]
 }
@@ -553,7 +556,7 @@ export async function loadMemoryPrompt(): Promise<string | null> {
         'auto' as AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS,
     })
     return buildMemoryLines(
-      'auto memory',
+      localizedPrompt('memdir.heading', 'auto memory'),
       autoDir,
       extraGuidelines,
       skipIndex,

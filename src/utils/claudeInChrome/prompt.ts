@@ -1,6 +1,7 @@
 import { localizedPrompt } from '../../prompts/i18n/index.js'
 
-export const BASE_CHROME_PROMPT = localizedPrompt(
+export function getBaseChromePrompt(): string {
+  return localizedPrompt(
   'chrome.base',
   `# Claude in Chrome browser automation
 
@@ -48,7 +49,8 @@ Never reuse tab IDs from a previous/other session. Follow these guidelines:
 2. Otherwise, create a new tab with mcp__claude-in-chrome__tabs_create_mcp
 3. If a tool returns an error indicating the tab doesn't exist or is invalid, call tabs_context_mcp to get fresh tab IDs
 4. When a tab is closed by the user or a navigation error occurs, call tabs_context_mcp to see what tabs are available`,
-)
+  )
+}
 
 /**
  * Additional instructions for chrome tools when tool search is enabled.
@@ -71,21 +73,28 @@ For example, to get tab context:
  * based on the actual tool search enabled state.
  */
 export function getChromeSystemPrompt(): string {
-  return BASE_CHROME_PROMPT
+  return getBaseChromePrompt()
 }
 
 /**
  * Minimal hint about Claude in Chrome skill availability. This is injected at startup when the extension is installed
  * to guide the model to invoke the skill before using the MCP tools.
  */
-export const CLAUDE_IN_CHROME_SKILL_HINT = localizedPrompt(
+export function getClaudeInChromeSkillHint(): string {
+  return localizedPrompt(
   'chrome.skillHint',
   `**Browser Automation**: Chrome browser tools are available via the "claude-in-chrome" skill. CRITICAL: Before using any mcp__claude-in-chrome__* tools, invoke the skill by calling the Skill tool with skill: "claude-in-chrome". The skill provides browser automation instructions and enables the tools.`,
-)
+  )
+}
 
 /**
  * Variant when the built-in WebBrowser tool is also available — steer
  * dev-loop tasks to WebBrowser and reserve the extension for the user's
  * authenticated Chrome (logged-in sites, OAuth, computer-use).
  */
-export const CLAUDE_IN_CHROME_SKILL_HINT_WITH_WEBBROWSER = `**Browser Automation**: Use WebBrowser for development (dev servers, JS eval, console, screenshots). Use claude-in-chrome for the user's real Chrome when you need logged-in sessions, OAuth, or computer-use — invoke Skill(skill: "claude-in-chrome") before any mcp__claude-in-chrome__* tool.`
+export function getClaudeInChromeSkillHintWithWebBrowser(): string {
+  return localizedPrompt(
+    'chrome.skillHintWithWebBrowser',
+    `**Browser Automation**: Use WebBrowser for development (dev servers, JS eval, console, screenshots). Use claude-in-chrome for the user's real Chrome when you need logged-in sessions, OAuth, or computer-use — invoke Skill(skill: "claude-in-chrome") before any mcp__claude-in-chrome__* tool.`,
+  )
+}

@@ -355,7 +355,7 @@ import {
   waitForTeammatesToBecomeIdle,
 } from '../utils/teammate.js'
 import { TEAM_LEAD_NAME } from '../utils/swarm/constants.js'
-import { SHUTDOWN_TEAM_PROMPT } from '../utils/swarm/teamShutdownPrompt.js'
+import { getShutdownTeamPrompt } from '../utils/swarm/teamShutdownPrompt.js'
 import {
   readUnreadMessages,
   markMessagesAsRead,
@@ -418,7 +418,7 @@ export function hasTeammatesRequiringShutdown(state: AppState): boolean {
 export function createShutdownTeamPrompt(): QueuedCommand {
   return {
     mode: 'prompt',
-    value: SHUTDOWN_TEAM_PROMPT,
+    value: getShutdownTeamPrompt(),
     uuid: randomUUID(),
     isMeta: true,
   }

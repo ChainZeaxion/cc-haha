@@ -9,6 +9,7 @@ import { isUsing3PServices } from 'src/utils/auth.js'
 import { hasEmbeddedSearchTools } from 'src/utils/embeddedTools.js'
 import { getSettings_DEPRECATED } from 'src/utils/settings/settings.js'
 import { jsonStringify } from '../../../utils/slowOperations.js'
+import { localizedPrompt } from '../../../prompts/i18n/index.js'
 import type {
   AgentDefinition,
   BuiltInAgentDefinition,
@@ -27,7 +28,9 @@ function getClaudeCodeGuideBasePrompt(): string {
     ? `${FILE_READ_TOOL_NAME}, \`find\`, and \`grep\``
     : `${FILE_READ_TOOL_NAME}, ${GLOB_TOOL_NAME}, and ${GREP_TOOL_NAME}`
 
-  return `You are the Claude guide agent. Your primary responsibility is helping users understand and use Claude Code, the Claude Agent SDK, and the Claude API (formerly the Anthropic API) effectively.
+  return localizedPrompt(
+    'agent.guide.base',
+    `You are the Claude guide agent. Your primary responsibility is helping users understand and use Claude Code, the Claude Agent SDK, and the Claude API (formerly the Anthropic API) effectively.
 
 **Your expertise spans three domains:**
 
@@ -83,16 +86,31 @@ function getClaudeCodeGuideBasePrompt(): string {
 - Reference exact documentation URLs in your responses
 - Help users discover features by proactively suggesting related commands, shortcuts, or capabilities
 
-Complete the user's request by providing accurate, documentation-based guidance.`
+Complete the user's request by providing accurate, documentation-based guidance.`,
+    {
+      ccDocsUrl: CLAUDE_CODE_DOCS_MAP_URL,
+      cdpDocsUrl: CDP_DOCS_MAP_URL,
+      webFetch: WEB_FETCH_TOOL_NAME,
+      webSearch: WEB_SEARCH_TOOL_NAME,
+      localSearch: localSearchHint,
+    },
+  )
 }
 
 function getFeedbackGuideline(): string {
   // For 3P services (Bedrock/Vertex/Foundry), /feedback command is disabled
   // Direct users to the appropriate feedback channel instead
   if (isUsing3PServices()) {
-    return `- When you cannot find an answer or the feature doesn't exist, direct the user to ${MACRO.ISSUES_EXPLAINER}`
+    return localizedPrompt(
+      'agent.guide.feedback3p',
+      `- When you cannot find an answer or the feature doesn't exist, direct the user to ${MACRO.ISSUES_EXPLAINER}`,
+      { issues: MACRO.ISSUES_EXPLAINER },
+    )
   }
-  return "- When you cannot find an answer or the feature doesn't exist, direct the user to use /feedback to report a feature request or bug"
+  return localizedPrompt(
+    'agent.guide.feedbackDefault',
+    "- When you cannot find an answer or the feature doesn't exist, direct the user to use /feedback to report a feature request or bug",
+  )
 }
 
 export const CLAUDE_CODE_GUIDE_AGENT: BuiltInAgentDefinition = {
@@ -131,7 +149,7 @@ export const CLAUDE_CODE_GUIDE_AGENT: BuiltInAgentDefinition = {
         .map(cmd => `- /${cmd.name}: ${cmd.description}`)
         .join('\n')
       contextSections.push(
-        `**Available custom skills in this project:**\n${commandList}`,
+        localizedPrompt('agent.guide.customSkills', `**Available custom skills in this project:**\n{list}`, { list: commandList }),
       )
     }
 
@@ -145,7 +163,7 @@ export const CLAUDE_CODE_GUIDE_AGENT: BuiltInAgentDefinition = {
         .map((a: AgentDefinition) => `- ${a.agentType}: ${a.whenToUse}`)
         .join('\n')
       contextSections.push(
-        `**Available custom agents configured:**\n${agentList}`,
+        localizedPrompt('agent.guide.customAgents', `**Available custom agents configured:**\n{list}`, { list: agentList }),
       )
     }
 
@@ -155,7 +173,7 @@ export const CLAUDE_CODE_GUIDE_AGENT: BuiltInAgentDefinition = {
       const mcpList = mcpClients
         .map((client: { name: string }) => `- ${client.name}`)
         .join('\n')
-      contextSections.push(`**Configured MCP servers:**\n${mcpList}`)
+      contextSections.push(localizedPrompt('agent.guide.mcpServers', `**Configured MCP servers:**\n{list}`, { list: mcpList }))
     }
 
     // 4. Plugin commands
@@ -166,7 +184,7 @@ export const CLAUDE_CODE_GUIDE_AGENT: BuiltInAgentDefinition = {
       const pluginList = pluginCommands
         .map(cmd => `- /${cmd.name}: ${cmd.description}`)
         .join('\n')
-      contextSections.push(`**Available plugin skills:**\n${pluginList}`)
+      contextSections.push(localizedPrompt('agent.guide.pluginSkills', `**Available plugin skills:**\n{list}`, { list: pluginList }))
     }
 
     // 5. User settings
@@ -175,7 +193,7 @@ export const CLAUDE_CODE_GUIDE_AGENT: BuiltInAgentDefinition = {
       // eslint-disable-next-line no-restricted-syntax -- human-facing UI, not tool_result
       const settingsJson = jsonStringify(settings, null, 2)
       contextSections.push(
-        `**User's settings.json:**\n\`\`\`json\n${settingsJson}\n\`\`\``,
+        localizedPrompt('agent.guide.settings', `**User's settings.json:**\n\`\`\`json\n{json}\n\`\`\``, { json: settingsJson }),
       )
     }
 
@@ -186,7 +204,9 @@ ${feedbackGuideline}`
 
     // If we have any context to add, append it to the base system prompt
     if (contextSections.length > 0) {
-      return `${basePromptWithFeedback}
+      return localizedPrompt(
+        'agent.guide.currentConfig',
+        `${basePromptWithFeedback}
 
 ---
 
@@ -196,7 +216,9 @@ The user has the following custom setup in their environment:
 
 ${contextSections.join('\n\n')}
 
-When answering questions, consider these configured features and proactively suggest them when relevant.`
+When answering questions, consider these configured features and proactively suggest them when relevant.`,
+        { base: basePromptWithFeedback, sections: contextSections.join('\n\n') },
+      )
     }
 
     // Return the base prompt if no context to add

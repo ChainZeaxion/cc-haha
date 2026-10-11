@@ -17,14 +17,13 @@ The user cannot receive your response until the team is completely shut down.
 
 Shut down your team and prepare your final response for the user.`
 
-export const SHUTDOWN_TEAM_PROMPT = localizedPrompt(
-  'misc.shutdownTeam',
-  SHUTDOWN_TEAM_PROMPT_EN,
-)
+export function getShutdownTeamPrompt(): string {
+  return localizedPrompt('misc.shutdownTeam', SHUTDOWN_TEAM_PROMPT_EN)
+}
 
 /** Recognize the exact legacy instruction even when it was persisted without isMeta. */
 export function isShutdownTeamPrompt(content: unknown): boolean {
   const text = typeof content === 'string' ? content :
     Array.isArray(content) && content.length === 1 && content[0]?.type === 'text' ? content[0].text : null
-  return text === SHUTDOWN_TEAM_PROMPT || text === SHUTDOWN_TEAM_PROMPT_EN
+  return text === getShutdownTeamPrompt() || text === SHUTDOWN_TEAM_PROMPT_EN
 }

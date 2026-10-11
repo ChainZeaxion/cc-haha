@@ -6,7 +6,7 @@ import {
 } from './memdir.js'
 import {
   MEMORY_DRIFT_CAVEAT,
-  MEMORY_FRONTMATTER_EXAMPLE,
+  buildMemoryFrontmatterExample,
   buildTrustingRecallSection,
   buildCombinedTypesSection,
   buildWhatNotToSaveSection,
@@ -36,7 +36,7 @@ export function buildCombinedMemoryPrompt(
           "Write each memory to its own file in the chosen directory (private or team, per the type's scope guidance) using this frontmatter format:",
         ),
         '',
-        ...MEMORY_FRONTMATTER_EXAMPLE,
+        ...buildMemoryFrontmatterExample(),
         '',
         localizedPrompt('memdir.howToSave.keepFields', '- Keep the name, description, and type fields in memory files up-to-date with the content'),
         localizedPrompt('memdir.howToSave.organize', '- Organize memory semantically by topic, not chronologically'),
@@ -53,7 +53,7 @@ export function buildCombinedMemoryPrompt(
           "**Step 1** — write the memory to its own file in the chosen directory (private or team, per the type's scope guidance) using this frontmatter format:",
         ),
         '',
-        ...MEMORY_FRONTMATTER_EXAMPLE,
+        ...buildMemoryFrontmatterExample(),
         '',
         localizedPrompt(
           'memdir.combined.howToSave.step2',

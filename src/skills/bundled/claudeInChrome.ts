@@ -1,5 +1,5 @@
 import { BROWSER_TOOLS } from '@ant/claude-for-chrome-mcp'
-import { BASE_CHROME_PROMPT } from '../../utils/claudeInChrome/prompt.js'
+import { getBaseChromePrompt } from '../../utils/claudeInChrome/prompt.js'
 import { shouldAutoEnableClaudeInChrome } from '../../utils/claudeInChrome/setup.js'
 import { registerBundledSkill } from '../bundledSkills.js'
 
@@ -24,7 +24,7 @@ export function registerClaudeInChromeSkill(): void {
     userInvocable: true,
     isEnabled: () => shouldAutoEnableClaudeInChrome(),
     async getPromptForCommand(args) {
-      let prompt = `${BASE_CHROME_PROMPT}\n${SKILL_ACTIVATION_MESSAGE}`
+      let prompt = `${getBaseChromePrompt()}\n${SKILL_ACTIVATION_MESSAGE}`
       if (args) {
         prompt += `\n## Task\n\n${args}`
       }

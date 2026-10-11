@@ -167,7 +167,10 @@ export function buildCombinedTypesSection(): readonly string[] {
     '    <how_to_use>When the user references an external system or information that may be in an external system.</how_to_use>',
   ),
   '    <examples>',
-  '    user: check the Linear project "INGEST" if you want context on these tickets, that\'s where we track all pipeline bugs\n    assistant: [saves team reference memory: pipeline bugs are tracked in Linear project "INGEST"]',
+  localizedPrompt(
+    'memdir.referenceExample.team',
+    '    user: check the Linear project "INGEST" if you want context on these tickets, that\'s where we track all pipeline bugs\n    assistant: [saves team reference memory: pipeline bugs are tracked in Linear project "INGEST"]',
+  ),
   '',
   localizedPrompt(
     'memdir.typesC.reference.ex2',
@@ -305,7 +308,10 @@ export function buildIndividualTypesSection(): readonly string[] {
     '    <how_to_use>When the user references an external system or information that may be in an external system.</how_to_use>',
   ),
   '    <examples>',
-  '    user: check the Linear project "INGEST" if you want context on these tickets, that\'s where we track all pipeline bugs\n    assistant: [saves reference memory: pipeline bugs are tracked in Linear project "INGEST"]',
+  localizedPrompt(
+    'memdir.referenceExample.individual',
+    '    user: check the Linear project "INGEST" if you want context on these tickets, that\'s where we track all pipeline bugs\n    assistant: [saves reference memory: pipeline bugs are tracked in Linear project "INGEST"]',
+  ),
   '',
   localizedPrompt(
     'memdir.typesI.reference.ex2',
@@ -454,18 +460,26 @@ export function buildTrustingRecallSection(): readonly string[] {
 /**
  * Frontmatter format example with the `type` field.
  *
- * Deliberately NOT localised: the field names (`name`, `description`, `type`)
- * and the `{{…}}` placeholders are the storage contract, so the block stays
- * English in every language.
+ * The field names (`name`, `description`, `type`) and the `{{…}}` placeholders
+ * are the storage contract and stay English in every language; only the prose
+ * inside the placeholders is localised.
  */
-export const MEMORY_FRONTMATTER_EXAMPLE: readonly string[] = [
-  '```markdown',
-  '---',
-  'name: {{memory name}}',
-  'description: {{one-line description — used to decide relevance in future conversations, so be specific}}',
-  `type: {{${MEMORY_TYPES.join(', ')}}}`,
-  '---',
-  '',
-  '{{memory content — for feedback/project types, structure as: rule/fact, then **Why:** and **How to apply:** lines}}',
-  '```',
-]
+export function buildMemoryFrontmatterExample(): readonly string[] {
+  return [
+    '```markdown',
+    '---',
+    'name: {{memory name}}',
+    localizedPrompt(
+      'memdir.frontmatter.description',
+      'description: {{one-line description — used to decide relevance in future conversations, so be specific}}',
+    ),
+    `type: {{${MEMORY_TYPES.join(', ')}}}`,
+    '---',
+    '',
+    localizedPrompt(
+      'memdir.frontmatter.content',
+      '{{memory content — for feedback/project types, structure as: rule/fact, then **Why:** and **How to apply:** lines}}',
+    ),
+    '```',
+  ]
+}

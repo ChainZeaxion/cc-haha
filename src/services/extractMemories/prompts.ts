@@ -11,7 +11,7 @@
 
 import { feature } from 'bun:bundle'
 import {
-  MEMORY_FRONTMATTER_EXAMPLE,
+  buildMemoryFrontmatterExample,
   buildCombinedTypesSection,
   buildIndividualTypesSection,
   buildWhatNotToSaveSection,
@@ -78,7 +78,7 @@ export function buildExtractAutoOnlyPrompt(
         '',
         localizedPrompt('memdir.howToSave.writeEach', 'Write each memory to its own file (e.g., `user_role.md`, `feedback_testing.md`) using this frontmatter format:'),
         '',
-        ...MEMORY_FRONTMATTER_EXAMPLE,
+        ...buildMemoryFrontmatterExample(),
         '',
         localizedPrompt('memdir.howToSave.organize', '- Organize memory semantically by topic, not chronologically'),
         localizedPrompt('memdir.howToSave.updateRemove', '- Update or remove memories that turn out to be wrong or outdated'),
@@ -91,7 +91,7 @@ export function buildExtractAutoOnlyPrompt(
         '',
         localizedPrompt('memdir.howToSave.step1', '**Step 1** — write the memory to its own file (e.g., `user_role.md`, `feedback_testing.md`) using this frontmatter format:'),
         '',
-        ...MEMORY_FRONTMATTER_EXAMPLE,
+        ...buildMemoryFrontmatterExample(),
         '',
         localizedPrompt(
           'service.extractMemories.step2',
@@ -149,7 +149,7 @@ export function buildExtractCombinedPrompt(
           "Write each memory to its own file in the chosen directory (private or team, per the type's scope guidance) using this frontmatter format:",
         ),
         '',
-        ...MEMORY_FRONTMATTER_EXAMPLE,
+        ...buildMemoryFrontmatterExample(),
         '',
         localizedPrompt('memdir.howToSave.organize', '- Organize memory semantically by topic, not chronologically'),
         localizedPrompt('memdir.howToSave.updateRemove', '- Update or remove memories that turn out to be wrong or outdated'),
@@ -165,7 +165,7 @@ export function buildExtractCombinedPrompt(
           "**Step 1** — write the memory to its own file in the chosen directory (private or team, per the type's scope guidance) using this frontmatter format:",
         ),
         '',
-        ...MEMORY_FRONTMATTER_EXAMPLE,
+        ...buildMemoryFrontmatterExample(),
         '',
         localizedPrompt(
           'memdir.combined.howToSave.step2',
@@ -173,7 +173,10 @@ export function buildExtractCombinedPrompt(
           { entrypoint: 'MEMORY.md' },
         ),
         '',
-        '- Both `MEMORY.md` indexes are loaded into your system prompt — lines after 200 will be truncated, so keep them concise',
+        localizedPrompt(
+          'service.extractMemories.entrypointLoadedBoth',
+          '- Both `MEMORY.md` indexes are loaded into your system prompt — lines after 200 will be truncated, so keep them concise',
+        ),
         localizedPrompt('memdir.howToSave.organize', '- Organize memory semantically by topic, not chronologically'),
         localizedPrompt('memdir.howToSave.updateRemove', '- Update or remove memories that turn out to be wrong or outdated'),
         localizedPrompt('memdir.howToSave.noDuplicates', '- Do not write duplicate memories. First check if there is an existing memory you can update before writing a new one.'),

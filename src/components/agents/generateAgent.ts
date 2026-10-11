@@ -24,7 +24,8 @@ type GeneratedAgent = {
   systemPrompt: string
 }
 
-const AGENT_CREATION_SYSTEM_PROMPT = localizedPrompt(
+function getAgentCreationSystemPrompt(): string {
+  return localizedPrompt(
   'agent.creation.system',
   `You are an elite AI agent architect specializing in crafting high-performance agent configurations. Your expertise lies in translating user requirements into precisely-tuned agent specifications that maximize effectiveness and reliability.
 
@@ -99,10 +100,12 @@ Key principles for your system prompts:
 Remember: The agents you create should be autonomous experts capable of handling their designated tasks with minimal additional guidance. Your system prompts are their complete operational manual.
 `,
   { agent: AGENT_TOOL_NAME },
-)
+  )
+}
 
 // Agent memory instructions to include in the system prompt when memory is mentioned or relevant
-const AGENT_MEMORY_INSTRUCTIONS = localizedPrompt(
+function getAgentMemoryInstructions(): string {
+  return localizedPrompt(
   'agent.creation.memoryInstructions',
   `
 
@@ -125,7 +128,8 @@ const AGENT_MEMORY_INSTRUCTIONS = localizedPrompt(
 
    The memory instructions should be specific to what the agent would naturally learn while performing its core tasks.
 `,
-)
+  )
+}
 
 export async function generateAgent(
   userPrompt: string,
@@ -159,8 +163,8 @@ export async function generateAgent(
 
   // Include memory instructions when the feature is enabled
   const systemPrompt = isAutoMemoryEnabled()
-    ? AGENT_CREATION_SYSTEM_PROMPT + AGENT_MEMORY_INSTRUCTIONS
-    : AGENT_CREATION_SYSTEM_PROMPT
+    ? getAgentCreationSystemPrompt() + getAgentMemoryInstructions()
+    : getAgentCreationSystemPrompt()
 
   const response = await queryModelWithoutStreaming({
     messages: normalizeMessagesForAPI(messagesWithContext),

@@ -286,7 +286,7 @@ export function getPartialCompactPrompt(
     prompt += `\n\n${localizedPrompt('service.compact.additionalInstructions', 'Additional Instructions:')}\n${customInstructions}`
   }
 
-  prompt += NO_TOOLS_TRAILER
+  prompt += localizedPrompt('service.compact.noToolsTrailer', NO_TOOLS_TRAILER)
 
   return prompt
 }
@@ -300,7 +300,7 @@ export function getCompactPrompt(customInstructions?: string): string {
     prompt += `\n\n${localizedPrompt('service.compact.additionalInstructions', 'Additional Instructions:')}\n${customInstructions}`
   }
 
-  prompt += NO_TOOLS_TRAILER
+  prompt += localizedPrompt('service.compact.noToolsTrailer', NO_TOOLS_TRAILER)
 
   return prompt
 }
