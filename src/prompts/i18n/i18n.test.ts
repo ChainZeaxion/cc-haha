@@ -86,6 +86,12 @@ describe('the Chinese lead-in', () => {
     setPromptLanguage('zh')
     expect(promptLanguageLead()).toContain('英文')
   })
+
+  test('forces reasoning to stay Chinese, so English instructions do not pull thinking back to English', () => {
+    setPromptLanguage('zh')
+    expect(promptLanguageLead()).toContain('思考')
+    expect(promptLanguageLead()).toContain('不要切换成英文')
+  })
 })
 
 describe('the Chinese bundle', () => {

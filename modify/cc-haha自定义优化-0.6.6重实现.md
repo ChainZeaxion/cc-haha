@@ -3161,3 +3161,21 @@ src/prompts/i18n/
 **安全论证**：无新密钥暴露。apiKey 已持久化在本地服务端且每次聊天都在用；测试/获取只是把已填/已存的值走同一链路；行内「测试」甚至不经客户端传 key（服务端自读配置）。
 
 **测试**：`bunx vitest run ProviderSettings.test.tsx` 23/23（原 22 + 新 1）。
+
+## 三十六 思考语言探针：系统提示词英文主体锚定英文思考（✅ 2026-10-11，lead 已加思考指令）
+
+**用户观察**：cchaha 思考过程英文优先/中英混杂；1cat-studio 聊天模式多次测试都是纯中文思考。
+
+**探针实验**（部署引擎 `zxsv-ai`，`/v1/chat/completions` + thinking，同题「列出 1–100 质数并说明思路」）：
+
+| 场景 | 思考汉字 | 思考英文字母 | 开头 |
+|---|---|---|---|
+| studio 聊天模式（无 system） | 143 | **0** | 「用户要求写出1到100之间的质数…」纯中文 |
+| cchaza 中文 lead 版（5,000+ tok 英文系统提示词） | **0** | 579 | 「The user is asking to write out all the primes…」纯英文 |
+
+**根因**：不是「开头两句英文」，而是**系统提示词英文主体**——它是思考语言的锚，模型跟着指令流主语言走。studio 聊天模式默认**空 `system_prompt`**（`1cat-studio/studio/frontend/src/onecat/chat-page.tsx:111` 默认 `""`、:376 非空才 unshift system 消息），无英文指令流 → 纯中文思考。
+
+**已落地**：`src/prompts/i18n/index.ts` 的 `PROMPT_LANGUAGE_LEAD_ZH` 增加显式思考语言指令（「思考（reasoning）、解释与对用户的回复一律优先使用中文，不要切换成英文」），并把「一律使用英文原文」的强化措辞改为「保留英文原文，以保持参数约定精确」。+5 tok/请求（5,384→5,389）。i18n 测试新增断言（13/0）。
+**但探针证明 lead 指令压不住英文主体**——这是**方向性确认**：要让思考变中文，必须**中文化系统提示词主体散文**（收益清单「可压缩分支」：compact 散文、actions、doingTasks、outputEfficiency 等），而非只靠 lead。提示词中文化从「省 token」升级为「中文思考的必要手段」。
+
+**第二版优先级变更**：原建议「G/H → A/B/D」按 token 收益排序；现按**思考语言影响力**重排——凡**每请求注入**的主体散文（① 收尾节、② compact、doingTasks/actions）应最先中文化。

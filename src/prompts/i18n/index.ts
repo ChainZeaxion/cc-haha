@@ -70,7 +70,8 @@ export function promptLanguage(): PromptLanguage {
  * instructions below are English on purpose. The English detail then follows.
  */
 const PROMPT_LANGUAGE_LEAD_ZH = `# 语言说明
-本次会话的界面语言为中文。为保持措辞与参数约定的精确，下列系统指令、工具说明与技能描述一律使用英文原文，不做翻译；请严格按原文遵循，并保持工具名、参数名与参数取值、命令、代码与文件路径原样。
+本次会话的界面语言为中文。思考（reasoning）、解释与对用户的回复一律优先使用中文，不要切换成英文。
+下列工具说明与部分系统指令保留英文原文，以保持参数约定精确；工具名、参数名与取值、命令、代码与文件路径保持原样。
 与用户交流时使用中文。`
 
 /**
