@@ -1,5 +1,6 @@
 import { feature } from 'bun:bundle'
 import type { PartialCompactDirection } from '../../types/message.js'
+import { localizedPrompt } from '../../prompts/i18n/index.js'
 
 // Dead code elimination: conditional import for proactive mode
 /* eslint-disable @typescript-eslint/no-require-imports */
@@ -277,12 +278,12 @@ export function getPartialCompactPrompt(
 ): string {
   const template =
     direction === 'up_to'
-      ? PARTIAL_COMPACT_UP_TO_PROMPT
-      : PARTIAL_COMPACT_PROMPT
-  let prompt = NO_TOOLS_PREAMBLE + template
+      ? localizedPrompt('service.compact.partialUpTo', PARTIAL_COMPACT_UP_TO_PROMPT, { analysis: localizedPrompt('service.compact.detailedAnalysisBase', DETAILED_ANALYSIS_INSTRUCTION_BASE) })
+      : localizedPrompt('service.compact.partial', PARTIAL_COMPACT_PROMPT, { analysis: localizedPrompt('service.compact.detailedAnalysisPartial', DETAILED_ANALYSIS_INSTRUCTION_PARTIAL) })
+  let prompt = localizedPrompt('service.compact.noToolsPreamble', NO_TOOLS_PREAMBLE) + template
 
   if (customInstructions && customInstructions.trim() !== '') {
-    prompt += `\n\nAdditional Instructions:\n${customInstructions}`
+    prompt += `\n\n${localizedPrompt('service.compact.additionalInstructions', 'Additional Instructions:')}\n${customInstructions}`
   }
 
   prompt += NO_TOOLS_TRAILER
@@ -291,10 +292,12 @@ export function getPartialCompactPrompt(
 }
 
 export function getCompactPrompt(customInstructions?: string): string {
-  let prompt = NO_TOOLS_PREAMBLE + BASE_COMPACT_PROMPT
+  let prompt =
+    localizedPrompt('service.compact.noToolsPreamble', NO_TOOLS_PREAMBLE) +
+    localizedPrompt('service.compact.base', BASE_COMPACT_PROMPT, { analysis: localizedPrompt('service.compact.detailedAnalysisBase', DETAILED_ANALYSIS_INSTRUCTION_BASE) })
 
   if (customInstructions && customInstructions.trim() !== '') {
-    prompt += `\n\nAdditional Instructions:\n${customInstructions}`
+    prompt += `\n\n${localizedPrompt('service.compact.additionalInstructions', 'Additional Instructions:')}\n${customInstructions}`
   }
 
   prompt += NO_TOOLS_TRAILER
@@ -342,21 +345,21 @@ export function getCompactUserSummaryMessage(
 ): string {
   const formattedSummary = formatCompactSummary(summary)
 
-  let baseSummary = `This session is being continued from a previous conversation that ran out of context. The summary below covers the earlier portion of the conversation.
+  let baseSummary = localizedPrompt('service.compact.userSummaryHead', `This session is being continued from a previous conversation that ran out of context. The summary below covers the earlier portion of the conversation.`) + `
 
 ${formattedSummary}`
 
   if (transcriptPath) {
-    baseSummary += `\n\nIf you need specific details from before compaction (like exact code snippets, error messages, or content you generated), read the full transcript at: ${transcriptPath}`
+    baseSummary += `\n\n` + localizedPrompt('service.compact.transcriptHint', `If you need specific details from before compaction (like exact code snippets, error messages, or content you generated), read the full transcript at: ${transcriptPath}`, { path: transcriptPath })
   }
 
   if (recentMessagesPreserved) {
-    baseSummary += `\n\nRecent messages are preserved verbatim.`
+    baseSummary += `\n\n` + localizedPrompt('service.compact.recentPreserved', `Recent messages are preserved verbatim.`)
   }
 
   if (suppressFollowUpQuestions) {
     let continuation = `${baseSummary}
-Continue the conversation from where it left off without asking the user any further questions. Resume directly — do not acknowledge the summary, do not recap what was happening, do not preface with "I'll continue" or similar. Pick up the last task as if the break never happened.`
+` + localizedPrompt('service.compact.continueWithoutQuestions', `Continue the conversation from where it left off without asking the user any further questions. Resume directly — do not acknowledge the summary, do not recap what was happening, do not preface with "I'll continue" or similar. Pick up the last task as if the break never happened.`)
 
     if (
       (feature('PROACTIVE') || feature('KAIROS')) &&
@@ -364,7 +367,7 @@ Continue the conversation from where it left off without asking the user any fur
     ) {
       continuation += `
 
-You are running in autonomous/proactive mode. This is NOT a first wake-up — you were already working autonomously before compaction. Continue your work loop: pick up where you left off based on the summary above. Do not greet the user or ask what to work on.`
+` + localizedPrompt('service.compact.continueProactive', `You are running in autonomous/proactive mode. This is NOT a first wake-up — you were already working autonomously before compaction. Continue your work loop: pick up where you left off based on the summary above. Do not greet the user or ask what to work on.`)
     }
 
     return continuation

@@ -65,6 +65,20 @@ export const desktopUiPreferencesApi = {
     return api.get<DesktopPetPreferencesResponse>('/api/desktop-ui/preferences/pet')
   },
 
+  /**
+   * Tell the server which UI language is set.
+   *
+   * The renderer's own storage is invisible to the sidecar that assembles the
+   * model prompts, so the choice has to be sent over. Returns the resolved
+   * prompt language so a caller (or a test) can see it took effect.
+   */
+  updateLocalePreference(locale: string | null) {
+    return api.put<{ ok: true; locale: string | null; promptLanguage: 'en' | 'zh' }>(
+      '/api/desktop-ui/preferences/locale',
+      { locale },
+    )
+  },
+
   updateSidebarPreferences(sidebar: SidebarProjectPreferences) {
     return api.put<{ ok: true; preferences: DesktopUiPreferences }>(
       '/api/desktop-ui/preferences/sidebar',

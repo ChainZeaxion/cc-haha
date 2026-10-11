@@ -22,6 +22,7 @@ import { FILE_READ_TOOL_NAME } from '../../tools/FileReadTool/prompt.js'
 import { FILE_WRITE_TOOL_NAME } from '../../tools/FileWriteTool/prompt.js'
 import { GLOB_TOOL_NAME } from '../../tools/GlobTool/prompt.js'
 import { GREP_TOOL_NAME } from '../../tools/GrepTool/prompt.js'
+import { localizedPrompt } from '../../prompts/i18n/index.js'
 
 /**
  * Shared opener for both extract-prompt variants.
@@ -29,17 +30,36 @@ import { GREP_TOOL_NAME } from '../../tools/GrepTool/prompt.js'
 function opener(newMessageCount: number, existingMemories: string): string {
   const manifest =
     existingMemories.length > 0
-      ? `\n\n## Existing memory files\n\n${existingMemories}\n\nCheck this list before writing — update an existing file rather than creating a duplicate.`
+      ? localizedPrompt(
+          'service.extractMemories.manifest',
+          `\n\n## Existing memory files\n\n${existingMemories}\n\nCheck this list before writing — update an existing file rather than creating a duplicate.`,
+          { memories: existingMemories },
+        )
       : ''
   return [
-    `You are now acting as the memory extraction subagent. Analyze the most recent ~${newMessageCount} messages above and use them to update your persistent memory systems.`,
+    localizedPrompt(
+      'service.extractMemories.opener.intro',
+      `You are now acting as the memory extraction subagent. Analyze the most recent ~${newMessageCount} messages above and use them to update your persistent memory systems.`,
+      { count: newMessageCount },
+    ),
     '',
-    `Available tools: ${FILE_READ_TOOL_NAME}, ${GREP_TOOL_NAME}, ${GLOB_TOOL_NAME}, read-only ${BASH_TOOL_NAME} (ls/find/cat/stat/wc/head/tail and similar), and ${FILE_EDIT_TOOL_NAME}/${FILE_WRITE_TOOL_NAME} for paths inside the memory directory only. ${BASH_TOOL_NAME} rm is not permitted. All other tools — MCP, Agent, write-capable ${BASH_TOOL_NAME}, etc — will be denied.`,
+    localizedPrompt(
+      'service.extractMemories.opener.tools',
+      `Available tools: ${FILE_READ_TOOL_NAME}, ${GREP_TOOL_NAME}, ${GLOB_TOOL_NAME}, read-only ${BASH_TOOL_NAME} (ls/find/cat/stat/wc/head/tail and similar), and ${FILE_EDIT_TOOL_NAME}/${FILE_WRITE_TOOL_NAME} for paths inside the memory directory only. ${BASH_TOOL_NAME} rm is not permitted. All other tools — MCP, Agent, write-capable ${BASH_TOOL_NAME}, etc — will be denied.`,
+      { read: FILE_READ_TOOL_NAME, grep: GREP_TOOL_NAME, glob: GLOB_TOOL_NAME, bash: BASH_TOOL_NAME, edit: FILE_EDIT_TOOL_NAME, write: FILE_WRITE_TOOL_NAME },
+    ),
     '',
-    `You have a limited turn budget. ${FILE_EDIT_TOOL_NAME} requires a prior ${FILE_READ_TOOL_NAME} of the same file, so the efficient strategy is: turn 1 — issue all ${FILE_READ_TOOL_NAME} calls in parallel for every file you might update; turn 2 — issue all ${FILE_WRITE_TOOL_NAME}/${FILE_EDIT_TOOL_NAME} calls in parallel. Do not interleave reads and writes across multiple turns.`,
+    localizedPrompt(
+      'service.extractMemories.opener.budget',
+      `You have a limited turn budget. ${FILE_EDIT_TOOL_NAME} requires a prior ${FILE_READ_TOOL_NAME} of the same file, so the efficient strategy is: turn 1 — issue all ${FILE_READ_TOOL_NAME} calls in parallel for every file you might update; turn 2 — issue all ${FILE_WRITE_TOOL_NAME}/${FILE_EDIT_TOOL_NAME} calls in parallel. Do not interleave reads and writes across multiple turns.`,
+      { edit: FILE_EDIT_TOOL_NAME, read: FILE_READ_TOOL_NAME, write: FILE_WRITE_TOOL_NAME },
+    ),
     '',
-    `You MUST only use content from the last ~${newMessageCount} messages to update your persistent memories. Do not waste any turns attempting to investigate or verify that content further — no grepping source files, no reading code to confirm a pattern exists, no git commands.` +
-      manifest,
+    localizedPrompt(
+      'service.extractMemories.opener.must',
+      `You MUST only use content from the last ~${newMessageCount} messages to update your persistent memories. Do not waste any turns attempting to investigate or verify that content further — no grepping source files, no reading code to confirm a pattern exists, no git commands.`,
+      { count: newMessageCount },
+    ) + manifest,
   ].join('\n')
 }
 
@@ -54,37 +74,46 @@ export function buildExtractAutoOnlyPrompt(
 ): string {
   const howToSave = skipIndex
     ? [
-        '## How to save memories',
+        localizedPrompt('memdir.howToSave.header', '## How to save memories'),
         '',
-        'Write each memory to its own file (e.g., `user_role.md`, `feedback_testing.md`) using this frontmatter format:',
+        localizedPrompt('memdir.howToSave.writeEach', 'Write each memory to its own file (e.g., `user_role.md`, `feedback_testing.md`) using this frontmatter format:'),
         '',
         ...MEMORY_FRONTMATTER_EXAMPLE,
         '',
-        '- Organize memory semantically by topic, not chronologically',
-        '- Update or remove memories that turn out to be wrong or outdated',
-        '- Do not write duplicate memories. First check if there is an existing memory you can update before writing a new one.',
+        localizedPrompt('memdir.howToSave.organize', '- Organize memory semantically by topic, not chronologically'),
+        localizedPrompt('memdir.howToSave.updateRemove', '- Update or remove memories that turn out to be wrong or outdated'),
+        localizedPrompt('memdir.howToSave.noDuplicates', '- Do not write duplicate memories. First check if there is an existing memory you can update before writing a new one.'),
       ]
     : [
-        '## How to save memories',
+        localizedPrompt('memdir.howToSave.header', '## How to save memories'),
         '',
-        'Saving a memory is a two-step process:',
+        localizedPrompt('memdir.howToSave.twoStep', 'Saving a memory is a two-step process:'),
         '',
-        '**Step 1** — write the memory to its own file (e.g., `user_role.md`, `feedback_testing.md`) using this frontmatter format:',
+        localizedPrompt('memdir.howToSave.step1', '**Step 1** — write the memory to its own file (e.g., `user_role.md`, `feedback_testing.md`) using this frontmatter format:'),
         '',
         ...MEMORY_FRONTMATTER_EXAMPLE,
         '',
-        '**Step 2** — add a pointer to that file in `MEMORY.md`. `MEMORY.md` is an index, not a memory — each entry should be one line, under ~150 characters: `- [Title](file.md) — one-line hook`. It has no frontmatter. Never write memory content directly into `MEMORY.md`.',
+        localizedPrompt(
+          'service.extractMemories.step2',
+          '**Step 2** — add a pointer to that file in `MEMORY.md`. `MEMORY.md` is an index, not a memory — each entry should be one line, under ~150 characters: `- [Title](file.md) — one-line hook`. It has no frontmatter. Never write memory content directly into `MEMORY.md`.',
+        ),
         '',
-        '- `MEMORY.md` is always loaded into your system prompt — lines after 200 will be truncated, so keep the index concise',
-        '- Organize memory semantically by topic, not chronologically',
-        '- Update or remove memories that turn out to be wrong or outdated',
-        '- Do not write duplicate memories. First check if there is an existing memory you can update before writing a new one.',
+        localizedPrompt(
+          'service.extractMemories.entrypointLoaded',
+          '- `MEMORY.md` is always loaded into your system prompt — lines after 200 will be truncated, so keep the index concise',
+        ),
+        localizedPrompt('memdir.howToSave.organize', '- Organize memory semantically by topic, not chronologically'),
+        localizedPrompt('memdir.howToSave.updateRemove', '- Update or remove memories that turn out to be wrong or outdated'),
+        localizedPrompt('memdir.howToSave.noDuplicates', '- Do not write duplicate memories. First check if there is an existing memory you can update before writing a new one.'),
       ]
 
   return [
     opener(newMessageCount, existingMemories),
     '',
-    'If the user explicitly asks you to remember something, save it immediately as whichever type fits best. If they ask you to forget something, find and remove the relevant entry.',
+    localizedPrompt(
+      'memdir.rememberImmediately',
+      'If the user explicitly asks you to remember something, save it immediately as whichever type fits best. If they ask you to forget something, find and remove the relevant entry.',
+    ),
     '',
     ...TYPES_SECTION_INDIVIDUAL,
     ...WHAT_NOT_TO_SAVE_SECTION,
@@ -113,41 +142,57 @@ export function buildExtractCombinedPrompt(
 
   const howToSave = skipIndex
     ? [
-        '## How to save memories',
+        localizedPrompt('memdir.howToSave.header', '## How to save memories'),
         '',
-        "Write each memory to its own file in the chosen directory (private or team, per the type's scope guidance) using this frontmatter format:",
+        localizedPrompt(
+          'memdir.combined.howToSave.writeEach',
+          "Write each memory to its own file in the chosen directory (private or team, per the type's scope guidance) using this frontmatter format:",
+        ),
         '',
         ...MEMORY_FRONTMATTER_EXAMPLE,
         '',
-        '- Organize memory semantically by topic, not chronologically',
-        '- Update or remove memories that turn out to be wrong or outdated',
-        '- Do not write duplicate memories. First check if there is an existing memory you can update before writing a new one.',
+        localizedPrompt('memdir.howToSave.organize', '- Organize memory semantically by topic, not chronologically'),
+        localizedPrompt('memdir.howToSave.updateRemove', '- Update or remove memories that turn out to be wrong or outdated'),
+        localizedPrompt('memdir.howToSave.noDuplicates', '- Do not write duplicate memories. First check if there is an existing memory you can update before writing a new one.'),
       ]
     : [
-        '## How to save memories',
+        localizedPrompt('memdir.howToSave.header', '## How to save memories'),
         '',
-        'Saving a memory is a two-step process:',
+        localizedPrompt('memdir.howToSave.twoStep', 'Saving a memory is a two-step process:'),
         '',
-        "**Step 1** — write the memory to its own file in the chosen directory (private or team, per the type's scope guidance) using this frontmatter format:",
+        localizedPrompt(
+          'memdir.combined.howToSave.step1',
+          "**Step 1** — write the memory to its own file in the chosen directory (private or team, per the type's scope guidance) using this frontmatter format:",
+        ),
         '',
         ...MEMORY_FRONTMATTER_EXAMPLE,
         '',
-        "**Step 2** — add a pointer to that file in the same directory's `MEMORY.md`. Each directory (private and team) has its own `MEMORY.md` index — each entry should be one line, under ~150 characters: `- [Title](file.md) — one-line hook`. They have no frontmatter. Never write memory content directly into a `MEMORY.md`.",
+        localizedPrompt(
+          'memdir.combined.howToSave.step2',
+          "**Step 2** — add a pointer to that file in the same directory's `MEMORY.md`. Each directory (private and team) has its own `MEMORY.md` index — each entry should be one line, under ~150 characters: `- [Title](file.md) — one-line hook`. They have no frontmatter. Never write memory content directly into a `MEMORY.md`.",
+          { entrypoint: 'MEMORY.md' },
+        ),
         '',
         '- Both `MEMORY.md` indexes are loaded into your system prompt — lines after 200 will be truncated, so keep them concise',
-        '- Organize memory semantically by topic, not chronologically',
-        '- Update or remove memories that turn out to be wrong or outdated',
-        '- Do not write duplicate memories. First check if there is an existing memory you can update before writing a new one.',
+        localizedPrompt('memdir.howToSave.organize', '- Organize memory semantically by topic, not chronologically'),
+        localizedPrompt('memdir.howToSave.updateRemove', '- Update or remove memories that turn out to be wrong or outdated'),
+        localizedPrompt('memdir.howToSave.noDuplicates', '- Do not write duplicate memories. First check if there is an existing memory you can update before writing a new one.'),
       ]
 
   return [
     opener(newMessageCount, existingMemories),
     '',
-    'If the user explicitly asks you to remember something, save it immediately as whichever type fits best. If they ask you to forget something, find and remove the relevant entry.',
+    localizedPrompt(
+      'memdir.rememberImmediately',
+      'If the user explicitly asks you to remember something, save it immediately as whichever type fits best. If they ask you to forget something, find and remove the relevant entry.',
+    ),
     '',
     ...TYPES_SECTION_COMBINED,
     ...WHAT_NOT_TO_SAVE_SECTION,
-    '- You MUST avoid saving sensitive data within shared team memories. For example, never save API keys or user credentials.',
+    localizedPrompt(
+      'memdir.combined.sensitiveData',
+      '- You MUST avoid saving sensitive data within shared team memories. For example, never save API keys or user credentials.',
+    ),
     '',
     ...howToSave,
   ].join('\n')

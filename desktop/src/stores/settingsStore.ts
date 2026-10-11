@@ -3,6 +3,7 @@ import { ApiError } from '../api/client'
 import { settingsApi } from '../api/settings'
 import { modelsApi } from '../api/models'
 import { h5AccessApi } from '../api/h5Access'
+import { desktopUiPreferencesApi } from '../api/desktopUiPreferences'
 import { tracesApi } from '../api/traces'
 import {
   type AppMode,
@@ -211,6 +212,20 @@ const DEFAULT_TRACE_CAPTURE_SETTINGS: TraceCaptureSettings = {
 const initialLocale = getInitialLocale()
 applyDocumentLocale(initialLocale)
 let autoQuestionUpdateQueue: Promise<unknown> = Promise.resolve()
+
+/**
+ * Tell the server which language is set, since the sidecar assembles the model
+ * prompts and cannot see this renderer's storage.
+ *
+ * Only sent on a change: the server reads the persisted value itself, so a
+ * language that has been chosen once survives restarts without this call. No
+ * boot push is needed, and the absence of one is deliberate.
+ */
+function publishLocaleToServer(locale: Locale) {
+  void desktopUiPreferencesApi.updateLocalePreference(locale).catch((error) => {
+    console.error('[desktop] Failed to publish locale to the server', error)
+  })
+}
 
 export const useSettingsStore = create<SettingsStore>((set, get) => ({
   permissionMode: 'default',
@@ -489,6 +504,7 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
     void getDesktopHost().app.setLocalePreference(locale).catch((error) => {
       console.error('[desktop] Failed to persist locale preference', error)
     })
+    publishLocaleToServer(locale)
   },
 
   // Kept as the Settings page's entry point; uiStore owns the state.

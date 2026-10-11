@@ -16,6 +16,7 @@ import {
 } from '../../services/analytics/index.js'
 import { jsonParse } from '../../utils/slowOperations.js'
 import { asSystemPrompt } from '../../utils/systemPromptType.js'
+import { localizedPrompt } from '../../prompts/i18n/index.js'
 
 type GeneratedAgent = {
   identifier: string
@@ -23,7 +24,9 @@ type GeneratedAgent = {
   systemPrompt: string
 }
 
-const AGENT_CREATION_SYSTEM_PROMPT = `You are an elite AI agent architect specializing in crafting high-performance agent configurations. Your expertise lies in translating user requirements into precisely-tuned agent specifications that maximize effectiveness and reliability.
+const AGENT_CREATION_SYSTEM_PROMPT = localizedPrompt(
+  'agent.creation.system',
+  `You are an elite AI agent architect specializing in crafting high-performance agent configurations. Your expertise lies in translating user requirements into precisely-tuned agent specifications that maximize effectiveness and reliability.
 
 **Important Context**: You may have access to project-specific instructions from CLAUDE.md files and other context that may include coding standards, project structure, and custom requirements. Consider this context when creating agents to ensure they align with the project's established patterns and practices.
 
@@ -94,10 +97,14 @@ Key principles for your system prompts:
 - Build in quality assurance and self-correction mechanisms
 
 Remember: The agents you create should be autonomous experts capable of handling their designated tasks with minimal additional guidance. Your system prompts are their complete operational manual.
-`
+`,
+  { agent: AGENT_TOOL_NAME },
+)
 
 // Agent memory instructions to include in the system prompt when memory is mentioned or relevant
-const AGENT_MEMORY_INSTRUCTIONS = `
+const AGENT_MEMORY_INSTRUCTIONS = localizedPrompt(
+  'agent.creation.memoryInstructions',
+  `
 
 7. **Agent Memory Instructions**: If the user mentions "memory", "remember", "learn", "persist", or similar concepts, OR if the agent would benefit from building up knowledge across conversations (e.g., code reviewers learning patterns, architects learning codebase structure, etc.), include domain-specific memory update instructions in the systemPrompt.
 
@@ -117,7 +124,8 @@ const AGENT_MEMORY_INSTRUCTIONS = `
    - For a documentation writer: "Update your agent memory as you discover documentation patterns, API structures, and terminology conventions."
 
    The memory instructions should be specific to what the agent would naturally learn while performing its core tasks.
-`
+`,
+)
 
 export async function generateAgent(
   userPrompt: string,
@@ -127,11 +135,19 @@ export async function generateAgent(
 ): Promise<GeneratedAgent> {
   const existingList =
     existingIdentifiers.length > 0
-      ? `\n\nIMPORTANT: The following identifiers already exist and must NOT be used: ${existingIdentifiers.join(', ')}`
+      ? localizedPrompt(
+          'agent.creation.existingIds',
+          `\n\nIMPORTANT: The following identifiers already exist and must NOT be used: ${existingIdentifiers.join(', ')}`,
+          { ids: existingIdentifiers.join(', ') },
+        )
       : ''
 
-  const prompt = `Create an agent configuration based on this request: "${userPrompt}".${existingList}
-  Return ONLY the JSON object, no other text.`
+  const prompt = localizedPrompt(
+    'agent.creation.userPrompt',
+    `Create an agent configuration based on this request: "${userPrompt}".${existingList}
+  Return ONLY the JSON object, no other text.`,
+    { request: userPrompt, existing: existingList },
+  )
 
   const userMessage = createUserMessage({ content: prompt })
 

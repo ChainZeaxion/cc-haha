@@ -1,4 +1,5 @@
 import type { BuiltInAgentDefinition } from '../loadAgentsDir.js'
+import { localizedPrompt } from '../../../prompts/i18n/index.js'
 
 const SHARED_PREFIX = `You are an agent for Claude Code, Anthropic's official CLI for Claude. Given the user's message, you should use the tools available to complete the task. Complete the task fully—don't gold-plate, but don't leave it half-done.`
 
@@ -17,9 +18,10 @@ Guidelines:
 
 // Note: absolute-path + emoji guidance is appended by enhanceSystemPromptWithEnvDetails.
 function getGeneralPurposeSystemPrompt(): string {
+  const guidelines = localizedPrompt('agent.generalPurpose.guidelines', SHARED_GUIDELINES)
   return `${SHARED_PREFIX} When you complete the task, respond with a concise report covering what was done and any key findings — the caller will relay this to the user, so it only needs the essentials.
 
-${SHARED_GUIDELINES}`
+${guidelines}`
 }
 
 export const GENERAL_PURPOSE_AGENT: BuiltInAgentDefinition = {

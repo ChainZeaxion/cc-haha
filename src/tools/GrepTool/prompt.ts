@@ -3,6 +3,11 @@ import { BASH_TOOL_NAME } from '../BashTool/toolName.js'
 
 export const GREP_TOOL_NAME = 'Grep'
 
+// Deliberately NOT localized. A tool description carries the contract the model
+// must follow — and parameter names, values and the "always use X" rules stay
+// English whatever the UI language is — so the wording trained on English
+// tool-calling is left intact. Chinese sessions get a lead-in paragraph at the
+// head of the system prompt instead: see `promptLanguageLead`.
 export function getDescription(): string {
   return `A powerful search tool built on ripgrep
 

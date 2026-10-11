@@ -8,23 +8,29 @@ import { TEAM_CREATE_TOOL_NAME } from '../tools/TeamCreateTool/constants.js'
 import { isAgentSwarmsEnabled } from '../utils/agentSwarmsEnabled.js'
 import { isTeamReviewRequired } from '../utils/swarm/teamPlanPolicy.js'
 import { TEAM_PLAN_TOOL_NAME } from '../tools/TeamPlanTool/constants.js'
+import { localizedPrompt } from '../prompts/i18n/index.js'
 
 function teamPrompt(goal: string): string {
   if (!goal) {
-    return [
-      'Help the user start an Agent Team. They invoked /team without a goal.',
-      `Do not call ${TEAM_CREATE_TOOL_NAME} yet. Explain that /team <goal> creates a team for a concrete objective, give one short example, and ask what the team should accomplish.`,
-      'Always return this guidance to the user; do not end the turn silently.',
-    ].join('\n')
+    return localizedPrompt(
+      'command.team.noGoal',
+      [
+        'Help the user start an Agent Team. They invoked /team without a goal.',
+        `Do not call ${TEAM_CREATE_TOOL_NAME} yet. Explain that /team <goal> creates a team for a concrete objective, give one short example, and ask what the team should accomplish.`,
+        'Always return this guidance to the user; do not end the turn silently.',
+      ].join('\n'),
+      { teamCreate: TEAM_CREATE_TOOL_NAME },
+    )
   }
 
   return [
-    'Create and coordinate an Agent Team for the exact goal below.',
-    `Start by calling ${TEAM_CREATE_TOOL_NAME} with a concise team name and description.`,
+    'Create and coordinate an Agent Team for the exact goal below.\nStart by calling ' + TEAM_CREATE_TOOL_NAME + ' with a concise team name and description.',
     isTeamReviewRequired()
-      ? `Prepare the full member roster, Agent presets, tasks, dependencies and suggested models with concise reasons. ${AGENT_TOOL_NAME} with a team name records draft members only. Submit the complete plan using ${TEAM_PLAN_TOOL_NAME}, then end this turn and wait for human review in the team panel. Do not execute team tasks or start members before approval. The server starts the approved members automatically.`
-      : `Break the work into structured ${TASK_CREATE_TOOL_NAME} tasks, launch named teammates with ${AGENT_TOOL_NAME} using the same team_name, keep task state current with ${TASK_UPDATE_TOOL_NAME}, and use ${SEND_MESSAGE_TOOL_NAME} for coordination when useful.`,
-    isTeamReviewRequired() ? 'Create a reviewable plan rather than only explaining how to create one.' : 'Do not merely describe how to create the team; create it and proceed with the work.',
+      ? localizedPrompt('command.team.reviewPath', `Prepare the full member roster, Agent presets, tasks, dependencies and suggested models with concise reasons. ${AGENT_TOOL_NAME} with a team name records draft members only. Submit the complete plan using ${TEAM_PLAN_TOOL_NAME}, then end this turn and wait for human review in the team panel. Do not execute team tasks or start members before approval. The server starts the approved members automatically.`, { agent: AGENT_TOOL_NAME, teamPlan: TEAM_PLAN_TOOL_NAME })
+      : localizedPrompt('command.team.directPath', `Break the work into structured ${TASK_CREATE_TOOL_NAME} tasks, launch named teammates with ${AGENT_TOOL_NAME} using the same team_name, keep task state current with ${TASK_UPDATE_TOOL_NAME}, and use ${SEND_MESSAGE_TOOL_NAME} for coordination when useful.`, { taskCreate: TASK_CREATE_TOOL_NAME, agent: AGENT_TOOL_NAME, taskUpdate: TASK_UPDATE_TOOL_NAME, sendMessage: SEND_MESSAGE_TOOL_NAME }),
+    isTeamReviewRequired()
+      ? localizedPrompt('command.team.makePlan', 'Create a reviewable plan rather than only explaining how to create one.')
+      : localizedPrompt('command.team.makeTeam', 'Do not merely describe how to create the team; create it and proceed with the work.'),
     '',
     goal,
   ].join('\n')

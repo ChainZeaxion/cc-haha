@@ -1,4 +1,8 @@
-export const BASE_CHROME_PROMPT = `# Claude in Chrome browser automation
+import { localizedPrompt } from '../../prompts/i18n/index.js'
+
+export const BASE_CHROME_PROMPT = localizedPrompt(
+  'chrome.base',
+  `# Claude in Chrome browser automation
 
 You have access to browser automation tools (mcp__claude-in-chrome__*) for interacting with web pages in Chrome. Follow these guidelines for effective browser automation.
 
@@ -43,7 +47,8 @@ Never reuse tab IDs from a previous/other session. Follow these guidelines:
 1. Only reuse an existing tab if the user explicitly asks to work with it
 2. Otherwise, create a new tab with mcp__claude-in-chrome__tabs_create_mcp
 3. If a tool returns an error indicating the tab doesn't exist or is invalid, call tabs_context_mcp to get fresh tab IDs
-4. When a tab is closed by the user or a navigation error occurs, call tabs_context_mcp to see what tabs are available`
+4. When a tab is closed by the user or a navigation error occurs, call tabs_context_mcp to see what tabs are available`,
+)
 
 /**
  * Additional instructions for chrome tools when tool search is enabled.
@@ -73,7 +78,10 @@ export function getChromeSystemPrompt(): string {
  * Minimal hint about Claude in Chrome skill availability. This is injected at startup when the extension is installed
  * to guide the model to invoke the skill before using the MCP tools.
  */
-export const CLAUDE_IN_CHROME_SKILL_HINT = `**Browser Automation**: Chrome browser tools are available via the "claude-in-chrome" skill. CRITICAL: Before using any mcp__claude-in-chrome__* tools, invoke the skill by calling the Skill tool with skill: "claude-in-chrome". The skill provides browser automation instructions and enables the tools.`
+export const CLAUDE_IN_CHROME_SKILL_HINT = localizedPrompt(
+  'chrome.skillHint',
+  `**Browser Automation**: Chrome browser tools are available via the "claude-in-chrome" skill. CRITICAL: Before using any mcp__claude-in-chrome__* tools, invoke the skill by calling the Skill tool with skill: "claude-in-chrome". The skill provides browser automation instructions and enables the tools.`,
+)
 
 /**
  * Variant when the built-in WebBrowser tool is also available — steer

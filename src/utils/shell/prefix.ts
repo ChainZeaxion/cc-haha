@@ -16,6 +16,7 @@ import {
 } from '../../services/analytics/index.js'
 import { queryHaiku } from '../../services/api/claude.js'
 import { startsWithApiErrorPrefix } from '../../services/api/errors.js'
+import { localizedPrompt } from '../../prompts/i18n/index.js'
 import { memoizeWithLRU } from '../memoize.js'
 import { jsonStringify } from '../slowOperations.js'
 import { asSystemPrompt } from '../systemPromptType.js'
@@ -221,10 +222,18 @@ async function getCommandPrefixImpl(
       systemPrompt: asSystemPrompt(
         useSystemPromptPolicySpec
           ? [
-              `Your task is to process ${toolName} commands that an AI coding agent wants to run.\n\n${policySpec}`,
+              localizedPrompt(
+                'service.shellPrefix.introWithSpec',
+                `Your task is to process ${toolName} commands that an AI coding agent wants to run.\n\n${policySpec}`,
+                { tool: toolName, policy: policySpec },
+              ),
             ]
           : [
-              `Your task is to process ${toolName} commands that an AI coding agent wants to run.\n\nThis policy spec defines how to determine the prefix of a ${toolName} command:`,
+              localizedPrompt(
+                'service.shellPrefix.introNoSpec',
+                `Your task is to process ${toolName} commands that an AI coding agent wants to run.\n\nThis policy spec defines how to determine the prefix of a ${toolName} command:`,
+                { tool: toolName },
+              ),
             ],
       ),
       userPrompt: useSystemPromptPolicySpec

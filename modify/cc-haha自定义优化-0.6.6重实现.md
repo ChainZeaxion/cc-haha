@@ -3085,3 +3085,63 @@ sidecar（claude-sidecar-x86_64-unknown-linux-gnu，111786112 B  20:18）
 ```
 
 - deb 内 `dist` 两个 chunk 与本地 `desktop/dist` **同名同大小**（构建于 20:18），即本轮前端码确已进包。
+
+---
+
+## 三十四 内置提示词中文化（基础设施 + 可压缩分支清单）（🚧 2026-10-11 第一版已实施）
+
+需求：设置-通用 语言为中文时，可用中文的提示词切**纯中文**；非中文时用**原版英文**。定位为**基础设施优化**，先实现，完成后再并入合适的既有优化项。
+
+### 第一原则
+
+**只压可压部分。工具类与技能类的引导描述会造成异常，暂且不动。** 理由（代码级，非推测）：
+- **工具描述**：模型靠它*选工具*、并从中读契约（参数名/取值恒英文）。改中文＝改变匹配键与行为契约，不是翻译；且它是**每请求 ≈25,139 tok**（占提示词负载 96%）。
+- **技能清单描述**：同为匹配键；`SkillTool` 的清单预算**按字符**给（`CHARS_PER_TOKEN=4`、每条 ≤250 字符），中文 ~1.5 字符/tok ⇒ 译后**实际耗 tok ≈2.7 倍**，静默超支。
+
+政策由测试守住：`src/prompts/i18n/i18n.test.ts` 断言中文表内不得有 `tool.`/`skill.` 前缀 id。
+
+### 基础设施
+
+```
+src/prompts/i18n/
+  promptLanguage.ts   # Locale → 'zh'|'en'（zh* 含 zh-TW ⇒ zh）；侧车同步直读 desktop-ui.json 并缓存
+  zh.ts               # 中文覆盖表（仅中文）+ `PromptId = keyof typeof ZH_PROMPTS` ⇒ 漏译即编译失败
+  index.ts            # localizedPrompt(id, english, vars?)：zh 且有条目 ⇒ 中文；否则原样返回英文
+                      # + promptLanguageLead()：中文时返回 114 字中文引导，注入系统提示词首部
+```
+
+- **英文在调用点做唯一真源**，中文只覆盖 ⇒ 不翻译绝不丢原文，非中文语言与上游**逐字节相同**。
+- **locale 管道**：UI 语言原只存 Electron userData + localStorage（侧车读不到）⇒ 新增 `desktop-ui.json.locale` + `GET|PUT /api/desktop-ui/preferences/locale`；桌面 `setLocale` 同时 PUT，侧车写在途更新 ⇒ **免重启**，H5 亦生效。
+- **⚠️ 只在叶子层本地化，不包复合节**：复合节的 `english` 参数由内层 `localizedPrompt` 拼出，内层在 zh 模式返回中文会污染外层 english。条件分支（ant-only / feature-gated）不进表。
+- **⚠️ 模块级 `const` 提示词在 import 时固化语言**，包了也不生效 ⇒ 必须先改成函数。
+
+### 第一版（已实施）：主系统提示词
+
+39 条 id + 5 个节标题，覆盖 `# System` / `# 执行任务` / `# 使用工具` / `# 会话特定指引` / actions / toneAndStyle / outputEfficiency / hooks / systemReminders。
+
+实测（组装 `getSystemPrompt`）：en 26,523 字符/0 汉字 ⇄ zh 19,213 字符/2,428 汉字；已译条目本身 **省 ≈591 tok/请求（20%）**。
+
+### 可压缩分支清单
+
+见 **[`modify/提示词中文化-收益清单.md`](./提示词中文化-收益清单.md)**：剩余 Tier A **EN 44,262 tok → 33,628（省 ≈10,634，24%）**，其中每请求仅 286；工具/技能类与短标签倒亏项已明确列为**不动**。
+
+### v1 打样（2026-10-11）
+
+**已落地**：主系统提示词全部可译节 + ①主系统收尾 + ②compact + ③autoDream + ⑤`review`/`team` + ⑥`generalPurpose`/`explore`/`plan`；**倒亏块已回退 9 个**（真回退：删 zh 条目 + 调用点还原原英文，保证 `PromptId` 类型仍准确）。
+
+**⭐ 真 tokenizer 实测（部署模型 `zxsv-ai` 经引擎 `/tokenize`）—— 取代早期估算**：
+
+| | 真 token | 变化 |
+|---|---|---|
+| 系统提示词（每请求）en→zh | 5,688 → 5,384 | **省 304（5.3%）** |
+| 全部 199 条已译块 en→zh | 18,499 → 16,433 | **−11.2%** |
+
+按类：system −20%、memdir −13%、chrome −11%、service −10%、command −10%、agent −8%、coordinator −4%。
+⚠️ **早期「省 591 tok/请求（20%）」的估算错误**：真字符/token 是**英文 4.66 / 中文 1.5–2.1**（假设的 4/1.5 高估了收益）。
+⚠️ **34 条译完反而更贵**（短块中文启动开销）⇒ 回退 9 个（Δ≥3 且非用户可见），回收 73 tok；保留 `toolUseSummary`（移动端可见标签=产品价值）。剩余 25 条为 +1/+2 噪声，不动。**每请求回退收益为 0**（倒亏块不在每请求路径）。
+
+**剩余有风险项全量清单（A–I，约 25,200 tok 上限）**见 `modify/提示词中文化-收益清单.md` §五·补：`commit`/`commit-push-pr`/`init`（产物语言）、`security-review`（类别 token + 标题格式）、`insights`（facet JSON 机器校验）、`init-verifiers`（skill 名是发现键）、`statuslineSetup`/`claudeCodeGuideAgent`（JSON 键/数据）、`verificationAgent`（`PASS|FAIL|PARTIAL` 裁决词）。建议顺序：G/H → A/B/D → E/F/I。
+
+### 状态
+
+✅ v1 打样已实施（2026-10-11）；门禁 `check:server` 556/6647、`bun test src/prompts/i18n` 12/0；i18n 表 204 条、引用 202、**无悬空 id**。

@@ -74,6 +74,7 @@ describe('DesktopUiPreferencesService', () => {
     expect(result.exists).toBe(false)
     expect(result.preferences).toEqual({
       schemaVersion: 6,
+      locale: null,
       profile: {
         displayName: 'cc-haha',
         subtitle: 'github.com/NanmiCoder/cc-haha',
@@ -129,6 +130,7 @@ describe('DesktopUiPreferencesService', () => {
     expect(before.exists).toBe(true)
     expect(before.preferences).toEqual({
       schemaVersion: 6,
+      locale: null,
       futureField: { keep: true },
       profile: {
         displayName: 'cc-haha',
@@ -151,6 +153,7 @@ describe('DesktopUiPreferencesService', () => {
     })
     expect(after).toEqual({
       schemaVersion: 6,
+      locale: null,
       futureField: { keep: true },
       profile: {
         displayName: 'cc-haha',
@@ -493,6 +496,7 @@ describe('DesktopUiPreferencesService', () => {
 
     expect(after).toEqual({
       schemaVersion: 6,
+      locale: null,
       profile: {
         displayName: 'Claude Captain',
         subtitle: 'local.example/profile',
@@ -570,6 +574,34 @@ describe('desktop UI preferences API', () => {
   beforeEach(setup)
   afterEach(teardown)
 
+  test('persists the locale and reports the prompt language it resolves to', async () => {
+    const put = makeRequest('PUT', '/api/desktop-ui/preferences/locale', { locale: 'zh-TW' })
+    const putRes = await handleDesktopUiApi(put.req, put.url, put.segments)
+
+    expect(putRes.status).toBe(200)
+    expect(await putRes.json()).toEqual({ ok: true, locale: 'zh-TW', promptLanguage: 'zh' })
+    // Written to the file the sidecar reads, not just echoed back.
+    expect((await readDesktopUiFile() as { locale?: unknown }).locale).toBe('zh-TW')
+
+    const get = makeRequest('GET', '/api/desktop-ui/preferences/locale')
+    const getRes = await handleDesktopUiApi(get.req, get.url, get.segments)
+    expect(await getRes.json()).toEqual({ exists: true, locale: 'zh-TW' })
+  })
+
+  test('an English locale reports English prompts, and a missing one clears it', async () => {
+    const zh = makeRequest('PUT', '/api/desktop-ui/preferences/locale', { locale: 'zh' })
+    await handleDesktopUiApi(zh.req, zh.url, zh.segments)
+
+    const en = makeRequest('PUT', '/api/desktop-ui/preferences/locale', { locale: 'en' })
+    expect(await (await handleDesktopUiApi(en.req, en.url, en.segments)).json())
+      .toEqual({ ok: true, locale: 'en', promptLanguage: 'en' })
+
+    // A body with no locale (or a blank one) means unset, which reads as English.
+    const cleared = makeRequest('PUT', '/api/desktop-ui/preferences/locale', {})
+    expect(await (await handleDesktopUiApi(cleared.req, cleared.url, cleared.segments)).json())
+      .toEqual({ ok: true, locale: null, promptLanguage: 'en' })
+  })
+
   test('persists sidebar preferences under cc-haha desktop-ui.json', async () => {
     const putReq = makeRequest('PUT', '/api/desktop-ui/preferences/sidebar', {
       projectOrder: ['/workspace/beta', '/workspace/alpha'],
@@ -587,6 +619,7 @@ describe('desktop UI preferences API', () => {
       ok: true,
       preferences: {
         schemaVersion: 6,
+        locale: null,
         profile: {
           displayName: 'cc-haha',
           subtitle: 'github.com/NanmiCoder/cc-haha',
@@ -615,6 +648,7 @@ describe('desktop UI preferences API', () => {
       exists: true,
       preferences: {
         schemaVersion: 6,
+        locale: null,
         profile: {
           displayName: 'cc-haha',
           subtitle: 'github.com/NanmiCoder/cc-haha',

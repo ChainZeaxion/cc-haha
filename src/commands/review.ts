@@ -1,12 +1,13 @@
 import type { ContentBlockParam } from '@anthropic-ai/sdk/resources/messages.js'
 import type { Command } from '../commands.js'
 import { isUltrareviewEnabled } from './review/ultrareviewEnabled.js'
+import { localizedPrompt } from '../prompts/i18n/index.js'
 
 // Legal wants the explicit surface name plus a docs link visible before the
 // user triggers, so the description carries "Claude Code on the web" + URL.
 const CCR_TERMS_URL = 'https://code.claude.com/docs/en/claude-code-on-the-web'
 
-const LOCAL_REVIEW_PROMPT = (args: string) => `
+const LOCAL_REVIEW_PROMPT = (args: string) => localizedPrompt('command.review.local', `
       You are an expert code reviewer. Follow these steps:
 
       1. If no PR number is provided in the args, run \`gh pr list\` to show open PRs
@@ -28,7 +29,7 @@ const LOCAL_REVIEW_PROMPT = (args: string) => `
       Format your review with clear sections and bullet points.
 
       PR number: ${args}
-    `
+    `, { args })
 
 const review: Command = {
   type: 'prompt',

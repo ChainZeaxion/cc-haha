@@ -23,6 +23,7 @@ import { isEnvTruthy } from '../utils/envUtils.js'
 import { formatFileSize } from '../utils/format.js'
 import { getProjectDir } from '../utils/sessionStorage.js'
 import { getInitialSettings } from '../utils/settings/settings.js'
+import { localizedPrompt } from '../prompts/i18n/index.js'
 import {
   MEMORY_FRONTMATTER_EXAMPLE,
   TRUSTING_RECALL_SECTION,
@@ -86,15 +87,31 @@ export function truncateEntrypointContent(raw: string): EntrypointTruncation {
 
   const reason =
     wasByteTruncated && !wasLineTruncated
-      ? `${formatFileSize(byteCount)} (limit: ${formatFileSize(MAX_ENTRYPOINT_BYTES)}) — index entries are too long`
+      ? localizedPrompt(
+          'memdir.truncate.tooLong',
+          `${formatFileSize(byteCount)} (limit: ${formatFileSize(MAX_ENTRYPOINT_BYTES)}) — index entries are too long`,
+          { size: formatFileSize(byteCount), limit: formatFileSize(MAX_ENTRYPOINT_BYTES) },
+        )
       : wasLineTruncated && !wasByteTruncated
-        ? `${lineCount} lines (limit: ${MAX_ENTRYPOINT_LINES})`
-        : `${lineCount} lines and ${formatFileSize(byteCount)}`
+        ? localizedPrompt(
+            'memdir.truncate.linesOnly',
+            `${lineCount} lines (limit: ${MAX_ENTRYPOINT_LINES})`,
+            { lines: lineCount, limit: MAX_ENTRYPOINT_LINES },
+          )
+        : localizedPrompt(
+            'memdir.truncate.both',
+            `${lineCount} lines and ${formatFileSize(byteCount)}`,
+            { lines: lineCount, size: formatFileSize(byteCount) },
+          )
 
   return {
     content:
       truncated +
-      `\n\n> WARNING: ${ENTRYPOINT_NAME} is ${reason}. Only part of it was loaded. Keep index entries to one line under ~200 chars; move detail into topic files.`,
+      localizedPrompt(
+        'memdir.truncate.warning',
+        `\n\n> WARNING: ${ENTRYPOINT_NAME} is ${reason}. Only part of it was loaded. Keep index entries to one line under ~200 chars; move detail into topic files.`,
+        { entrypoint: ENTRYPOINT_NAME, reason },
+      ),
     lineCount,
     byteCount,
     wasLineTruncated,
@@ -204,43 +221,67 @@ export function buildMemoryLines(
 ): string[] {
   const howToSave = skipIndex
     ? [
-        '## How to save memories',
+        localizedPrompt('memdir.howToSave.header', '## How to save memories'),
         '',
-        'Write each memory to its own file (e.g., `user_role.md`, `feedback_testing.md`) using this frontmatter format:',
+        localizedPrompt(
+          'memdir.howToSave.writeEach',
+          'Write each memory to its own file (e.g., `user_role.md`, `feedback_testing.md`) using this frontmatter format:',
+        ),
         '',
         ...MEMORY_FRONTMATTER_EXAMPLE,
         '',
-        '- Keep the name, description, and type fields in memory files up-to-date with the content',
-        '- Organize memory semantically by topic, not chronologically',
-        '- Update or remove memories that turn out to be wrong or outdated',
-        '- Do not write duplicate memories. First check if there is an existing memory you can update before writing a new one.',
+        localizedPrompt('memdir.howToSave.keepFields', '- Keep the name, description, and type fields in memory files up-to-date with the content'),
+        localizedPrompt('memdir.howToSave.organize', '- Organize memory semantically by topic, not chronologically'),
+        localizedPrompt('memdir.howToSave.updateRemove', '- Update or remove memories that turn out to be wrong or outdated'),
+        localizedPrompt('memdir.howToSave.noDuplicates', '- Do not write duplicate memories. First check if there is an existing memory you can update before writing a new one.'),
       ]
     : [
-        '## How to save memories',
+        localizedPrompt('memdir.howToSave.header', '## How to save memories'),
         '',
-        'Saving a memory is a two-step process:',
+        localizedPrompt('memdir.howToSave.twoStep', 'Saving a memory is a two-step process:'),
         '',
-        '**Step 1** — write the memory to its own file (e.g., `user_role.md`, `feedback_testing.md`) using this frontmatter format:',
+        localizedPrompt(
+          'memdir.howToSave.step1',
+          '**Step 1** — write the memory to its own file (e.g., `user_role.md`, `feedback_testing.md`) using this frontmatter format:',
+        ),
         '',
         ...MEMORY_FRONTMATTER_EXAMPLE,
         '',
-        `**Step 2** — add a pointer to that file in \`${ENTRYPOINT_NAME}\`. \`${ENTRYPOINT_NAME}\` is an index, not a memory — each entry should be one line, under ~150 characters: \`- [Title](file.md) — one-line hook\`. It has no frontmatter. Never write memory content directly into \`${ENTRYPOINT_NAME}\`.`,
+        localizedPrompt(
+          'memdir.howToSave.step2',
+          `**Step 2** — add a pointer to that file in \`${ENTRYPOINT_NAME}\`. \`${ENTRYPOINT_NAME}\` is an index, not a memory — each entry should be one line, under ~150 characters: \`- [Title](file.md) — one-line hook\`. It has no frontmatter. Never write memory content directly into \`${ENTRYPOINT_NAME}\`.`,
+          { entrypoint: ENTRYPOINT_NAME },
+        ),
         '',
-        `- \`${ENTRYPOINT_NAME}\` is always loaded into your conversation context — lines after ${MAX_ENTRYPOINT_LINES} will be truncated, so keep the index concise`,
-        '- Keep the name, description, and type fields in memory files up-to-date with the content',
-        '- Organize memory semantically by topic, not chronologically',
-        '- Update or remove memories that turn out to be wrong or outdated',
-        '- Do not write duplicate memories. First check if there is an existing memory you can update before writing a new one.',
+        localizedPrompt(
+          'memdir.howToSave.entrypointLoaded',
+          `- \`${ENTRYPOINT_NAME}\` is always loaded into your conversation context — lines after ${MAX_ENTRYPOINT_LINES} will be truncated, so keep the index concise`,
+          { entrypoint: ENTRYPOINT_NAME, maxLines: MAX_ENTRYPOINT_LINES },
+        ),
+        localizedPrompt('memdir.howToSave.keepFields', '- Keep the name, description, and type fields in memory files up-to-date with the content'),
+        localizedPrompt('memdir.howToSave.organize', '- Organize memory semantically by topic, not chronologically'),
+        localizedPrompt('memdir.howToSave.updateRemove', '- Update or remove memories that turn out to be wrong or outdated'),
+        localizedPrompt('memdir.howToSave.noDuplicates', '- Do not write duplicate memories. First check if there is an existing memory you can update before writing a new one.'),
       ]
 
   const lines: string[] = [
     `# ${displayName}`,
     '',
-    `You have a persistent, file-based memory system at \`${memoryDir}\`. ${DIR_EXISTS_GUIDANCE}`,
+    localizedPrompt(
+      'memdir.dirLine',
+      `You have a persistent, file-based memory system at \`${memoryDir}\`. ${DIR_EXISTS_GUIDANCE}`,
+      { dir: memoryDir, guidance: localizedPrompt('memdir.dirExistsGuidance', DIR_EXISTS_GUIDANCE) },
+    ),
     '',
-    "You should build up this memory system over time so that future conversations can have a complete picture of who the user is, how they'd like to collaborate with you, what behaviors to avoid or repeat, and the context behind the work the user gives you.",
+    localizedPrompt(
+      'memdir.buildUp',
+      "You should build up this memory system over time so that future conversations can have a complete picture of who the user is, how they'd like to collaborate with you, what behaviors to avoid or repeat, and the context behind the work the user gives you.",
+    ),
     '',
-    'If the user explicitly asks you to remember something, save it immediately as whichever type fits best. If they ask you to forget something, find and remove the relevant entry.',
+    localizedPrompt(
+      'memdir.rememberImmediately',
+      'If the user explicitly asks you to remember something, save it immediately as whichever type fits best. If they ask you to forget something, find and remove the relevant entry.',
+    ),
     '',
     ...TYPES_SECTION_INDIVIDUAL,
     ...WHAT_NOT_TO_SAVE_SECTION,
@@ -251,10 +292,19 @@ export function buildMemoryLines(
     '',
     ...TRUSTING_RECALL_SECTION,
     '',
-    '## Memory and other forms of persistence',
-    'Memory is one of several persistence mechanisms available to you as you assist the user in a given conversation. The distinction is often that memory can be recalled in future conversations and should not be used for persisting information that is only useful within the scope of the current conversation.',
-    '- When to use or update a plan instead of memory: If you are about to start a non-trivial implementation task and would like to reach alignment with the user on your approach you should use a Plan rather than saving this information to memory. Similarly, if you already have a plan within the conversation and you have changed your approach persist that change by updating the plan rather than saving a memory.',
-    '- When to use or update tasks instead of memory: When you need to break your work in current conversation into discrete steps or keep track of your progress use tasks instead of saving to memory. Tasks are great for persisting information about the work that needs to be done in the current conversation, but memory should be reserved for information that will be useful in future conversations.',
+    localizedPrompt('memdir.persist.header', '## Memory and other forms of persistence'),
+    localizedPrompt(
+      'memdir.persist.intro',
+      'Memory is one of several persistence mechanisms available to you as you assist the user in a given conversation. The distinction is often that memory can be recalled in future conversations and should not be used for persisting information that is only useful within the scope of the current conversation.',
+    ),
+    localizedPrompt(
+      'memdir.persist.plan',
+      '- When to use or update a plan instead of memory: If you are about to start a non-trivial implementation task and would like to reach alignment with the user on your approach you should use a Plan rather than saving this information to memory. Similarly, if you already have a plan within the conversation and you have changed your approach persist that change by updating the plan rather than saving a memory.',
+    ),
+    localizedPrompt(
+      'memdir.persist.tasks',
+      '- When to use or update tasks instead of memory: When you need to break your work in current conversation into discrete steps or keep track of your progress use tasks instead of saving to memory. Tasks are great for persisting information about the work that needs to be done in the current conversation, but memory should be reserved for information that will be useful in future conversations.',
+    ),
     '',
     ...(extraGuidelines ?? []),
     '',
@@ -308,7 +358,11 @@ export function buildMemoryPrompt(params: {
     lines.push(
       `## ${ENTRYPOINT_NAME}`,
       '',
-      `Your ${ENTRYPOINT_NAME} is currently empty. When you save new memories, they will appear here.`,
+      localizedPrompt(
+        'memdir.emptyEntrypoint',
+        `Your ${ENTRYPOINT_NAME} is currently empty. When you save new memories, they will appear here.`,
+        { entrypoint: ENTRYPOINT_NAME },
+      ),
     )
   }
 
@@ -335,24 +389,37 @@ function buildAssistantDailyLogPrompt(skipIndex = false): string {
   const logPathPattern = join(memoryDir, 'logs', 'YYYY', 'MM', 'YYYY-MM-DD.md')
 
   const lines: string[] = [
-    '# auto memory',
+    localizedPrompt('memdir.daily.heading', '# auto memory'),
     '',
-    `You have a persistent, file-based memory system found at: \`${memoryDir}\``,
+    localizedPrompt(
+      'memdir.daily.intro',
+      `You have a persistent, file-based memory system found at: \`${memoryDir}\``,
+      { dir: memoryDir },
+    ),
     '',
-    "This session is long-lived. As you work, record anything worth remembering by **appending** to today's daily log file:",
+    localizedPrompt(
+      'memdir.daily.longlived',
+      "This session is long-lived. As you work, record anything worth remembering by **appending** to today's daily log file:",
+    ),
     '',
     `\`${logPathPattern}\``,
     '',
-    "Substitute today's date (from `currentDate` in your context) for `YYYY-MM-DD`. When the date rolls over mid-session, start appending to the new day's file.",
+    localizedPrompt(
+      'memdir.daily.substitute',
+      "Substitute today's date (from `currentDate` in your context) for `YYYY-MM-DD`. When the date rolls over mid-session, start appending to the new day's file.",
+    ),
     '',
-    'Write each entry as a short timestamped bullet. Create the file (and parent directories) on first write if it does not exist. Do not rewrite or reorganize the log — it is append-only. A separate nightly process distills these logs into `MEMORY.md` and topic files.',
+    localizedPrompt(
+      'memdir.daily.writeEntry',
+      'Write each entry as a short timestamped bullet. Create the file (and parent directories) on first write if it does not exist. Do not rewrite or reorganize the log — it is append-only. A separate nightly process distills these logs into `MEMORY.md` and topic files.',
+    ),
     '',
-    '## What to log',
+    localizedPrompt('memdir.daily.whatToLog.header', '## What to log'),
     '- User corrections and preferences ("use bun, not npm"; "stop summarizing diffs")',
-    '- Facts about the user, their role, or their goals',
-    '- Project context that is not derivable from the code (deadlines, incidents, decisions and their rationale)',
-    '- Pointers to external systems (dashboards, Linear projects, Slack channels)',
-    '- Anything the user explicitly asks you to remember',
+    localizedPrompt('memdir.daily.log2', '- Facts about the user, their role, or their goals'),
+    localizedPrompt('memdir.daily.log3', '- Project context that is not derivable from the code (deadlines, incidents, decisions and their rationale)'),
+    localizedPrompt('memdir.daily.log4', '- Pointers to external systems (dashboards, Linear projects, Slack channels)'),
+    localizedPrompt('memdir.daily.log5', '- Anything the user explicitly asks you to remember'),
     '',
     ...WHAT_NOT_TO_SAVE_SECTION,
     '',
@@ -360,7 +427,11 @@ function buildAssistantDailyLogPrompt(skipIndex = false): string {
       ? []
       : [
           `## ${ENTRYPOINT_NAME}`,
-          `\`${ENTRYPOINT_NAME}\` is the distilled index (maintained nightly from your logs) and is loaded into your context automatically. Read it for orientation, but do not edit it directly — record new information in today's log instead.`,
+          localizedPrompt(
+            'memdir.daily.entrypointBody',
+            `\`${ENTRYPOINT_NAME}\` is the distilled index (maintained nightly from your logs) and is loaded into your context automatically. Read it for orientation, but do not edit it directly — record new information in today's log instead.`,
+            { entrypoint: ENTRYPOINT_NAME },
+          ),
           '',
         ]),
     ...buildSearchingPastContextSection(memoryDir),

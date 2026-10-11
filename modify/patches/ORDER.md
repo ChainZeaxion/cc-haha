@@ -47,3 +47,9 @@ patches/h5/h5-file-open-patch1.patch
 # 压缩阈值分档改双百分比 + vcc 压缩后保留预算；触及 4 源码 + 2 测试文件。
 # 独立应用（干净 `3a51ef84` 上 apply ⇒ 6 文件逐字节一致）。
 patches/vcc/vcc-compaction-retention-budget-patch1.patch
+
+# 39：⚠️ 基座同上（0.6.7 血缘）—— = `align-latest` 的 `cb7065b1e`，**同样独立应用**。
+# 内置提示词中文化基础设施（v1 打样）：zh 覆盖表 + localizedPrompt，主系统提示词/收尾/compact/autoDream/review/team/三个内置 agent；
+# 含 locale 管道（desktop-ui.json.locale → 侧车）。28 文件（24 改 + 4 新 src/prompts/i18n/*）。
+# 独立应用（干净 `cb7065b1e` 上 apply ⇒ 28 文件逐字节一致）。
+patches/prompt/prompt-i18n-localization-patch1.patch

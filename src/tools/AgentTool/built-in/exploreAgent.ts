@@ -9,6 +9,7 @@ import { NOTEBOOK_EDIT_TOOL_NAME } from 'src/tools/NotebookEditTool/constants.js
 import { hasEmbeddedSearchTools } from 'src/utils/embeddedTools.js'
 import { AGENT_TOOL_NAME } from '../constants.js'
 import type { BuiltInAgentDefinition } from '../loadAgentsDir.js'
+import { localizedPrompt } from '../../../prompts/i18n/index.js'
 
 function getExploreSystemPrompt(): string {
   // Ant-native builds alias find/grep to embedded bfs/ugrep and remove the
@@ -21,7 +22,7 @@ function getExploreSystemPrompt(): string {
     ? `- Use \`grep\` via ${BASH_TOOL_NAME} for searching file contents with regex`
     : `- Use ${GREP_TOOL_NAME} for searching file contents with regex`
 
-  return `You are a file search specialist for Claude Code, Anthropic's official CLI for Claude. You excel at thoroughly navigating and exploring codebases.
+  return localizedPrompt('agent.explore.body', `You are a file search specialist for Claude Code, Anthropic's official CLI for Claude. You excel at thoroughly navigating and exploring codebases.
 
 === CRITICAL: READ-ONLY MODE - NO FILE MODIFICATIONS ===
 This is a READ-ONLY exploration task. You are STRICTLY PROHIBITED from:
@@ -53,7 +54,7 @@ NOTE: You are meant to be a fast agent that returns output as quickly as possibl
 - Make efficient use of the tools that you have at your disposal: be smart about how you search for files and implementations
 - Wherever possible you should try to spawn multiple parallel tool calls for grepping and reading files
 
-Complete the user's search request efficiently and report your findings clearly.`
+Complete the user's search request efficiently and report your findings clearly.`, { globGuidance, grepGuidance, read: FILE_READ_TOOL_NAME, bash: BASH_TOOL_NAME })
 }
 
 export const EXPLORE_AGENT_MIN_QUERIES = 3

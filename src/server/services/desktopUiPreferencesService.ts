@@ -7,6 +7,7 @@ import { readRecoverableJsonFile } from './recoverableJsonFile.js'
 import { ensurePersistentStorageUpgraded } from './persistentStorageMigrations.js'
 import { normalizeVoicePreferences } from './voice/preferences.js'
 import { DEFAULT_VOICE_PREFERENCES, type VoicePreferences } from './voice/types.js'
+import { setPromptLanguage, type PromptLanguage } from '../../prompts/i18n/promptLanguage.js'
 
 const CURRENT_DESKTOP_UI_PREFERENCES_SCHEMA_VERSION = 6
 const MAX_PROJECT_PREFERENCE_ENTRIES = 2_000
@@ -66,6 +67,15 @@ export type DesktopUiPreferences = {
   pet: DesktopPetPreferences
   voiceInput: DesktopVoiceInputPreferences
   projectDisplayNames: ProjectDisplayNames
+  /**
+   * The UI language the client is set to (a `Locale` tag such as `zh` or
+   * `zh-TW`), or null while it has never been set.
+   *
+   * Stored here rather than only on the client because the built-in model
+   * prompts are assembled by the sidecar, which cannot see the renderer's
+   * storage. See `src/prompts/i18n/promptLanguage.ts`.
+   */
+  locale: string | null
   [key: string]: unknown
 }
 
@@ -111,6 +121,7 @@ function defaultPreferences(): DesktopUiPreferences {
     pet: { ...DEFAULT_PET_PREFERENCES },
     voiceInput: { ...DEFAULT_VOICE_PREFERENCES },
     projectDisplayNames: createProjectDisplayNames(),
+    locale: null,
   }
 }
 
@@ -331,6 +342,11 @@ function normalizeProjectSortBy(value: unknown): SidebarProjectPreferences['proj
   return value === 'createdAt' || value === 'updatedAt' ? value : 'updatedAt'
 }
 
+/** A blank or non-string locale means "not set", which reads as English. */
+function normalizeLocalePreference(value: unknown): string | null {
+  return typeof value === 'string' && value.trim() ? value.trim() : null
+}
+
 function normalizeDesktopUiPreferences(value: unknown): DesktopUiPreferences | null {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
     return null
@@ -350,6 +366,7 @@ function normalizeDesktopUiPreferences(value: unknown): DesktopUiPreferences | n
     pet: normalizeDesktopPetPreferences(record.pet),
     voiceInput: normalizeVoicePreferences(record.voiceInput),
     projectDisplayNames: normalizeProjectDisplayNames(record.projectDisplayNames),
+    locale: normalizeLocalePreference(record.locale),
   }
 }
 
@@ -468,6 +485,31 @@ export class DesktopUiPreferencesService {
 
       await this.writePreferences(nextPreferences)
       return nextPreferences
+    })
+  }
+
+  /**
+   * Persist the UI language.
+   *
+   * The write path also updates the in-process prompt language, so a sidecar that
+   * is already running renders prompts in the new language on the very next
+   * request instead of needing a restart.
+   */
+  async updateLocalePreference(locale: unknown): Promise<{
+    preferences: DesktopUiPreferences
+    promptLanguage: PromptLanguage
+  }> {
+    const filePath = this.getPreferencesPath()
+    return this.withWriteLock(filePath, async () => {
+      const { preferences } = await this.readPreferences()
+      const nextPreferences: DesktopUiPreferences = {
+        ...preferences,
+        schemaVersion: preferences.schemaVersion,
+        locale: normalizeLocalePreference(locale),
+      }
+
+      await this.writePreferences(nextPreferences)
+      return { preferences: nextPreferences, promptLanguage: setPromptLanguage(nextPreferences.locale) }
     })
   }
 

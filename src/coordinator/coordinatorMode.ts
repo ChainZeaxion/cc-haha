@@ -15,6 +15,7 @@ import { TASK_STOP_TOOL_NAME } from '../tools/TaskStopTool/prompt.js'
 import { TEAM_CREATE_TOOL_NAME } from '../tools/TeamCreateTool/constants.js'
 import { TEAM_PLAN_TOOL_NAME } from '../tools/TeamPlanTool/constants.js'
 import { TEAM_DELETE_TOOL_NAME } from '../tools/TeamDeleteTool/constants.js'
+import { localizedPrompt } from '../prompts/i18n/index.js'
 import { isEnvTruthy } from '../utils/envUtils.js'
 
 // Checks the same gate as isScratchpadEnabled() in
@@ -96,15 +97,27 @@ export function getCoordinatorUserContext(
         .sort()
         .join(', ')
 
-  let content = `Workers spawned via the ${AGENT_TOOL_NAME} tool have access to these tools: ${workerTools}`
+  let content = localizedPrompt(
+    'coordinator.workerTools',
+    `Workers spawned via the ${AGENT_TOOL_NAME} tool have access to these tools: ${workerTools}`,
+    { agent: AGENT_TOOL_NAME, tools: workerTools },
+  )
 
   if (mcpClients.length > 0) {
     const serverNames = mcpClients.map(c => c.name).join(', ')
-    content += `\n\nWorkers also have access to MCP tools from connected MCP servers: ${serverNames}`
+    content += localizedPrompt(
+      'coordinator.mcpTools',
+      `\n\nWorkers also have access to MCP tools from connected MCP servers: ${serverNames}`,
+      { servers: serverNames },
+    )
   }
 
   if (scratchpadDir && isScratchpadGateEnabled()) {
-    content += `\n\nScratchpad directory: ${scratchpadDir}\nWorkers can read and write here without permission prompts. Use this for durable cross-worker knowledge — structure files however fits the work.`
+    content += localizedPrompt(
+      'coordinator.scratchpad',
+      `\n\nScratchpad directory: ${scratchpadDir}\nWorkers can read and write here without permission prompts. Use this for durable cross-worker knowledge — structure files however fits the work.`,
+      { dir: scratchpadDir },
+    )
   }
 
   return { workerToolsContext: content }
@@ -112,10 +125,18 @@ export function getCoordinatorUserContext(
 
 export function getCoordinatorSystemPrompt(): string {
   const workerCapabilities = isEnvTruthy(process.env.CLAUDE_CODE_SIMPLE)
-    ? 'Workers have access to Bash, Read, and Edit tools, plus MCP tools from configured MCP servers.'
-    : 'Workers have access to standard tools, MCP tools from configured MCP servers, and project skills via the Skill tool. Delegate skill invocations (e.g. /commit, /verify) to workers.'
+    ? localizedPrompt(
+        'coordinator.workerCapabilities.simple',
+        'Workers have access to Bash, Read, and Edit tools, plus MCP tools from configured MCP servers.',
+      )
+    : localizedPrompt(
+        'coordinator.workerCapabilities.full',
+        'Workers have access to standard tools, MCP tools from configured MCP servers, and project skills via the Skill tool. Delegate skill invocations (e.g. /commit, /verify) to workers.',
+      )
 
-  return `You are Claude Code, an AI assistant that orchestrates software engineering tasks across multiple workers.
+  return localizedPrompt(
+    'coordinator.system',
+    `You are Claude Code, an AI assistant that orchestrates software engineering tasks across multiple workers.
 
 ## 1. Your Role
 
@@ -367,5 +388,12 @@ User:
   How's it going?
 
 You:
-  Fix for the new test is in progress. Still waiting to hear back about the test suite.`
+  Fix for the new test is in progress. Still waiting to hear back about the test suite.`,
+    {
+      agent: AGENT_TOOL_NAME,
+      sendMessage: SEND_MESSAGE_TOOL_NAME,
+      taskStop: TASK_STOP_TOOL_NAME,
+      capabilities: workerCapabilities,
+    },
+  )
 }

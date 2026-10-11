@@ -74,6 +74,20 @@ export async function handleDesktopUiApi(
       })
     }
 
+    if (detail === 'locale') {
+      if (req.method === 'GET') {
+        const result = await desktopUiPreferencesService.readPreferences()
+        return Response.json({ exists: result.exists, locale: result.preferences.locale })
+      }
+      if (req.method !== 'PUT') throw methodNotAllowed(req.method)
+      const body = await parseJsonBody(req)
+      const { preferences, promptLanguage } =
+        await desktopUiPreferencesService.updateLocalePreference(
+          (body as { locale?: unknown } | null)?.locale ?? null,
+        )
+      return Response.json({ ok: true, locale: preferences.locale, promptLanguage })
+    }
+
     if (detail === 'profile') {
       const action = segments[4]
 

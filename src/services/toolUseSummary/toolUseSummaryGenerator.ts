@@ -11,6 +11,7 @@ import { logError } from '../../utils/log.js'
 import { jsonStringify } from '../../utils/slowOperations.js'
 import { asSystemPrompt } from '../../utils/systemPromptType.js'
 import { queryHaiku } from '../api/claude.js'
+import { localizedPrompt } from '../../prompts/i18n/index.js'
 
 const TOOL_USE_SUMMARY_SYSTEM_PROMPT = `Write a short summary label describing what these tool calls accomplished. It appears as a single-line row in a mobile app and truncates around 30 characters, so think git-commit-subject, not sentence.
 
@@ -67,7 +68,11 @@ export async function generateToolUseSummary({
       : ''
 
     const response = await queryHaiku({
-      systemPrompt: asSystemPrompt([TOOL_USE_SUMMARY_SYSTEM_PROMPT]),
+      systemPrompt: asSystemPrompt([
+        // Resolved at call time, not import time, so a language change takes
+        // effect without restarting the process.
+        localizedPrompt('service.toolUseSummary.system', TOOL_USE_SUMMARY_SYSTEM_PROMPT),
+      ]),
       userPrompt: `${contextPrefix}Tools completed:\n\n${toolSummaries}\n\nLabel:`,
       signal,
       options: {

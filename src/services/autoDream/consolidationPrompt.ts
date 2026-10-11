@@ -6,15 +6,14 @@ import {
   ENTRYPOINT_NAME,
   MAX_ENTRYPOINT_LINES,
 } from '../../memdir/memdir.js'
+import { localizedPrompt } from '../../prompts/i18n/index.js'
 
 export function buildConsolidationPrompt(
   memoryRoot: string,
   transcriptDir: string,
   extra: string,
 ): string {
-  return `# Dream: Memory Consolidation
-
-You are performing a dream — a reflective pass over your memory files. Synthesize what you've learned recently into durable, well-organized memories so that future sessions can orient quickly.
+  return localizedPrompt('service.autoDream.title', `# Dream: Memory Consolidation`) + '\n\n' + localizedPrompt('service.autoDream.body', `You are performing a dream — a reflective pass over your memory files. Synthesize what you've learned recently into durable, well-organized memories so that future sessions can orient quickly.
 
 Memory directory: \`${memoryRoot}\`
 ${DIR_EXISTS_GUIDANCE}
@@ -61,5 +60,7 @@ Update \`${ENTRYPOINT_NAME}\` so it stays under ${MAX_ENTRYPOINT_LINES} lines AN
 
 ---
 
-Return a brief summary of what you consolidated, updated, or pruned. If nothing changed (memories are already tight), say so.${extra ? `\n\n## Additional context\n\n${extra}` : ''}`
+Return a brief summary of what you consolidated, updated, or pruned. If nothing changed (memories are already tight), say so.${extra ? `\n\n## Additional context\n\n${extra}` : ''}`, {
+    memoryRoot, dirExists: DIR_EXISTS_GUIDANCE, transcriptDir, entrypoint: ENTRYPOINT_NAME, maxLines: MAX_ENTRYPOINT_LINES,
+  })
 }
