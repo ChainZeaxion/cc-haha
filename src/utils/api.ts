@@ -44,6 +44,7 @@ import { getCwd } from './cwd.js'
 import { logForDebugging } from './debug.js'
 import { isEnvTruthy } from './envUtils.js'
 import { createUserMessage } from './messages.js'
+import { promptLanguageUserNote } from '../prompts/i18n/index.js'
 import {
   getAPIProvider,
   isFirstPartyAnthropicBaseUrl,
@@ -456,19 +457,30 @@ export function prependUserContext(
     return messages
   }
 
-  if (Object.entries(context).length === 0) {
+  // A user-role reminder of this turn's reasoning language. Measured to be the
+  // strongest placement (a user message read right before answering beats a
+  // system block, which competes with ~25k tokens of English tool definitions).
+  // isMeta, so it never renders. Null for non-Chinese.
+  const languageNote = promptLanguageUserNote()
+  const hasContext = Object.entries(context).length > 0
+
+  if (!hasContext && !languageNote) {
     return messages
   }
 
-  return [
-    createUserMessage({
-      content: `<system-reminder>\nAs you answer the user's questions, you can use the following context:\n${Object.entries(
+  const contextBlock = hasContext
+    ? `\nAs you answer the user's questions, you can use the following context:\n${Object.entries(
         context,
       )
         .map(([key, value]) => `# ${key}\n${value}`)
         .join('\n')}
 
-      IMPORTANT: this context may or may not be relevant to your tasks. You should not respond to this context unless it is highly relevant to your task.\n</system-reminder>\n`,
+      IMPORTANT: this context may or may not be relevant to your tasks. You should not respond to this context unless it is highly relevant to your task.`
+    : ''
+
+  return [
+    createUserMessage({
+      content: `<system-reminder>\n${languageNote ? `${languageNote}\n` : ''}${contextBlock}\n</system-reminder>\n`,
       isMeta: true,
     }),
     ...messages,

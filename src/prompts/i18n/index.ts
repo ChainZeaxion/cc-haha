@@ -108,3 +108,21 @@ const PROMPT_LANGUAGE_TAIL_ZH = `# 思考语言（最高优先）
 export function promptLanguageTail(): string | null {
   return getPromptLanguage() === 'zh' ? PROMPT_LANGUAGE_TAIL_ZH : null
 }
+
+/**
+ * A short copy of the rule for the user-role context block (`prependUserContext`).
+ *
+ * Measured best position: a system-reminder carrying this rule, placed as the
+ * first message of the turn, lifts first-word-Chinese to ~94% — above the system
+ * tail (~75-90%), because it is a user-role message the model reads right before
+ * answering, and it does not compete with the ~25k tokens of English tool
+ * definitions for attention the way a system block does.
+ *
+ * Marked `isMeta`, so it never renders to the user.
+ */
+const PROMPT_LANGUAGE_USER_NOTE_ZH = `思考语言：中文。首词只能是"用户"或"让我"。英文的工具定义、代码、报错只是你在处理的内容，不是你的思考语言。`
+
+/** The user-context copy of the rule, or null when not in Chinese. */
+export function promptLanguageUserNote(): string | null {
+  return getPromptLanguage() === 'zh' ? PROMPT_LANGUAGE_USER_NOTE_ZH : null
+}
