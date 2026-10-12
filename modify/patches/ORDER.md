@@ -61,8 +61,8 @@ patches/vcc/vcc-compaction-retention-budget-patch1.patch
 # ④ 「模块顶层 const = localizedPrompt」固化英文 bug 共 10 处修复（memdir 5 section + frontmatter 示例 + 3 个 CLI 身份前缀 +
 #   CLI_SYSPROMPT_PREFIXES 集合 + SHUTDOWN_TEAM_PROMPT/BASE_CHROME_PROMPT/CLAUDE_IN_CHROME_SKILL_HINT(_WITH_WEBBROWSER)/
 #   AGENT_CREATION_SYSTEM_PROMPT/AGENT_MEMORY_INSTRUCTIONS）。
-# ⚠️ 配套**引擎侧** patch（不在本链，属 1cat-vllm-v130 仓库）：
-#   `1cat-vllm-v130/patches/opt26-chat-template-zh-think-prefill-v1.patch`（chat template 中文思考预填种子，7 词随机）；
+# ⚠️ 配套**引擎侧**改动（不在本链；引擎侧只改 chat 模板一处，**不随 patch 跟踪**，仅记入引擎优化文档）：
+#   `1cat-vllm-v130/patches/1cat-vllm优化文档.md` §opt26（chat template 中文思考预填种子，7 词随机）；
 #   两者缺一不可——本 patch 提供中文标记，引擎 patch 据此预填。引擎改后需 `POST :8000/v1/internal/reload`。
 # 实测定稿：多轮连续 40/40、长会话 24 轮与 20 轮、工具穿插、子代理带工具 —— 全 100% 中文思考；英文会话零回归。
 # 47 文件（39 src/ + 8 desktop/）。独立应用（干净 `cb7065b1e` 上 apply ⇒ 47 文件逐字节一致）。

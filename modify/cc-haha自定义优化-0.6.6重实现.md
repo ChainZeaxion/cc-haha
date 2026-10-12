@@ -3282,7 +3282,7 @@ src/prompts/i18n/
 - 模板在 thinking 时注入 `reasoning_instructions`（xhigh），**该文本已是中文**（之前优化过）——但思考首词仍英文，**证明光有中文指令不够**。
 - 模板末尾 `add_generation_prompt` 生成 `<think>\n` 后即开始推理——**真正的控制点**。
 
-**方案（opt26，引擎 patch）**：在 `<think>\n` 后**预填中文种子**，模型从预填字继续生成，物理上无法转英文。仅当 system 含中文思考规则标记时触发，英文会话与其他项目逐字节不变。
+**方案（引擎模板改动，见引擎侧优化文档 §opt26）**：在 `<think>\n` 后**预填中文种子**，模型从预填字继续生成，物理上无法转英文。仅当 system 含中文思考规则标记时触发，英文会话与其他项目逐字节不变。
 
 | | 首词中文 |
 |---|---|
@@ -3448,7 +3448,7 @@ src/prompts/i18n/
 
 - **代码**：`src/prompts/i18n/`（zh 表 + 三个注入函数 + 思考语言解析）、`src/constants/{prompts,system}.ts`、`src/utils/{api,systemPrompt}.ts`、`src/memdir/*`、`src/server/*`、`desktop/src/*`。
 - **patch**：`modify/patches/prompt/prompt-i18n-localization-patch1.patch`（47 文件，基座 `cb7065b1e`）。
-- **引擎 patch**（另一仓库）：`1cat-vllm-v130/patches/opt26-chat-template-zh-think-prefill-v1.patch`。
+- **引擎侧改动**（另一仓库，不随 patch 跟踪）：chat 模板 `chat_template-fix.jinja` 末尾预填；记入 `1cat-vllm-v130/patches/1cat-vllm优化文档.md` §opt26。
 - **门禁**：`check:server` 6654/0；i18n 19/19；desktop 81/81；AgentTool+prompts 88/88。
 - **deb**：`Claude-Code-Haha-0.6.7-linux-amd64.deb`。
 
