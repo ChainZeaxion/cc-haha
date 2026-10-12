@@ -1,14 +1,15 @@
 # patch 39：⚠️ 基座同上（0.6.7 血缘）—— = `align-latest` 的 `cb7065b1e`，独立应用。
-# 内置提示词中文化 + 中文思考（第一版打样 + 第二版产前实验期 v22 + 引擎预填 opt23，合并版）：zh 覆盖表 + localizedPrompt。
+# 内置提示词中文化 + 中文思考（v22 产前实验期 + 引擎预填 opt23，合并版）：zh 覆盖表 + localizedPrompt。
 # 覆盖主系统提示词全节 + 子代理 + compact/autoDream/review/team/extractMemories/toolUseSummary/chrome。
 # 含 locale 管道（desktop-ui.json.locale → 侧车）：src/server/* + desktop/src/api/desktopUiPreferences.ts + settingsStore.ts。
 # v22 关键：① 中文思考三处注入（system 头 lead + system 尾首词模板 + user 首条 reminder）；根因＝32 个英文工具定义锚定英文思考；
 # ② 思考语言人工开关（thinkingLanguage: auto/zh/en，与界面语言解耦）；
-# ③ 子代理也注入 lead（否则子代理带 tools 时思考退化到 1/4 英文）；
+# ③ **凡「替换 system」的路径都补 lead**（子代理 enhanceSystemPromptWithEnvDetails / coordinator 模式 / 主线程 agent）——
+#    否则那些路径无中文标记、引擎预填不触发、思考退化英文（子代理带工具实测 1/4→4/4）；
 # ④ 「模块顶层 const = localizedPrompt」固化英文 bug 共 10 处修复。
 # 配套引擎 patch：1cat-vllm-v130/patches/opt23-chat-template-zh-think-prefill-v1.patch（模板预填中文种子，需引擎热重载/重启）。
 # 实测：多轮连续对话 40/40 = 100% 中文思考（真实 /v1/messages 路径）。
-# 46 文件（38 src/ + 8 desktop/）。独立应用（干净 `cb7065b1e` 上 apply ⇒ 46 文件逐字节一致）。
+# 47 文件（39 src/ + 8 desktop/）。独立应用（干净 `cb7065b1e` 上 apply ⇒ 47 文件逐字节一致）。
 diff --git a/desktop/src/api/desktopUiPreferences.ts b/desktop/src/api/desktopUiPreferences.ts
 index ee72d6d3d..d30a313c1 100644
 --- a/desktop/src/api/desktopUiPreferences.ts
@@ -5585,3 +5586,47 @@ index d6861383e..d5c25c745 100644
 -  return text === SHUTDOWN_TEAM_PROMPT
 +  return text === getShutdownTeamPrompt() || text === SHUTDOWN_TEAM_PROMPT_EN
  }
+diff --git a/src/utils/systemPrompt.ts b/src/utils/systemPrompt.ts
+index 2059c81bd..e41313bba 100644
+--- a/src/utils/systemPrompt.ts
++++ b/src/utils/systemPrompt.ts
+@@ -7,6 +7,7 @@ import type { ToolUseContext } from '../Tool.js'
+ import type { AgentDefinition } from '../tools/AgentTool/loadAgentsDir.js'
+ import { isBuiltInAgent } from '../tools/AgentTool/loadAgentsDir.js'
+ import { isEnvTruthy } from './envUtils.js'
++import { promptLanguageLead } from '../prompts/i18n/index.js'
+ import { asSystemPrompt, type SystemPrompt } from './systemPromptType.js'
+ 
+ export { asSystemPrompt, type SystemPrompt } from './systemPromptType.js'
+@@ -68,7 +69,12 @@ export function buildEffectiveSystemPrompt({
+     const { getCoordinatorSystemPrompt } =
+       // eslint-disable-next-line @typescript-eslint/no-require-imports
+       require('../coordinator/coordinatorMode.js') as typeof import('../coordinator/coordinatorMode.js')
++    // Coordinator mode replaces the default prompt entirely, so the language
++    // lead must be re-added here — without it this path (like subagents) would
++    // carry no Chinese-reasoning marker and the engine prefill would not fire.
++    const languageLead = promptLanguageLead()
+     return asSystemPrompt([
++      ...(languageLead !== null ? [languageLead] : []),
+       getCoordinatorSystemPrompt(),
+       ...(appendSystemPrompt ? [appendSystemPrompt] : []),
+     ])
+@@ -112,9 +118,17 @@ export function buildEffectiveSystemPrompt({
+     ])
+   }
+ 
++  // A main-thread agent's prompt replaces the default one (which carries the
++  // language lead); re-add the lead so this path keeps the Chinese-reasoning
++  // marker. `customSystemPrompt` / `overrideSystemPrompt` are user-supplied and
++  // are left exactly as given.
++  const agentLanguageLead = agentSystemPrompt ? promptLanguageLead() : null
+   return asSystemPrompt([
+     ...(agentSystemPrompt
+-      ? [agentSystemPrompt]
++      ? [
++          ...(agentLanguageLead !== null ? [agentLanguageLead] : []),
++          agentSystemPrompt,
++        ]
+       : customSystemPrompt
+         ? [customSystemPrompt]
+         : defaultSystemPrompt),

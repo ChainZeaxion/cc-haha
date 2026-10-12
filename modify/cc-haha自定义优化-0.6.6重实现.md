@@ -3315,7 +3315,16 @@ src/prompts/i18n/
 
 **⚠️ 排查踩坑记录**：`/v1/completions` 是 **raw 端点，不经过 chat template**——用它测「模板预填」会得出假结论（实际测到的是手拼 prompt 里的内容）。验证模板行为必须用 `/v1/messages` 或 `/v1/chat/completions`。另：`prompt_text` 字段在该引擎返回 null，改用**本地 Jinja 渲染**（`ImmutableSandboxedEnvironment`）验证模板逻辑。
 
-**⚠️ 子代理缺口（本次一并修复）**：子代理走 `enhanceSystemPromptWithEnvDetails`（非 `getSystemPrompt`），**不含** `promptLanguageLead` → 子代理 system 无中文标记 → 引擎预填不触发，且英文工具定义把思考拽回英文。实测（10 工具）：**修复前 1/4 中文，修复后 4/4**。修法：`enhanceSystemPromptWithEnvDetails` 返回时前置 `promptLanguageLead()`（中文时）。子代理由此与主会话一致受三层注入 + 引擎预填保护。
+**⚠️ 「替换 system」路径缺 lead（本次一并修复，3 处同类缺口）**：中文思考标记必须在**每一条模型的 system prompt** 里，但多条路径**替换**而非追加 default prompt，导致漏掉 `promptLanguageLead`：
+
+| 路径 | 函数 | 修复前 | 修复后 |
+|---|---|---|---|
+| 子代理 | `enhanceSystemPromptWithEnvDetails` | 1/4 中文（带 10 工具） | **4/4** |
+| coordinator 模式 | `getCoordinatorSystemPrompt()` 替换 default | 无标记 | 前置 lead |
+| 主线程 agent | `agentSystemPrompt` 替换 default | 无标记 | 前置 lead |
+
+修法统一：这些路径返回时前置 `promptLanguageLead()`（仅中文时）。`customSystemPrompt` / `overrideSystemPrompt` 是**用户显式指定**，不干预。
+**教训**：中文化是「每请求生效」，凡**另起 system prompt** 的路径都要单独补 lead——不能只改主路径。
 
 **门禁**：i18n 19/19、desktop 81/81、AgentTool+prompts 88/88、`check:server` 6654/0。（V22 中文提示词 vs 原版英文）
 
