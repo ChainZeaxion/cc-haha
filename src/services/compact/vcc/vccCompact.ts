@@ -60,6 +60,17 @@ const extractPreviousSummary = (messages: CcMessage[]): string | undefined => {
     if (msg.type !== "user" || !msg.isCompactSummary) continue
     const content = msg.message?.content
     if (typeof content !== "string") continue
+    // Anchor on the first section header, not the head line: the head is
+    // localized, and a stray copy of CONTINUATION_PREFIX inside the body (it
+    // used to be harvested into Session Goal as a bullet) sliced away
+    // everything before it — including the `[Session Goal]` header.
+    const headerAt = SECTION_HEADERS
+      .map((h) => content.indexOf(`[${h}]`))
+      .filter((n) => n >= 0)
+      .sort((a, b) => a - b)[0]
+    if (headerAt !== undefined) return content.slice(headerAt).trim()
+    // No section headers at all (legacy/foreign shape) — fall back to the
+    // head line.
     const idx = content.indexOf(CONTINUATION_PREFIX)
     if (idx < 0) return content
     // The prefix line ends after "earlier portion of the conversation."

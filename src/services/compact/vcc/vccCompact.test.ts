@@ -3,6 +3,7 @@ import { describe, expect, test } from 'bun:test'
 import {
   SLICE_OMITTED_SECTIONS,
   appendEndState,
+  runVccCompaction,
   runVccSliceCompaction,
   sectionsOf,
   stripRefsOutside,
@@ -154,5 +155,72 @@ describe('end-of-span state', () => {
       { type: 'assistant', uuid: 'e3', message: { role: 'assistant', content: [{ type: 'text', text: 'short' }] } },
     ] as never[]
     expect(appendEndState('[Status]\n- busy', toolOnly)).toBe('[Status]\n- busy')
+  })
+})
+
+describe('previous-summary handoff', () => {
+  // The continuation summary is synthesized, not a user turn. Its own section
+  // bullets used to be harvested as session goals: the `[Session Goal]` /
+  // `[Files And Changes]` headers are dropped by NON_GOAL_RE (they start with
+  // `[`), but their `- ` bullets are not — so `- Modified: …` lines landed in
+  // Session Goal and compounded on every compaction. The head line is
+  // localized, which also broke the text-anchored strip of that head.
+  const afterCompaction = () =>
+    [
+      {
+        type: 'user',
+        uuid: 's1',
+        isCompactSummary: true,
+        message: {
+          role: 'user',
+          content: [
+            '本会话由一段超出上下文的先前对话继续而来。',
+            '',
+            '[Session Goal]',
+            '- 实现 vcc 局部压缩',
+            '',
+            '[Files And Changes]',
+            '- Modified: /repo/src/services/compact/vcc/adapter.ts',
+            '',
+            '---',
+            '',
+            '[user]',
+            '继续推进待办任务',
+          ].join('\n'),
+        },
+      },
+      { type: 'user', uuid: 'u1', message: { role: 'user', content: '继续推进待办任务' } },
+    ] as never[]
+
+  const goalSection = (summary: string): string => {
+    const start = summary.indexOf('[Session Goal]')
+    if (start < 0) return ''
+    const ends = [
+      '[Files And Changes]',
+      '[Commits]',
+      '[Outstanding Context]',
+      '[User Preferences]',
+      '\n\n---\n\n',
+    ]
+      .map((marker) => summary.indexOf(marker, start))
+      .filter((n) => n > start)
+    return summary.slice(start, ends.length > 0 ? Math.min(...ends) : undefined)
+  }
+
+  test('carries the prior goals over without letting its file bullets in', () => {
+    const result = runVccCompaction({ messages: afterCompaction() })
+    const goal = goalSection(result.summary)
+    // The prior goal survives through previousSummary, not by being re-read as
+    // user text...
+    expect(goal).toContain('实现 vcc 局部压缩')
+    // ...but the summary's own Files bullets must not be mistaken for goals.
+    expect(goal).not.toContain('Modified:')
+    expect(goal).not.toContain('adapter.ts')
+  })
+
+  test('recovers the prior summary under a localized head line', () => {
+    const result = runVccCompaction({ messages: afterCompaction() })
+    expect(result.previousSummaryUsed).toBe(true)
+    expect(sectionsOf(result.summary)).toContain('Session Goal')
   })
 })

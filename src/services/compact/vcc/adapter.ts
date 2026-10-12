@@ -171,6 +171,16 @@ export function adaptCcMessages(
       }
     } else {
       // user
+      //
+      // Skip the synthesized continuation summary. It is not a user turn — it
+      // is regenerated from `previousSummary` (see extractPreviousSummary) and
+      // merged back into the fresh summary, so nothing is lost by omitting it
+      // here. Feeding it in made its own section bullets harvestable as goals:
+      // the `[Session Goal]` / `[Files And Changes]` title lines are dropped by
+      // NON_GOAL_RE (they start with `[`), but their `- ` bullets are not, so
+      // `- Modified: …` lines were captured into Session Goal and compounded
+      // on every compaction.
+      if (m.isCompactSummary) continue
       const texts: string[] = []
       const images = Array.isArray(c) ? imageParts(c) : []
       const results: ToolResultMessage[] = []

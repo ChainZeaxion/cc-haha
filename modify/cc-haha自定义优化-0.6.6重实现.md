@@ -1238,6 +1238,33 @@ CLAUDE_H5_DIST_DIR=/home/zeaxion/myproject/cchaha-06scode/desktop/dist \
 **验证**：`bun test src/services/compact` **20 pass / 0 fail**（新增 3 条：抛错返回 null／abort 原样上抛／空窗口摘要为空且返回 null）；策略（dead-imports/module-graph/change-policy）**72 pass / 0 fail**；服务端 `tsc --noEmit` **0 错**；链位 42 补丁在干净 41 链终态上 `git apply` 成功且终态与工作树**逐字节一致**。
 
 
+### 子优化：compact 摘要被当作用户目标 → Session Goal 污染（2026-10-12）
+
+**现象**：会话携带的压缩摘要里，`[Session Goal]` 段混进了 `- Modified: .claude/projects/…/MEMORY.md,`、`- This session is being continued from a previous conversation…` 这类条目，且**四次压缩层层继承**——六个会话日里目标一路冻结在开局那句「从gov项目内读取本项目有关记忆，更新到当前项目记忆中」，主线换了三轮也不更新。
+
+**根因：vcc 提取器读了本不该读的消息。**
+
+- 压缩后的续接摘要是一条 `isCompactSummary: true` 的 user 消息。`adapter.ts` 的 user 分支**不区分它**，照常抽出文本 → `normalize` 成 user block → `extractGoals`（`vendor/extract/goals.ts`）遍历 user blocks 时把整份摘要当成「用户目标」。
+- `extractGoals` 的 `NON_GOAL_RE` 只挡**以 `[` 开头的行**，所以 `[Session Goal]`／`[Files And Changes]` 这些**标题**被正确丢弃，但**标题下面的 `- ` 条目不受任何约束**——`- Modified: …` 就这样被收进了 Session Goal。
+- 又因 `goals.push(...lines.slice(0, 6))` 在**第一条 user block** 处就填满 6 行名额（压缩后摘要消息恰在窗口开头），**真实用户消息反而挤不进去**。
+- `mergeHeaderSection("Session Goal", …)` 做行级去重 + 保底 8 行，把污染**继承**到下一次压缩 → **自引用固化**。
+- **次生缺陷**：中文本地化后 head 行变成「本会话由一段超出上下文的先前对话继续而来」，而 `extractPreviousSummary` 仍按英文 `CONTINUATION_PREFIX` 定位剥头；正文里那条被污染的英文行成了新的命中点 → 从该行之后切片，**把 `[Session Goal]` 标题本身切掉**。
+
+**修复（2 处）**：
+
+1. `adapter.ts`：user 分支跳过 `isCompactSummary` 消息（`if (m.isCompactSummary) continue`）。摘要**不会丢**——`extractPreviousSummary` 单独从原始 `messages` 取它、再由 `mergePrevious` 合并回新摘要；跳过只是不让它被当作**对话内容**。`ccIndices` 用原始下标 `continue`，不破坏 cut 映射。
+2. `vccCompact.ts` 的 `extractPreviousSummary`：改为**锚定第一个 section 标题**（与 head 语言无关），完全取不到才回退英文 prefix 逻辑。
+
+**验证**：
+
+- 真实摘要回放复现——污染**逐字复现**；修复后 `[Session Goal]` 只剩真实目标（原演练是「继续推进待办任务…」）。
+- 新增 **2 条回归测试**（`vccCompact.test.ts`）：①摘要自身的 Files 条目不得进 Goal；②本地化 head 下仍能回收上次摘要（`previousSummaryUsed` + `[Session Goal]` 仍在）。
+- 回归测试**有效性已验证**：临时禁用修复 → 该用例**确实失败**（不是假保障）。
+- `bun test src/services/compact` **47 pass / 0 fail**；服务端门禁 `check:server` **6656 pass / 0 fail**。
+
+**边界（未改）**：`previousSummary` 里的尾部注记（transcript 路径、「最近的消息已逐字保留」）仍会随 `briefOf` 进入合并后的 brief——既有行为，非本次问题，未动。
+
+
 ### 子优化（2026-09-26）：设置页「上下文压缩」区块排版 + 下拉选项语言
 - **用户反馈（verbatim）**：「设置项中，上下文压缩 字段内容和上面的思考内容紧贴在一起，需要先换行成独立小标题，另外里面的选项还是英文，选定后收起下拉列表看到的又是中文，也需要处理一下」。
 - **根因 1（排版）**：`GeneralSettings.tsx` 的 compaction 区块（h2+描述+Dropdown）裸挂在 thinking 区块的 `</div>` 之后，没有像其他所有区块那样的 `<div className="mt-8">` 容器→与「思考」内容视觉上紧贴。
