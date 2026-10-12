@@ -3571,3 +3571,28 @@ src/prompts/i18n/
 **但探针证明 lead 指令压不住英文主体**——这是**方向性确认**：要让思考变中文，必须**中文化系统提示词主体散文**（收益清单「可压缩分支」：compact 散文、actions、doingTasks、outputEfficiency 等），而非只靠 lead。提示词中文化从「省 token」升级为「中文思考的必要手段」。
 
 **第二版优先级变更**：原建议「G/H → A/B/D」按 token 收益排序；现按**思考语言影响力**重排——凡**每请求注入**的主体散文（① 收尾节、② compact、doingTasks/actions）应最先中文化。
+
+## 三十八 H5 模型配置：测试/获取按钮真正接通 + 明文 key 下发（✅ 2026-10-12）
+
+**用户报告**：远端经 H5 访问，设置 → 模型配置里对已有供应商点「测试」报「① 连通失败: 请求失败」；点「获取模型」点不动没反应。桌面应用两者均正常。另要求 H5 与桌面一样能看到 API 密钥 key。
+
+**根因（两层，第一层是「三十五」的半成品）**：
+
+1. **路由准入没跟着前端一起放开**。「三十五」只删了前端 `!browserMode &&` 门控（按钮可见了），服务端 `src/server/remoteBrowserPolicy.ts` 的 `remoteProviderRouteAllowed` 未动。`test` / `models` 之所以在 `RESERVED_PROVIDER_PATHS` 里，只是为了**路由消歧**（阻止 `GET /api/providers/test` 被解析成 id=test 的供应商），但没有像 `presets`/`official`/`reorder` 那样配一条**显式放行**分支 → 落进兜底规则 `!RESERVED_PROVIDER_PATHS.has(id) && ['GET','PUT','DELETE'].includes(method)` → 三个 POST 全被拒。该策略被 `publicAccess.ts:40`（公网配对隧道）与 `router.ts:63`（LAN/H5）共用，两处一起 403：
+   - `POST /api/providers/:id/test` → 403 → 前端 catch → 「连通失败: 请求失败」（行内「测试」走这条）
+   - `POST /api/providers/test`、`POST /api/providers/models` → 同样 403
+2. **凭据投影让按钮直接 disabled**。`projectRemoteProvider` 把 `apiKey` 置为 `''`（`8d7b5ea56`「加固远程凭据处理」）。H5 编辑已有供应商时 key 栏为空 → `canFetchModels = hasModelsBaseUrl && hasModelsApiKey` 为 false → 「获取模型」禁用（表现为「点不了」）；「测试」不依赖 key 故可点，但撞上第 1 层的 403。
+
+**改动**（2 文件 + 4 组测试）：
+
+- `src/server/remoteBrowserPolicy.ts`：
+  - `remoteProviderRouteAllowed`：新增 `if (id === 'test' || id === 'models') return method === 'POST'`；4 段分支的 action 白名单由 `'activate'` 扩为 `activate | test`。**仅限 POST**——`GET/DELETE /api/providers/test`（防止当 id 用）与 `/:id/models`（官方 OAuth 模型别名）继续拒绝。
+  - `projectRemoteProvider`：`apiKey: ''` → `provider.apiKey ?? ''`，主 key 与 `imageGeneration.apiKey` 两处，**推翻** `8d7b5ea56` 的远端脱敏。
+- 测试：`remoteBrowserPolicy.test.ts` 新增路由边界断言；`router.remoteBrowser.test.ts`、`router.remoteCredentials.test.ts`、`__fixtures__/remoteBrowserSettingsSmoke.ts` 由「断言脱敏」翻转为「断言回显」（key 应到达客户端，白名单外字段仍不下发）。
+
+**保持不动**：cc-switch 扫描/导入（读宿主文件系统，过隧道无意义）、`/api/providers/settings`、`/:id/models` 官方别名、`PUT` 时 `apiKey === '' → delete`（空值=保留旧 key）、`remoteProviderNeedsCredentials`（换目的地必须显式给新 key）、投影白名单外的字段（`futureCredential`、`env`、隐藏 compatibility 字段）。
+
+**安全论证（本次是确认后的有意放宽，非疏漏）**：H5 是扫码配对 + 30 天会话的受信设备，经 ngrok 公网隧道到达同一服务端。放开后 key 会明文经隧道抵达浏览器并留在页面内存——配对 cookie 一旦泄露即等于 key 泄露。已与用户确认选择「完全下发（与桌面一致）」，故 `hasApiKey` 标志之外再回传真实值；未列入白名单的字段继续不下发。
+
+**验证**：`check:server` 全绿；desktop `ProviderSettings` + `H5Settings` 31/31；远端相关 5 个 server 测试文件 31/31。
+

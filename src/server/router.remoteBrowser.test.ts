@@ -35,23 +35,25 @@ beforeEach(() => {
 afterEach(() => mock.restore())
 
 describe('remote browser API routing', () => {
-  test('projects provider list, get, and create responses while local desktop retains full records', async () => {
+  test('projects provider list, get, and create responses carrying the keys the remote form edits', async () => {
     for (const pathname of ['/api/providers', `/api/providers/${provider.id}`]) {
       const response = await request(pathname)
       expect(response.status).toBe(200)
       const data = await response.json()
       const result = data.provider ?? data.providers[0]
-      expect(result.apiKey).toBe('')
+      // The H5 page renders the same provider form as the desktop, so it gets
+      // the same key material to pre-fill — deliberate, not by omission.
+      expect(result.apiKey).toBe('fake-existing-key')
       expect(result.hasApiKey).toBe(true)
-      expect(result.imageGeneration).toEqual({ model: 'fixture-image', apiKey: '', hasApiKey: true })
+      expect(result.imageGeneration).toEqual({ model: 'fixture-image', apiKey: 'fake-image-key', hasApiKey: true })
       expect(result.requestCompatibility).toEqual({ maxOutputTokens: 2048 })
-      expect(JSON.stringify(data)).not.toContain('fake-existing-key')
+      // Fields outside the projection whitelist still never leave the server.
       expect(JSON.stringify(data)).not.toContain('fake-top-level-secret')
       expect(JSON.stringify(data)).not.toContain('fake-env-secret')
     }
     const created = await request('/api/providers', 'POST', { ...provider, apiKey: 'fake-new-key' })
     expect(created.status).toBe(201)
-    expect((await created.json()).provider.apiKey).toBe('')
+    expect((await created.json()).provider.apiKey).toBe('fake-new-key')
     expect(ProviderService.prototype.addProvider).toHaveBeenCalledWith(expect.objectContaining({ apiKey: 'fake-new-key' }))
     expect((await (await request(`/api/providers/${provider.id}`, 'GET', undefined, false)).json()).provider.apiKey).toBe(provider.apiKey)
   })
@@ -67,7 +69,7 @@ describe('remote browser API routing', () => {
     })
     const data = await response.json()
     expect(data.provider.hasApiKey).toBe(true)
-    expect(data.provider.apiKey).toBe('')
+    expect(data.provider.apiKey).toBe('fake-existing-key')
     expect(data.provider.requestCompatibility).toEqual({ maxOutputTokens: 4096 })
   })
 
@@ -80,12 +82,14 @@ describe('remote browser API routing', () => {
     expect(ProviderService.prototype.addProvider).toHaveBeenLastCalledWith(expect.objectContaining({ requestCompatibility: { maxOutputTokens: 4096 } }))
   })
 
-  test('omitted image key is preserved; explicit replacement reaches service but never response', async () => {
+  test('omitted image key is preserved; explicit replacements round-trip through the projection', async () => {
     await request(`/api/providers/${provider.id}`, 'PUT', { imageGeneration: { model: 'updated-image' } })
     expect(ProviderService.prototype.updateProvider).toHaveBeenLastCalledWith(provider.id, { imageGeneration: { model: 'updated-image', apiKey: 'fake-image-key' } })
     const replaced = await request(`/api/providers/${provider.id}`, 'PUT', { apiKey: 'fake-replacement', imageGeneration: { model: 'new', apiKey: 'fake-new-image-key' } })
     expect(ProviderService.prototype.updateProvider).toHaveBeenLastCalledWith(provider.id, { apiKey: 'fake-replacement', imageGeneration: { model: 'new', apiKey: 'fake-new-image-key' } })
-    expect(await replaced.text()).not.toContain('fake-replacement')
+    // The remote form sees back what it just stored, so reopening the editor
+    // shows the real key instead of an empty field.
+    expect(await replaced.text()).toContain('fake-replacement')
   })
 
   test('replaces visible compatibility fields while preserving hidden fields when clearing controls', async () => {

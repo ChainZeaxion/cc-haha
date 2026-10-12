@@ -31,9 +31,20 @@ export function remoteProviderRouteAllowed(parts: string[], method: string): boo
     if (['presets', 'auth-status'].includes(id)) return method === 'GET'
     if (id === 'official') return method === 'POST'
     if (id === 'reorder') return method === 'PUT'
+    // `/test` and `/models` are the provider settings page's two POST action
+    // routes: a connectivity probe and an upstream model-list fetch. They sit
+    // in RESERVED_PROVIDER_PATHS only to stop `GET /:id` resolving them as a
+    // provider id, so each needs its own allow branch — without one they fell
+    // through to the id-shaped rule below and the remote page 403'd on both
+    // buttons.
+    if (id === 'test' || id === 'models') return method === 'POST'
     return !RESERVED_PROVIDER_PATHS.has(id) && ['GET', 'PUT', 'DELETE'].includes(method)
   }
-  return parts.length === 4 && !RESERVED_PROVIDER_PATHS.has(id) && parts[3] === 'activate' && method === 'POST'
+  // `activate` and `test` both act on a saved provider by id. `test` reads the
+  // stored credential server-side, so the browser never sends a key for it.
+  const action = parts[3]
+  return parts.length === 4 && !RESERVED_PROVIDER_PATHS.has(id) &&
+    (action === 'activate' || action === 'test') && method === 'POST'
 }
 
 // The phone can reach `/settings/user` plus the two General-sub-page endpoints
@@ -144,7 +155,13 @@ export function projectRemoteProvider(provider: SavedProvider) {
   ] as const
   return {
     ...Object.fromEntries(publicKeys.filter(key => provider[key] !== undefined).map(key => [key, provider[key]])),
-    apiKey: '',
+    // The remote settings page renders the same provider form as the desktop,
+    // so it needs the same key material: a redacted `apiKey` left the field
+    // blank on H5 (and the fetch-models button disabled behind it). Sending the
+    // stored credential is deliberate now — the paired device may read and edit
+    // it exactly as the desktop app does. The paired session was already
+    // trusted with the tunnel; the key no longer stops at the server.
+    apiKey: provider.apiKey ?? '',
     hasApiKey: !!provider.apiKey,
     ...(provider.requestCompatibility ? {
       requestCompatibility: Object.fromEntries([...REMOTE_COMPATIBILITY_KEYS].filter(key => provider.requestCompatibility![key] !== undefined).map(key => [key, provider.requestCompatibility![key]])),
@@ -153,7 +170,7 @@ export function projectRemoteProvider(provider: SavedProvider) {
       imageGeneration: {
         model: provider.imageGeneration.model,
         ...(provider.imageGeneration.baseUrl !== undefined ? { baseUrl: provider.imageGeneration.baseUrl } : {}),
-        apiKey: '', hasApiKey: !!provider.imageGeneration.apiKey,
+        apiKey: provider.imageGeneration.apiKey ?? '', hasApiKey: !!provider.imageGeneration.apiKey,
       },
     } : {}),
   }

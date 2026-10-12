@@ -32,11 +32,12 @@ test('remote endpoint changes reject retained secrets before persistence', async
   expect(ProviderService.prototype.updateProvider).not.toHaveBeenCalled()
 })
 
-test('explicit replacement permits remote endpoint edit and remains redacted', async () => {
+test('explicit replacement permits remote endpoint edit and echoes the new key', async () => {
   const response = await update({ baseUrl: 'https://new.invalid', apiKey: 'fake-new-key' })
   expect(response.status).toBe(200)
   expect(ProviderService.prototype.updateProvider).toHaveBeenCalledWith('fixture', { baseUrl: 'https://new.invalid', apiKey: 'fake-new-key' })
-  expect(await response.text()).not.toContain('fake-new-key')
+  // The remote form gets the stored key back so reopening the editor shows it.
+  expect(await response.text()).toContain('fake-new-key')
 })
 
 test('desktop retains the existing endpoint editing contract', async () => {

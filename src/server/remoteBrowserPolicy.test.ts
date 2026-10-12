@@ -30,6 +30,23 @@ test('remote settings boundary permits only intended provider routes and General
   expect(remoteProviderRouteAllowed(parts('/api//providers/settings/'), 'GET')).toBe(false)
   expect(remoteProviderRouteAllowed(parts('/api/providers/id/extra'), 'DELETE')).toBe(false)
   expect(remoteProviderRouteAllowed(parts('/api/providers/id/activate'), 'POST')).toBe(true)
+  // The provider settings page's two POST action routes, and the saved-provider
+  // test, must stay reachable from the remote page — the buttons are rendered
+  // there, so a 403 here reads as a broken button rather than a missing one.
+  expect(remoteProviderRouteAllowed(parts('/api/providers/test'), 'POST')).toBe(true)
+  expect(remoteProviderRouteAllowed(parts('/api/providers/models'), 'POST')).toBe(true)
+  expect(remoteProviderRouteAllowed(parts('/api/providers/id/test'), 'POST')).toBe(true)
+  // …but only as POSTs: the same names must not resolve as a provider id, and
+  // the official-model-alias route (`/:id/models`) stays desktop-only.
+  expect(remoteProviderRouteAllowed(parts('/api/providers/test'), 'GET')).toBe(false)
+  expect(remoteProviderRouteAllowed(parts('/api/providers/test'), 'DELETE')).toBe(false)
+  expect(remoteProviderRouteAllowed(parts('/api/providers/models'), 'GET')).toBe(false)
+  expect(remoteProviderRouteAllowed(parts('/api/providers/id/models'), 'GET')).toBe(false)
+  expect(remoteProviderRouteAllowed(parts('/api/providers/id/models'), 'PUT')).toBe(false)
+  expect(remoteProviderRouteAllowed(parts('/api/providers/id/test'), 'GET')).toBe(false)
+  // cc-switch scans the host filesystem, so it stays desktop-only through the tunnel.
+  expect(remoteProviderRouteAllowed(parts('/api/providers/cc-switch/scan'), 'GET')).toBe(false)
+  expect(remoteProviderRouteAllowed(parts('/api/providers/cc-switch/import'), 'POST')).toBe(false)
   expect(remoteSettingsRouteAllowed(parts('/api/settings/user/extra'), 'PUT')).toBe(false)
   expect(validateRemoteSettingsPatch({ hooks: {} })).toBe(false)
   expect(validateRemoteSettingsPatch({ alwaysThinkingEnabled: 'true' })).toBe(false)
@@ -99,7 +116,7 @@ test('General settings round-trip (H5 full GeneralSettings)', () => {
   expect(validateRemoteSettingsPatch({ autoQuestion: { enabled: true, timeoutMinutes: 5, future: true } })).toBe(false)
 })
 
-test('LAN and public provider CRUD redact and preserve keys; General edits isolate desktop secrets', async () => {
+test('LAN and public provider CRUD echo and preserve keys; General edits isolate desktop secrets', async () => {
   const home = mkdtempSync(path.join(os.tmpdir(), 'remote-settings-integration-'))
   try {
     const child = Bun.spawn([process.execPath, '--no-env-file', path.join(import.meta.dir, '__fixtures__/remoteBrowserSettingsSmoke.ts')], {

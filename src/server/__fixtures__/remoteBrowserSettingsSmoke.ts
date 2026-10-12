@@ -51,7 +51,7 @@ try {
     const input = { presetId: 'custom', name: `Fixture ${transport}`, apiKey: `fake-${transport}-secret`, baseUrl: 'https://example.invalid', apiFormat: 'anthropic', models: { main: 'fixture-model', haiku: 'fixture-model', sonnet: 'fixture-model', opus: 'fixture-model' }, imageGeneration: { model: 'fixture-image', apiKey: `fake-${transport}-image-secret` }, requestCompatibility: { maxOutputTokens: 2048, privateFutureKey: 'fake-hidden-compatibility-key' } }
     const created = await request('/api/providers', 'POST', input)
     const createdBody = await created.json()
-    check(created.status === 201 && createdBody.provider.hasApiKey && createdBody.provider.apiKey === '', `${transport}: provider creation/redaction failed`)
+    check(created.status === 201 && createdBody.provider.hasApiKey && createdBody.provider.apiKey === input.apiKey, `${transport}: provider creation/key echo failed`)
     const id = createdBody.provider.id
     // Seed desktop-owned extensions as an existing store fixture, not via the remote API.
     const providersPath = path.join(process.env.CLAUDE_CONFIG_DIR!, 'cc-haha', 'providers.json')
@@ -61,10 +61,13 @@ try {
     oldProvider.requestCompatibility.privateFutureKey = 'fake-hidden-compatibility-key'
     oldProvider.futureCredential = 'fake-top-level-credential'
     await writeFile(providersPath, JSON.stringify(stored))
-    check(createdBody.provider.imageGeneration.apiKey === '' && createdBody.provider.imageGeneration.hasApiKey, 'Image key leaked')
+    check(createdBody.provider.imageGeneration.apiKey === input.imageGeneration.apiKey && createdBody.provider.imageGeneration.hasApiKey, 'Image key not echoed')
     for (const route of ['/api/providers', `/api/providers/${id}`]) {
       const text = await (await request(route)).text()
-      check(!text.includes(input.apiKey) && !text.includes(input.imageGeneration.apiKey) && !text.includes('fake-hidden-compatibility-key') && !text.includes('fake-top-level-credential'), `${transport}: saved credentials leaked`)
+      // The paired device edits the same form as the desktop, so the stored
+      // keys are sent back to it; only fields outside the projection whitelist
+      // stay server-side.
+      check(text.includes(input.apiKey) && text.includes(input.imageGeneration.apiKey) && !text.includes('fake-hidden-compatibility-key') && !text.includes('fake-top-level-credential'), `${transport}: projected keys or hidden fields wrong`)
     }
     const changed = await request(`/api/providers/${id}`, 'PUT', { name: 'Edited phone provider', apiKey: '', requestCompatibility: { maxOutputTokens: 4096 }, imageGeneration: { model: 'new-image-model', apiKey: '' } })
     check(changed.ok, `${transport}: provider edit failed`)
