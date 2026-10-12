@@ -121,7 +121,9 @@ describe('computeSubagentUsage', () => {
       assistantOfResponse('msg_2', 100, [{ type: 'text', text: 'done' }]),
     ])
     expect(usage?.outputTokens).toBe(100)
-    expect(usage?.thinkTokens).toBe(10)
+    // 40 Chinese characters ≈ 27 tokens at the measured 1.5 chars/token. The
+    // old /4 rule read them as 10, undercounting CJK reasoning by ~2.7x.
+    expect(usage?.thinkTokens).toBe(27)
   })
 })
 

@@ -93,6 +93,24 @@ describe('calculateCurrentContextTokenTotal', () => {
       canonicalTokens: 221_000,
     })).toBe(30_000)
   })
+
+  test('takes the higher of provider usage and the local estimate', () => {
+    // Real session: the local accumulator priced ~96 images at the conservative
+    // per-image constant and read 225,573, while the engine billed 173,743. The
+    // meter keeps the larger figure on purpose — an underestimate reads "safe"
+    // while the request is about to be refused, which is the failure this
+    // guards against. The trigger uses the same rule, so the two agree.
+    expect(calculateCurrentContextTokenTotal(225_573, {
+      input_tokens: 1_644,
+      cache_creation_input_tokens: 0,
+      cache_read_input_tokens: 172_032,
+      output_tokens: 67,
+    }, 231_248, {
+      hasMediaInput: true,
+      usageTrust: 'low',
+      canonicalTokens: 176_187,
+    })).toBe(225_573)
+  })
 })
 
 test('Opus 5 uses its native context and output limits', () => {

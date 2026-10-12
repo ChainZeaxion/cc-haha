@@ -1,6 +1,6 @@
 import { readFile } from 'fs/promises'
 import { join } from 'path'
-import { roughTokenCountEstimation } from '../../services/tokenEstimation.js'
+import { estimateTokensByCharClass, roughTokenCountEstimation } from '../../services/tokenEstimation.js'
 import { getClaudeConfigHomeDir } from '../../utils/envUtils.js'
 import { getErrnoCode, toError } from '../../utils/errors.js'
 import { logError } from '../../utils/log.js'
@@ -258,7 +258,6 @@ export function truncateSessionMemoryForCompact(content: string): {
   wasTruncated: boolean
 } {
   const lines = content.split('\n')
-  const maxCharsPerSection = MAX_SECTION_LENGTH * 4 // roughTokenCountEstimation uses length/4
   const outputLines: string[] = []
   let currentSectionLines: string[] = []
   let currentSectionHeader = ''
@@ -269,7 +268,6 @@ export function truncateSessionMemoryForCompact(content: string): {
       const result = flushSessionSection(
         currentSectionHeader,
         currentSectionLines,
-        maxCharsPerSection,
       )
       outputLines.push(...result.lines)
       wasTruncated = wasTruncated || result.wasTruncated
@@ -284,7 +282,6 @@ export function truncateSessionMemoryForCompact(content: string): {
   const result = flushSessionSection(
     currentSectionHeader,
     currentSectionLines,
-    maxCharsPerSection,
   )
   outputLines.push(...result.lines)
   wasTruncated = wasTruncated || result.wasTruncated
@@ -298,26 +295,28 @@ export function truncateSessionMemoryForCompact(content: string): {
 function flushSessionSection(
   sectionHeader: string,
   sectionLines: string[],
-  maxCharsPerSection: number,
 ): { lines: string[]; wasTruncated: boolean } {
   if (!sectionHeader) {
     return { lines: sectionLines, wasTruncated: false }
   }
 
-  const sectionContent = sectionLines.join('\n')
-  if (sectionContent.length <= maxCharsPerSection) {
-    return { lines: [sectionHeader, ...sectionLines], wasTruncated: false }
-  }
-
-  // Truncate at a line boundary near the limit
-  let charCount = 0
+  // Budget in tokens, not characters: a section of Chinese costs ~3x what the
+  // same character count of English does, so a fixed char cap let CJK sections
+  // through several times over the limit.
+  let tokens = estimateTokensByCharClass(sectionHeader)
   const keptLines: string[] = [sectionHeader]
+  let truncated = false
   for (const line of sectionLines) {
-    if (charCount + line.length + 1 > maxCharsPerSection) {
+    const lineTokens = estimateTokensByCharClass(line)
+    if (tokens + lineTokens > MAX_SECTION_LENGTH) {
+      truncated = true
       break
     }
     keptLines.push(line)
-    charCount += line.length + 1
+    tokens += lineTokens
+  }
+  if (!truncated) {
+    return { lines: keptLines, wasTruncated: false }
   }
   keptLines.push('\n[... section truncated for length ...]')
   return { lines: keptLines, wasTruncated: true }

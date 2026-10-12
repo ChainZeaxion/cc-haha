@@ -3596,3 +3596,48 @@ src/prompts/i18n/
 
 **验证**：`check:server` 全绿；desktop `ProviderSettings` + `H5Settings` 31/31；远端相关 5 个 server 测试文件 31/31。
 
+## 三十九 上下文估算口径统一：分类模型 + 图片按尺寸计价 + 触发取 max（✅ 2026-10-12）
+
+**用户报告**：会话（`html-test` 鹈鹕）已超过面板显示的自动压缩水平线，却始终不触发压缩，最终被引擎拒绝（vLLM 500：`ChatCompletionStreamResponse` 缺 `model`/`choices`）。用户怀疑是提示词中文化引起。
+
+**排除中文化**：`git log` 逐提交核对，全部中文化/prompts 提交只改 `prompts/` 文本与 `compact/prompt.ts` 的字符串，**从未触及** `tokenEstimation`／`utils/tokens`／`utils/context`／`contextBudget`／`autoCompact`／`modelContextWindows`／`services/api/claude`。且该 provider `vccCompactBackend: "algorithm"`，算法压缩不读 `compact/prompt.ts`。**无代码因果**。
+
+**根因：同一时刻两把尺子**（不是阈值/预留/预算问题，这三样本次未动）：
+
+| 量 | 值 | 尺子 |
+|---|---|---|
+| 面板「已使用」 | **225,573** | `analyzeContext` 的 categories 本地累加 |
+| 触发判据 | **176,187** | `shouldAutoCompact` 的 `tokenCountWithEstimation`（引擎 usage 锚） |
+| soft 触发线（窗口 231,248） | 179,560 | — |
+
+面板说超线、触发说没超 → 用户观感「机制坏了」，实际是**两个数**。live 实证（服务端 `:8877` inspection）：`totalTokens=225573 / maxTokens=231248 / percentage=98`，而同一会话 `autoCompactThreshold=198248`（服务端自算）与触发判据不同源。
+
+**实测定位偏差**（对本地 `zxsv-ai` 引擎的 `count_tokens` 实测）：
+
+1. **图片是主因**：本地常量 `2000`/张，引擎实价 **721**（1280×577 截图）——**高估 2.77×**。该会话 96 张图 → 虚增约 12 万。
+2. **文本固定 `chars/4` 也是错的**，字符类差异巨大：纯英文 4.50、**中文 1.50**、JSON 1.83、ASCII 数字 1.00、标点 1.20、空白 0。工具调用 input 全是 JSON → 系统性低估。
+3. **纯启发式无法达 5–15%**：同一套字符构成，真实内容实测在 **1.5–4.5 字符/token 之间浮动**（BPE 对重复的压缩效应主导，字符分类建模不了）。
+
+**引擎图片公式推导**（生成 7 种尺寸实测）：引擎按 32px 补丁计费，`tokens ≈ ceil(w×h/1024)`，误差 ≤2.2%（1280×577→721、800×600→476、1920×1080→2041、512×512→257、256×256→65）。对照：Anthropic 官方文档为 `(w×h)/750`。
+
+**改动**（10 文件）：
+
+- `src/services/tokenEstimation.ts`：
+  - 新增 `estimateTokensByCharClass`（单遍 charCode 循环，无正则无分配）：CJK 1/1.5、字母词 `max(1, len/4.5)`、数字 1.0/字符、标点 1/1.2、空白 0。`roughTokenCountEstimation` 在多参 `bytesPerToken` 省略时走它；显式传参者（文件类型启发式）保持旧行为。
+  - 新增 `pngDimensionsFromBase64`（只解码前 32 个 base64 字符取 IHDR）+ `estimateImageTokens`：按 `w×h` 计价，**分 provider** 取除式——`isFirstPartyAnthropicBaseUrl()` 用 750，否则 1024；上限/回退仍为 `IMAGE_MAX_TOKEN_SIZE=2000`，`document` 保持 2000。
+- `src/services/compact/autoCompact.ts`：
+  - 触发判据由「仅引擎锚口径」改为 `max(tokenCountWithEstimation(messages), roughTokenCountEstimationForMessages(messages) + fallbackFixedContextTokens)`：**任一超线即触发**。引擎完全不报 usage 时本地项是唯一依据；引擎少报时本地项是最后一道防线。
+  - 新增 `EXACT_CONFIRM_BAND = 0.1`：估算落在阈值 ±10% 内时，调 `countMessagesTokensWithAPI`（引擎 `count_tokens`）取精确值。`shouldAutoCompact` 增可选 `exactCount` thunk，由 `autoCompactIfNeeded` 注入 `measureExactPromptTokens`（`normalizeMessagesForAPI` 懒加载避免循环引用）。
+- `src/services/SessionMemory/prompts.ts`：`truncateSessionMemoryForCompact` 由「字符数 ≈ token×4」改为**按 token 截断**（`estimateTokensByCharClass`）。旧字符口径下中文段会超限约 3 倍。
+- `src/utils/context.ts`：`calculateCurrentContextTokenTotal` 的 `max(budget.usedTokens, canonicalTokens)` 语义**保持**，仅补注释说明为何取 max（两个测量都不可靠，低估是危险方向）。
+
+**刻意未做**：用引擎 usage 对本地估算做 EMA 校准（`local × engine/local`）。实现后测试发现它与「引擎少报」场景**直接冲突**——引擎报 5K 而实际 200K 时，校准比率 0.025 会把本地估算拉低到 140K，反而**掩盖**该触发的情况。校准无法区分「本地比率算错」与「引擎在少报」，而后者正是第二意见存在的意义。代码中留注释记录该决策，两个测量保持独立。
+
+**回归修复**：分类模型改变了若干数值，4 处既有断言按新值更新（新值均更准）：`sessionUsageRollup.test.ts` 汉字 thinking 10→27、`LocalAgentTask.test.ts` 4000 字符 1000→889、`tokens.test.ts` 3110→3098、`autoCompact.test.ts` fixed 下界 2000→1500。新增回归：分类模型 6 组受控样本 ±15%、图片尺寸计价（两种 provider）、精算确认三态（近线偏高/偏低/远离不询问）、触发双场景（引擎高、引擎少报）。
+
+**性能**：`roughTokenCountEstimationForMessages` 现在每轮全量跑一次（原来有 usage 时跳过）。最大会话实测（9,586 条消息 / 23MB）**96.7ms**，可接受。
+
+**验证**：`check:server` 556 files / 6675 passed / 0 failed。图片估算 ±2.2%（原 +177%），文本分类样本平均 8%，临近线由引擎精算兜底（~2%）。
+
+**窗口口径**：provider `autoCompactWindow` 231,248 → **233,000**（对齐引擎 `max_model_len`，运行时配置不进 patch）。触发线 181,050（用户确认「180K 左右压缩也可以」）。注：tier 百分比作用于 effectiveWindow 而非 declaredWindow（上游设计，见 `autoCompact.ts` 注释），故比「按 declared 算」的 198,050 早约 17K。
+

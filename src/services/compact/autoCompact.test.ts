@@ -248,7 +248,8 @@ describe('model context window resolution', () => {
       toolUseContext: { options: { tools: [] } },
     } as never)
 
-    expect(fixedTokens).toBeGreaterThanOrEqual(2_000)
+    // Class-weighted estimate: 8,000 chars of one long token ≈ 1,800 tokens.
+    expect(fixedTokens).toBeGreaterThanOrEqual(1_500)
     expect(await shouldAutoCompact(messages, 'custom-16k')).toBe(false)
     expect(await shouldAutoCompact(
       messages,
@@ -257,6 +258,111 @@ describe('model context window resolution', () => {
       0,
       fixedTokens,
     )).toBe(true)
+  })
+
+  test('triggers on the local estimate when the relay under-reports usage', async () => {
+    process.env[MODEL_CONTEXT_WINDOWS_ENV_KEY] = JSON.stringify({
+      'relay-lowball': 200_000,
+    })
+    // The relay claims a 5K prompt while the message actually carries ~200K.
+    // The engine figure never approaches the threshold; the local estimate
+    // does, and a session must not be driven into the provider's hard ceiling
+    // just because the relay lied about how full it was.
+    const messages = [{
+      type: 'assistant',
+      message: {
+        model: 'relay-lowball',
+        content: [{ type: 'text', text: 'word '.repeat(200_000) }],
+        usage: {
+          input_tokens: 5_000,
+          output_tokens: 0,
+          cache_read_input_tokens: 0,
+          cache_creation_input_tokens: 0,
+        },
+      },
+    }] as never
+    expect(await shouldAutoCompact(messages, 'relay-lowball')).toBe(true)
+  })
+
+  test('triggers on provider usage even when the local estimate stays small', async () => {
+    process.env[MODEL_CONTEXT_WINDOWS_ENV_KEY] = JSON.stringify({
+      'engine-high': 200_000,
+    })
+    // Engine reports a full window; the local estimate sees almost nothing.
+    // Either side crossing is enough — the engine reading is the accurate one
+    // here and must not be averaged away.
+    const messages = [{
+      type: 'assistant',
+      message: {
+        model: 'engine-high',
+        content: [{ type: 'text', text: 'hi' }],
+        usage: {
+          input_tokens: 175_000,
+          output_tokens: 0,
+          cache_read_input_tokens: 0,
+          cache_creation_input_tokens: 0,
+        },
+      },
+    }] as never
+    expect(await shouldAutoCompact(messages, 'engine-high')).toBe(true)
+  })
+
+  test('confirms with the exact tokenizer only when the estimate lands near the line', async () => {
+    process.env[MODEL_CONTEXT_WINDOWS_ENV_KEY] = JSON.stringify({
+      'confirm-band': 200_000,
+    })
+    const threshold = getAutoCompactThreshold('confirm-band')
+    const withUsage = (input: number) => [{
+      type: 'assistant',
+      message: {
+        model: 'confirm-band',
+        content: [{ type: 'text', text: 'hi' }],
+        usage: {
+          input_tokens: input,
+          output_tokens: 0,
+          cache_read_input_tokens: 0,
+          cache_creation_input_tokens: 0,
+        },
+      },
+    }] as never
+
+    // The estimate sits just over the line; the engine says it is under. The
+    // exact reading wins, so no compaction — this is the direction a char-class
+    // estimate gets wrong on repetitive content.
+    expect(await shouldAutoCompact(
+      withUsage(Math.round(threshold * 1.05)),
+      'confirm-band',
+      undefined,
+      0,
+      0,
+      async () => Math.round(threshold * 0.9),
+    )).toBe(false)
+
+    // And the other way: the estimate looks safe, the engine disagrees.
+    expect(await shouldAutoCompact(
+      withUsage(Math.round(threshold * 0.9)),
+      'confirm-band',
+      undefined,
+      0,
+      0,
+      async () => Math.round(threshold * 1.05),
+    )).toBe(true)
+
+    // Far from the line the answer is already clear, so the round trip is
+    // skipped entirely.
+    let asked = 0
+    expect(await shouldAutoCompact(
+      withUsage(Math.round(threshold * 0.5)),
+      'confirm-band',
+      undefined,
+      0,
+      0,
+      async () => {
+        asked += 1
+        return null
+      },
+    )).toBe(false)
+    expect(asked).toBe(0)
   })
 
   test('crosses the GPT-5.6 threshold without recounting encrypted siblings', async () => {

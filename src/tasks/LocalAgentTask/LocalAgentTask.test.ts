@@ -330,8 +330,9 @@ describe('thinking share of a run', () => {
 
   test('estimates the thinking when the engine reports none', () => {
     const tracker = createProgressTracker()
-    // 4000 chars of thinking at 4 bytes/token = 1000, used because no engine
-    // count came with the turn — otherwise this endpoint would have no split.
+    // 4,000 chars of one long token ≈ 889 at the class-weighted ratio, used
+    // because no engine count came with the turn — otherwise this endpoint
+    // would have no split.
     updateProgressFromMessage(tracker, {
       type: 'assistant' as const,
       message: {
@@ -345,7 +346,7 @@ describe('thinking share of a run', () => {
       },
     } as never)
 
-    expect(tracker.cumulativeReasoningTokens).toBe(1000)
+    expect(tracker.cumulativeReasoningTokens).toBe(889)
   })
 
   test('does not estimate a thinking record whose response reported the count', () => {

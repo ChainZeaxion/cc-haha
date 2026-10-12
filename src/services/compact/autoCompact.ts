@@ -12,13 +12,14 @@ import { hasExactErrorMessage } from '../../utils/errors.js'
 import type { CacheSafeParams } from '../../utils/forkedAgent.js'
 import { logError } from '../../utils/log.js'
 import { getOpenAICodexContextWindowForModel } from '../../services/openaiAuth/models.js'
-import { roughTokenCountEstimation } from '../../services/tokenEstimation.js'
+import {
+  countMessagesTokensWithAPI,
+  roughTokenCountEstimation,
+  roughTokenCountEstimationForMessages,
+} from '../../services/tokenEstimation.js'
 import { getConfiguredOrBuiltInModelContextWindow } from '../../utils/model/modelContextWindows.js'
 import { jsonStringify } from '../../utils/slowOperations.js'
-import {
-  hasUsableContextUsage,
-  tokenCountWithEstimation,
-} from '../../utils/tokens.js'
+import { tokenCountWithEstimation } from '../../utils/tokens.js'
 import { zodToJsonSchema } from '../../utils/zodToJsonSchema.js'
 import { getFeatureValue_CACHED_MAY_BE_STALE } from '../analytics/growthbook.js'
 import { getMaxOutputTokensForModel } from '../api/claude.js'
@@ -333,6 +334,45 @@ export function estimateFallbackFixedContextTokens(
   }))
 }
 
+/**
+ * How close to the line the coarse estimate has to land before the exact
+ * tokenizer is consulted. Inside this band the estimate's own error can decide
+ * the outcome, so a counting round trip is worth its latency; outside it, the
+ * answer is already clear.
+ */
+const EXACT_CONFIRM_BAND = 0.1
+
+/**
+ * The engine's own count for the prompt we are about to send, or null when the
+ * endpoint has no counting support. Mirrors how `analyzeContext` measures:
+ * messages through the counting endpoint, plus the fixed request prefix
+ * (system prompt, context, tools) that the endpoint does not see here.
+ */
+async function measureExactPromptTokens(
+  messages: Message[],
+  cacheSafeParams: CacheSafeParams,
+): Promise<number | null> {
+  /* eslint-disable @typescript-eslint/no-require-imports */
+  // Lazy: utils/messages.js is large and pulls in the whole prompt pipeline,
+  // which reaches back into compaction.
+  const { normalizeMessagesForAPI } =
+    require('../../utils/messages.js') as typeof import('../../utils/messages.js')
+  /* eslint-enable @typescript-eslint/no-require-imports */
+  try {
+    const apiMessages = normalizeMessagesForAPI(messages).map(entry =>
+      entry.type === 'assistant'
+        ? { role: 'assistant' as const, content: entry.message.content }
+        : entry.message,
+    )
+    const exactMessages = await countMessagesTokensWithAPI(apiMessages, [])
+    if (exactMessages === null) return null
+    return exactMessages + estimateFallbackFixedContextTokens(cacheSafeParams)
+  } catch (error) {
+    logError(error)
+    return null
+  }
+}
+
 export async function shouldAutoCompact(
   messages: Message[],
   model: string,
@@ -342,6 +382,9 @@ export async function shouldAutoCompact(
   // Subtract the rough-delta that snip already computed.
   snipTokensFreed = 0,
   fallbackFixedContextTokens = 0,
+  // Supplied by the caller when it can reach the counting endpoint; omitted in
+  // tests and in callers with no provider to ask.
+  exactCount?: () => Promise<number | null>,
 ): Promise<boolean> {
   // Recursion guards. session_memory and compact are forked agents that
   // would deadlock.
@@ -399,19 +442,46 @@ export async function shouldAutoCompact(
     }
   }
 
-  const fixedContextTokens = hasUsableContextUsage(messages)
-    ? 0
-    : fallbackFixedContextTokens
-  const tokenCount =
-    tokenCountWithEstimation(messages) +
-    fixedContextTokens -
-    snipTokensFreed
+  // Two independent measurements of the same prompt.
+  //
+  // `engineEstimate` anchors on the last provider usage and estimates only what
+  // arrived after it — authoritative whenever the provider reports usage.
+  // `localEstimate` is entirely local: class-weighted characters plus the fixed
+  // request prefix (system prompt, tools, skills). It is the second opinion,
+  // and the only one available when a relay reports no usage at all.
+  const engineEstimate = tokenCountWithEstimation(messages)
+  const localEstimate =
+    roughTokenCountEstimationForMessages(messages) + fallbackFixedContextTokens
+
+  // Either measurement crossing the line triggers. A relay that under-reports
+  // its real prompt is exactly the case where the local estimate is the only
+  // thing between the session and a hard refusal at the provider's ceiling, so
+  // the two are combined upwards instead of trusting either alone.
+  //
+  // Deliberately NOT calibrated against provider usage: scaling the local
+  // estimate by (engine / local) would drag it down precisely when the engine
+  // under-reports, which is the case the second opinion exists to catch.
   const threshold = getAutoCompactThreshold(model)
+  let tokenCount = Math.max(engineEstimate, localEstimate) - snipTokensFreed
+
+  // A char-class estimate cannot model this engine's BPE: the same class mix
+  // measures anywhere from 1.5 to 4.5 chars/token depending on how repetitive
+  // the content is. Near the line that error is the deciding factor, so ask the
+  // engine for the real number instead of guessing.
+  if (
+    exactCount &&
+    Math.abs(tokenCount - threshold) <= threshold * EXACT_CONFIRM_BAND
+  ) {
+    const exact = await exactCount()
+    // The exact count is taken from the messages as they now stand, so snip is
+    // already reflected in it — do not subtract the delta a second time.
+    if (exact !== null) tokenCount = exact
+  }
   const forcedThreshold = getForcedCompactThreshold(model)
   const effectiveWindow = getEffectiveContextWindowSize(model)
 
   logForDebugging(
-    `autocompact: tokens=${tokenCount} threshold=${threshold} forcedThreshold=${forcedThreshold} effectiveWindow=${effectiveWindow}${fixedContextTokens > 0 ? ` fallbackFixed=${fixedContextTokens}` : ''}${snipTokensFreed > 0 ? ` snipFreed=${snipTokensFreed}` : ''}`,
+    `autocompact: tokens=${tokenCount} engine=${engineEstimate} local=${localEstimate} threshold=${threshold} forcedThreshold=${forcedThreshold} effectiveWindow=${effectiveWindow}${snipTokensFreed > 0 ? ` snipFreed=${snipTokensFreed}` : ''}`,
   )
 
   const { isAboveAutoCompactThreshold, isAtForcedCompactLimit } =
@@ -456,6 +526,7 @@ export async function autoCompactIfNeeded(
     querySource,
     snipTokensFreed,
     estimateFallbackFixedContextTokens(cacheSafeParams),
+    () => measureExactPromptTokens(messages, cacheSafeParams),
   )
 
   if (!shouldCompact) {

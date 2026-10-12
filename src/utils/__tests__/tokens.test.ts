@@ -207,7 +207,9 @@ describe('tokenCountWithEstimation', () => {
       { type: 'user', message: { content: 'n'.repeat(40) } },
     ] as never
 
-    expect(tokenCountWithEstimation(messages)).toBe(3_110)
+    // 3,000 from the usage anchor + 89 (the 400-char tool result) + 9 (the
+    // 40-char user message) under the class-weighted ratio.
+    expect(tokenCountWithEstimation(messages)).toBe(3_098)
   })
 })
 

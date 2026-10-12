@@ -231,6 +231,12 @@ export function calculateCurrentContextTokenTotal(
     ) {
       return budget.usedTokens
     }
+    // Whichever of the two measurements is higher wins. Neither is reliable on
+    // its own: provider usage can under-report a relay's real prompt, and the
+    // local estimate drifts with its per-content constants. A meter that is
+    // too low is the dangerous direction — it reads "safe" while the request is
+    // about to be refused — so the pair is combined upwards, matching the
+    // trigger, which fires when either measurement crosses the threshold.
     return Math.min(
       Math.max(budget.usedTokens, options.canonicalTokens),
       contextWindow,
