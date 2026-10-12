@@ -903,7 +903,13 @@ export async function enhanceSystemPromptWithEnvDetails(
       ? getDiscoverSkillsGuidance()
       : null
   const envInfo = await computeEnvInfo(model, additionalWorkingDirectories)
+  // Subagents bypass getSystemPrompt, so they never saw the language lead. Without
+  // it their system carries no Chinese-reasoning marker: the engine-side prefill
+  // never fires, and the English tool definitions anchor the reasoning back to
+  // English (measured 1/4 Chinese with tools, vs 4/4 once the lead is present).
+  const languageLead = promptLanguageLead()
   return [
+    ...(languageLead !== null ? [languageLead] : []),
     ...existingSystemPrompt,
     notes,
     ...(discoverSkillsGuidance !== null ? [discoverSkillsGuidance] : []),
