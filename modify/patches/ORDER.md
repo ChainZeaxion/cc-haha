@@ -49,14 +49,23 @@ patches/h5/h5-file-open-patch1.patch
 patches/vcc/vcc-compaction-retention-budget-patch1.patch
 
 # 39：⚠️ 基座同上（0.6.7 血缘）—— = `align-latest` 的 `cb7065b1e`，**同样独立应用**。
-# 内置提示词中文化（第一版打样 + 第二版产前实验期 v22，**合并版**）：zh 覆盖表 + localizedPrompt。
+# 内置提示词中文化 + 中文思考（v1 打样 + v22 产前实验期，**合并版**）：zh 覆盖表 + localizedPrompt。
 # 覆盖主系统提示词全节（intro/cyberRisk/env/language/outputStyle/会话指引/MCP/记忆段/toneAndStyle/outputEfficiency）+
 # 子代理（verification/guide/generalPurpose/explore/plan/default/statusline）+ compact/autoDream/review/team/extractMemories/toolUseSummary/chrome。
-# 含 locale 管道（desktop-ui.json.locale → 侧车）：src/server/* + desktop/src/api/desktopUiPreferences.ts + desktop/src/stores/settingsStore.ts。
-# v22 关键修复：① lead 首词替换规则（"The user is asking"→"用户在问"等 8 条）；② 「模块顶层 const = localizedPrompt」固化英文 bug 共 10 处
-# （memdir 5 section + frontmatter 示例 + 3 个 CLI 身份前缀 + CLI_SYSPROMPT_PREFIXES 集合 + SHUTDOWN_TEAM_PROMPT/BASE_CHROME_PROMPT/
-# CLAUDE_IN_CHROME_SKILL_HINT(_WITH_WEBBROWSER)/AGENT_CREATION_SYSTEM_PROMPT/AGENT_MEMORY_INSTRUCTIONS）。实测 8866 引擎思考 80-88% 中文。
-# 40 文件（38 src/ + 2 desktop/）。独立应用（干净 `cb7065b1e` 上 apply ⇒ 40 文件逐字节一致）。
+# 含 locale 管道（desktop-ui.json.locale → 侧车）：src/server/* + desktop/src/api/desktopUiPreferences.ts + settingsStore.ts。
+# 【中文思考】① 三层注入：system 头 lead（promptLanguageLead）+ system 尾首词模板（promptLanguageTail）+
+#   user 首条 reminder（promptLanguageUserNote，prependUserContext）；根因＝32 个英文工具定义 ≈25k token 锚定英文思考；
+# ② 思考语言开关 thinkingLanguage（auto/zh/en，与界面语言解耦）：侧车 getThinkingLanguage() + 新端点 + 设置页 pill；
+# ③ 凡「替换 system」的路径补 lead（子代理 enhanceSystemPromptWithEnvDetails / coordinator 模式 / 主线程 agent）——
+#   否则那些路径无中文标记、引擎预填不触发、思考退化英文（子代理带工具实测 1/4→4/4）；
+# ④ 「模块顶层 const = localizedPrompt」固化英文 bug 共 10 处修复（memdir 5 section + frontmatter 示例 + 3 个 CLI 身份前缀 +
+#   CLI_SYSPROMPT_PREFIXES 集合 + SHUTDOWN_TEAM_PROMPT/BASE_CHROME_PROMPT/CLAUDE_IN_CHROME_SKILL_HINT(_WITH_WEBBROWSER)/
+#   AGENT_CREATION_SYSTEM_PROMPT/AGENT_MEMORY_INSTRUCTIONS）。
+# ⚠️ 配套**引擎侧** patch（不在本链，属 1cat-vllm-v130 仓库）：
+#   `1cat-vllm-v130/patches/opt26-chat-template-zh-think-prefill-v1.patch`（chat template 中文思考预填种子，7 词随机）；
+#   两者缺一不可——本 patch 提供中文标记，引擎 patch 据此预填。引擎改后需 `POST :8000/v1/internal/reload`。
+# 实测定稿：多轮连续 40/40、长会话 24 轮与 20 轮、工具穿插、子代理带工具 —— 全 100% 中文思考；英文会话零回归。
+# 47 文件（39 src/ + 8 desktop/）。独立应用（干净 `cb7065b1e` 上 apply ⇒ 47 文件逐字节一致）。
 patches/prompt/prompt-i18n-localization-patch1.patch
 
 # 40：⚠️ 基座同上（0.6.7 血缘）—— = `align-latest`，**独立应用**。

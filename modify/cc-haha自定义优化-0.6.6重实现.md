@@ -3146,7 +3146,7 @@ src/prompts/i18n/
 
 ✅ v1 打样已实施（2026-10-11）；门禁 `check:server` 556/6647、`bun test src/prompts/i18n` 12/0；i18n 表 204 条、引用 202、**无悬空 id**。
 
-## 三十七 思考语言优化 v22：从「英文思考」到「97.8% 中文思考」（🧪 产前实验期，2026-10-11）
+## 三十七 思考语言优化 v22：从「英文思考」到「100% 中文思考」（✅ 已验收定稿，2026-10-12）
 
 ### 定位
 
@@ -3282,7 +3282,7 @@ src/prompts/i18n/
 - 模板在 thinking 时注入 `reasoning_instructions`（xhigh），**该文本已是中文**（之前优化过）——但思考首词仍英文，**证明光有中文指令不够**。
 - 模板末尾 `add_generation_prompt` 生成 `<think>\n` 后即开始推理——**真正的控制点**。
 
-**方案（opt23，引擎 patch）**：在 `<think>\n` 后**预填中文种子「用户」**，模型从预填字继续生成，物理上无法转英文。仅当 system 含中文思考规则标记时触发，英文会话与其他项目逐字节不变。
+**方案（opt26，引擎 patch）**：在 `<think>\n` 后**预填中文种子**，模型从预填字继续生成，物理上无法转英文。仅当 system 含中文思考规则标记时触发，英文会话与其他项目逐字节不变。
 
 | | 首词中文 |
 |---|---|
@@ -3407,6 +3407,54 @@ src/prompts/i18n/
 2. 确认 token 代价可接受（或找到更省的 lead 压缩方案）
 3. 完成全功能回归测试（工具/技能/记忆/斜杠命令全路径）
 4. 用户确认接受 7.7% token 增量换取 97.8% 中文思考
+
+### 补记七（2026-10-12）：验收定稿 — 成果汇总
+
+**目标**：界面语言=中文时，让模型思考（reasoning）尽可能用中文。**结论：已达 100%**（真实链路 `/v1/messages`，>110 轮实测）。
+
+#### 完整架构（三层提示词 + 一层引擎）
+
+| 层 | 位置 | 作用 |
+|---|---|---|
+| ① system 头 | `promptLanguageLead()` | 中文 framing，声明「思考首词必须中文」+ 英文正文是有意保留 |
+| ② system 尾 | `promptLanguageTail()` | 首词模板（放尾端，避开被英文主体淹没） |
+| ③ user 首条 | `promptLanguageUserNote()`（`prependUserContext`，`isMeta` 不显示） | 最有效位置——在 32 个英文工具定义**之后**，模型最后读到 |
+| ④ 引擎预填 | chat template `<think>\n` 后预填 7 词随机种子 | **唯一能物理强制**的一层：模型从中文种子续写，无法转英文 |
+
+**根因**（探针定论）：不是「开头两句英文」，而是**32 个英文工具定义 ≈25k token** 构成的英文指令流主体，锚定了思考语言。
+
+**开关**：设置-通用「思考语言」三态（跟随界面 / 中文 / 英文），存 `desktop-ui.json.thinkingLanguage`，与界面语言解耦，贯通全链（关闭中文时引擎预填也不触发）。
+
+#### 一路修掉的 4 类隐藏 bug
+
+1. **模块顶层 `const = localizedPrompt(...)` 固化英文**（10 处）——import 时求值，早于运行时 `setPromptLanguage`。排查法：`grep -rn "^const [A-Z_]* = localizedPrompt" src/`。含 memdir 5 section、frontmatter 示例、3 个 CLI 身份前缀、`CLI_SYSPROMPT_PREFIXES` 集合、shutdown/chrome/agent 常量。
+2. **「替换 system」的路径漏 lead**（3 处）——子代理 `enhanceSystemPromptWithEnvDetails`、coordinator 模式、主线程 agent 均**替换**而非追加 default prompt。子代理带工具实测 1/4 → 4/4。
+3. **预填被 parser 剥离导致标点残留**——预填 token 属 prompt，模型续写时加的「，」残留为思考首字符（裸词 30–43%）。修法：词表自带逗号（`'好的，'`）。
+4. **接线错误致误判**——`/v1/completions` 是 raw 端点不经 chat template；`prompt_text` 返回 null；改模板必须 `POST :8000/v1/internal/reload`。
+
+#### 验证矩阵（全真实链路）
+
+| 场景 | 规模 | 中文思考 |
+|---|---|---|
+| 多轮连续对话 | 5×8 = 40 轮 | **100%** |
+| 长会话·技术 | 24 轮 | **100%** |
+| 长会话·生活 | 20 轮 | **100%** |
+| 工具调用穿插（英文工具结果） | 9 轮 | **100%** |
+| 严格首字符汉字 | 12+30 场景 | **100%** |
+| 子代理带工具 | 10 工具 | **100%**（修复前 25%） |
+| **英文会话（回归）** | 4 场景 | 4/4 英文（**零影响**） |
+
+#### 产物
+
+- **代码**：`src/prompts/i18n/`（zh 表 + 三个注入函数 + 思考语言解析）、`src/constants/{prompts,system}.ts`、`src/utils/{api,systemPrompt}.ts`、`src/memdir/*`、`src/server/*`、`desktop/src/*`。
+- **patch**：`modify/patches/prompt/prompt-i18n-localization-patch1.patch`（47 文件，基座 `cb7065b1e`）。
+- **引擎 patch**（另一仓库）：`1cat-vllm-v130/patches/opt26-chat-template-zh-think-prefill-v1.patch`。
+- **门禁**：`check:server` 6654/0；i18n 19/19；desktop 81/81；AgentTool+prompts 88/88。
+- **deb**：`Claude-Code-Haha-0.6.7-linux-amd64.deb`。
+
+#### 生效前提
+
+界面语言=中文（或思考语言开关=中文）+ 引擎模板含预填种子（已热重载）。二者缺一不可：前者提供中文标记，后者据此预填。
 
 ## 三十五 H5 模型配置补齐测试/获取按钮（✅ 2026-10-11）
 
