@@ -1264,6 +1264,60 @@ CLAUDE_H5_DIST_DIR=/home/zeaxion/myproject/cchaha-06scode/desktop/dist \
 
 **边界（未改）**：`previousSummary` 里的尾部注记（transcript 路径、「最近的消息已逐字保留」）仍会随 `briefOf` 进入合并后的 brief——既有行为，非本次问题，未动。
 
+### 评估：是否为提示词中文化引起？（2026-10-12，结论：不是）
+
+**问题**：该污染是否由本轮中文化引入（英文时代未发现）。
+
+**结论：不是中文化引起。** 决定性实证——在**中文化之前**的 `cb7065b1e` 上跑**纯英文**场景，污染逐项复现：
+
+```
+[Session Goal]
+- Fix the streak rendering in the viewer.
+- This session is being continued from a previous conversation…   ← 污染
+- Modified: src/components/Viewer.tsx, src/lib/streak.ts           ← 污染
+- Read: src/components/Page.tsx                                    ← 污染
+```
+
+且 `cb7065b1e` 的 `adapter.ts` 里 `isCompactSummary` **只出现于接口声明**（无跳过），bug 自 vcc 移植（2026-09-25）即在。
+
+**为何英文时代未暴露**：`extractGoals` 判断「任务意图」的两个正则**是全英文词表 + `\b` 词边界**，中文消息一律不匹配：
+
+| 用户消息 | 匹配 | 后果 |
+|---|---|---|
+| `Fix the download button…` | ✓ | 追加 `[Scope change]` + **真实目标** |
+| `修复移动端页面的下载按钮。` | ✗ | **无 `[Scope change]`** |
+
+- **英文**：真目标出现在 Goal 段**末尾** → 整段"看起来是对的"，污染夹在中间，不显眼。
+- **中文**：真目标**完全不进** Goal → 整段**只剩污染**，一眼可见。
+
+即中文化起的是**放大与暴露**作用。三层归因：
+
+| 层次 | 语言相关？ |
+|---|---|
+| adapter 把 `isCompactSummary` 当用户消息（污染源） | **无关**（既有 bug） |
+| 意图正则只认英文 → 中文会话无真目标掩盖污染 | 中文化**暴露** |
+| `extractPreviousSummary` 按英文 prefix 剥头 | 中文化**引入**（次生；且以污染为前提——见上节修复 2） |
+
+### 配套：中文意图词表 + CJK 感知长度阈值（同上，cc-haha LOCAL EDIT）
+
+修复污染源后暴露一个残留缺口：中文会话的 Goal 段会是**会话最早**那条消息的 6 行且**永不更新**（`[Scope change]` 机制对中文失效）。
+
+**改动**（`vendor/extract/goals.ts`，按 `build-sections.ts` 的 `LOCAL EDIT (cc-haha)` 先例标注）：
+
+1. **中文意图词表**：新增 `TASK_RE_ZH`（修复/新增/添加/重构/优化/拆成/合并/提取/替换/补充…）与 `SCOPE_CHANGE_RE_ZH`（改为/改成/改用/换成/其实/算了/新任务/切换/重新…），与英文词表并列参与判断。**刻意不带 `\b`**——`\b` 是 ASCII 词边界，两个 CJK 字符之间永不匹配，`\b修复\b` 会一无所获。
+2. **CJK 感知有效长度** `intentLength(s) = s.length + CJK 字数`（CJK 字形信息量约为拉丁字符 2 倍）。
+3. **任务长度门槛分语言**：英文维持 `> 15`（**逐字节不变**，`intentLength` 对纯拉丁文本是恒等），中文 `> 12`——`补充单元测试。` 仅 7 字形但为完整指令，按英文口径必被丢弃。
+
+**验证**：
+
+- 中文 9/9 触发（修复移动端页面的下载按钮 / 新增导出功能 / 其实我们改用新方案 / 把这个组件拆成两个 …）；英文 3/3 照旧；噪声（好的/嗯/谢谢/继续/ok）6/6 正确拒绝。
+- **英文行为零变化**：`Fix the bug.`（12 字符）仍被挡，与原逻辑一致。
+- 端到端：中文会话二次压缩，Goal 段 = 原目标 + 真实新目标，且**无 `Modified:` 污染**。
+- 新增 3 条回归测试；**彻底禁用中文词表后其中 2 条失败**（噪声那条不依赖词表，故仍通过），证明测试真正守着行为。
+- `bun test src/services/compact` **50 pass / 0 fail**；门禁 `check:server` **6659 pass / 0 fail**。
+
+**⚠️ 可回退点（用户待实测）**：上述词表与阈值是本仓库对 vendor 的 LOCAL EDIT，**英文路径未受影响**。若中文模式实测效果不佳，本节的改动可独立还原（删除 `SCOPE_CHANGE_RE_ZH` / `TASK_RE_ZH` / `intentLength` / `taskLengthBar` 并恢复 `length > 15`），不影响上节的污染修复——两者相互独立。
+
 
 ### 子优化（2026-09-26）：设置页「上下文压缩」区块排版 + 下拉选项语言
 - **用户反馈（verbatim）**：「设置项中，上下文压缩 字段内容和上面的思考内容紧贴在一起，需要先换行成独立小标题，另外里面的选项还是英文，选定后收起下拉列表看到的又是中文，也需要处理一下」。

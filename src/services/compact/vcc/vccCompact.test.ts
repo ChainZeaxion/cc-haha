@@ -158,6 +158,22 @@ describe('end-of-span state', () => {
   })
 })
 
+/** The `[Session Goal]` section of a compiled summary, up to the next header. */
+const goalSection = (summary: string): string => {
+  const start = summary.indexOf('[Session Goal]')
+  if (start < 0) return ''
+  const ends = [
+    '[Files And Changes]',
+    '[Commits]',
+    '[Outstanding Context]',
+    '[User Preferences]',
+    '\n\n---\n\n',
+  ]
+    .map((marker) => summary.indexOf(marker, start))
+    .filter((n) => n > start)
+  return summary.slice(start, ends.length > 0 ? Math.min(...ends) : undefined)
+}
+
 describe('previous-summary handoff', () => {
   // The continuation summary is synthesized, not a user turn. Its own section
   // bullets used to be harvested as session goals: the `[Session Goal]` /
@@ -192,21 +208,6 @@ describe('previous-summary handoff', () => {
       { type: 'user', uuid: 'u1', message: { role: 'user', content: '继续推进待办任务' } },
     ] as never[]
 
-  const goalSection = (summary: string): string => {
-    const start = summary.indexOf('[Session Goal]')
-    if (start < 0) return ''
-    const ends = [
-      '[Files And Changes]',
-      '[Commits]',
-      '[Outstanding Context]',
-      '[User Preferences]',
-      '\n\n---\n\n',
-    ]
-      .map((marker) => summary.indexOf(marker, start))
-      .filter((n) => n > start)
-    return summary.slice(start, ends.length > 0 ? Math.min(...ends) : undefined)
-  }
-
   test('carries the prior goals over without letting its file bullets in', () => {
     const result = runVccCompaction({ messages: afterCompaction() })
     const goal = goalSection(result.summary)
@@ -222,5 +223,55 @@ describe('previous-summary handoff', () => {
     const result = runVccCompaction({ messages: afterCompaction() })
     expect(result.previousSummaryUsed).toBe(true)
     expect(sectionsOf(result.summary)).toContain('Session Goal')
+  })
+})
+
+describe('Chinese session goals', () => {
+  // Upstream's intent lists (TASK_RE / SCOPE_CHANGE_RE) are English-only, so a
+  // Chinese session never emitted a later [Scope change]: its Session Goal
+  // stayed pinned to the session's opening lines forever, while an English
+  // session kept updating. The Chinese lists and the CJK-aware length bar are
+  // what let these land.
+  const chineseSession = (fresh: string) =>
+    [
+      {
+        type: 'user',
+        uuid: 's1',
+        isCompactSummary: true,
+        message: {
+          role: 'user',
+          content: [
+            '本会话由一段超出上下文的先前对话继续而来。',
+            '',
+            '[Session Goal]',
+            '- 移植 vcc 算法压缩',
+            '',
+            '---',
+            '',
+            '[user]',
+            '继续',
+          ].join('\n'),
+        },
+      },
+      { type: 'user', uuid: 'u1', message: { role: 'user', content: '最初的会话目标：移植 vcc 算法压缩。' } },
+      { type: 'user', uuid: 'u2', message: { role: 'user', content: fresh } },
+    ] as never[]
+
+  test('captures a later Chinese ask as a scope change', () => {
+    const goal = goalSection(runVccCompaction({ messages: chineseSession('修复移动端页面的下载按钮。') }).summary)
+    expect(goal).toContain('[Scope change]')
+    expect(goal).toContain('修复移动端页面的下载按钮')
+  })
+
+  test('treats a short Chinese ask as substantive, not as noise', () => {
+    // Seven glyphs — under a bar calibrated on English words, but a complete
+    // instruction.
+    const goal = goalSection(runVccCompaction({ messages: chineseSession('补充单元测试。') }).summary)
+    expect(goal).toContain('补充单元测试')
+  })
+
+  test('keeps a bare acknowledgement out of the goals', () => {
+    const goal = goalSection(runVccCompaction({ messages: chineseSession('好的') }).summary)
+    expect(goal).not.toContain('好的')
   })
 })
