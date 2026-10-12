@@ -7,6 +7,7 @@ import type { ToolUseContext } from '../Tool.js'
 import type { AgentDefinition } from '../tools/AgentTool/loadAgentsDir.js'
 import { isBuiltInAgent } from '../tools/AgentTool/loadAgentsDir.js'
 import { isEnvTruthy } from './envUtils.js'
+import { promptLanguageLead } from '../prompts/i18n/index.js'
 import { asSystemPrompt, type SystemPrompt } from './systemPromptType.js'
 
 export { asSystemPrompt, type SystemPrompt } from './systemPromptType.js'
@@ -68,7 +69,12 @@ export function buildEffectiveSystemPrompt({
     const { getCoordinatorSystemPrompt } =
       // eslint-disable-next-line @typescript-eslint/no-require-imports
       require('../coordinator/coordinatorMode.js') as typeof import('../coordinator/coordinatorMode.js')
+    // Coordinator mode replaces the default prompt entirely, so the language
+    // lead must be re-added here — without it this path (like subagents) would
+    // carry no Chinese-reasoning marker and the engine prefill would not fire.
+    const languageLead = promptLanguageLead()
     return asSystemPrompt([
+      ...(languageLead !== null ? [languageLead] : []),
       getCoordinatorSystemPrompt(),
       ...(appendSystemPrompt ? [appendSystemPrompt] : []),
     ])
@@ -112,9 +118,17 @@ export function buildEffectiveSystemPrompt({
     ])
   }
 
+  // A main-thread agent's prompt replaces the default one (which carries the
+  // language lead); re-add the lead so this path keeps the Chinese-reasoning
+  // marker. `customSystemPrompt` / `overrideSystemPrompt` are user-supplied and
+  // are left exactly as given.
+  const agentLanguageLead = agentSystemPrompt ? promptLanguageLead() : null
   return asSystemPrompt([
     ...(agentSystemPrompt
-      ? [agentSystemPrompt]
+      ? [
+          ...(agentLanguageLead !== null ? [agentLanguageLead] : []),
+          agentSystemPrompt,
+        ]
       : customSystemPrompt
         ? [customSystemPrompt]
         : defaultSystemPrompt),
