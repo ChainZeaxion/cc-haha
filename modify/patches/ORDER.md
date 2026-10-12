@@ -72,7 +72,9 @@ patches/vcc/vcc-compaction-retention-budget-patch1.patch
 # 47 文件（39 src/ + 8 desktop/）。独立应用（干净 `cb7065b1e` 上 apply ⇒ 47 文件逐字节一致）。
 patches/prompt/prompt-i18n-localization-patch1.patch
 
-# 40：⚠️ 基座同上（0.6.7 血缘）—— = `align-latest`，**独立应用**。
-# H5 模型配置补齐测试/获取按钮：删 ProviderSettings 3 处 !browserMode 门控（行内 Test / 获取模型 / 测试连接）+ 测试。3 文件。
+# 40：⚠️ 基座 = `53199e3f7`（0.6.7 血缘）—— **独立应用**。
+# H5 模型配置补齐测试/获取按钮：删 ProviderSettings 3 处 !browserMode 门控（行内 Test / 获取模型 / 测试连接）+ 测试。
+# 2026-10-12 补齐：服务端路由放行（remoteProviderRouteAllowed 的 test/models POST、:id/test）+ 远端回传已存 apiKey。
+# 8 文件（3 desktop/ + 5 src/）。干净 `53199e3f7` 上 apply ⇒ 8 文件逐字节一致。
 patches/h5/h5-provider-test-buttons-patch1.patch
 

@@ -104,3 +104,199 @@ index cfba07156..a3e4da797 100644
  
          {/* Settings JSON stays on the trusted desktop. */}
          {!browserMode && <div>
+diff --git a/src/server/__fixtures__/remoteBrowserSettingsSmoke.ts b/src/server/__fixtures__/remoteBrowserSettingsSmoke.ts
+index 83f6ea6bc..57ec5f66d 100644
+--- a/src/server/__fixtures__/remoteBrowserSettingsSmoke.ts
++++ b/src/server/__fixtures__/remoteBrowserSettingsSmoke.ts
+@@ -51,7 +51,7 @@ try {
+     const input = { presetId: 'custom', name: `Fixture ${transport}`, apiKey: `fake-${transport}-secret`, baseUrl: 'https://example.invalid', apiFormat: 'anthropic', models: { main: 'fixture-model', haiku: 'fixture-model', sonnet: 'fixture-model', opus: 'fixture-model' }, imageGeneration: { model: 'fixture-image', apiKey: `fake-${transport}-image-secret` }, requestCompatibility: { maxOutputTokens: 2048, privateFutureKey: 'fake-hidden-compatibility-key' } }
+     const created = await request('/api/providers', 'POST', input)
+     const createdBody = await created.json()
+-    check(created.status === 201 && createdBody.provider.hasApiKey && createdBody.provider.apiKey === '', `${transport}: provider creation/redaction failed`)
++    check(created.status === 201 && createdBody.provider.hasApiKey && createdBody.provider.apiKey === input.apiKey, `${transport}: provider creation/key echo failed`)
+     const id = createdBody.provider.id
+     // Seed desktop-owned extensions as an existing store fixture, not via the remote API.
+     const providersPath = path.join(process.env.CLAUDE_CONFIG_DIR!, 'cc-haha', 'providers.json')
+@@ -61,10 +61,13 @@ try {
+     oldProvider.requestCompatibility.privateFutureKey = 'fake-hidden-compatibility-key'
+     oldProvider.futureCredential = 'fake-top-level-credential'
+     await writeFile(providersPath, JSON.stringify(stored))
+-    check(createdBody.provider.imageGeneration.apiKey === '' && createdBody.provider.imageGeneration.hasApiKey, 'Image key leaked')
++    check(createdBody.provider.imageGeneration.apiKey === input.imageGeneration.apiKey && createdBody.provider.imageGeneration.hasApiKey, 'Image key not echoed')
+     for (const route of ['/api/providers', `/api/providers/${id}`]) {
+       const text = await (await request(route)).text()
+-      check(!text.includes(input.apiKey) && !text.includes(input.imageGeneration.apiKey) && !text.includes('fake-hidden-compatibility-key') && !text.includes('fake-top-level-credential'), `${transport}: saved credentials leaked`)
++      // The paired device edits the same form as the desktop, so the stored
++      // keys are sent back to it; only fields outside the projection whitelist
++      // stay server-side.
++      check(text.includes(input.apiKey) && text.includes(input.imageGeneration.apiKey) && !text.includes('fake-hidden-compatibility-key') && !text.includes('fake-top-level-credential'), `${transport}: projected keys or hidden fields wrong`)
+     }
+     const changed = await request(`/api/providers/${id}`, 'PUT', { name: 'Edited phone provider', apiKey: '', requestCompatibility: { maxOutputTokens: 4096 }, imageGeneration: { model: 'new-image-model', apiKey: '' } })
+     check(changed.ok, `${transport}: provider edit failed`)
+diff --git a/src/server/remoteBrowserPolicy.test.ts b/src/server/remoteBrowserPolicy.test.ts
+index 01569e45e..4f76b8589 100644
+--- a/src/server/remoteBrowserPolicy.test.ts
++++ b/src/server/remoteBrowserPolicy.test.ts
+@@ -30,6 +30,23 @@ test('remote settings boundary permits only intended provider routes and General
+   expect(remoteProviderRouteAllowed(parts('/api//providers/settings/'), 'GET')).toBe(false)
+   expect(remoteProviderRouteAllowed(parts('/api/providers/id/extra'), 'DELETE')).toBe(false)
+   expect(remoteProviderRouteAllowed(parts('/api/providers/id/activate'), 'POST')).toBe(true)
++  // The provider settings page's two POST action routes, and the saved-provider
++  // test, must stay reachable from the remote page — the buttons are rendered
++  // there, so a 403 here reads as a broken button rather than a missing one.
++  expect(remoteProviderRouteAllowed(parts('/api/providers/test'), 'POST')).toBe(true)
++  expect(remoteProviderRouteAllowed(parts('/api/providers/models'), 'POST')).toBe(true)
++  expect(remoteProviderRouteAllowed(parts('/api/providers/id/test'), 'POST')).toBe(true)
++  // …but only as POSTs: the same names must not resolve as a provider id, and
++  // the official-model-alias route (`/:id/models`) stays desktop-only.
++  expect(remoteProviderRouteAllowed(parts('/api/providers/test'), 'GET')).toBe(false)
++  expect(remoteProviderRouteAllowed(parts('/api/providers/test'), 'DELETE')).toBe(false)
++  expect(remoteProviderRouteAllowed(parts('/api/providers/models'), 'GET')).toBe(false)
++  expect(remoteProviderRouteAllowed(parts('/api/providers/id/models'), 'GET')).toBe(false)
++  expect(remoteProviderRouteAllowed(parts('/api/providers/id/models'), 'PUT')).toBe(false)
++  expect(remoteProviderRouteAllowed(parts('/api/providers/id/test'), 'GET')).toBe(false)
++  // cc-switch scans the host filesystem, so it stays desktop-only through the tunnel.
++  expect(remoteProviderRouteAllowed(parts('/api/providers/cc-switch/scan'), 'GET')).toBe(false)
++  expect(remoteProviderRouteAllowed(parts('/api/providers/cc-switch/import'), 'POST')).toBe(false)
+   expect(remoteSettingsRouteAllowed(parts('/api/settings/user/extra'), 'PUT')).toBe(false)
+   expect(validateRemoteSettingsPatch({ hooks: {} })).toBe(false)
+   expect(validateRemoteSettingsPatch({ alwaysThinkingEnabled: 'true' })).toBe(false)
+@@ -99,7 +116,7 @@ test('General settings round-trip (H5 full GeneralSettings)', () => {
+   expect(validateRemoteSettingsPatch({ autoQuestion: { enabled: true, timeoutMinutes: 5, future: true } })).toBe(false)
+ })
+ 
+-test('LAN and public provider CRUD redact and preserve keys; General edits isolate desktop secrets', async () => {
++test('LAN and public provider CRUD echo and preserve keys; General edits isolate desktop secrets', async () => {
+   const home = mkdtempSync(path.join(os.tmpdir(), 'remote-settings-integration-'))
+   try {
+     const child = Bun.spawn([process.execPath, '--no-env-file', path.join(import.meta.dir, '__fixtures__/remoteBrowserSettingsSmoke.ts')], {
+diff --git a/src/server/remoteBrowserPolicy.ts b/src/server/remoteBrowserPolicy.ts
+index f8eb51af7..368d62199 100644
+--- a/src/server/remoteBrowserPolicy.ts
++++ b/src/server/remoteBrowserPolicy.ts
+@@ -31,9 +31,20 @@ export function remoteProviderRouteAllowed(parts: string[], method: string): boo
+     if (['presets', 'auth-status'].includes(id)) return method === 'GET'
+     if (id === 'official') return method === 'POST'
+     if (id === 'reorder') return method === 'PUT'
++    // `/test` and `/models` are the provider settings page's two POST action
++    // routes: a connectivity probe and an upstream model-list fetch. They sit
++    // in RESERVED_PROVIDER_PATHS only to stop `GET /:id` resolving them as a
++    // provider id, so each needs its own allow branch — without one they fell
++    // through to the id-shaped rule below and the remote page 403'd on both
++    // buttons.
++    if (id === 'test' || id === 'models') return method === 'POST'
+     return !RESERVED_PROVIDER_PATHS.has(id) && ['GET', 'PUT', 'DELETE'].includes(method)
+   }
+-  return parts.length === 4 && !RESERVED_PROVIDER_PATHS.has(id) && parts[3] === 'activate' && method === 'POST'
++  // `activate` and `test` both act on a saved provider by id. `test` reads the
++  // stored credential server-side, so the browser never sends a key for it.
++  const action = parts[3]
++  return parts.length === 4 && !RESERVED_PROVIDER_PATHS.has(id) &&
++    (action === 'activate' || action === 'test') && method === 'POST'
+ }
+ 
+ // The phone can reach `/settings/user` plus the two General-sub-page endpoints
+@@ -144,7 +155,13 @@ export function projectRemoteProvider(provider: SavedProvider) {
+   ] as const
+   return {
+     ...Object.fromEntries(publicKeys.filter(key => provider[key] !== undefined).map(key => [key, provider[key]])),
+-    apiKey: '',
++    // The remote settings page renders the same provider form as the desktop,
++    // so it needs the same key material: a redacted `apiKey` left the field
++    // blank on H5 (and the fetch-models button disabled behind it). Sending the
++    // stored credential is deliberate now — the paired device may read and edit
++    // it exactly as the desktop app does. The paired session was already
++    // trusted with the tunnel; the key no longer stops at the server.
++    apiKey: provider.apiKey ?? '',
+     hasApiKey: !!provider.apiKey,
+     ...(provider.requestCompatibility ? {
+       requestCompatibility: Object.fromEntries([...REMOTE_COMPATIBILITY_KEYS].filter(key => provider.requestCompatibility![key] !== undefined).map(key => [key, provider.requestCompatibility![key]])),
+@@ -153,7 +170,7 @@ export function projectRemoteProvider(provider: SavedProvider) {
+       imageGeneration: {
+         model: provider.imageGeneration.model,
+         ...(provider.imageGeneration.baseUrl !== undefined ? { baseUrl: provider.imageGeneration.baseUrl } : {}),
+-        apiKey: '', hasApiKey: !!provider.imageGeneration.apiKey,
++        apiKey: provider.imageGeneration.apiKey ?? '', hasApiKey: !!provider.imageGeneration.apiKey,
+       },
+     } : {}),
+   }
+diff --git a/src/server/router.remoteBrowser.test.ts b/src/server/router.remoteBrowser.test.ts
+index f1dd294b3..86c881dba 100644
+--- a/src/server/router.remoteBrowser.test.ts
++++ b/src/server/router.remoteBrowser.test.ts
+@@ -35,23 +35,25 @@ beforeEach(() => {
+ afterEach(() => mock.restore())
+ 
+ describe('remote browser API routing', () => {
+-  test('projects provider list, get, and create responses while local desktop retains full records', async () => {
++  test('projects provider list, get, and create responses carrying the keys the remote form edits', async () => {
+     for (const pathname of ['/api/providers', `/api/providers/${provider.id}`]) {
+       const response = await request(pathname)
+       expect(response.status).toBe(200)
+       const data = await response.json()
+       const result = data.provider ?? data.providers[0]
+-      expect(result.apiKey).toBe('')
++      // The H5 page renders the same provider form as the desktop, so it gets
++      // the same key material to pre-fill — deliberate, not by omission.
++      expect(result.apiKey).toBe('fake-existing-key')
+       expect(result.hasApiKey).toBe(true)
+-      expect(result.imageGeneration).toEqual({ model: 'fixture-image', apiKey: '', hasApiKey: true })
++      expect(result.imageGeneration).toEqual({ model: 'fixture-image', apiKey: 'fake-image-key', hasApiKey: true })
+       expect(result.requestCompatibility).toEqual({ maxOutputTokens: 2048 })
+-      expect(JSON.stringify(data)).not.toContain('fake-existing-key')
++      // Fields outside the projection whitelist still never leave the server.
+       expect(JSON.stringify(data)).not.toContain('fake-top-level-secret')
+       expect(JSON.stringify(data)).not.toContain('fake-env-secret')
+     }
+     const created = await request('/api/providers', 'POST', { ...provider, apiKey: 'fake-new-key' })
+     expect(created.status).toBe(201)
+-    expect((await created.json()).provider.apiKey).toBe('')
++    expect((await created.json()).provider.apiKey).toBe('fake-new-key')
+     expect(ProviderService.prototype.addProvider).toHaveBeenCalledWith(expect.objectContaining({ apiKey: 'fake-new-key' }))
+     expect((await (await request(`/api/providers/${provider.id}`, 'GET', undefined, false)).json()).provider.apiKey).toBe(provider.apiKey)
+   })
+@@ -67,7 +69,7 @@ describe('remote browser API routing', () => {
+     })
+     const data = await response.json()
+     expect(data.provider.hasApiKey).toBe(true)
+-    expect(data.provider.apiKey).toBe('')
++    expect(data.provider.apiKey).toBe('fake-existing-key')
+     expect(data.provider.requestCompatibility).toEqual({ maxOutputTokens: 4096 })
+   })
+ 
+@@ -80,12 +82,14 @@ describe('remote browser API routing', () => {
+     expect(ProviderService.prototype.addProvider).toHaveBeenLastCalledWith(expect.objectContaining({ requestCompatibility: { maxOutputTokens: 4096 } }))
+   })
+ 
+-  test('omitted image key is preserved; explicit replacement reaches service but never response', async () => {
++  test('omitted image key is preserved; explicit replacements round-trip through the projection', async () => {
+     await request(`/api/providers/${provider.id}`, 'PUT', { imageGeneration: { model: 'updated-image' } })
+     expect(ProviderService.prototype.updateProvider).toHaveBeenLastCalledWith(provider.id, { imageGeneration: { model: 'updated-image', apiKey: 'fake-image-key' } })
+     const replaced = await request(`/api/providers/${provider.id}`, 'PUT', { apiKey: 'fake-replacement', imageGeneration: { model: 'new', apiKey: 'fake-new-image-key' } })
+     expect(ProviderService.prototype.updateProvider).toHaveBeenLastCalledWith(provider.id, { apiKey: 'fake-replacement', imageGeneration: { model: 'new', apiKey: 'fake-new-image-key' } })
+-    expect(await replaced.text()).not.toContain('fake-replacement')
++    // The remote form sees back what it just stored, so reopening the editor
++    // shows the real key instead of an empty field.
++    expect(await replaced.text()).toContain('fake-replacement')
+   })
+ 
+   test('replaces visible compatibility fields while preserving hidden fields when clearing controls', async () => {
+diff --git a/src/server/router.remoteCredentials.test.ts b/src/server/router.remoteCredentials.test.ts
+index 94f7ffc60..7947aeb43 100644
+--- a/src/server/router.remoteCredentials.test.ts
++++ b/src/server/router.remoteCredentials.test.ts
+@@ -32,11 +32,12 @@ test('remote endpoint changes reject retained secrets before persistence', async
+   expect(ProviderService.prototype.updateProvider).not.toHaveBeenCalled()
+ })
+ 
+-test('explicit replacement permits remote endpoint edit and remains redacted', async () => {
++test('explicit replacement permits remote endpoint edit and echoes the new key', async () => {
+   const response = await update({ baseUrl: 'https://new.invalid', apiKey: 'fake-new-key' })
+   expect(response.status).toBe(200)
+   expect(ProviderService.prototype.updateProvider).toHaveBeenCalledWith('fixture', { baseUrl: 'https://new.invalid', apiKey: 'fake-new-key' })
+-  expect(await response.text()).not.toContain('fake-new-key')
++  // The remote form gets the stored key back so reopening the editor shows it.
++  expect(await response.text()).toContain('fake-new-key')
+ })
+ 
+ test('desktop retains the existing endpoint editing contract', async () => {
