@@ -78,3 +78,16 @@ patches/prompt/prompt-i18n-localization-patch1.patch
 # 8 文件（3 desktop/ + 5 src/）。干净 `53199e3f7` 上 apply ⇒ 8 文件逐字节一致。
 patches/h5/h5-provider-test-buttons-patch1.patch
 
+# 41：⚠️ 基座 = `c71ce319d`（0.6.7 血缘）—— **独立应用**。
+# 上下文估算口径统一（2026-10-12）：面板读数与压缩触发判据同源，修「显示超线却不压缩」。
+# ① 文本：`roughTokenCountEstimation` 改字符分类模型（CJK 1/1.5、字母词 max(1,len/4.5)、
+#   数字 1.0/字符、标点 1/1.2、空白 0）；显式传 bytesPerToken 者保留旧行为。
+# ② 图片：由常量 2000 改为按尺寸计价——读 PNG IHDR 取 w×h，第三方引擎 /1024（7 尺寸实测 ≤2.2%）、
+#   first-party Anthropic /750（官方文档）；不可读/超限回退 2000，document 保持 2000。
+# ③ 触发：`shouldAutoCompact` 改 max(tokenCountWithEstimation, 本地全量 + 前缀)，任一超线即触发；
+#   新增 EXACT_CONFIRM_BAND=0.1 —— 估算落在阈值 ±10% 内时调引擎 `count_tokens` 取精确值
+#   （字符分类建模不了 BPE：同构成实测 1.5–4.5 字符/token 浮动）。
+# ④ SessionMemory 截断由「字符 ≈ token×4」改为按 token（`estimateTokensByCharClass`）。
+# 刻意未做：用引擎 usage 对本地估算做 EMA 校准 —— 会在引擎少报时拉低估算、掩盖该触发的情形。
+# 4 源码 + 6 测试（10 文件）。干净 `c71ce319d` 上 apply ⇒ 10 文件逐字节一致 ✅ 已实测。
+patches/usage/usage-context-estimation-patch1.patch

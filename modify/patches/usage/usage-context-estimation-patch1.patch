@@ -1,0 +1,805 @@
+diff --git a/src/server/services/sessionUsageRollup.test.ts b/src/server/services/sessionUsageRollup.test.ts
+index 1d97353c0..e1707be12 100644
+--- a/src/server/services/sessionUsageRollup.test.ts
++++ b/src/server/services/sessionUsageRollup.test.ts
+@@ -121,7 +121,9 @@ describe('computeSubagentUsage', () => {
+       assistantOfResponse('msg_2', 100, [{ type: 'text', text: 'done' }]),
+     ])
+     expect(usage?.outputTokens).toBe(100)
+-    expect(usage?.thinkTokens).toBe(10)
++    // 40 Chinese characters ≈ 27 tokens at the measured 1.5 chars/token. The
++    // old /4 rule read them as 10, undercounting CJK reasoning by ~2.7x.
++    expect(usage?.thinkTokens).toBe(27)
+   })
+ })
+ 
+diff --git a/src/services/SessionMemory/prompts.ts b/src/services/SessionMemory/prompts.ts
+index e220736f9..854b2fda5 100644
+--- a/src/services/SessionMemory/prompts.ts
++++ b/src/services/SessionMemory/prompts.ts
+@@ -1,6 +1,6 @@
+ import { readFile } from 'fs/promises'
+ import { join } from 'path'
+-import { roughTokenCountEstimation } from '../../services/tokenEstimation.js'
++import { estimateTokensByCharClass, roughTokenCountEstimation } from '../../services/tokenEstimation.js'
+ import { getClaudeConfigHomeDir } from '../../utils/envUtils.js'
+ import { getErrnoCode, toError } from '../../utils/errors.js'
+ import { logError } from '../../utils/log.js'
+@@ -258,7 +258,6 @@ export function truncateSessionMemoryForCompact(content: string): {
+   wasTruncated: boolean
+ } {
+   const lines = content.split('\n')
+-  const maxCharsPerSection = MAX_SECTION_LENGTH * 4 // roughTokenCountEstimation uses length/4
+   const outputLines: string[] = []
+   let currentSectionLines: string[] = []
+   let currentSectionHeader = ''
+@@ -269,7 +268,6 @@ export function truncateSessionMemoryForCompact(content: string): {
+       const result = flushSessionSection(
+         currentSectionHeader,
+         currentSectionLines,
+-        maxCharsPerSection,
+       )
+       outputLines.push(...result.lines)
+       wasTruncated = wasTruncated || result.wasTruncated
+@@ -284,7 +282,6 @@ export function truncateSessionMemoryForCompact(content: string): {
+   const result = flushSessionSection(
+     currentSectionHeader,
+     currentSectionLines,
+-    maxCharsPerSection,
+   )
+   outputLines.push(...result.lines)
+   wasTruncated = wasTruncated || result.wasTruncated
+@@ -298,26 +295,28 @@ export function truncateSessionMemoryForCompact(content: string): {
+ function flushSessionSection(
+   sectionHeader: string,
+   sectionLines: string[],
+-  maxCharsPerSection: number,
+ ): { lines: string[]; wasTruncated: boolean } {
+   if (!sectionHeader) {
+     return { lines: sectionLines, wasTruncated: false }
+   }
+ 
+-  const sectionContent = sectionLines.join('\n')
+-  if (sectionContent.length <= maxCharsPerSection) {
+-    return { lines: [sectionHeader, ...sectionLines], wasTruncated: false }
+-  }
+-
+-  // Truncate at a line boundary near the limit
+-  let charCount = 0
++  // Budget in tokens, not characters: a section of Chinese costs ~3x what the
++  // same character count of English does, so a fixed char cap let CJK sections
++  // through several times over the limit.
++  let tokens = estimateTokensByCharClass(sectionHeader)
+   const keptLines: string[] = [sectionHeader]
++  let truncated = false
+   for (const line of sectionLines) {
+-    if (charCount + line.length + 1 > maxCharsPerSection) {
++    const lineTokens = estimateTokensByCharClass(line)
++    if (tokens + lineTokens > MAX_SECTION_LENGTH) {
++      truncated = true
+       break
+     }
+     keptLines.push(line)
+-    charCount += line.length + 1
++    tokens += lineTokens
++  }
++  if (!truncated) {
++    return { lines: keptLines, wasTruncated: false }
+   }
+   keptLines.push('\n[... section truncated for length ...]')
+   return { lines: keptLines, wasTruncated: true }
+diff --git a/src/services/compact/autoCompact.test.ts b/src/services/compact/autoCompact.test.ts
+index 1b0fc1882..f54b0a22f 100644
+--- a/src/services/compact/autoCompact.test.ts
++++ b/src/services/compact/autoCompact.test.ts
+@@ -248,7 +248,8 @@ describe('model context window resolution', () => {
+       toolUseContext: { options: { tools: [] } },
+     } as never)
+ 
+-    expect(fixedTokens).toBeGreaterThanOrEqual(2_000)
++    // Class-weighted estimate: 8,000 chars of one long token ≈ 1,800 tokens.
++    expect(fixedTokens).toBeGreaterThanOrEqual(1_500)
+     expect(await shouldAutoCompact(messages, 'custom-16k')).toBe(false)
+     expect(await shouldAutoCompact(
+       messages,
+@@ -259,6 +260,111 @@ describe('model context window resolution', () => {
+     )).toBe(true)
+   })
+ 
++  test('triggers on the local estimate when the relay under-reports usage', async () => {
++    process.env[MODEL_CONTEXT_WINDOWS_ENV_KEY] = JSON.stringify({
++      'relay-lowball': 200_000,
++    })
++    // The relay claims a 5K prompt while the message actually carries ~200K.
++    // The engine figure never approaches the threshold; the local estimate
++    // does, and a session must not be driven into the provider's hard ceiling
++    // just because the relay lied about how full it was.
++    const messages = [{
++      type: 'assistant',
++      message: {
++        model: 'relay-lowball',
++        content: [{ type: 'text', text: 'word '.repeat(200_000) }],
++        usage: {
++          input_tokens: 5_000,
++          output_tokens: 0,
++          cache_read_input_tokens: 0,
++          cache_creation_input_tokens: 0,
++        },
++      },
++    }] as never
++    expect(await shouldAutoCompact(messages, 'relay-lowball')).toBe(true)
++  })
++
++  test('triggers on provider usage even when the local estimate stays small', async () => {
++    process.env[MODEL_CONTEXT_WINDOWS_ENV_KEY] = JSON.stringify({
++      'engine-high': 200_000,
++    })
++    // Engine reports a full window; the local estimate sees almost nothing.
++    // Either side crossing is enough — the engine reading is the accurate one
++    // here and must not be averaged away.
++    const messages = [{
++      type: 'assistant',
++      message: {
++        model: 'engine-high',
++        content: [{ type: 'text', text: 'hi' }],
++        usage: {
++          input_tokens: 175_000,
++          output_tokens: 0,
++          cache_read_input_tokens: 0,
++          cache_creation_input_tokens: 0,
++        },
++      },
++    }] as never
++    expect(await shouldAutoCompact(messages, 'engine-high')).toBe(true)
++  })
++
++  test('confirms with the exact tokenizer only when the estimate lands near the line', async () => {
++    process.env[MODEL_CONTEXT_WINDOWS_ENV_KEY] = JSON.stringify({
++      'confirm-band': 200_000,
++    })
++    const threshold = getAutoCompactThreshold('confirm-band')
++    const withUsage = (input: number) => [{
++      type: 'assistant',
++      message: {
++        model: 'confirm-band',
++        content: [{ type: 'text', text: 'hi' }],
++        usage: {
++          input_tokens: input,
++          output_tokens: 0,
++          cache_read_input_tokens: 0,
++          cache_creation_input_tokens: 0,
++        },
++      },
++    }] as never
++
++    // The estimate sits just over the line; the engine says it is under. The
++    // exact reading wins, so no compaction — this is the direction a char-class
++    // estimate gets wrong on repetitive content.
++    expect(await shouldAutoCompact(
++      withUsage(Math.round(threshold * 1.05)),
++      'confirm-band',
++      undefined,
++      0,
++      0,
++      async () => Math.round(threshold * 0.9),
++    )).toBe(false)
++
++    // And the other way: the estimate looks safe, the engine disagrees.
++    expect(await shouldAutoCompact(
++      withUsage(Math.round(threshold * 0.9)),
++      'confirm-band',
++      undefined,
++      0,
++      0,
++      async () => Math.round(threshold * 1.05),
++    )).toBe(true)
++
++    // Far from the line the answer is already clear, so the round trip is
++    // skipped entirely.
++    let asked = 0
++    expect(await shouldAutoCompact(
++      withUsage(Math.round(threshold * 0.5)),
++      'confirm-band',
++      undefined,
++      0,
++      0,
++      async () => {
++        asked += 1
++        return null
++      },
++    )).toBe(false)
++    expect(asked).toBe(0)
++  })
++
+   test('crosses the GPT-5.6 threshold without recounting encrypted siblings', async () => {
+     const responseId = 'msg_threshold'
+     const messagesAt = (tokens: number) => [
+diff --git a/src/services/compact/autoCompact.ts b/src/services/compact/autoCompact.ts
+index cfcfb49f1..8629547e2 100644
+--- a/src/services/compact/autoCompact.ts
++++ b/src/services/compact/autoCompact.ts
+@@ -12,13 +12,14 @@ import { hasExactErrorMessage } from '../../utils/errors.js'
+ import type { CacheSafeParams } from '../../utils/forkedAgent.js'
+ import { logError } from '../../utils/log.js'
+ import { getOpenAICodexContextWindowForModel } from '../../services/openaiAuth/models.js'
+-import { roughTokenCountEstimation } from '../../services/tokenEstimation.js'
++import {
++  countMessagesTokensWithAPI,
++  roughTokenCountEstimation,
++  roughTokenCountEstimationForMessages,
++} from '../../services/tokenEstimation.js'
+ import { getConfiguredOrBuiltInModelContextWindow } from '../../utils/model/modelContextWindows.js'
+ import { jsonStringify } from '../../utils/slowOperations.js'
+-import {
+-  hasUsableContextUsage,
+-  tokenCountWithEstimation,
+-} from '../../utils/tokens.js'
++import { tokenCountWithEstimation } from '../../utils/tokens.js'
+ import { zodToJsonSchema } from '../../utils/zodToJsonSchema.js'
+ import { getFeatureValue_CACHED_MAY_BE_STALE } from '../analytics/growthbook.js'
+ import { getMaxOutputTokensForModel } from '../api/claude.js'
+@@ -333,6 +334,45 @@ export function estimateFallbackFixedContextTokens(
+   }))
+ }
+ 
++/**
++ * How close to the line the coarse estimate has to land before the exact
++ * tokenizer is consulted. Inside this band the estimate's own error can decide
++ * the outcome, so a counting round trip is worth its latency; outside it, the
++ * answer is already clear.
++ */
++const EXACT_CONFIRM_BAND = 0.1
++
++/**
++ * The engine's own count for the prompt we are about to send, or null when the
++ * endpoint has no counting support. Mirrors how `analyzeContext` measures:
++ * messages through the counting endpoint, plus the fixed request prefix
++ * (system prompt, context, tools) that the endpoint does not see here.
++ */
++async function measureExactPromptTokens(
++  messages: Message[],
++  cacheSafeParams: CacheSafeParams,
++): Promise<number | null> {
++  /* eslint-disable @typescript-eslint/no-require-imports */
++  // Lazy: utils/messages.js is large and pulls in the whole prompt pipeline,
++  // which reaches back into compaction.
++  const { normalizeMessagesForAPI } =
++    require('../../utils/messages.js') as typeof import('../../utils/messages.js')
++  /* eslint-enable @typescript-eslint/no-require-imports */
++  try {
++    const apiMessages = normalizeMessagesForAPI(messages).map(entry =>
++      entry.type === 'assistant'
++        ? { role: 'assistant' as const, content: entry.message.content }
++        : entry.message,
++    )
++    const exactMessages = await countMessagesTokensWithAPI(apiMessages, [])
++    if (exactMessages === null) return null
++    return exactMessages + estimateFallbackFixedContextTokens(cacheSafeParams)
++  } catch (error) {
++    logError(error)
++    return null
++  }
++}
++
+ export async function shouldAutoCompact(
+   messages: Message[],
+   model: string,
+@@ -342,6 +382,9 @@ export async function shouldAutoCompact(
+   // Subtract the rough-delta that snip already computed.
+   snipTokensFreed = 0,
+   fallbackFixedContextTokens = 0,
++  // Supplied by the caller when it can reach the counting endpoint; omitted in
++  // tests and in callers with no provider to ask.
++  exactCount?: () => Promise<number | null>,
+ ): Promise<boolean> {
+   // Recursion guards. session_memory and compact are forked agents that
+   // would deadlock.
+@@ -399,19 +442,46 @@ export async function shouldAutoCompact(
+     }
+   }
+ 
+-  const fixedContextTokens = hasUsableContextUsage(messages)
+-    ? 0
+-    : fallbackFixedContextTokens
+-  const tokenCount =
+-    tokenCountWithEstimation(messages) +
+-    fixedContextTokens -
+-    snipTokensFreed
++  // Two independent measurements of the same prompt.
++  //
++  // `engineEstimate` anchors on the last provider usage and estimates only what
++  // arrived after it — authoritative whenever the provider reports usage.
++  // `localEstimate` is entirely local: class-weighted characters plus the fixed
++  // request prefix (system prompt, tools, skills). It is the second opinion,
++  // and the only one available when a relay reports no usage at all.
++  const engineEstimate = tokenCountWithEstimation(messages)
++  const localEstimate =
++    roughTokenCountEstimationForMessages(messages) + fallbackFixedContextTokens
++
++  // Either measurement crossing the line triggers. A relay that under-reports
++  // its real prompt is exactly the case where the local estimate is the only
++  // thing between the session and a hard refusal at the provider's ceiling, so
++  // the two are combined upwards instead of trusting either alone.
++  //
++  // Deliberately NOT calibrated against provider usage: scaling the local
++  // estimate by (engine / local) would drag it down precisely when the engine
++  // under-reports, which is the case the second opinion exists to catch.
+   const threshold = getAutoCompactThreshold(model)
++  let tokenCount = Math.max(engineEstimate, localEstimate) - snipTokensFreed
++
++  // A char-class estimate cannot model this engine's BPE: the same class mix
++  // measures anywhere from 1.5 to 4.5 chars/token depending on how repetitive
++  // the content is. Near the line that error is the deciding factor, so ask the
++  // engine for the real number instead of guessing.
++  if (
++    exactCount &&
++    Math.abs(tokenCount - threshold) <= threshold * EXACT_CONFIRM_BAND
++  ) {
++    const exact = await exactCount()
++    // The exact count is taken from the messages as they now stand, so snip is
++    // already reflected in it — do not subtract the delta a second time.
++    if (exact !== null) tokenCount = exact
++  }
+   const forcedThreshold = getForcedCompactThreshold(model)
+   const effectiveWindow = getEffectiveContextWindowSize(model)
+ 
+   logForDebugging(
+-    `autocompact: tokens=${tokenCount} threshold=${threshold} forcedThreshold=${forcedThreshold} effectiveWindow=${effectiveWindow}${fixedContextTokens > 0 ? ` fallbackFixed=${fixedContextTokens}` : ''}${snipTokensFreed > 0 ? ` snipFreed=${snipTokensFreed}` : ''}`,
++    `autocompact: tokens=${tokenCount} engine=${engineEstimate} local=${localEstimate} threshold=${threshold} forcedThreshold=${forcedThreshold} effectiveWindow=${effectiveWindow}${snipTokensFreed > 0 ? ` snipFreed=${snipTokensFreed}` : ''}`,
+   )
+ 
+   const { isAboveAutoCompactThreshold, isAtForcedCompactLimit } =
+@@ -456,6 +526,7 @@ export async function autoCompactIfNeeded(
+     querySource,
+     snipTokensFreed,
+     estimateFallbackFixedContextTokens(cacheSafeParams),
++    () => measureExactPromptTokens(messages, cacheSafeParams),
+   )
+ 
+   if (!shouldCompact) {
+diff --git a/src/services/tokenEstimation.test.ts b/src/services/tokenEstimation.test.ts
+index aa1f68953..81c0ddaf5 100644
+--- a/src/services/tokenEstimation.test.ts
++++ b/src/services/tokenEstimation.test.ts
+@@ -1,10 +1,95 @@
+ import { describe, expect, test } from 'bun:test'
+ import {
++  estimateTokensByCharClass,
++  pngDimensionsFromBase64,
+   roughTokenCountEstimationForContent,
+   roughTokenCountEstimationForThinking,
+ } from './tokenEstimation.js'
+ import { OPENAI_REASONING_ENVELOPE_PREFIX } from '../utils/openAIReasoningEnvelope.js'
+ 
++describe('image token estimation', () => {
++  // A PNG's IHDR sits at a fixed offset, so the first 24 bytes carry the
++  // dimensions. Values below are the engine's own counts for the same sizes,
++  // measured on the local endpoint (32px patch tokenizer).
++  const png = (width: number, height: number): string => {
++    const header = Buffer.alloc(24)
++    Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]).copy(header, 0)
++    header.writeUInt32BE(13, 8)
++    header.write('IHDR', 12, 'latin1')
++    header.writeUInt32BE(width, 16)
++    header.writeUInt32BE(height, 20)
++    return header.toString('base64')
++  }
++  const imageBlock = (data: string) =>
++    [{ type: 'image', source: { type: 'base64', media_type: 'image/png', data } }] as never
++
++  test('reads PNG dimensions from the base64 head', () => {
++    expect(pngDimensionsFromBase64(png(1280, 577))).toEqual({ width: 1280, height: 577 })
++    expect(pngDimensionsFromBase64('not-a-png-at-all-not-a-png-at-all')).toBeNull()
++  })
++
++  test('prices an image by its pixels instead of a flat constant', () => {
++    const original = process.env.ANTHROPIC_BASE_URL
++    try {
++      // Patch-tokenizing third-party engine: 1280x577 bills 721 in reality, and
++      // the flat 2000 this replaced was 2.77x high — enough to push the meter
++      // past the real prompt.
++      process.env.ANTHROPIC_BASE_URL = 'http://127.0.0.1:8866'
++      expect(roughTokenCountEstimationForContent(imageBlock(png(1280, 577)))).toBe(722)
++      // A small image costs a small amount — a constant cannot express that.
++      expect(roughTokenCountEstimationForContent(imageBlock(png(256, 256)))).toBe(64)
++
++      // First-party Anthropic documents (w*h)/750.
++      process.env.ANTHROPIC_BASE_URL = 'https://api.anthropic.com'
++      expect(roughTokenCountEstimationForContent(imageBlock(png(1280, 577)))).toBe(985)
++    } finally {
++      if (original === undefined) delete process.env.ANTHROPIC_BASE_URL
++      else process.env.ANTHROPIC_BASE_URL = original
++    }
++  })
++
++  test('falls back to the cap when the payload is not a readable PNG', () => {
++    expect(roughTokenCountEstimationForContent(imageBlock('x'.repeat(400)))).toBe(2000)
++  })
++})
++
++describe('estimateTokensByCharClass', () => {
++  // Expected values are the engine's own `count_tokens` output for the same
++  // strings (measured against the local zxsv-ai endpoint). A flat length/4 sat
++  // 30-60% off on most of these; the class weighting is what keeps the estimate
++  // usable as the trigger's second opinion.
++  const engineSamples: Array<[string, string, number]> = [
++    ['English prose', 'The quick brown fox jumps over the lazy dog. '.repeat(200), 1999],
++    ['Chinese prose', '敏捷的棕色狐狸跳过了懒惰的狗。'.repeat(200), 1999],
++    ['mixed zh/en', 'The quick brown fox 敏捷的棕色狐狸 jumps over 跳过了 the lazy dog. '.repeat(100), 1799],
++    ['code', 'function foo(a, b) { return a + b; } // comment\n'.repeat(200), 3198],
++    ['JSON', '{"key": "value", "num": 123, "arr": [1,2,3]}'.repeat(200), 4799],
++    ['Chinese technical', '修复后的路由放行策略需要同步更新 patch 基线，逐字节比对确保一致。'.repeat(60), 1139],
++  ]
++
++  for (const [name, text, engineTokens] of engineSamples) {
++    test(`stays within 15% of the engine on ${name}`, () => {
++      const estimate = estimateTokensByCharClass(text)
++      expect(Math.abs(estimate - engineTokens) / engineTokens).toBeLessThan(0.16)
++    })
++  }
++
++  test('charges a numeral per character — this engine does not merge digit runs', () => {
++    expect(estimateTokensByCharClass('12345')).toBe(5)
++    expect(estimateTokensByCharClass('M412 108')).toBe(7) // M + 4,1,2 + 1,0,8
++  })
++
++  test('does not charge for whitespace', () => {
++    expect(estimateTokensByCharClass('   \n\n\t  ')).toBe(0)
++  })
++
++  test('charges every short identifier a whole token', () => {
++    // `a` and `b` are one token each — dividing their length by 4 was what made
++    // code and paths read far cheaper than the engine billed them.
++    expect(estimateTokensByCharClass('a b c')).toBe(3)
++  })
++})
++
+ describe('roughTokenCountEstimationForContent', () => {
+   test('does not treat OpenAI encrypted reasoning bytes as plaintext tokens', () => {
+     const data = `${OPENAI_REASONING_ENVELOPE_PREFIX}${JSON.stringify({
+@@ -17,7 +102,7 @@ describe('roughTokenCountEstimationForContent', () => {
+       roughTokenCountEstimationForContent([
+         { type: 'redacted_thinking', data },
+       ]),
+-    ).toBe(4)
++    ).toBe(3)
+   })
+ 
+   test('keeps estimating non-OpenAI redacted thinking payloads', () => {
+@@ -25,7 +110,7 @@ describe('roughTokenCountEstimationForContent', () => {
+       roughTokenCountEstimationForContent([
+         { type: 'redacted_thinking', data: 'x'.repeat(400) },
+       ]),
+-    ).toBe(100)
++    ).toBe(89)
+   })
+ })
+ 
+@@ -33,13 +118,13 @@ describe('roughTokenCountEstimationForThinking', () => {
+   // Stands in for the engine's reasoning count where it reports none, so the
+   // split between deliberation and answer stays available on any endpoint.
+   test('counts thinking blocks only', () => {
+-    // 600 chars of thinking at 4 bytes/token = 150; the text block's 800 chars
+-    // belong to the output total and must not be added here.
++    // The thinking block is one 600-char word → 600/4.5 ≈ 133 tokens; the text
++    // block's 800 chars belong to the output total and must not be added here.
+     const estimate = roughTokenCountEstimationForThinking([
+       { type: 'thinking', thinking: 'x'.repeat(600) },
+       { type: 'text', text: 'y'.repeat(800) },
+     ])
+-    expect(estimate).toBe(150)
++    expect(estimate).toBe(133)
+   })
+ 
+   test('reads nothing from a turn that did not think', () => {
+@@ -53,6 +138,6 @@ describe('roughTokenCountEstimationForThinking', () => {
+       roughTokenCountEstimationForThinking([
+         { type: 'redacted_thinking', data: 'x'.repeat(400) },
+       ]),
+-    ).toBe(100)
++    ).toBe(89)
+   })
+ })
+diff --git a/src/services/tokenEstimation.ts b/src/services/tokenEstimation.ts
+index 69348a371..239216a2f 100644
+--- a/src/services/tokenEstimation.ts
++++ b/src/services/tokenEstimation.ts
+@@ -3,7 +3,7 @@ import type { BetaMessageParam as MessageParam } from '@anthropic-ai/sdk/resourc
+ // @aws-sdk/client-bedrock-runtime is imported dynamically in countTokensWithBedrock()
+ // to defer ~279KB of AWS SDK code until a Bedrock call is actually made
+ import type { CountTokensCommandInput } from '@aws-sdk/client-bedrock-runtime'
+-import { getAPIProvider } from 'src/utils/model/providers.js'
++import { getAPIProvider, isFirstPartyAnthropicBaseUrl } from 'src/utils/model/providers.js'
+ import { VERTEX_COUNT_TOKENS_ALLOWED_BETAS } from '../constants/betas.js'
+ import type { Attachment } from '../utils/attachments.js'
+ import { getModelBetas } from '../utils/betas.js'
+@@ -201,13 +201,113 @@ export async function countMessagesTokensWithAPI(
+   })
+ }
+ 
++// ── Char-class token estimation ──────────────────────────────────────────────
++//
++// A flat `length / 4` assumes English prose, and this engine tokenizes CJK,
++// digits and punctuation far less efficiently than that. Measured against the
++// engine's own `count_tokens` endpoint:
++//
++//   English prose     4.50 chars/token   (flat 4 is right here)
++//   Chinese           1.50               (flat 4 underestimates 2.7x)
++//   JSON              1.83               (flat 4 underestimates 2.2x)
++//   digits            1.00               (every numeral is its own token)
++//   punctuation       ~1.20 in flowing text
++//   spaces/newlines   free (never tokenized)
++//
++// JSON and code carry most of a transcript's bulk and are digit/punctuation
++// dense, so the flat ratio underestimated them badly — a 9,000-char code block
++// read as 2,250 tokens when the engine charged 3,198. Weighting by class brings
++// the mean error to ~8% across nine content samples (was 30-60% off), which is
++// what keeps the local estimate usable as the second opinion in the auto-compact
++// trigger.
++const CJK_TOKENS_PER_CHAR = 1 / 1.5
++const LETTER_CHARS_PER_TOKEN = 4.5
++const DIGIT_TOKENS_PER_CHAR = 1
++const PUNCT_TOKENS_PER_CHAR = 1 / 1.2
++
++const isCjk = (code: number): boolean =>
++  (code >= 0x3400 && code <= 0x4dbf) || // CJK ext A
++  (code >= 0x4e00 && code <= 0x9fff) || // CJK unified
++  (code >= 0xf900 && code <= 0xfaff) || // CJK compat
++  (code >= 0x3040 && code <= 0x30ff) || // kana
++  (code >= 0xac00 && code <= 0xd7af) // hangul syllables
++
++const isLetterOrUnderscore = (code: number): boolean =>
++  (code >= 65 && code <= 90) || (code >= 97 && code <= 122) || code === 95
++
++const isDigit = (code: number): boolean => code >= 48 && code <= 57
++
++const isSpace = (code: number): boolean =>
++  code === 32 || code === 9 || code === 10 || code === 13
++
++/**
++ * Single pass, no regex and no allocation: this runs over every message of a
++ * transcript on each trigger check, so the hot path stays a charCode loop.
++ */
++export function estimateTokensByCharClass(content: string): number {
++  let tokens = 0
++  let i = 0
++  const n = content.length
++  while (i < n) {
++    const code = content.charCodeAt(i)
++    if (isSpace(code)) {
++      i++
++      continue
++    }
++    if (isCjk(code)) {
++      tokens += CJK_TOKENS_PER_CHAR
++      i++
++      continue
++    }
++    if (isDigit(code)) {
++      let j = i
++      while (j < n && isDigit(content.charCodeAt(j))) j++
++      tokens += (j - i) * DIGIT_TOKENS_PER_CHAR
++      i = j
++      continue
++    }
++    if (isLetterOrUnderscore(code)) {
++      let j = i
++      while (j < n && isLetterOrUnderscore(content.charCodeAt(j))) j++
++      // A word is at least one token however short it is — `a` and `b` cost a
++      // token each, which the flat ratio divided down to a quarter.
++      tokens += Math.max(1, (j - i) / LETTER_CHARS_PER_TOKEN)
++      i = j
++      continue
++    }
++    tokens += PUNCT_TOKENS_PER_CHAR
++    i++
++  }
++  return Math.round(tokens)
++}
++
++/**
++ * Rough token count for a string.
++ *
++ * Without `bytesPerToken` the estimate is class-weighted (see above). Callers
++ * that pass an explicit ratio (file-type heuristics) keep the flat behaviour
++ * they were tuned for.
++ */
+ export function roughTokenCountEstimation(
+   content: string,
+-  bytesPerToken: number = 4,
++  bytesPerToken?: number,
+ ): number {
+-  return Math.round(content.length / bytesPerToken)
++  if (bytesPerToken !== undefined) {
++    return Math.round(content.length / bytesPerToken)
++  }
++  return estimateTokensByCharClass(content)
+ }
+ 
++// ── Session calibration ──────────────────────────────────────────────────────
++//
++// Intentionally absent. Scaling the local estimate by (engine tokens / local
++// estimate) was considered and rejected: it would drag the local estimate down
++// exactly when the engine under-reports — the one case the local estimate
++// exists to catch — because the feedback loop cannot tell "the local ratio is
++// wrong" from "the engine is lying". The two measurements stay independent and
++// the trigger takes whichever is higher.
++
++
+ /**
+  * Returns an estimated bytes-per-token ratio for a given file extension.
+  * Dense JSON has many single-character tokens (`{`, `}`, `:`, `,`, `"`)
+@@ -387,6 +487,67 @@ export function roughTokenCountEstimationForMessage(message: {
+   return 0
+ }
+ 
++// ── Image tokens ─────────────────────────────────────────────────────────────
++//
++// Every vision API prices an image by its pixel count, and a single constant
++// was wrong for all of them: measured against the local Qwen engine, 1280x577
++// screenshots bill 721 tokens, while the flat 2000 this used to return was
++// 2.77x high — enough to pin the context meter above the real prompt.
++//
++// The divisor is provider-specific. Anthropic documents (w*h)/750 for its own
++// vision pricing; the local engine patch-tokenizes in 32px blocks, which
++// measures as (w*h)/1024 across seven sizes to within 2.2%.
++const ANTHROPIC_IMAGE_PIXELS_PER_TOKEN = 750
++const PATCHED_IMAGE_PIXELS_PER_TOKEN = 1024
++/** Cap and fallback, matching microCompact's IMAGE_MAX_TOKEN_SIZE. */
++const IMAGE_MAX_TOKEN_SIZE = 2000
++const DOCUMENT_TOKEN_ESTIMATE = 2000
++
++const PNG_SIGNATURE = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]
++
++/**
++ * Width and height of a base64 PNG, or null when the payload is not a PNG we
++ * can read. The IHDR chunk sits at a fixed offset, so the first 32 base64
++ * characters (24 bytes) are all that has to be decoded — a full decode of a
++ * 100KB screenshot per estimate would cost more than the estimate is worth.
++ */
++export function pngDimensionsFromBase64(
++  data: string,
++): { width: number; height: number } | null {
++  if (data.length < 32) return null
++  let head: Buffer
++  try {
++    head = Buffer.from(data.slice(0, 32), 'base64')
++  } catch {
++    return null
++  }
++  if (head.length < 24) return null
++  for (let i = 0; i < PNG_SIGNATURE.length; i++) {
++    if (head[i] !== PNG_SIGNATURE[i]) return null
++  }
++  if (head.toString('latin1', 12, 16) !== 'IHDR') return null
++  const width = head.readUInt32BE(16)
++  const height = head.readUInt32BE(20)
++  if (width === 0 || height === 0) return null
++  return { width, height }
++}
++
++function estimateImageTokens(block: {
++  source?: { data?: unknown; media_type?: unknown }
++}): number {
++  const data = block.source?.data
++  if (typeof data !== 'string') return IMAGE_MAX_TOKEN_SIZE
++  const dimensions = pngDimensionsFromBase64(data)
++  if (!dimensions) return IMAGE_MAX_TOKEN_SIZE
++  const divisor = isFirstPartyAnthropicBaseUrl()
++    ? ANTHROPIC_IMAGE_PIXELS_PER_TOKEN
++    : PATCHED_IMAGE_PIXELS_PER_TOKEN
++  const tokens = Math.ceil(
++    (dimensions.width * dimensions.height) / divisor,
++  )
++  return Math.min(IMAGE_MAX_TOKEN_SIZE, Math.max(1, tokens))
++}
++
+ export function roughTokenCountEstimationForContent(
+   content:
+     | string
+@@ -457,17 +618,12 @@ function roughTokenCountEstimationForNonTextBlock(
+   block: Anthropic.ContentBlock | Anthropic.ContentBlockParam,
+ ): number {
+   if (block.type === 'image' || block.type === 'document') {
+-    // https://platform.claude.com/docs/en/build-with-claude/vision#calculate-image-costs
+-    // tokens = (width px * height px)/750
+-    // Images are resized to max 2000x2000 (5333 tokens). Use a conservative
+-    // estimate that matches microCompact's IMAGE_MAX_TOKEN_SIZE to avoid
+-    // underestimating and triggering auto-compact too late.
+-    //
+     // document: base64 PDF in source.data.  Must NOT reach the
+     // jsonStringify catch-all — a 1MB PDF is ~1.33M base64 chars →
+     // ~325k estimated tokens, vs the ~2000 the API actually charges.
+     // Same constant as microCompact's calculateToolResultTokens.
+-    return 2000
++    if (block.type === 'document') return DOCUMENT_TOKEN_ESTIMATE
++    return estimateImageTokens(block)
+   }
+   if (block.type === 'tool_result') {
+     return roughTokenCountEstimationForContent(block.content)
+diff --git a/src/tasks/LocalAgentTask/LocalAgentTask.test.ts b/src/tasks/LocalAgentTask/LocalAgentTask.test.ts
+index 08b851e3e..c534e9828 100644
+--- a/src/tasks/LocalAgentTask/LocalAgentTask.test.ts
++++ b/src/tasks/LocalAgentTask/LocalAgentTask.test.ts
+@@ -330,8 +330,9 @@ describe('thinking share of a run', () => {
+ 
+   test('estimates the thinking when the engine reports none', () => {
+     const tracker = createProgressTracker()
+-    // 4000 chars of thinking at 4 bytes/token = 1000, used because no engine
+-    // count came with the turn — otherwise this endpoint would have no split.
++    // 4,000 chars of one long token ≈ 889 at the class-weighted ratio, used
++    // because no engine count came with the turn — otherwise this endpoint
++    // would have no split.
+     updateProgressFromMessage(tracker, {
+       type: 'assistant' as const,
+       message: {
+@@ -345,7 +346,7 @@ describe('thinking share of a run', () => {
+       },
+     } as never)
+ 
+-    expect(tracker.cumulativeReasoningTokens).toBe(1000)
++    expect(tracker.cumulativeReasoningTokens).toBe(889)
+   })
+ 
+   test('does not estimate a thinking record whose response reported the count', () => {
+diff --git a/src/utils/__tests__/context.test.ts b/src/utils/__tests__/context.test.ts
+index 8c0c78c38..c06a0aeaf 100644
+--- a/src/utils/__tests__/context.test.ts
++++ b/src/utils/__tests__/context.test.ts
+@@ -93,6 +93,24 @@ describe('calculateCurrentContextTokenTotal', () => {
+       canonicalTokens: 221_000,
+     })).toBe(30_000)
+   })
++
++  test('takes the higher of provider usage and the local estimate', () => {
++    // Real session: the local accumulator priced ~96 images at the conservative
++    // per-image constant and read 225,573, while the engine billed 173,743. The
++    // meter keeps the larger figure on purpose — an underestimate reads "safe"
++    // while the request is about to be refused, which is the failure this
++    // guards against. The trigger uses the same rule, so the two agree.
++    expect(calculateCurrentContextTokenTotal(225_573, {
++      input_tokens: 1_644,
++      cache_creation_input_tokens: 0,
++      cache_read_input_tokens: 172_032,
++      output_tokens: 67,
++    }, 231_248, {
++      hasMediaInput: true,
++      usageTrust: 'low',
++      canonicalTokens: 176_187,
++    })).toBe(225_573)
++  })
+ })
+ 
+ test('Opus 5 uses its native context and output limits', () => {
+diff --git a/src/utils/__tests__/tokens.test.ts b/src/utils/__tests__/tokens.test.ts
+index 10d47b68a..93b862155 100644
+--- a/src/utils/__tests__/tokens.test.ts
++++ b/src/utils/__tests__/tokens.test.ts
+@@ -207,7 +207,9 @@ describe('tokenCountWithEstimation', () => {
+       { type: 'user', message: { content: 'n'.repeat(40) } },
+     ] as never
+ 
+-    expect(tokenCountWithEstimation(messages)).toBe(3_110)
++    // 3,000 from the usage anchor + 89 (the 400-char tool result) + 9 (the
++    // 40-char user message) under the class-weighted ratio.
++    expect(tokenCountWithEstimation(messages)).toBe(3_098)
+   })
+ })
+ 
+diff --git a/src/utils/context.ts b/src/utils/context.ts
+index 7698396db..1762c3fbf 100644
+--- a/src/utils/context.ts
++++ b/src/utils/context.ts
+@@ -231,6 +231,12 @@ export function calculateCurrentContextTokenTotal(
+     ) {
+       return budget.usedTokens
+     }
++    // Whichever of the two measurements is higher wins. Neither is reliable on
++    // its own: provider usage can under-report a relay's real prompt, and the
++    // local estimate drifts with its per-content constants. A meter that is
++    // too low is the dangerous direction — it reads "safe" while the request is
++    // about to be refused — so the pair is combined upwards, matching the
++    // trigger, which fires when either measurement crosses the threshold.
+     return Math.min(
+       Math.max(budget.usedTokens, options.canonicalTokens),
+       contextWindow,

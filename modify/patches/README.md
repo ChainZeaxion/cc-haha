@@ -2,7 +2,7 @@
 
 结构：`patches/<主题>/<主题>-<优化项>-patch<N>.patch`（一个优化项一个 patch；拆不开才 patch2/3）。
 
-**应用顺序 = `ORDER.md` 自上而下**（40 个 patch；项按最小链位排序，见下）。
+**应用顺序 = `ORDER.md` 自上而下**（41 个 patch；项按最小链位排序，见下）。
 
 ```bash
 while read -r p; do git apply -p1 "$p"; done < modify/patches/ORDER.md
@@ -11,6 +11,7 @@ while read -r p; do git apply -p1 "$p"; done < modify/patches/ORDER.md
 > ⚠️ **两个基座，不要混用**（2026-10-06 记录）
 > - **第 1–36 个**：基座 = 上游 `068b3ebd`（**0.6.6 血缘**），链终态 = `cchaha-06scode` 树（实测 `desktop/src` 差异 0）。这 36 条是 **PR 提交层**（`pr-prepare/`）的来源，目标 `NanmiCoder/cc-haha`。
 > - **第 37 个**（`h5/h5-file-open-patch1.patch`）与**第 38 个**（`vcc/vcc-compaction-retention-budget-patch1.patch`，压缩双百分比分档 + vcc 保留预算）与**第 39 个**（`prompt/prompt-i18n-localization-patch1.patch`，提示词中文化 v1 打样）：基座 = `cchaha-067scode` 的 **`align-latest` HEAD（0.6.7 血缘）**。37 触及的 66 个文件里 56 个在 0.6.6 基座中**不存在或布局不同**（`components/workspace/surfaces/document/`、`OpenInSystemButton.tsx`、`MediaSurface.tsx` …），**无法**链尾追加，故两者均**单独应用**。
+> - **第 40 / 41 个**同样落在 0.6.7 血缘，**各以自己的基座单独应用**：40 = `53199e3f7`（H5 模型配置测试/获取按钮），41 = `c71ce319d`（上下文估算口径统一）。
 > - 判据：前 36 条中 `session-upstream-session-id` / `session-local-index-budget` 之所以能"链尾追加"，是因为其目标文件在两个血缘里**逐字节相同**（实测双方 `git apply --check` 均 OK）。
 
 ## h5/ — H5 远程访问与移动端支持（pr-1）
@@ -59,6 +60,7 @@ while read -r p; do git apply -p1 "$p"; done < modify/patches/ORDER.md
 | `usage-cache-billing-patch1.patch` | 10,10 |
 | `usage-context-usage-anchor-patch1.patch` | 19,19 |
 | `usage-session-speed-usage-pairing-patch1.patch` | 37,37 |
+| `usage-context-estimation-patch1.patch` | 2026-10-12 新增（⚠️ 基座 = 067 `c71ce319d`，独立应用；上下文估算口径统一——字符分类模型 + 图片按尺寸计价（读 PNG IHDR，`w*h/1024` 第三方 / `/750` first-party）+ 触发取 `max(引擎usage, 本地估算)` + 临近阈值 ±10% 调引擎 `count_tokens` 精算 + SessionMemory 改按 token 截断，10 文件） |
 
 ## test/ — 测试环境隔离与基线修复（pr-6）
 
