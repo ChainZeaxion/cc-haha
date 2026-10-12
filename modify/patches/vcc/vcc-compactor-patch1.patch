@@ -1539,15 +1539,16 @@ index 00000000..29e68b81
 +}
 diff --git a/src/services/compact/vcc/vccCompact.test.ts b/src/services/compact/vcc/vccCompact.test.ts
 new file mode 100644
-index 00000000..7da54ba0
+index 000000000..787cbe1fc
 --- /dev/null
 +++ b/src/services/compact/vcc/vccCompact.test.ts
-@@ -0,0 +1,158 @@
+@@ -0,0 +1,277 @@
 +import { describe, expect, test } from 'bun:test'
 +
 +import {
 +  SLICE_OMITTED_SECTIONS,
 +  appendEndState,
++  runVccCompaction,
 +  runVccSliceCompaction,
 +  sectionsOf,
 +  stripRefsOutside,
@@ -1699,6 +1700,124 @@ index 00000000..7da54ba0
 +      { type: 'assistant', uuid: 'e3', message: { role: 'assistant', content: [{ type: 'text', text: 'short' }] } },
 +    ] as never[]
 +    expect(appendEndState('[Status]\n- busy', toolOnly)).toBe('[Status]\n- busy')
++  })
++})
++
++/** The `[Session Goal]` section of a compiled summary, up to the next header. */
++const goalSection = (summary: string): string => {
++  const start = summary.indexOf('[Session Goal]')
++  if (start < 0) return ''
++  const ends = [
++    '[Files And Changes]',
++    '[Commits]',
++    '[Outstanding Context]',
++    '[User Preferences]',
++    '\n\n---\n\n',
++  ]
++    .map((marker) => summary.indexOf(marker, start))
++    .filter((n) => n > start)
++  return summary.slice(start, ends.length > 0 ? Math.min(...ends) : undefined)
++}
++
++describe('previous-summary handoff', () => {
++  // The continuation summary is synthesized, not a user turn. Its own section
++  // bullets used to be harvested as session goals: the `[Session Goal]` /
++  // `[Files And Changes]` headers are dropped by NON_GOAL_RE (they start with
++  // `[`), but their `- ` bullets are not — so `- Modified: …` lines landed in
++  // Session Goal and compounded on every compaction. The head line is
++  // localized, which also broke the text-anchored strip of that head.
++  const afterCompaction = () =>
++    [
++      {
++        type: 'user',
++        uuid: 's1',
++        isCompactSummary: true,
++        message: {
++          role: 'user',
++          content: [
++            '本会话由一段超出上下文的先前对话继续而来。',
++            '',
++            '[Session Goal]',
++            '- 实现 vcc 局部压缩',
++            '',
++            '[Files And Changes]',
++            '- Modified: /repo/src/services/compact/vcc/adapter.ts',
++            '',
++            '---',
++            '',
++            '[user]',
++            '继续推进待办任务',
++          ].join('\n'),
++        },
++      },
++      { type: 'user', uuid: 'u1', message: { role: 'user', content: '继续推进待办任务' } },
++    ] as never[]
++
++  test('carries the prior goals over without letting its file bullets in', () => {
++    const result = runVccCompaction({ messages: afterCompaction() })
++    const goal = goalSection(result.summary)
++    // The prior goal survives through previousSummary, not by being re-read as
++    // user text...
++    expect(goal).toContain('实现 vcc 局部压缩')
++    // ...but the summary's own Files bullets must not be mistaken for goals.
++    expect(goal).not.toContain('Modified:')
++    expect(goal).not.toContain('adapter.ts')
++  })
++
++  test('recovers the prior summary under a localized head line', () => {
++    const result = runVccCompaction({ messages: afterCompaction() })
++    expect(result.previousSummaryUsed).toBe(true)
++    expect(sectionsOf(result.summary)).toContain('Session Goal')
++  })
++})
++
++describe('Chinese session goals', () => {
++  // Upstream's intent lists (TASK_RE / SCOPE_CHANGE_RE) are English-only, so a
++  // Chinese session never emitted a later [Scope change]: its Session Goal
++  // stayed pinned to the session's opening lines forever, while an English
++  // session kept updating. The Chinese lists and the CJK-aware length bar are
++  // what let these land.
++  const chineseSession = (fresh: string) =>
++    [
++      {
++        type: 'user',
++        uuid: 's1',
++        isCompactSummary: true,
++        message: {
++          role: 'user',
++          content: [
++            '本会话由一段超出上下文的先前对话继续而来。',
++            '',
++            '[Session Goal]',
++            '- 移植 vcc 算法压缩',
++            '',
++            '---',
++            '',
++            '[user]',
++            '继续',
++          ].join('\n'),
++        },
++      },
++      { type: 'user', uuid: 'u1', message: { role: 'user', content: '最初的会话目标：移植 vcc 算法压缩。' } },
++      { type: 'user', uuid: 'u2', message: { role: 'user', content: fresh } },
++    ] as never[]
++
++  test('captures a later Chinese ask as a scope change', () => {
++    const goal = goalSection(runVccCompaction({ messages: chineseSession('修复移动端页面的下载按钮。') }).summary)
++    expect(goal).toContain('[Scope change]')
++    expect(goal).toContain('修复移动端页面的下载按钮')
++  })
++
++  test('treats a short Chinese ask as substantive, not as noise', () => {
++    // Seven glyphs — under a bar calibrated on English words, but a complete
++    // instruction.
++    const goal = goalSection(runVccCompaction({ messages: chineseSession('补充单元测试。') }).summary)
++    expect(goal).toContain('补充单元测试')
++  })
++
++  test('keeps a bare acknowledgement out of the goals', () => {
++    const goal = goalSection(runVccCompaction({ messages: chineseSession('好的') }).summary)
++    expect(goal).not.toContain('好的')
 +  })
 +})
 diff --git a/src/services/compact/vcc/vccCompact.ts b/src/services/compact/vcc/vccCompact.ts
@@ -5637,10 +5756,10 @@ index 00000000..61c9d353
 +};
 diff --git a/src/services/compact/vcc/vendor/extract/goals.ts b/src/services/compact/vcc/vendor/extract/goals.ts
 new file mode 100644
-index 00000000..49b72881
+index 000000000..816a1a76b
 --- /dev/null
 +++ b/src/services/compact/vcc/vendor/extract/goals.ts
-@@ -0,0 +1,81 @@
+@@ -0,0 +1,114 @@
 +// Vendored from @sting8k/pi-vcc@0.8.0 (MIT). Do not edit by hand.
 +// @ts-nocheck
 +import type { NormalizedBlock } from "../types";
@@ -5652,6 +5771,26 @@ index 00000000..49b72881
 +
 +const TASK_RE =
 +  /\b(fix|implement|add|create|build|refactor|debug|investigate|update|remove|delete|migrate|deploy|test|write|set up)\b/i;
++
++// ─── LOCAL EDIT (cc-haha) ─────────────────────────────────────────────────
++// Upstream's intent lists are English-only, so a Chinese session never emitted
++// a later [Scope change]: its Session Goal stayed pinned to the first six lines
++// of the session, forever, while an English session kept updating. The lists
++// below mirror the English ones. `\b` is deliberately absent — it is an ASCII
++// word boundary and never matches between two CJK characters, so `\b修复\b`
++// would match nothing.
++const SCOPE_CHANGE_RE_ZH =
++  /(改为|改成|改用|换成|换一个|反过来|其实|不如|算了|新任务|切换|重新|不再|先不|暂时不)/;
++
++const TASK_RE_ZH =
++  /(修复|修一下|实现|新增|添加|加上|加个|创建|新建|构建|重构|调试|排查|调查|更新|升级|移除|删除|迁移|部署|测试|编写|设置|配置|优化|支持|补上|补充|拆成|拆分|抽取|合并|提取|替换|改写|清理|整理|接入|对接|去掉|调整|改进|完善|适配)/;
++
++// A CJK glyph carries roughly twice the information of one Latin character, so
++// a bare `length` bar calibrated on English rejects ordinary Chinese asks
++// outright: "修复移动端页面的下载按钮。" is 13 chars but a complete
++// instruction. Counting CJK as two keeps one threshold meaningful in both.
++const intentLength = (s: string): number =>
++  s.length + (s.match(/[\u4e00-\u9fff]/g)?.length ?? 0);
 +
 +const NOISE_SHORT_RE = /^(ok|yes|no|sure|yeah|yep|go|hi|hey|thx|thanks|ok\b.*|y|n|k)\s*[.!?]*$/i;
 +
@@ -5678,7 +5817,7 @@ index 00000000..49b72881
 +
 +const isSubstantiveGoal = (text: string): boolean => {
 +  const t = text.trim();
-+  if (t.length <= 5) return false;
++  if (intentLength(t) <= 5) return false;
 +  if (t.length > MAX_GOAL_CHARS) return false;
 +  if (NOISE_SHORT_RE.test(t)) return false;
 +  if (NON_GOAL_RE.test(t)) return false;
@@ -5688,6 +5827,16 @@ index 00000000..49b72881
 +// Test scope-change / task intent only on the leading portion of a user block
 +// so that pasted outputs below the actual instruction do not trigger matches.
 +const LEADING_CHARS = 200;
++
++// ─── LOCAL EDIT (cc-haha) ─────────────────────────────────────────────────
++// Upstream's bar is `lines[0].length > 15`, calibrated on English words. The
++// same information in Chinese is fewer glyphs ("补充单元测试。" is 7 chars but a
++// complete instruction), so Chinese gets a lower bar. English keeps its exact
++// number — `intentLength` is the identity for pure-Latin text.
++const TASK_MIN_LENGTH = 15;
++const TASK_MIN_LENGTH_ZH = 12;
++const taskLengthBar = (s: string): number =>
++  /[\u4e00-\u9fff]/.test(s) ? TASK_MIN_LENGTH_ZH : TASK_MIN_LENGTH;
 +
 +export const extractGoals = (blocks: NormalizedBlock[]): string[] => {
 +  const goals: string[] = [];
@@ -5699,7 +5848,7 @@ index 00000000..49b72881
 +    const truncated = truncateAtTemplate(rawLines);
 +    const lines = collapseSkillLines(truncated.filter(isSubstantiveGoal))
 +      .map(stripLeadingBullet)
-+      .filter((l) => l.length > 5);
++      .filter((l) => intentLength(l) > 5);
 +    if (lines.length === 0) continue;
 +
 +    if (goals.length === 0) {
@@ -5708,9 +5857,12 @@ index 00000000..49b72881
 +    }
 +
 +    const leading = b.text.slice(0, LEADING_CHARS);
-+    if (SCOPE_CHANGE_RE.test(leading)) {
++    if (SCOPE_CHANGE_RE.test(leading) || SCOPE_CHANGE_RE_ZH.test(leading)) {
 +      latestScopeChange = lines.slice(0, 3).map((l) => clip(l, MAX_GOAL_CHARS));
-+    } else if (TASK_RE.test(leading) && lines[0].length > 15) {
++    } else if (
++      (TASK_RE.test(leading) || TASK_RE_ZH.test(leading)) &&
++      intentLength(lines[0]) > taskLengthBar(lines[0])
++    ) {
 +      latestScopeChange = lines.slice(0, 2).map((l) => clip(l, MAX_GOAL_CHARS));
 +    }
 +  }
