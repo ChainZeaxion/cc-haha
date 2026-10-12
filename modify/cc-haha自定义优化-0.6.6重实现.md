@@ -3347,6 +3347,16 @@ src/prompts/i18n/
 
 英文工具结果**不会**把思考拽回英文——预填种子每轮都强制中文开头，这一层保护对「读英文文件/看报错」的日常用法至关重要。
 
+**内部服务无需 lead**（逐项确认）：
+
+| 服务 | 思考 | 处理 |
+|---|---|---|
+| compact 压缩 | `thinkingConfig: { type: 'disabled' }` **关闭** | 不产生思考，无关 |
+| toolUseSummary | `queryHaiku` 短标签 | system 已本地化 ⇒ 中文标签 |
+| sessionTitle / insights | 短输出 | 已有各自本地化 |
+
+即：**凡产生用户可见思考的路径都已覆盖**；内部服务要么不思考、要么 system 已本地化。
+
 **门禁**：i18n 19/19、desktop 81/81、AgentTool+prompts 88/88、`check:server` 6654/0。（V22 中文提示词 vs 原版英文）
 
 | 功能域 | 检查项 | 结果 |
