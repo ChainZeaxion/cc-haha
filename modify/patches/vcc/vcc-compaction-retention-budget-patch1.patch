@@ -602,7 +602,7 @@ index 000000000..270f17855
 +  })
 +})
 diff --git a/src/services/compact/vcc/vccCompact.ts b/src/services/compact/vcc/vccCompact.ts
-index b800f7063..d5f44ccdd 100644
+index b800f7063..815db3ae8 100644
 --- a/src/services/compact/vcc/vccCompact.ts
 +++ b/src/services/compact/vcc/vccCompact.ts
 @@ -18,6 +18,10 @@ import {
@@ -616,7 +616,25 @@ index b800f7063..d5f44ccdd 100644
  import type { FileOps } from "./vendor/types"
  
  // pi-vcc's before-compact ranking budget (0.8.0 hook): brief transcript
-@@ -86,6 +90,13 @@ export interface VccCompactionInput {
+@@ -56,6 +60,17 @@ const extractPreviousSummary = (messages: CcMessage[]): string | undefined => {
+     if (msg.type !== "user" || !msg.isCompactSummary) continue
+     const content = msg.message?.content
+     if (typeof content !== "string") continue
++    // Anchor on the first section header, not the head line: the head is
++    // localized, and a stray copy of CONTINUATION_PREFIX inside the body (it
++    // used to be harvested into Session Goal as a bullet) sliced away
++    // everything before it — including the `[Session Goal]` header.
++    const headerAt = SECTION_HEADERS
++      .map((h) => content.indexOf(`[${h}]`))
++      .filter((n) => n >= 0)
++      .sort((a, b) => a - b)[0]
++    if (headerAt !== undefined) return content.slice(headerAt).trim()
++    // No section headers at all (legacy/foreign shape) — fall back to the
++    // head line.
+     const idx = content.indexOf(CONTINUATION_PREFIX)
+     if (idx < 0) return content
+     // The prefix line ends after "earlier portion of the conversation."
+@@ -86,6 +101,13 @@ export interface VccCompactionInput {
     * > 0 it overrides the smart-keep resolution. `null`/absent = smart keep.
     */
    keepUserTurns?: number | null
@@ -630,7 +648,7 @@ index b800f7063..d5f44ccdd 100644
  }
  
  export interface VccCompactionOutput {
-@@ -118,35 +129,49 @@ export const runVccCompaction = (input: VccCompactionInput): VccCompactionOutput
+@@ -118,35 +140,49 @@ export const runVccCompaction = (input: VccCompactionInput): VccCompactionOutput
      adapted.messages,
      input.preCompactTokenCount,
    )
@@ -703,7 +721,7 @@ index b800f7063..d5f44ccdd 100644
      return {
        summary,
        messagesToKeep: [],
-@@ -158,13 +183,22 @@ export const runVccCompaction = (input: VccCompactionInput): VccCompactionOutput
+@@ -158,13 +194,22 @@ export const runVccCompaction = (input: VccCompactionInput): VccCompactionOutput
        sections: sectionsOf(summary),
      }
    }
@@ -733,7 +751,7 @@ index b800f7063..d5f44ccdd 100644
  
    return {
      summary,
-@@ -178,6 +212,31 @@ export const runVccCompaction = (input: VccCompactionInput): VccCompactionOutput
+@@ -178,6 +223,31 @@ export const runVccCompaction = (input: VccCompactionInput): VccCompactionOutput
    }
  }
  

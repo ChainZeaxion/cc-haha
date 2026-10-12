@@ -45,7 +45,11 @@ patches/h5/h5-file-open-patch1.patch
 
 # 38：⚠️ 基座同上（0.6.7 血缘）—— = `align-latest` 的 `3a51ef84`，**同样不可**接到 36 条之后。
 # 压缩阈值分档改双百分比 + vcc 压缩后保留预算；触及 4 源码 + 2 测试文件。
-# 独立应用（干净 `3a51ef84` 上 apply ⇒ 6 文件逐字节一致）。
+# 另含 **compact 摘要污染修复**（2026-10-12，`22b997bb9`）：`adapter.ts` 跳过 `isCompactSummary`
+#   消息（否则摘要自身的 `- Modified:` 条目被 `extractGoals` 当成 Session Goal 并逐次继承）+
+#   `vccCompact.ts` 的 `extractPreviousSummary` 改锚定首个 section 标题（head 已本地化，按英文
+#   prefix 剥头会切掉 `[Session Goal]` 本身）。该修复同步刷入 patch 15 的 `adapter.ts` 段。
+# 独立应用（干净 `3a51ef84` 上 apply ⇒ 6 文件逐字节一致）✅ 已实测。
 patches/vcc/vcc-compaction-retention-budget-patch1.patch
 
 # 39：⚠️ 基座同上（0.6.7 血缘）—— = `align-latest` 的 `cb7065b1e`，**同样独立应用**。
