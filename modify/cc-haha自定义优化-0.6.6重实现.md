@@ -3301,7 +3301,21 @@ src/prompts/i18n/
 
 **思考语言开关**（本次一并实装）：设置-通用新增「思考语言」三态——**跟随界面（auto）/ 中文 / 英文**，存 `desktop-ui.json.thinkingLanguage`，与界面语言解耦（界面英文也可强制中文思考）。侧车 `getThinkingLanguage()` 决定是否注入中文思考规则（lead/tail/userNote）；引擎预填随该标记自动跟随——**一个开关贯通全链**。
 
-**状态**：代码与引擎模板均已改（备份 `chat_template-fix.jinja.bak-prefill-20261012`）；**引擎重启后生效**（`VLLM_CHAT_TEMPLATE_HOT_RELOAD=0`）。门禁：i18n 19/19、desktop 81/81、`check:server` 6654/0。
+**状态**：代码与引擎模板均已改（备份 `chat_template-fix.jinja.bak-prefill-20261012`）；引擎热重载/重启后生效。
+
+**⭐ 热重载后真实链路实测**（`/v1/messages`，cc-haha 实际走的 Anthropic 端点，经完整 chat template）：
+
+| 口径 | 不预填（热重载前） | 预填后 |
+|---|---|---|
+| 多轮连续对话（5 会话 × 8 轮 = 40 轮） | 77.5%（首轮仅 60%） | **40/40 = 100%** |
+| 严格首字符汉字（12 场景） | — | **12/12 = 100%** |
+| 思考内容中文主导（>50% 汉字） | — | 12/12 = 100% |
+
+**关键**：多轮场景是预填价值最大的地方——**首轮**（对话语境未建立）是不预填时最薄弱的环节（60%），预填把它也拉到 100%。输出自然通顺（"要求我介绍自己"、"说'再见'是告别"），中文习惯省略主语，无违和。
+
+**⚠️ 排查踩坑记录**：`/v1/completions` 是 **raw 端点，不经过 chat template**——用它测「模板预填」会得出假结论（实际测到的是手拼 prompt 里的内容）。验证模板行为必须用 `/v1/messages` 或 `/v1/chat/completions`。另：`prompt_text` 字段在该引擎返回 null，改用**本地 Jinja 渲染**（`ImmutableSandboxedEnvironment`）验证模板逻辑。
+
+**门禁**：i18n 19/19、desktop 81/81、`check:server` 6654/0。
 
 ### 功能完整性评估（V22 中文提示词 vs 原版英文）
 
