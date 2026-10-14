@@ -111,7 +111,7 @@ export type ServerMessage =
    * ignored. Only sent for endpoints that reported token ids.
    */
   | { type: 'tps_tokens'; tokens: number; kind: 'thinking' | 'content' | 'tool'; serverTs?: number }
-  | { type: 'tool_use_complete'; toolName: string; toolUseId: string; originalToolUseId?: string; input: unknown; parentToolUseId?: string }
+  | { type: 'tool_use_complete'; toolName: string; toolUseId: string; originalToolUseId?: string; input: unknown; parentToolUseId?: string; /** Epoch ms the server received this frame. A whole-block tool input fed to the TPS meter at completion time carries no streamed deltas, and stamping it keeps that feed on the generation clock. */ serverTs?: number }
   | { type: 'tool_result'; toolUseId: string; originalToolUseId?: string; content: unknown; isError: boolean; parentToolUseId?: string }
   | {
       type: 'permission_request'
@@ -181,7 +181,7 @@ export type ServerMessage =
 export type AgentRunStreamMessage =
   | { type: 'content_start'; blockType: 'text' | 'tool_use'; toolName?: string; toolUseId?: string; originalToolUseId?: string; parentToolUseId?: string }
   | { type: 'content_delta'; text?: string; toolInput?: string; /** Epoch ms the server received this chunk. The client rates decode off this clock instead of its own receive clock, which a busy main thread compresses when it drains a queue (see TpsClock: the meter buckets frames on whichever clock it settled on). */ serverTs?: number }
-  | { type: 'tool_use_complete'; toolName: string; toolUseId: string; originalToolUseId?: string; input: unknown; parentToolUseId?: string }
+  | { type: 'tool_use_complete'; toolName: string; toolUseId: string; originalToolUseId?: string; input: unknown; parentToolUseId?: string; /** Epoch ms the server received this frame. A whole-block tool input fed to the TPS meter at completion time carries no streamed deltas, and stamping it keeps that feed on the generation clock. */ serverTs?: number }
   | { type: 'tool_result'; toolUseId: string; originalToolUseId?: string; content: unknown; isError: boolean; parentToolUseId?: string }
   | { type: 'thinking'; text: string; complete?: boolean; /** Epoch ms the server first saw this thinking block; anchors the live elapsed-time tick to "generation began". */ serverStart?: number; serverTs?: number }
   | { type: 'status'; state: ChatState; verb?: string; attemptStart?: boolean }

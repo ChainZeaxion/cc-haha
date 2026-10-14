@@ -76,6 +76,16 @@ type StreamState = {
    * content and tool input, and only the chunk knows which one it is.
    */
   onTokenIds?: (count: number, kind: TokenChunkKind) => void
+
+  /**
+   * Called exactly once when the stream leaves the converting loop — normally,
+   * on error, or on cancellation. This is where the ids relay can judge a miss:
+   * only now has the stream had its full chance to produce ids. Timing the
+   * probe from the request instead blames an engine whose prefill simply took
+   * longer than the probe window (measured: a ~1M-token context prefills for
+   * 23 s, far past the window, while its ids arrive normally afterwards).
+   */
+  onStreamEnd?: () => void
 }
 
 // ─── Helpers ───────────────────────────────────────────────
@@ -84,9 +94,14 @@ function formatSse(event: string, data: unknown): string {
   return `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`
 }
 
-function createState(model: string, onTokenIds?: (count: number, kind: TokenChunkKind) => void): StreamState {
+function createState(
+  model: string,
+  onTokenIds?: (count: number, kind: TokenChunkKind) => void,
+  onStreamEnd?: () => void,
+): StreamState {
   return {
     ...(onTokenIds ? { onTokenIds } : {}),
+    ...(onStreamEnd ? { onStreamEnd } : {}),
     queue: [],
     currentBlockType: 'text',
     currentBlockIndex: -1,
@@ -111,11 +126,14 @@ function createState(model: string, onTokenIds?: (count: number, kind: TokenChun
 export function openaiChatStreamToAnthropic(
   upstream: ReadableStream<Uint8Array>,
   model: string,
-  options: { onTokenIds?: (count: number, kind: TokenChunkKind) => void } = {},
+  options: {
+    onTokenIds?: (count: number, kind: TokenChunkKind) => void
+    onStreamEnd?: () => void
+  } = {},
 ): ReadableStream<Uint8Array> {
   const encoder = new TextEncoder()
   const decoder = new TextDecoder()
-  const state = createState(model, options.onTokenIds)
+  const state = createState(model, options.onTokenIds, options.onStreamEnd)
   const reader = upstream.getReader()
   let cancelled = false
 
@@ -217,12 +235,14 @@ export function openaiChatStreamToAnthropic(
           controller.close()
         }
       } finally {
+        state.onStreamEnd?.()
         await reader.cancel().catch(() => {})
         reader.releaseLock()
       }
     },
     async cancel(reason) {
       cancelled = true
+      state.onStreamEnd?.()
       await reader.cancel(reason)
     },
   })

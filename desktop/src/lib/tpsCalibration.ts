@@ -20,6 +20,13 @@
 import type { TpsCalibration } from './tpsMeter'
 
 export const TPS_CALIBRATION_STORAGE_KEY = 'cc-haha.tpsCalibration'
+// v6: v5 entries may have been learned from calls whose streamed frames did
+// not cover everything the engine billed — whole-block tool inputs (an attempt
+// replay, a non-streamed answer) never reached the meter as text, so the
+// least-squares fit inflated the coefficients toward the learning ceiling and
+// every character-measured readout over-read several-fold. Those entries are
+// discarded and re-learned; the same gap is now closed at the source (the
+// whole block is fed at tool_use_complete when no delta streamed).
 // v5: v4 entries may have been learned while the text estimator counted
 // whitespace and used a lower CJK coefficient — both of which were wrong for
 // this engine (measured: 1.003 tokens per Chinese character, whitespace free).
@@ -33,7 +40,7 @@ export const TPS_CALIBRATION_STORAGE_KEY = 'cc-haha.tpsCalibration'
 // created, which understated the density and halved the displayed speed. The
 // version check drops those entries so the coefficients are re-learned from
 // matched spans only.
-export const TPS_CALIBRATION_VERSION = 5
+export const TPS_CALIBRATION_VERSION = 6
 
 /** Keep the store small; the least recently used models are dropped first. */
 const MAX_MODELS = 32

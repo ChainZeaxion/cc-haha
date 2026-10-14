@@ -4104,13 +4104,18 @@ function stampServerTs(message: ServerMessage): ServerMessage {
   if (
     message.type === 'content_delta' ||
     message.type === 'thinking' ||
-    message.type === 'tps_tokens'
+    message.type === 'tps_tokens' ||
+    message.type === 'tool_use_complete'
   ) {
     return { ...message, serverTs }
   }
   if (message.type === 'agent_run_event') {
     const event = message.event
-    if (event.type === 'content_delta' || event.type === 'thinking') {
+    if (
+      event.type === 'content_delta' ||
+      event.type === 'thinking' ||
+      event.type === 'tool_use_complete'
+    ) {
       return { ...message, event: { ...event, serverTs } }
     }
   }

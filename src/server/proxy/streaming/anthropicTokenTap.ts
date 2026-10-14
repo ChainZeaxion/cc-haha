@@ -9,6 +9,13 @@ export interface AnthropicTokenTapOptions {
    */
   onTokenIds?: (count: number, kind: TokenChunkKind) => void
   /**
+   * Called when the body has been fully read (or a compressed body — which the
+   * tap cannot parse — is forwarded untouched). The ids relay needs this as its
+   * probe point: a request that never produced ids can only be judged a miss
+   * after the stream had its full chance to produce them.
+   */
+  onStreamEnd?: () => void
+  /**
    * `Content-Encoding` of the upstream body. The tap only parses plain SSE: a
    * compressed body is forwarded untouched and simply yields no ids (the local
    * engines that report `token_ids` do not compress their event streams).
@@ -74,13 +81,19 @@ export function anthropicTokenTap(
   stream: ReadableStream<Uint8Array>,
   options: AnthropicTokenTapOptions,
 ): ReadableStream<Uint8Array> {
-  const { onTokenIds, contentEncoding } = options
-  if (!onTokenIds) return stream
+  const { onTokenIds, onStreamEnd, contentEncoding } = options
+  if (!onTokenIds) {
+    onStreamEnd?.()
+    return stream
+  }
 
   // Anything but an unencoded body cannot be parsed line-wise here. Forward it
   // and report no ids rather than risk mangling the stream.
   const encoding = (contentEncoding ?? '').trim().toLowerCase()
-  if (encoding && encoding !== 'identity') return stream
+  if (encoding && encoding !== 'identity') {
+    onStreamEnd?.()
+    return stream
+  }
 
   const reader = new SseTokenReader(onTokenIds)
   const decoder = new TextDecoder()
@@ -94,6 +107,7 @@ export function anthropicTokenTap(
       },
       flush() {
         reader.push(decoder.decode())
+        onStreamEnd?.()
       },
     }),
   )

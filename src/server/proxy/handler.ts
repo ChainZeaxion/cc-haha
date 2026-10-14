@@ -750,8 +750,10 @@ async function handleAnthropicCompatible(
       // passthrough is read through so the ids a local engine attaches to each
       // content_block_delta can be counted without altering the bytes a client
       // receives (see anthropicTokenTap).
+      const tpsRelay = createTpsTokenRelay(traceContext?.sessionId ?? null, baseUrl)
       const tappedStream = anthropicTokenTap(anthropicStream, {
-        onTokenIds: createTpsTokenRelay(traceContext?.sessionId ?? null, baseUrl).onTokenIds,
+        onTokenIds: tpsRelay.onTokenIds,
+        onStreamEnd: tpsRelay.onStreamEnd,
         contentEncoding: upstream.headers.get('content-encoding') ?? undefined,
       })
       const tracedStream = traceContext
@@ -955,6 +957,7 @@ async function handleOpenaiChat(
       : null
     const anthropicStream = openaiChatStreamToAnthropic(observedBody, body.model, {
       onTokenIds: tpsRelay?.onTokenIds,
+      onStreamEnd: tpsRelay?.onStreamEnd,
     })
     const tracedStream = traceContext
       ? captureTraceStream(anthropicStream, async (bodySnapshot, error, protocolTraceEnd) => {
@@ -1012,9 +1015,12 @@ async function handleOpenaiChat(
 
 /** Coalescing window for the TPS token side channel (ms). */
 const TPS_TOKEN_FLUSH_MS = 200
-/** After this long without token ids, the endpoint is marked as not supporting them. */
-const TPS_TOKEN_PROBE_MS = 10_000
 const TPS_TOKEN_PROBE_MISSES = 2
+/**
+ * A probe miss older than this stops counting. Two misses within the window
+ * blacklist the origin; two misses spread across an afternoon should not.
+ */
+const TPS_TOKEN_PROBE_MISS_TTL_MS = 10 * 60_000
 
 /**
  * Endpoints that answered a `return_token_ids` request without ever sending
@@ -1022,7 +1028,15 @@ const TPS_TOKEN_PROBE_MISSES = 2
  * engine upgrade mid-process is not worth persisting a negative about.
  */
 const tokenIdUnsupportedOrigins = new Set<string>()
-const tokenIdProbeMisses = new Map<string, number>()
+/** Recent misses per origin, as [count, last-miss epoch ms]. */
+const tokenIdProbeMisses = new Map<string, { count: number; at: number }>()
+/**
+ * Origins that have actually delivered token ids at least once. A miss never
+ * blacklists these: the endpoint has proven the parameter works, so a request
+ * that ends without ids had a different cause (a retry that died early, a
+ * transport error, an upstream outage) and the next request should ask again.
+ */
+const tokenIdSupportedOrigins = new Set<string>()
 
 function endpointOrigin(baseUrl: string): string {
   try {
@@ -1054,6 +1068,14 @@ function shouldRequestTokenIds(baseUrl: string): boolean {
  * Batches the real per-chunk token counts of one streamed request and hands
  * them to the TPS meter over the session's WebSocket. Also remembers when an
  * endpoint never reported token ids, so the parameter is not asked for again.
+ *
+ * The miss is judged when the stream ends, not on a timer from the request: a
+ * long prefill delays the first chunk well past any fixed window (measured 23 s
+ * on a ~1M-token context) while the ids themselves arrive normally, so timing
+ * from the request blacklisted engines that fully support ids. An origin that
+ * has ever delivered ids is never blacklisted again — a later silent request
+ * then means a transport failure or a retry that died early, not a changed
+ * engine, and the next request should ask regardless.
  */
 function createTpsTokenRelay(sessionId: string | null, baseUrl: string) {
   // One counter per kind. A single total cannot be split after the fact, and
@@ -1062,15 +1084,21 @@ function createTpsTokenRelay(sessionId: string | null, baseUrl: string) {
   const pending: Record<TokenChunkKind, number> = { thinking: 0, content: 0, tool: 0 }
   let flushTimer: ReturnType<typeof setTimeout> | null = null
   let sawTokenIds = false
+  let streamEnded = false
   const origin = endpointOrigin(baseUrl)
-  const probeTimer = setTimeout(() => {
-    if (sawTokenIds) return
-    const misses = (tokenIdProbeMisses.get(origin) ?? 0) + 1
-    tokenIdProbeMisses.set(origin, misses)
-    if (misses >= TPS_TOKEN_PROBE_MISSES) tokenIdUnsupportedOrigins.add(origin)
-  }, TPS_TOKEN_PROBE_MS)
-  // Never hold the process open for a diagnostic timer.
-  probeTimer.unref?.()
+
+  const noteMiss = () => {
+    if (sawTokenIds || tokenIdSupportedOrigins.has(origin)) return
+    const now = Date.now()
+    const previous = tokenIdProbeMisses.get(origin)
+    // A stale miss counts no more than an absent one.
+    const count = previous && now - previous.at <= TPS_TOKEN_PROBE_MISS_TTL_MS ? previous.count : 0
+    tokenIdProbeMisses.set(origin, { count: count + 1, at: now })
+    if (count + 1 >= TPS_TOKEN_PROBE_MISSES) {
+      tokenIdUnsupportedOrigins.add(origin)
+      tokenIdProbeMisses.delete(origin)
+    }
+  }
 
   const flush = () => {
     flushTimer = null
@@ -1086,13 +1114,22 @@ function createTpsTokenRelay(sessionId: string | null, baseUrl: string) {
   return {
     onTokenIds(count: number, kind: TokenChunkKind) {
       if (count <= 0) return
-      sawTokenIds = true
-      clearTimeout(probeTimer)
+      if (!sawTokenIds) {
+        sawTokenIds = true
+        tokenIdSupportedOrigins.add(origin)
+        tokenIdProbeMisses.delete(origin)
+        tokenIdUnsupportedOrigins.delete(origin)
+      }
       pending[kind] += count
       if (flushTimer === null) {
         flushTimer = setTimeout(flush, TPS_TOKEN_FLUSH_MS)
         flushTimer.unref?.()
       }
+    },
+    onStreamEnd() {
+      if (streamEnded) return
+      streamEnded = true
+      noteMiss()
     },
   }
 }

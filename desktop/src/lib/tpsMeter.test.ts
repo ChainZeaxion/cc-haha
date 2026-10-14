@@ -410,11 +410,14 @@ describe('calibration learning', () => {
     meter.endCall(100, 2000)
     expect(meter.calibration().kAscii).toBe(baseline)
 
-    // A genuine extreme ratio still lands inside the clamp.
+    // Real tokens far beyond what the frames can explain mean part of the call
+    // never reached the meter (a feed gap, a whole-block tool input that
+    // streamed no deltas). The sample is refused outright: inflating the
+    // coefficients to bridge the gap would over-read every later call.
     meter.beginCall()
     for (let i = 0; i < 100; i++) { clock.advance(5); meter.push('x'.repeat(6)) }
     meter.endCall(100_000, 2000)
-    expect(meter.calibration().kAscii).toBeLessThanOrEqual(6)
+    expect(meter.calibration().kAscii).toBe(baseline)
   })
 
   it("does not bill sparse prose frames at a dense tool-input call's rate", () => {

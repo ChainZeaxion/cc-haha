@@ -1163,6 +1163,48 @@ const lastTpsTokensAtBySession = new Map<string, number>()
 const IDS_FALLBACK_SILENCE_MS = 10_000
 
 /**
+ * Characters of tool-input JSON the current tool block has streamed, per
+ * session. The block opens on `content_start` and closes on
+ * `tool_use_complete`, which checks the count: a whole-block delivery (an
+ * attempt replay, a non-streamed answer) streamed nothing, and without feeding
+ * its `input` then, the block's tokens would be absent from the meter's call
+ * accounting while the engine's `usage` still bills them — the mismatch the
+ * calibration learns as a systematically inflated coefficient.
+ */
+const toolInputStreamedCharsBySession = new Map<string, number>()
+
+/**
+ * Feed a whole-block tool input to the meter when no streamed delta covered it.
+ *
+ * `streamedChars` is the count the block accumulated from `input_json_delta`
+ * frames; a positive count means the meter already saw that text and the block
+ * must not be fed again. Serialization order is fixed (stable stringify) so the
+ * same block always measures the same.
+ */
+function feedWholeBlockToolInput(
+  sessionId: string,
+  input: unknown,
+  streamedChars: number,
+  generatedAt?: number,
+): void {
+  if (streamedChars > 0) return
+  if (input == null) return
+  let text: string
+  try {
+    text = typeof input === 'string' ? input : JSON.stringify(input)
+  } catch {
+    return
+  }
+  if (!text) return
+  pushTpsFrame(sessionId, text, { generatedAt })
+}
+
+/** Drop a session's whole-block tracker (reconnect / session teardown). */
+function resetToolInputStreamedChars(sessionId: string): void {
+  toolInputStreamedCharsBySession.delete(sessionId)
+}
+
+/**
  * Feed one of a session's own streamed frames into its TPS meter, opening the
  * call window on the first frame so endCall() can reconcile it afterwards.
  */
@@ -1199,6 +1241,7 @@ function pushTpsFrame(
 function resetTpsWindow(sessionId: string): void {
   tpsIdsModeBySession.delete(sessionId)
   lastTpsTokensAtBySession.delete(sessionId)
+  resetToolInputStreamedChars(sessionId)
   tpsMeterBySession.get(sessionId)?.reset()
 }
 
@@ -1299,7 +1342,8 @@ function ingestSubagentTps(
   const feedOwn = !tpsIdsModeBySession.get(parentSessionId)
   // Only the stamped stream events carry `serverTs`; read it under the union's
   // narrowing (it is what the original per-branch pushes did).
-  const generatedAt = event.type === 'content_delta' || event.type === 'thinking'
+  const generatedAt = event.type === 'content_delta' || event.type === 'thinking' ||
+    event.type === 'tool_use_complete'
     ? event.serverTs
     : undefined
   const push = (text: string): void => {
@@ -1309,6 +1353,20 @@ function ingestSubagentTps(
   if (event.type === 'content_delta') {
     if (event.text) push(event.text)
     if (event.toolInput) push(event.toolInput)
+    return
+  }
+  // A subagent's whole-block tool input arrives as tool_use_complete with no
+  // streamed deltas — the same gap the main stream's tool_use_complete covers.
+  // Feed the block itself, or the run's text-measured rate under-counts every
+  // tool-heavy stretch of its work.
+  if (event.type === 'tool_use_complete' && event.input != null) {
+    let text: string
+    try {
+      text = typeof event.input === 'string' ? event.input : JSON.stringify(event.input)
+    } catch {
+      return
+    }
+    if (text) push(text)
     return
   }
   if (event.type === 'thinking' && event.complete !== true && event.text) push(event.text)
@@ -1624,6 +1682,10 @@ function appendPendingToolInputDelta(sessionId: string, text: string, generatedA
   )
   // Feed streaming tool inputs (Write/Edit/… argument JSON) into the TPS meter
   // so the decode-speed reflects all output tokens, not just assistant text.
+  toolInputStreamedCharsBySession.set(
+    sessionId,
+    (toolInputStreamedCharsBySession.get(sessionId) ?? 0) + text.length,
+  )
   pushTpsFrame(sessionId, text, { generatedAt })
 }
 
@@ -3708,6 +3770,7 @@ export const useChatStore = create<ChatStore>((setState, get) => {
         // normal cold REST remains useful even while the socket is unavailable.
         clearPendingDelta(sessionId)
         clearPendingToolInputDelta(sessionId)
+        resetToolInputStreamedChars(sessionId)
         clearPendingTaskToolUseIds(sessionId)
         clearPendingToolParentUseIds(sessionId)
       }
@@ -3796,6 +3859,7 @@ export const useChatStore = create<ChatStore>((setState, get) => {
     clearPendingTaskToolUseIds(sessionId)
     clearPendingToolParentUseIds(sessionId)
   tpsMeterBySession.delete(sessionId)
+  resetToolInputStreamedChars(sessionId)
   clearAgentRunTpsMeters(sessionId)
     advanceHistoryLifecycle(sessionId)
     wsManager.disconnect(sessionId)
@@ -4084,6 +4148,7 @@ export const useChatStore = create<ChatStore>((setState, get) => {
     wsManager.send(sessionId, { type: 'stop_generation' })
     const bufferedText = consumePendingDelta(sessionId)
     clearPendingToolInputDelta(sessionId)
+    resetToolInputStreamedChars(sessionId)
     clearPendingTaskToolUseIds(sessionId)
     clearPendingToolParentUseIds(sessionId)
     let hasRunningBackgroundAgents = false
@@ -5089,6 +5154,7 @@ export const useChatStore = create<ChatStore>((setState, get) => {
     clearPendingTaskToolUseIds(sessionId)
     clearPendingToolParentUseIds(sessionId)
     clearPendingToolInputDelta(sessionId)
+    resetToolInputStreamedChars(sessionId)
     pendingOwnedTaskEvents.delete(sessionId)
     pendingAgentRunEvents.delete(sessionId)
     activeAgentStreamIdBySession.delete(sessionId)
@@ -5267,6 +5333,7 @@ export const useChatStore = create<ChatStore>((setState, get) => {
           // messages are merged back below while the turn remains running.
           consumePendingDelta(sessionId)
           clearPendingToolInputDelta(sessionId)
+          resetToolInputStreamedChars(sessionId)
           clearPendingTaskToolUseIds(sessionId)
           clearPendingToolParentUseIds(sessionId)
           update((current) => {
@@ -5358,6 +5425,7 @@ export const useChatStore = create<ChatStore>((setState, get) => {
 
         const text = `${session.streamingText}${consumePendingDelta(sessionId)}`
         clearPendingToolInputDelta(sessionId)
+        resetToolInputStreamedChars(sessionId)
         clearPendingTaskToolUseIds(sessionId)
         clearPendingToolParentUseIds(sessionId)
         if (session.elapsedTimer) clearInterval(session.elapsedTimer)
@@ -5543,6 +5611,9 @@ export const useChatStore = create<ChatStore>((setState, get) => {
         } else if (msg.blockType === 'tool_use') {
 
           clearPendingToolInputDelta(sessionId)
+          // A new tool block opens: nothing of its input has streamed yet. The
+          // whole-block check at tool_use_complete reads this.
+          toolInputStreamedCharsBySession.set(sessionId, 0)
           rememberPendingToolParentUseId(sessionId, msg.toolUseId, msg.parentToolUseId)
           const toolUseId = msg.toolUseId ?? null
           const toolName = msg.toolName ?? 'unknown'
@@ -5799,6 +5870,17 @@ export const useChatStore = create<ChatStore>((setState, get) => {
 
       case 'tool_use_complete': {
         clearPendingToolInputDelta(sessionId)
+        // If this block's input never streamed (a whole-block delivery: attempt
+        // replay, non-streamed answer), the meter has seen none of its tokens
+        // while the engine's `usage` bills them — feed the block itself so the
+        // call accounting matches what is being reconciled against.
+        feedWholeBlockToolInput(
+          sessionId,
+          msg.input,
+          toolInputStreamedCharsBySession.get(sessionId) ?? 0,
+          msg.serverTs,
+        )
+        toolInputStreamedCharsBySession.delete(sessionId)
         const session = get().sessions[sessionId]
         const toolName = msg.toolName || session?.activeToolName || 'unknown'
         const toolUseId = msg.toolUseId || session?.activeToolUseId || ''

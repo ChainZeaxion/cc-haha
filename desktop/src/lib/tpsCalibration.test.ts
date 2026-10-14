@@ -44,6 +44,17 @@ describe('tpsCalibration', () => {
     expect(loadTpsCalibration('qwen3-coder')).toBeNull()
   })
 
+  it('discards a poisoned older-version payload (inflated coefficients from feed-gap calls)', () => {
+    // v6 dropped v5's numbers: some were learned from calls whose frames did
+    // not cover everything the engine billed, which drove the coefficients
+    // toward the ceiling and over-read every character-measured call after.
+    localStorage.setItem(TPS_CALIBRATION_STORAGE_KEY, JSON.stringify({
+      version: TPS_CALIBRATION_VERSION - 1,
+      models: { 'qwen3-coder': { kCjk: 5.9, kAscii: 5.4, n: 40, updatedAt: 1 } },
+    }))
+    expect(loadTpsCalibration('qwen3-coder')).toBeNull()
+  })
+
   it('ignores a corrupt or non-numeric payload', () => {
     localStorage.setItem(TPS_CALIBRATION_STORAGE_KEY, '{not json')
     expect(loadTpsCalibration('qwen3-coder')).toBeNull()

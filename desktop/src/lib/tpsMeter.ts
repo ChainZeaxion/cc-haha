@@ -174,6 +174,16 @@ const MIN_UNITS_TO_LEARN = 40
 const OUTLIER_UNIT_FACTOR = 3
 const UNIT_MEAN_EWMA_ALPHA = 0.2
 /**
+ * A call whose real tokens exceed its character units (weighted at the neutral
+ * density) by more than this cannot be explained by what the meter saw: some
+ * of the billed output never reached the frames (a feed gap, a truncated
+ * replay). Learning from it would inflate the coefficients for every later
+ * call, so the sample is dropped instead. The factor is deliberately loose —
+ * dense tool-input JSON measures ~2 units-per-token under the neutral split,
+ * so a healthy call lands far below it.
+ */
+const MAX_EXPLAINABLE_TOKENS_PER_UNIT = 4
+/**
  * Forgetting factor on the least-squares accumulators: the engine's density is
  * stable, but a session that switched models (and kept this meter) should not
  * be outvoted forever by its first calls.
@@ -841,6 +851,11 @@ export class TpsMeter {
     // real tokens. Drop the sample instead of teaching the coefficients a lie.
     if (this.unitMean !== null && units > OUTLIER_UNIT_FACTOR * this.unitMean) return false
     if (real < MIN_REAL_TOKENS_TO_LEARN) return false
+    // Real tokens far beyond what the sampled text can explain mean part of the
+    // call never reached the meter (a feed gap). The fit would spread the
+    // missing tokens over the classes it did see and over-read every later
+    // call; refuse the sample rather than bank the lie.
+    if (real > MAX_EXPLAINABLE_TOKENS_PER_UNIT * units) return false
     this.unitMean = this.unitMean === null
       ? units
       : this.unitMean + UNIT_MEAN_EWMA_ALPHA * (units - this.unitMean)
