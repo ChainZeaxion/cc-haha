@@ -1909,6 +1909,14 @@ type DensitySample = { cjk: number; latin: number; digit: number; sym: number; t
 
 **验证**：meter 21+13 全绿（ballooned call 第三段改写为护栏语义 + 新增 v6 丢弃测试）、desktop 全量 8296/0、server 全量 6686/0；sidecar 二进制 `strings` 验含 `onStreamEnd`；干净 `782661ba7` 上 apply ⇒ 11 文件逐字节一致 ✅。装新 deb 后预期：大会话持续走 ids 真值不再跳次级；即便回落字符采样，校准从零重学且带护栏，偏差回到先验水平（实测中文 est/real ≈ 0.6-0.75——顺带发现该引擎真实密度中文 1.33-2.63 tokens/char，远高于 PRIOR 的 1.003，密度池路线会自行学习修正）。
 
+**后续（✅ 2026-10-15，`6a9b63a28`，并入段二 #14）——在飞用量仍异常的三处残留**：修完上项后用户实测"所有在飞用量要么几十倍攀升、要么差几十倍后隔段时间猛跳修正"。端到端排查（引擎直测 Σtoken_ids==usage.output_tokens 守恒、服务端 relay/子代理投影无双计、真实 api_retry=0）后锁定三个客户端残留，全部同源于上项没修完的角落：
+
+1. **密度池同源缺口没补**：整块工具输入补喂只喂了 meter，密度池学习吃的 `streamingResponseCounts` 依旧不含它——usage 计费而 counts 缺账，拟合照旧学出虚高密度，再经 `currentTpsDensity` 毒化子代理行、字符回落估计、思考徽章。现 `feedWholeBlockToolInput` 把同一文本折进 counts。
+2. **毒化存量没清**：`tpsCalibration` bump 了 v6，密度池 `tpsDensity` 停在 v1——旧毒样本以 20 样本窗口继续污染所有估计。bump **v2** 整池丢弃重学。
+3. **stream_retry 不回滚 exact**：重放把失败 attempt 已发的 tps_tokens 再发一遍，`stream_retry` 分支只回滚了 chars/counts，`streamingResponseExactTokens` 不回滚 → 重放段双计（另一 attempt-reset 路径是回滚的，唯独这里漏）。现从 attempt-start 快照恢复。
+
+另给密度池学习加上 meter 同款的 **4×units 护栏**（`PRIOR_DENSITY` 估可解释上限），ids 中途断供、漏账整块等错位样本直接丢弃。干净 `d240afe84` 上 apply ⇒ 15 文件逐字节一致 ✅。
+
 
 ## 四、用量计费与上下文估算
 

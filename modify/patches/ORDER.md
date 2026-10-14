@@ -50,13 +50,15 @@ patches/h5/h5-provider-test-buttons-patch1.patch
 #    修中文摘要头部句中文化后穿透英文前缀过滤、以全文气泡泄漏。
 patches/compact/compact-summary-anchor-patch1.patch
 
-# 14：tps-estimation-unified（**合并原 43+45**，2026-10-14，15 文件）。
+# 14：tps-estimation-unified（**合并原 43+45**，2026-10-14，15 文件；2026-10-15 追加在飞用量三缺口修复）。
 #    原 43：TPS 与估算口径统一——流式指示器吃 tps_tokens 真值 + attempt 边界镜像；估算吃密度池 +
 #    拟合 EWMA 新近权重；工具期静默读数落 0 + ids 断供 10s 回落。
 #    原 45：ids 探测与校准学习——probe 改流结束时判定 + 曾支持永不拉黑 + miss 10 分钟衰减；
 #    整块工具输入补喂 meter + 学习样本 4×units 护栏 + 校准 v5→v6 清毒值。
+#    2026-10-15 追加（6a9b63a28）：整块工具输入同步补进 streamingResponseCounts（密度池同源缺口）；
+#    密度池 v1→v2 清毒化存量；密度池学习加 4×units 护栏；stream_retry 回滚补 streamingResponseExactTokens。
 #    同改 tpsMeter/chatStore（3 文件重叠），45 是 43 的延续，合一。
-#    干净 d240afe84 上 apply 43+45 后这 15 文件 = HEAD（7fc522679）同文件内容 ✅ 逐字节一致。
+#    干净 d240afe84 上 apply 后这 15 文件 = HEAD（6a9b63a28）同文件内容 ✅ 逐字节一致。
 patches/tps/tps-estimation-unified-patch1.patch
 
 # 15：workspace-history-budget-degrade（4 文件）。超预算会话（transcript 413）的工作区降级——
