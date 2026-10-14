@@ -3683,3 +3683,21 @@ src/prompts/i18n/
 - 排查手段沉淀：`curl /api/sessions/:id/workspace/status` 看 413；菜单缺项用一次性探针测试渲染 `WorkspaceFileOpenWith` 数 menuitem（browserHost + workspacePath ⇒ 4 项为基线）；vite dev 7787（无 `VITE_DEV_SERVER_PROXY`）的 `/api` 返回 HTML 会让一切静默失败，实测前先确认连的是 8877 sidecar。
 
 **验证**：workspaceContentStore 38/38（新增 413 兜底落 workDir + 非预算会话标志为否两条）、CurrentTurnChangeCard 52/52（新增超预算点行直开文件预览一条）、desktop 全量 8295/0、server 全量 6686/0。干净 `dfbfe9dc5` 上 apply ⇒ 4 文件逐字节一致 ✅。
+
+## 四十四 TPS ids 探测与校准学习修复：长 prefill 不再拉黑本地引擎、估算虚高 3-5 倍归零（✅ 2026-10-14，`patches/tps/tps-ids-probe-calibration-patch1.patch`，⚠️ 基座 `782661ba7` 独立应用）
+
+**问题**（用户报告，双症同链）：① 本地引擎明明带 token ids，却"老是跳到次级估算路线"；② 次级估算读数与实际速度差 3-5 倍（单请求已异常，并发更甚），而最不受待见的兜底固定估算实测偏差反而 ≤30%。
+
+**根因**（实测定位，两处独立缺陷互相喂招）：
+- **probe 从请求发起计时**：`createTpsTokenRelay` 建 relay 即启动 10s 探测定时器，超时无 ids 记一次 miss，两次即拉黑整个 origin（进程内永不恢复）。致命点：计时起点是请求发起而非首 chunk——实测 ~1M token 上下文的 prefill 首 chunk **23.09s** 才到，超窗一倍多，而 ids 随后正常滚滚而来（引擎实测每 chunk 带 token_ids、单 chunk ≤8 个、并发两流各自 ~66 t/s）。大会话 prefill 越长越必中——恰好是用户主场景。拉黑后客户端帧到达而 counts 静默 10s（`IDS_FALLBACK_SILENCE_MS`）→ 降回字符采样。
+- **整块工具输入是学习盲区**：流式路径 `input_json_delta` 有喂 meter，但整块兜底路径（attempt 重放、非流式答案）只发 `tool_use_complete`，处理处只清 pending 不喂 `msg.input`。学习时 `usage.output_tokens`（轮累计，含工具 JSON）>> call 窗口字符单元 → 最小二乘把 kCjk/kAscii 拉向 **K_MAX=6** 并随 `saveTpsCalibration` 持久化 → 之后每个新会话 `loadTpsCalibration` 带回毒 k → 字符测量读数持续虚高 3-6 倍（"五倍"即上限的影子；并发子代理 JSON 占比更高偏差更大）。且 ids 模式下 endCall 跳过学习（`callIds>0` 提前 return），毒值永不自愈；TPS 速度桶算的是 `cjk×kCjk + ascii×kAscii`，不走密度池——密度池再准也救不了速度读数。
+
+**改动**（11 文件 = 5 desktop/ + 6 src/）：
+- `src/server/proxy/streaming/openaiChatStreamToAnthropic.ts` / `anthropicTokenTap.ts`：各加 `onStreamEnd` 钩子（正常/错误/取消三路径恰好一次）。
+- `src/server/proxy/handler.ts`：miss 改在**流结束时**判定（`noteMiss`）；origin 一旦真正收到 ids 即入 `tokenIdSupportedOrigins`，此后**永不拉黑**（后续沉默请求 = 传输失败/早夭重试，不是引擎变了，下一次照问）；miss 记录 10 分钟 TTL 衰减。
+- `tool_use_complete` 帧打 `serverTs`（`src/server/ws/handler.ts` stampServerTs 扩面 + `src/server/ws/events.ts` 类型 + desktop `types/chat.ts` 同步）——整块补喂据此留在 generation 时钟，避免把 meter 永久降级到 arrival。
+- `desktop/src/stores/chatStore.ts`：`toolInputStreamedCharsBySession` 跟踪当前工具块的流式字符数；`tool_use_complete` 时为 0 则整块补喂（`feedWholeBlockToolInput`，防双计）；子代理 `ingestSubagentTps` 对整块 `tool_use_complete` 同样补喂 run meter；reconnect/retry/stop/clearMessages/teardown 全边界清 tracker。
+- `desktop/src/lib/tpsMeter.ts`：学习护栏——real > **4×units**（帧可解释上限）的样本直接丢弃，缺口的轮不再把系数拉上天。
+- `desktop/src/lib/tpsCalibration.ts`：**v5→v6**，存量毒条目整体丢弃重学（`LEARN_FORGET` 衰减负责收敛，但存量必须清）。
+
+**验证**：meter 21+13 全绿（ballooned call 第三段改写为护栏语义 + 新增 v6 丢弃测试）、desktop 全量 8296/0、server 全量 6686/0；sidecar 二进制 `strings` 验含 `onStreamEnd`；干净 `782661ba7` 上 apply ⇒ 11 文件逐字节一致 ✅。装新 deb 后预期：大会话持续走 ids 真值不再跳次级；即便回落字符采样，校准从零重学且带护栏，偏差回到先验水平（实测中文 est/real ≈ 0.6-0.75——顺带发现该引擎真实密度中文 1.33-2.63 tokens/char，远高于 PRIOR 的 1.003，密度池路线会自行学习修正）。
