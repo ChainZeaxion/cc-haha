@@ -3641,3 +3641,35 @@ src/prompts/i18n/
 
 **窗口口径**：provider `autoCompactWindow` 231,248 → **233,000**（对齐引擎 `max_model_len`，运行时配置不进 patch）。触发线 181,050（用户确认「180K 左右压缩也可以」）。注：tier 百分比作用于 effectiveWindow 而非 declaredWindow（上游设计，见 `autoCompact.ts` 注释），故比「按 declared 算」的 198,050 早约 17K。
 
+
+## 四十 流式指示器吃引擎真值：tps_tokens 精确计数贯通（✅ 2026-10-14，`patches/tps/tps-streaming-exact-patch1.patch`，⚠️ 基座 `d240afe84` 独立应用）
+
+**问题**：`tps_tokens` 已喂 TPS 米表与思考徽章，但 StreamingIndicator 的「本轮 N tokens」仍走四类字符估算——同一批真值就在手边，估算却还在猜。
+
+**改动**：新增会话态 `streamingResponseExactTokens`（`tps_tokens` 逐批累加），`estimateStreamingTokens` 真值优先、ids 通路不可用时回落估算（行为不变）。attempt 边界镜像：失败且无副作用的流尝试回滚时，精确计数与字符计数同规回滚（`streamAttemptStartExactTokens`），避免重试后数字虚高。依赖 ids 通路（onecat 侧 token_ids 剥离问题见 WORK-HANDOFF，交 studio 工作区修复）。
+
+**验证**：desktop 全量通过；干净 `d240afe84` 上 apply ⇒ 2 文件逐字节一致。
+
+## 四十一 估算统一吃密度池 + 密度池 EWMA 新近权重（✅ 2026-10-14，`patches/tps/tps-density-unification-patch1.patch`，⚠️ 基座 `7d70a15c3` 独立应用）
+
+**问题**：两条估算路径各自学习同一件事——米表的二类校准（kCjk/kAscii）与四类密度池。更糟的是米表跑引擎真值（`tps_tokens`）后**不再拟合自身系数**（endCall 跳过学习），徽章/摘要估算从此冻结在旧值上。
+
+**改动**：
+- `estimateTokens`（desktop tpsMeter 版）优先吃密度池 density（池在两种模式下都持续从 usage 学习），回落二类校准（无池时行为不变）。`setEstimationDensity` 与 `setEstimationCalibration` 并列，chatStore 三处接线：meter 初始化、模型切换、每次 usage 采样后即时刷新——估算与 live 流式估算器从此读同一个池。
+- `learnDensity` 加 `options.halfLife` 指数新近权重：最新样本权满，每回退 halfLife 个样本减半；`currentTpsDensity` 传 halfLife = 池一半（10/20，滚动窗尾更新）。分词器/引擎更新时拟合跟随漂移而非跨缝平均；旧样本仍锚定稀疏类。`halfLife: 0` = 旧等权拟合，其余调用方不受影响。
+
+**验证**：tokenDensity 11/11（新增漂移跟随 + 等权兼容两条）、desktop 受影响面 469、server 全量 6686/0；干净 `7d70a15c3` 上 apply ⇒ 6 文件逐字节一致。
+
+## 四十二 TPS 工具期静默假死修复 + ids 模式断供回落（✅ 2026-10-14，`patches/tps/tps-midturn-silence-patch1.patch`，⚠️ 基座 `c18d4228` 独立应用）
+
+**用户报告**：助手执行 Write/Edit 等工具期间，TPS 读数定格不动。
+
+**根因（两层）**：
+1. **米表冻结**：工具执行期引擎无 token 产出 → `tps_tokens` 停发 → 静默超 `LIVE_GAP_MS=1.5s` 后 `value()` 判「流已停」返回 `held()`（冻结在最后解码速率）。静默隐式判停区分不了「回合已结束」（保持末速合理）与「引擎在执行工具」（此刻真的没有解码，空桶即真实读数）。
+2. **ids 模式饿死**：`tps_tokens` 一旦说过话即粘性锁死 ids 模式，此后流帧只 `touch()` 丢弃。ids 断供（探针两轮落空拉黑 origin / 中继重启 / onecat 剥 ids）后，流帧持续到达却永远被丢弃——米表饿死在冻结读数上。
+
+**改动**：
+- `value()` 仅在 `callOpen=false`（call 已对账 / `endStream`）时冻结；回合中途静默回落零桶平均——读数诚实落 0，指示器近零 hold（1.5s）挡边界抖动，下一帧 `clearGrid` 重新计量（暂停后的新 burst 不被零污染）。断连时 callOpen 悬挂 → 持续 0，比假末速诚实，5min idle hide 兜底隐藏。run meter 用 external push 从不开 call 窗，行为不变（结束后保持末速，原设计）。
+- `lastTpsTokensAtBySession` 记录真值通路最近发言时刻；流帧持续到达而 counts 静默超 10s（中继批间隔仅 200ms）→ 自动降回字符采样并 `meter.reset()`（单位切换，网格重启）。工具执行期流帧也不来 → touch 不被调 → 不误降级；只有「帧来了但 ids 断供」才降级。`resetTpsWindow` 同步清新表。
+
+**验证**：meter 35/35（新增中途静默落 0+恢复计量、endCall 后保持末速两条），chatStore 404/404（新增 ids 断供回落采样），desktop 全量 8292/0；干净 `c18d4228` 上 apply ⇒ 4 文件逐字节一致。

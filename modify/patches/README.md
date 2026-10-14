@@ -2,7 +2,7 @@
 
 结构：`patches/<主题>/<主题>-<优化项>-patch<N>.patch`（一个优化项一个 patch；拆不开才 patch2/3）。
 
-**应用顺序 = `ORDER.md` 自上而下**（43 个 patch；项按最小链位排序，见下）。
+**应用顺序 = `ORDER.md` 自上而下**（45 个 patch；项按最小链位排序，见下）。
 
 ```bash
 while read -r p; do git apply -p1 "$p"; done < modify/patches/ORDER.md
