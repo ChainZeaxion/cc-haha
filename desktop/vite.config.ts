@@ -36,5 +36,20 @@ export default defineConfig({
     watch: {
       ignored: ['**/src-tauri/**'],
     },
+    // Browser/H5 dev access (e.g. http://<lan-ip>:7788): proxy the server's
+    // surface onto this origin so the renderer's same-origin server URL works
+    // and the H5 connect page's /health probe answers with real JSON. WS paths
+    // must bypass http-proxy's WS downgrade (ws: true).
+    proxy: process.env.VITE_DEV_SERVER_PROXY
+      ? {
+          '/health': { target: 'http://127.0.0.1:3456', changeOrigin: true },
+          '/api': { target: 'http://127.0.0.1:3456', changeOrigin: true },
+          '/proxy': { target: 'http://127.0.0.1:3456', changeOrigin: true },
+          '/ws': { target: 'ws://127.0.0.1:3456', ws: true },
+          '/sdk': { target: 'ws://127.0.0.1:3456', ws: true },
+          '/preview-fs': { target: 'http://127.0.0.1:3456', changeOrigin: true },
+          '/local-file': { target: 'http://127.0.0.1:3456', changeOrigin: true },
+        }
+      : undefined,
   },
 })
