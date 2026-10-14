@@ -11028,6 +11028,32 @@ describe('chatStore history mapping', () => {
     }
   })
 
+  it('falls back to sampling when the exact feed goes silent while frames keep arriving', () => {
+    const sessionId = '__tps-ids-fallback'
+    useChatStore.setState({ sessions: { [sessionId]: makeSession() } })
+    let now = 2_000_000
+    const nowSpy = vi.spyOn(performance, 'now').mockImplementation(() => now)
+
+    // The relay speaks once: the session locks onto exact counts.
+    useChatStore.getState().handleServerMessage(sessionId, { type: 'tps_tokens', tokens: 40, kind: 'content' })
+    useChatStore.getState().handleServerMessage(sessionId, { type: 'content_delta', text: 'x'.repeat(200) })
+    const meter = getSessionTpsMeter(sessionId)
+    expect(meter.source()).toBe('ids')
+
+    // Then the feed stops (probe blacklisted the origin, relay restarted), but
+    // the engine keeps producing and the frames keep arriving. Past the silence
+    // bound a frame must fall back to character sampling — the touched-away
+    // path would starve the meter forever.
+    now += 10_500
+    useChatStore.getState().handleServerMessage(sessionId, { type: 'content_delta', text: 'y'.repeat(350) })
+    now += 125 // let the bucket it landed in complete
+    expect(meter.source()).toBe('char')
+    // 350 ASCII chars / 3.5 = 100 sampled tokens (the relaying tier is gone).
+    expect(meter.windowTokens()).toBeCloseTo(100, 0)
+
+    nowSpy.mockRestore()
+  })
+
   it('drops the sampling window when the transport reconnects', () => {
     clearTpsCalibration()
     const sessionId = '__tps-reconnect'

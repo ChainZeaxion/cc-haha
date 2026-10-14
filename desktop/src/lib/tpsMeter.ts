@@ -920,13 +920,22 @@ export class TpsMeter {
   value(): number {
     if (!this.everStreamed) return 0
     const now = performance.now()
-    // A silence past LIVE_GAP_MS means the stream has stopped, so there is no
-    // live speed left to report — show what the last one was. Settling here as
-    // well as in endStream() is what makes the implicit end a real one: a
-    // finished run's terminal notice arrives as a task event, not as a frame, so
-    // this read is the only close its meter ever sees. This is the same
-    // threshold at which placeFrame drops the grid, so the two agree.
-    if (this.ended || (this.lastPushAt > 0 && now - this.lastPushAt > LIVE_GAP_MS)) {
+    // A silence past LIVE_GAP_MS means no tokens have arrived for a while. What
+    // that *means* depends on whether the call is still open:
+    //  - Call closed (the turn's usage reconciled in endCall) or explicitly
+    //    ended: the stream has stopped for good, so show the last real rate.
+    //    Settling here as well as in endStream() is what makes the implicit end
+    //    a real one: a finished run's terminal notice arrives as a task event,
+    //    not as a frame, so this read is the only close its meter ever sees.
+    //    This is the same threshold at which placeFrame drops the grid, so the
+    //    two agree.
+    //  - Call still open (mid-turn — the engine is executing a tool, or the
+    //    exact-count feed dropped out): the silence is a real pause in
+    //    generation, and the buckets say so — an empty window averages to zero.
+    //    Freezing the pre-pause rate here is what read as "stuck" whenever a
+    //    Write/Edit ran longer than the gap: the display held a speed the engine
+    //    was no longer producing.
+    if (this.ended || (!this.callOpen && this.lastPushAt > 0 && now - this.lastPushAt > LIVE_GAP_MS)) {
       if (!this.settled) this.settle()
       return this.held()
     }

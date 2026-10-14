@@ -1143,6 +1143,25 @@ const tpsCalibrationModelBySession = new Map<string, string | undefined>()
  */
 const tpsIdsModeBySession = new Map<string, boolean>()
 
+/** The wall-clock moment a session's `tps_tokens` feed last spoke. */
+const lastTpsTokensAtBySession = new Map<string, number>()
+
+/**
+ * How long the exact-count feed may stay silent while stream frames keep
+ * arriving before a session falls back to character sampling.
+ *
+ * The `tps_tokens` feed is sticky once it has spoken (the meter resets its grid
+ * on the tier switch, so flickering between modes would corrupt the window), but
+ * stickiness assumes the feed stays alive. It can stop mid-session — the probe
+ * blacklists an origin after two silent requests, a relay restarts, an engine
+ * stops attaching ids — and then the session would sample nothing forever: text
+ * frames keep arriving only to be touched away, and the meter starves. Ten
+ * seconds of frames-without-counts is far past any real batching gap (the relay
+ * flushes every 200 ms) and still brief enough that the readout recovers within
+ * a turn.
+ */
+const IDS_FALLBACK_SILENCE_MS = 10_000
+
 /**
  * Feed one of a session's own streamed frames into its TPS meter, opening the
  * call window on the first frame so endCall() can reconcile it afterwards.
@@ -1155,9 +1174,22 @@ function pushTpsFrame(
   if (!isTpsEnabled()) return
   const meter = getSessionTpsMeter(sessionId)
   if (tpsIdsModeBySession.get(sessionId)) {
-    // The relay already counted these tokens exactly; keep liveness only.
-    meter.touch()
-    return
+    // The relay already counted these tokens exactly; keep liveness only —
+    // unless the counts have stopped coming while frames keep arriving. A frame
+    // is itself proof the engine is producing, so a silence this long means the
+    // exact feed is broken, not busy: fall back to sampling this frame.
+    const last = lastTpsTokensAtBySession.get(sessionId) ?? 0
+    if (last > 0 && performance.now() - last > IDS_FALLBACK_SILENCE_MS) {
+      tpsIdsModeBySession.delete(sessionId)
+      lastTpsTokensAtBySession.delete(sessionId)
+      // The units switch mid-stream (exact ids → sampled characters); the grid
+      // restarts rather than averaging two incomparable halves, same as the
+      // tier switch on the way up.
+      meter.reset()
+    } else {
+      meter.touch()
+      return
+    }
   }
   meter.ensureCall()
   meter.push(text, options)
@@ -1166,6 +1198,7 @@ function pushTpsFrame(
 /** Drop a session's sampling window (reconnect / retry replays a prefix). */
 function resetTpsWindow(sessionId: string): void {
   tpsIdsModeBySession.delete(sessionId)
+  lastTpsTokensAtBySession.delete(sessionId)
   tpsMeterBySession.get(sessionId)?.reset()
 }
 
@@ -6075,6 +6108,7 @@ export const useChatStore = create<ChatStore>((setState, get) => {
           meter.reset()
           tpsIdsModeBySession.set(sessionId, true)
         }
+        lastTpsTokensAtBySession.set(sessionId, performance.now())
         meter.ensureCall()
         meter.pushTokens(msg.tokens, { generatedAt: msg.serverTs })
         break

@@ -229,6 +229,37 @@ describe('closing the stream', () => {
     clock.advance(2000)
     expect(meter.value()).toBeCloseTo(104, 0)
   })
+
+  it('reads zero through a mid-call silence instead of freezing the old rate', () => {
+    const clock = arrivalClock()
+    const meter = new TpsMeter('arrival')
+    const gen = { at: 0 }
+    steady(meter, clock, 16, 13, gen)
+    // A tool call starts executing: the call window is open (no endCall yet) and
+    // no tokens arrive while the engine runs it. The honest reading is "nothing
+    // is decoding right now" — holding the pre-tool speed here is what read as a
+    // stuck indicator for the whole tool call.
+    meter.ensureCall()
+    clock.advance(2000)
+    expect(meter.value()).toBe(0)
+
+    // And the reading recovers as soon as tokens flow again (the grid restarts
+    // on the first frame after the gap).
+    steady(meter, clock, 8, 13, gen)
+    expect(meter.value()).toBeCloseTo(104, 0)
+  })
+
+  it('keeps the end-of-call rate once the call has been reconciled', () => {
+    const clock = arrivalClock()
+    const meter = new TpsMeter('arrival')
+    const gen = { at: 0 }
+    steady(meter, clock, 16, 13, gen)
+    // endCall closed the window: a silence now is a finished turn, and the last
+    // real rate is what the readout should hold.
+    meter.endCall(156, 1500)
+    clock.advance(2000)
+    expect(meter.value()).toBeCloseTo(156 / 1.5, 5)
+  })
 })
 
 describe('clock discipline', () => {
