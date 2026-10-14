@@ -2,7 +2,7 @@
 
 结构：`patches/<主题>/<主题>-<优化项>-patch<N>.patch`（一个优化项一个 patch；拆不开才 patch2/3）。
 
-**应用顺序 = `ORDER.md` 自上而下**（44 个 patch；项按最小链位排序，见下）。
+**应用顺序 = `ORDER.md` 自上而下**（45 个 patch；项按最小链位排序，见下）。
 
 ```bash
 while read -r p; do git apply -p1 "$p"; done < modify/patches/ORDER.md
@@ -53,6 +53,7 @@ while read -r p; do git apply -p1 "$p"; done < modify/patches/ORDER.md
 | `tps-density-estimation-patch1.patch` | 66,66 |
 | `tps-session-total-patch1.patch` | 2026-10-03 新增（会话读数=会话总量，去子代理重复计） |
 | `tps-estimation-unified-patch1.patch` | 2026-10-14 新增（⚠️ 基座 = 067 `d240afe84`，独立应用；**合并原 43+44+45**——主题一脉、文件重叠，合一降管理成本：① 流式指示器吃 `tps_tokens` 真值 + attempt 边界镜像；② 估算统一吃密度池 + 拟合 EWMA 新近权重；③ 工具期静默读数落 0 不再冻结 + ids 断供 10s 回落字符采样；7 文件） |
+| `tps-ids-probe-calibration-patch1.patch` | 2026-10-14 新增（⚠️ 基座 = 067 `782661ba7`，独立应用；ids 探测与校准学习修复——① probe 改流结束时判定 miss + 曾支持永不拉黑 + miss 10 分钟衰减（长 prefill 23s 实测不再拉黑本地引擎）；② 整块工具输入补喂 meter + 子代理同路径 + 学习样本 4×units 护栏 + 校准 v5→v6 清毒值（修"估算虚高 3-5 倍"）；11 文件） |
 
 ## usage/ — 上下文缓存计费与用量聚合显示（pr-5）
 

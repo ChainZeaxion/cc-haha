@@ -1,0 +1,596 @@
+diff --git a/desktop/src/lib/tpsCalibration.test.ts b/desktop/src/lib/tpsCalibration.test.ts
+index b3342def3..9b164e68d 100644
+--- a/desktop/src/lib/tpsCalibration.test.ts
++++ b/desktop/src/lib/tpsCalibration.test.ts
+@@ -44,6 +44,17 @@ describe('tpsCalibration', () => {
+     expect(loadTpsCalibration('qwen3-coder')).toBeNull()
+   })
+ 
++  it('discards a poisoned older-version payload (inflated coefficients from feed-gap calls)', () => {
++    // v6 dropped v5's numbers: some were learned from calls whose frames did
++    // not cover everything the engine billed, which drove the coefficients
++    // toward the ceiling and over-read every character-measured call after.
++    localStorage.setItem(TPS_CALIBRATION_STORAGE_KEY, JSON.stringify({
++      version: TPS_CALIBRATION_VERSION - 1,
++      models: { 'qwen3-coder': { kCjk: 5.9, kAscii: 5.4, n: 40, updatedAt: 1 } },
++    }))
++    expect(loadTpsCalibration('qwen3-coder')).toBeNull()
++  })
++
+   it('ignores a corrupt or non-numeric payload', () => {
+     localStorage.setItem(TPS_CALIBRATION_STORAGE_KEY, '{not json')
+     expect(loadTpsCalibration('qwen3-coder')).toBeNull()
+diff --git a/desktop/src/lib/tpsCalibration.ts b/desktop/src/lib/tpsCalibration.ts
+index 362604675..811a63e11 100644
+--- a/desktop/src/lib/tpsCalibration.ts
++++ b/desktop/src/lib/tpsCalibration.ts
+@@ -20,6 +20,13 @@
+ import type { TpsCalibration } from './tpsMeter'
+ 
+ export const TPS_CALIBRATION_STORAGE_KEY = 'cc-haha.tpsCalibration'
++// v6: v5 entries may have been learned from calls whose streamed frames did
++// not cover everything the engine billed — whole-block tool inputs (an attempt
++// replay, a non-streamed answer) never reached the meter as text, so the
++// least-squares fit inflated the coefficients toward the learning ceiling and
++// every character-measured readout over-read several-fold. Those entries are
++// discarded and re-learned; the same gap is now closed at the source (the
++// whole block is fed at tool_use_complete when no delta streamed).
+ // v5: v4 entries may have been learned while the text estimator counted
+ // whitespace and used a lower CJK coefficient — both of which were wrong for
+ // this engine (measured: 1.003 tokens per Chinese character, whitespace free).
+@@ -33,7 +40,7 @@ export const TPS_CALIBRATION_STORAGE_KEY = 'cc-haha.tpsCalibration'
+ // created, which understated the density and halved the displayed speed. The
+ // version check drops those entries so the coefficients are re-learned from
+ // matched spans only.
+-export const TPS_CALIBRATION_VERSION = 5
++export const TPS_CALIBRATION_VERSION = 6
+ 
+ /** Keep the store small; the least recently used models are dropped first. */
+ const MAX_MODELS = 32
+diff --git a/desktop/src/lib/tpsMeter.test.ts b/desktop/src/lib/tpsMeter.test.ts
+index c64747386..565fd94ef 100644
+--- a/desktop/src/lib/tpsMeter.test.ts
++++ b/desktop/src/lib/tpsMeter.test.ts
+@@ -410,11 +410,14 @@ describe('calibration learning', () => {
+     meter.endCall(100, 2000)
+     expect(meter.calibration().kAscii).toBe(baseline)
+ 
+-    // A genuine extreme ratio still lands inside the clamp.
++    // Real tokens far beyond what the frames can explain mean part of the call
++    // never reached the meter (a feed gap, a whole-block tool input that
++    // streamed no deltas). The sample is refused outright: inflating the
++    // coefficients to bridge the gap would over-read every later call.
+     meter.beginCall()
+     for (let i = 0; i < 100; i++) { clock.advance(5); meter.push('x'.repeat(6)) }
+     meter.endCall(100_000, 2000)
+-    expect(meter.calibration().kAscii).toBeLessThanOrEqual(6)
++    expect(meter.calibration().kAscii).toBe(baseline)
+   })
+ 
+   it("does not bill sparse prose frames at a dense tool-input call's rate", () => {
+diff --git a/desktop/src/lib/tpsMeter.ts b/desktop/src/lib/tpsMeter.ts
+index 8181143bb..f8891ae38 100644
+--- a/desktop/src/lib/tpsMeter.ts
++++ b/desktop/src/lib/tpsMeter.ts
+@@ -173,6 +173,16 @@ const MIN_UNITS_TO_LEARN = 40
+ /** A call whose unit count dwarfs the running mean is a replay, not a real burst. */
+ const OUTLIER_UNIT_FACTOR = 3
+ const UNIT_MEAN_EWMA_ALPHA = 0.2
++/**
++ * A call whose real tokens exceed its character units (weighted at the neutral
++ * density) by more than this cannot be explained by what the meter saw: some
++ * of the billed output never reached the frames (a feed gap, a truncated
++ * replay). Learning from it would inflate the coefficients for every later
++ * call, so the sample is dropped instead. The factor is deliberately loose —
++ * dense tool-input JSON measures ~2 units-per-token under the neutral split,
++ * so a healthy call lands far below it.
++ */
++const MAX_EXPLAINABLE_TOKENS_PER_UNIT = 4
+ /**
+  * Forgetting factor on the least-squares accumulators: the engine's density is
+  * stable, but a session that switched models (and kept this meter) should not
+@@ -841,6 +851,11 @@ export class TpsMeter {
+     // real tokens. Drop the sample instead of teaching the coefficients a lie.
+     if (this.unitMean !== null && units > OUTLIER_UNIT_FACTOR * this.unitMean) return false
+     if (real < MIN_REAL_TOKENS_TO_LEARN) return false
++    // Real tokens far beyond what the sampled text can explain mean part of the
++    // call never reached the meter (a feed gap). The fit would spread the
++    // missing tokens over the classes it did see and over-read every later
++    // call; refuse the sample rather than bank the lie.
++    if (real > MAX_EXPLAINABLE_TOKENS_PER_UNIT * units) return false
+     this.unitMean = this.unitMean === null
+       ? units
+       : this.unitMean + UNIT_MEAN_EWMA_ALPHA * (units - this.unitMean)
+diff --git a/desktop/src/stores/chatStore.ts b/desktop/src/stores/chatStore.ts
+index 30a3fff61..29f00fe98 100644
+--- a/desktop/src/stores/chatStore.ts
++++ b/desktop/src/stores/chatStore.ts
+@@ -1162,6 +1162,48 @@ const lastTpsTokensAtBySession = new Map<string, number>()
+  */
+ const IDS_FALLBACK_SILENCE_MS = 10_000
+ 
++/**
++ * Characters of tool-input JSON the current tool block has streamed, per
++ * session. The block opens on `content_start` and closes on
++ * `tool_use_complete`, which checks the count: a whole-block delivery (an
++ * attempt replay, a non-streamed answer) streamed nothing, and without feeding
++ * its `input` then, the block's tokens would be absent from the meter's call
++ * accounting while the engine's `usage` still bills them — the mismatch the
++ * calibration learns as a systematically inflated coefficient.
++ */
++const toolInputStreamedCharsBySession = new Map<string, number>()
++
++/**
++ * Feed a whole-block tool input to the meter when no streamed delta covered it.
++ *
++ * `streamedChars` is the count the block accumulated from `input_json_delta`
++ * frames; a positive count means the meter already saw that text and the block
++ * must not be fed again. Serialization order is fixed (stable stringify) so the
++ * same block always measures the same.
++ */
++function feedWholeBlockToolInput(
++  sessionId: string,
++  input: unknown,
++  streamedChars: number,
++  generatedAt?: number,
++): void {
++  if (streamedChars > 0) return
++  if (input == null) return
++  let text: string
++  try {
++    text = typeof input === 'string' ? input : JSON.stringify(input)
++  } catch {
++    return
++  }
++  if (!text) return
++  pushTpsFrame(sessionId, text, { generatedAt })
++}
++
++/** Drop a session's whole-block tracker (reconnect / session teardown). */
++function resetToolInputStreamedChars(sessionId: string): void {
++  toolInputStreamedCharsBySession.delete(sessionId)
++}
++
+ /**
+  * Feed one of a session's own streamed frames into its TPS meter, opening the
+  * call window on the first frame so endCall() can reconcile it afterwards.
+@@ -1199,6 +1241,7 @@ function pushTpsFrame(
+ function resetTpsWindow(sessionId: string): void {
+   tpsIdsModeBySession.delete(sessionId)
+   lastTpsTokensAtBySession.delete(sessionId)
++  resetToolInputStreamedChars(sessionId)
+   tpsMeterBySession.get(sessionId)?.reset()
+ }
+ 
+@@ -1299,7 +1342,8 @@ function ingestSubagentTps(
+   const feedOwn = !tpsIdsModeBySession.get(parentSessionId)
+   // Only the stamped stream events carry `serverTs`; read it under the union's
+   // narrowing (it is what the original per-branch pushes did).
+-  const generatedAt = event.type === 'content_delta' || event.type === 'thinking'
++  const generatedAt = event.type === 'content_delta' || event.type === 'thinking' ||
++    event.type === 'tool_use_complete'
+     ? event.serverTs
+     : undefined
+   const push = (text: string): void => {
+@@ -1311,6 +1355,20 @@ function ingestSubagentTps(
+     if (event.toolInput) push(event.toolInput)
+     return
+   }
++  // A subagent's whole-block tool input arrives as tool_use_complete with no
++  // streamed deltas — the same gap the main stream's tool_use_complete covers.
++  // Feed the block itself, or the run's text-measured rate under-counts every
++  // tool-heavy stretch of its work.
++  if (event.type === 'tool_use_complete' && event.input != null) {
++    let text: string
++    try {
++      text = typeof event.input === 'string' ? event.input : JSON.stringify(event.input)
++    } catch {
++      return
++    }
++    if (text) push(text)
++    return
++  }
+   if (event.type === 'thinking' && event.complete !== true && event.text) push(event.text)
+ }
+ 
+@@ -1624,6 +1682,10 @@ function appendPendingToolInputDelta(sessionId: string, text: string, generatedA
+   )
+   // Feed streaming tool inputs (Write/Edit/… argument JSON) into the TPS meter
+   // so the decode-speed reflects all output tokens, not just assistant text.
++  toolInputStreamedCharsBySession.set(
++    sessionId,
++    (toolInputStreamedCharsBySession.get(sessionId) ?? 0) + text.length,
++  )
+   pushTpsFrame(sessionId, text, { generatedAt })
+ }
+ 
+@@ -3708,6 +3770,7 @@ export const useChatStore = create<ChatStore>((setState, get) => {
+         // normal cold REST remains useful even while the socket is unavailable.
+         clearPendingDelta(sessionId)
+         clearPendingToolInputDelta(sessionId)
++        resetToolInputStreamedChars(sessionId)
+         clearPendingTaskToolUseIds(sessionId)
+         clearPendingToolParentUseIds(sessionId)
+       }
+@@ -3796,6 +3859,7 @@ export const useChatStore = create<ChatStore>((setState, get) => {
+     clearPendingTaskToolUseIds(sessionId)
+     clearPendingToolParentUseIds(sessionId)
+   tpsMeterBySession.delete(sessionId)
++  resetToolInputStreamedChars(sessionId)
+   clearAgentRunTpsMeters(sessionId)
+     advanceHistoryLifecycle(sessionId)
+     wsManager.disconnect(sessionId)
+@@ -4084,6 +4148,7 @@ export const useChatStore = create<ChatStore>((setState, get) => {
+     wsManager.send(sessionId, { type: 'stop_generation' })
+     const bufferedText = consumePendingDelta(sessionId)
+     clearPendingToolInputDelta(sessionId)
++    resetToolInputStreamedChars(sessionId)
+     clearPendingTaskToolUseIds(sessionId)
+     clearPendingToolParentUseIds(sessionId)
+     let hasRunningBackgroundAgents = false
+@@ -5089,6 +5154,7 @@ export const useChatStore = create<ChatStore>((setState, get) => {
+     clearPendingTaskToolUseIds(sessionId)
+     clearPendingToolParentUseIds(sessionId)
+     clearPendingToolInputDelta(sessionId)
++    resetToolInputStreamedChars(sessionId)
+     pendingOwnedTaskEvents.delete(sessionId)
+     pendingAgentRunEvents.delete(sessionId)
+     activeAgentStreamIdBySession.delete(sessionId)
+@@ -5267,6 +5333,7 @@ export const useChatStore = create<ChatStore>((setState, get) => {
+           // messages are merged back below while the turn remains running.
+           consumePendingDelta(sessionId)
+           clearPendingToolInputDelta(sessionId)
++          resetToolInputStreamedChars(sessionId)
+           clearPendingTaskToolUseIds(sessionId)
+           clearPendingToolParentUseIds(sessionId)
+           update((current) => {
+@@ -5358,6 +5425,7 @@ export const useChatStore = create<ChatStore>((setState, get) => {
+ 
+         const text = `${session.streamingText}${consumePendingDelta(sessionId)}`
+         clearPendingToolInputDelta(sessionId)
++        resetToolInputStreamedChars(sessionId)
+         clearPendingTaskToolUseIds(sessionId)
+         clearPendingToolParentUseIds(sessionId)
+         if (session.elapsedTimer) clearInterval(session.elapsedTimer)
+@@ -5543,6 +5611,9 @@ export const useChatStore = create<ChatStore>((setState, get) => {
+         } else if (msg.blockType === 'tool_use') {
+ 
+           clearPendingToolInputDelta(sessionId)
++          // A new tool block opens: nothing of its input has streamed yet. The
++          // whole-block check at tool_use_complete reads this.
++          toolInputStreamedCharsBySession.set(sessionId, 0)
+           rememberPendingToolParentUseId(sessionId, msg.toolUseId, msg.parentToolUseId)
+           const toolUseId = msg.toolUseId ?? null
+           const toolName = msg.toolName ?? 'unknown'
+@@ -5799,6 +5870,17 @@ export const useChatStore = create<ChatStore>((setState, get) => {
+ 
+       case 'tool_use_complete': {
+         clearPendingToolInputDelta(sessionId)
++        // If this block's input never streamed (a whole-block delivery: attempt
++        // replay, non-streamed answer), the meter has seen none of its tokens
++        // while the engine's `usage` bills them — feed the block itself so the
++        // call accounting matches what is being reconciled against.
++        feedWholeBlockToolInput(
++          sessionId,
++          msg.input,
++          toolInputStreamedCharsBySession.get(sessionId) ?? 0,
++          msg.serverTs,
++        )
++        toolInputStreamedCharsBySession.delete(sessionId)
+         const session = get().sessions[sessionId]
+         const toolName = msg.toolName || session?.activeToolName || 'unknown'
+         const toolUseId = msg.toolUseId || session?.activeToolUseId || ''
+diff --git a/desktop/src/types/chat.ts b/desktop/src/types/chat.ts
+index 113b00a74..dc54beafa 100644
+--- a/desktop/src/types/chat.ts
++++ b/desktop/src/types/chat.ts
+@@ -111,7 +111,7 @@ export type ServerMessage =
+    * ignored. Only sent for endpoints that reported token ids.
+    */
+   | { type: 'tps_tokens'; tokens: number; kind: 'thinking' | 'content' | 'tool'; serverTs?: number }
+-  | { type: 'tool_use_complete'; toolName: string; toolUseId: string; originalToolUseId?: string; input: unknown; parentToolUseId?: string }
++  | { type: 'tool_use_complete'; toolName: string; toolUseId: string; originalToolUseId?: string; input: unknown; parentToolUseId?: string; /** Epoch ms the server received this frame. A whole-block tool input fed to the TPS meter at completion time carries no streamed deltas, and stamping it keeps that feed on the generation clock. */ serverTs?: number }
+   | { type: 'tool_result'; toolUseId: string; originalToolUseId?: string; content: unknown; isError: boolean; parentToolUseId?: string }
+   | {
+       type: 'permission_request'
+@@ -181,7 +181,7 @@ export type ServerMessage =
+ export type AgentRunStreamMessage =
+   | { type: 'content_start'; blockType: 'text' | 'tool_use'; toolName?: string; toolUseId?: string; originalToolUseId?: string; parentToolUseId?: string }
+   | { type: 'content_delta'; text?: string; toolInput?: string; /** Epoch ms the server received this chunk. The client rates decode off this clock instead of its own receive clock, which a busy main thread compresses when it drains a queue (see TpsClock: the meter buckets frames on whichever clock it settled on). */ serverTs?: number }
+-  | { type: 'tool_use_complete'; toolName: string; toolUseId: string; originalToolUseId?: string; input: unknown; parentToolUseId?: string }
++  | { type: 'tool_use_complete'; toolName: string; toolUseId: string; originalToolUseId?: string; input: unknown; parentToolUseId?: string; /** Epoch ms the server received this frame. A whole-block tool input fed to the TPS meter at completion time carries no streamed deltas, and stamping it keeps that feed on the generation clock. */ serverTs?: number }
+   | { type: 'tool_result'; toolUseId: string; originalToolUseId?: string; content: unknown; isError: boolean; parentToolUseId?: string }
+   | { type: 'thinking'; text: string; complete?: boolean; /** Epoch ms the server first saw this thinking block; anchors the live elapsed-time tick to "generation began". */ serverStart?: number; serverTs?: number }
+   | { type: 'status'; state: ChatState; verb?: string; attemptStart?: boolean }
+diff --git a/src/server/proxy/handler.ts b/src/server/proxy/handler.ts
+index f39800490..244f1b473 100644
+--- a/src/server/proxy/handler.ts
++++ b/src/server/proxy/handler.ts
+@@ -750,8 +750,10 @@ async function handleAnthropicCompatible(
+       // passthrough is read through so the ids a local engine attaches to each
+       // content_block_delta can be counted without altering the bytes a client
+       // receives (see anthropicTokenTap).
++      const tpsRelay = createTpsTokenRelay(traceContext?.sessionId ?? null, baseUrl)
+       const tappedStream = anthropicTokenTap(anthropicStream, {
+-        onTokenIds: createTpsTokenRelay(traceContext?.sessionId ?? null, baseUrl).onTokenIds,
++        onTokenIds: tpsRelay.onTokenIds,
++        onStreamEnd: tpsRelay.onStreamEnd,
+         contentEncoding: upstream.headers.get('content-encoding') ?? undefined,
+       })
+       const tracedStream = traceContext
+@@ -955,6 +957,7 @@ async function handleOpenaiChat(
+       : null
+     const anthropicStream = openaiChatStreamToAnthropic(observedBody, body.model, {
+       onTokenIds: tpsRelay?.onTokenIds,
++      onStreamEnd: tpsRelay?.onStreamEnd,
+     })
+     const tracedStream = traceContext
+       ? captureTraceStream(anthropicStream, async (bodySnapshot, error, protocolTraceEnd) => {
+@@ -1012,9 +1015,12 @@ async function handleOpenaiChat(
+ 
+ /** Coalescing window for the TPS token side channel (ms). */
+ const TPS_TOKEN_FLUSH_MS = 200
+-/** After this long without token ids, the endpoint is marked as not supporting them. */
+-const TPS_TOKEN_PROBE_MS = 10_000
+ const TPS_TOKEN_PROBE_MISSES = 2
++/**
++ * A probe miss older than this stops counting. Two misses within the window
++ * blacklist the origin; two misses spread across an afternoon should not.
++ */
++const TPS_TOKEN_PROBE_MISS_TTL_MS = 10 * 60_000
+ 
+ /**
+  * Endpoints that answered a `return_token_ids` request without ever sending
+@@ -1022,7 +1028,15 @@ const TPS_TOKEN_PROBE_MISSES = 2
+  * engine upgrade mid-process is not worth persisting a negative about.
+  */
+ const tokenIdUnsupportedOrigins = new Set<string>()
+-const tokenIdProbeMisses = new Map<string, number>()
++/** Recent misses per origin, as [count, last-miss epoch ms]. */
++const tokenIdProbeMisses = new Map<string, { count: number; at: number }>()
++/**
++ * Origins that have actually delivered token ids at least once. A miss never
++ * blacklists these: the endpoint has proven the parameter works, so a request
++ * that ends without ids had a different cause (a retry that died early, a
++ * transport error, an upstream outage) and the next request should ask again.
++ */
++const tokenIdSupportedOrigins = new Set<string>()
+ 
+ function endpointOrigin(baseUrl: string): string {
+   try {
+@@ -1054,6 +1068,14 @@ function shouldRequestTokenIds(baseUrl: string): boolean {
+  * Batches the real per-chunk token counts of one streamed request and hands
+  * them to the TPS meter over the session's WebSocket. Also remembers when an
+  * endpoint never reported token ids, so the parameter is not asked for again.
++ *
++ * The miss is judged when the stream ends, not on a timer from the request: a
++ * long prefill delays the first chunk well past any fixed window (measured 23 s
++ * on a ~1M-token context) while the ids themselves arrive normally, so timing
++ * from the request blacklisted engines that fully support ids. An origin that
++ * has ever delivered ids is never blacklisted again — a later silent request
++ * then means a transport failure or a retry that died early, not a changed
++ * engine, and the next request should ask regardless.
+  */
+ function createTpsTokenRelay(sessionId: string | null, baseUrl: string) {
+   // One counter per kind. A single total cannot be split after the fact, and
+@@ -1062,15 +1084,21 @@ function createTpsTokenRelay(sessionId: string | null, baseUrl: string) {
+   const pending: Record<TokenChunkKind, number> = { thinking: 0, content: 0, tool: 0 }
+   let flushTimer: ReturnType<typeof setTimeout> | null = null
+   let sawTokenIds = false
++  let streamEnded = false
+   const origin = endpointOrigin(baseUrl)
+-  const probeTimer = setTimeout(() => {
+-    if (sawTokenIds) return
+-    const misses = (tokenIdProbeMisses.get(origin) ?? 0) + 1
+-    tokenIdProbeMisses.set(origin, misses)
+-    if (misses >= TPS_TOKEN_PROBE_MISSES) tokenIdUnsupportedOrigins.add(origin)
+-  }, TPS_TOKEN_PROBE_MS)
+-  // Never hold the process open for a diagnostic timer.
+-  probeTimer.unref?.()
++
++  const noteMiss = () => {
++    if (sawTokenIds || tokenIdSupportedOrigins.has(origin)) return
++    const now = Date.now()
++    const previous = tokenIdProbeMisses.get(origin)
++    // A stale miss counts no more than an absent one.
++    const count = previous && now - previous.at <= TPS_TOKEN_PROBE_MISS_TTL_MS ? previous.count : 0
++    tokenIdProbeMisses.set(origin, { count: count + 1, at: now })
++    if (count + 1 >= TPS_TOKEN_PROBE_MISSES) {
++      tokenIdUnsupportedOrigins.add(origin)
++      tokenIdProbeMisses.delete(origin)
++    }
++  }
+ 
+   const flush = () => {
+     flushTimer = null
+@@ -1086,14 +1114,23 @@ function createTpsTokenRelay(sessionId: string | null, baseUrl: string) {
+   return {
+     onTokenIds(count: number, kind: TokenChunkKind) {
+       if (count <= 0) return
+-      sawTokenIds = true
+-      clearTimeout(probeTimer)
++      if (!sawTokenIds) {
++        sawTokenIds = true
++        tokenIdSupportedOrigins.add(origin)
++        tokenIdProbeMisses.delete(origin)
++        tokenIdUnsupportedOrigins.delete(origin)
++      }
+       pending[kind] += count
+       if (flushTimer === null) {
+         flushTimer = setTimeout(flush, TPS_TOKEN_FLUSH_MS)
+         flushTimer.unref?.()
+       }
+     },
++    onStreamEnd() {
++      if (streamEnded) return
++      streamEnded = true
++      noteMiss()
++    },
+   }
+ }
+ 
+diff --git a/src/server/proxy/streaming/anthropicTokenTap.ts b/src/server/proxy/streaming/anthropicTokenTap.ts
+index 514bc7d92..78aa22c9a 100644
+--- a/src/server/proxy/streaming/anthropicTokenTap.ts
++++ b/src/server/proxy/streaming/anthropicTokenTap.ts
+@@ -8,6 +8,13 @@ export interface AnthropicTokenTapOptions {
+    * caller learns that the endpoint does not report them.
+    */
+   onTokenIds?: (count: number, kind: TokenChunkKind) => void
++  /**
++   * Called when the body has been fully read (or a compressed body — which the
++   * tap cannot parse — is forwarded untouched). The ids relay needs this as its
++   * probe point: a request that never produced ids can only be judged a miss
++   * after the stream had its full chance to produce them.
++   */
++  onStreamEnd?: () => void
+   /**
+    * `Content-Encoding` of the upstream body. The tap only parses plain SSE: a
+    * compressed body is forwarded untouched and simply yields no ids (the local
+@@ -74,13 +81,19 @@ export function anthropicTokenTap(
+   stream: ReadableStream<Uint8Array>,
+   options: AnthropicTokenTapOptions,
+ ): ReadableStream<Uint8Array> {
+-  const { onTokenIds, contentEncoding } = options
+-  if (!onTokenIds) return stream
++  const { onTokenIds, onStreamEnd, contentEncoding } = options
++  if (!onTokenIds) {
++    onStreamEnd?.()
++    return stream
++  }
+ 
+   // Anything but an unencoded body cannot be parsed line-wise here. Forward it
+   // and report no ids rather than risk mangling the stream.
+   const encoding = (contentEncoding ?? '').trim().toLowerCase()
+-  if (encoding && encoding !== 'identity') return stream
++  if (encoding && encoding !== 'identity') {
++    onStreamEnd?.()
++    return stream
++  }
+ 
+   const reader = new SseTokenReader(onTokenIds)
+   const decoder = new TextDecoder()
+@@ -94,6 +107,7 @@ export function anthropicTokenTap(
+       },
+       flush() {
+         reader.push(decoder.decode())
++        onStreamEnd?.()
+       },
+     }),
+   )
+diff --git a/src/server/proxy/streaming/openaiChatStreamToAnthropic.ts b/src/server/proxy/streaming/openaiChatStreamToAnthropic.ts
+index 83f9c169e..46b602fd3 100644
+--- a/src/server/proxy/streaming/openaiChatStreamToAnthropic.ts
++++ b/src/server/proxy/streaming/openaiChatStreamToAnthropic.ts
+@@ -76,6 +76,16 @@ type StreamState = {
+    * content and tool input, and only the chunk knows which one it is.
+    */
+   onTokenIds?: (count: number, kind: TokenChunkKind) => void
++
++  /**
++   * Called exactly once when the stream leaves the converting loop — normally,
++   * on error, or on cancellation. This is where the ids relay can judge a miss:
++   * only now has the stream had its full chance to produce ids. Timing the
++   * probe from the request instead blames an engine whose prefill simply took
++   * longer than the probe window (measured: a ~1M-token context prefills for
++   * 23 s, far past the window, while its ids arrive normally afterwards).
++   */
++  onStreamEnd?: () => void
+ }
+ 
+ // ─── Helpers ───────────────────────────────────────────────
+@@ -84,9 +94,14 @@ function formatSse(event: string, data: unknown): string {
+   return `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`
+ }
+ 
+-function createState(model: string, onTokenIds?: (count: number, kind: TokenChunkKind) => void): StreamState {
++function createState(
++  model: string,
++  onTokenIds?: (count: number, kind: TokenChunkKind) => void,
++  onStreamEnd?: () => void,
++): StreamState {
+   return {
+     ...(onTokenIds ? { onTokenIds } : {}),
++    ...(onStreamEnd ? { onStreamEnd } : {}),
+     queue: [],
+     currentBlockType: 'text',
+     currentBlockIndex: -1,
+@@ -111,11 +126,14 @@ function createState(model: string, onTokenIds?: (count: number, kind: TokenChun
+ export function openaiChatStreamToAnthropic(
+   upstream: ReadableStream<Uint8Array>,
+   model: string,
+-  options: { onTokenIds?: (count: number, kind: TokenChunkKind) => void } = {},
++  options: {
++    onTokenIds?: (count: number, kind: TokenChunkKind) => void
++    onStreamEnd?: () => void
++  } = {},
+ ): ReadableStream<Uint8Array> {
+   const encoder = new TextEncoder()
+   const decoder = new TextDecoder()
+-  const state = createState(model, options.onTokenIds)
++  const state = createState(model, options.onTokenIds, options.onStreamEnd)
+   const reader = upstream.getReader()
+   let cancelled = false
+ 
+@@ -217,12 +235,14 @@ export function openaiChatStreamToAnthropic(
+           controller.close()
+         }
+       } finally {
++        state.onStreamEnd?.()
+         await reader.cancel().catch(() => {})
+         reader.releaseLock()
+       }
+     },
+     async cancel(reason) {
+       cancelled = true
++      state.onStreamEnd?.()
+       await reader.cancel(reason)
+     },
+   })
+diff --git a/src/server/ws/events.ts b/src/server/ws/events.ts
+index a6b9bd789..071ece11a 100644
+--- a/src/server/ws/events.ts
++++ b/src/server/ws/events.ts
+@@ -86,7 +86,7 @@ export type ServerMessage =
+    * duplicates. Sent only for endpoints that reported token ids.
+    */
+   | { type: 'tps_tokens'; tokens: number; kind: 'thinking' | 'content' | 'tool'; serverTs?: number }
+-  | { type: 'tool_use_complete'; toolName: string; toolUseId: string; originalToolUseId?: string; input: unknown; parentToolUseId?: string }
++  | { type: 'tool_use_complete'; toolName: string; toolUseId: string; originalToolUseId?: string; input: unknown; parentToolUseId?: string; /** Epoch ms the server received this frame. A whole-block tool input fed to the TPS meter at completion time carries no streamed deltas, and stamping it keeps that feed on the generation clock. */ serverTs?: number }
+   | { type: 'tool_result'; toolUseId: string; originalToolUseId?: string; content: unknown; isError: boolean; parentToolUseId?: string }
+   | {
+       type: 'permission_request'
+@@ -162,7 +162,7 @@ export type ServerMessage =
+ export type AgentRunStreamMessage =
+   | { type: 'content_start'; blockType: 'text' | 'tool_use'; toolName?: string; toolUseId?: string; originalToolUseId?: string; parentToolUseId?: string }
+   | { type: 'content_delta'; text?: string; toolInput?: string; /** Epoch ms the server received this chunk. The client rates decode off this clock instead of its own receive clock, which a busy main thread compresses when it drains a queue (see TpsClock: the meter buckets frames on whichever clock it settled on). */ serverTs?: number }
+-  | { type: 'tool_use_complete'; toolName: string; toolUseId: string; originalToolUseId?: string; input: unknown; parentToolUseId?: string }
++  | { type: 'tool_use_complete'; toolName: string; toolUseId: string; originalToolUseId?: string; input: unknown; parentToolUseId?: string; /** Epoch ms the server received this frame. A whole-block tool input fed to the TPS meter at completion time carries no streamed deltas, and stamping it keeps that feed on the generation clock. */ serverTs?: number }
+   | { type: 'tool_result'; toolUseId: string; originalToolUseId?: string; content: unknown; isError: boolean; parentToolUseId?: string }
+   | { type: 'thinking'; text: string; complete?: boolean; /** Epoch ms the server first received this thinking block (first delta / block_start). Anchors the block's wall-clock start on the client instead of the client's own receive clock. */ serverStart?: number; serverTs?: number }
+   | { type: 'status'; state: ChatState; verb?: string; attemptStart?: boolean }
+diff --git a/src/server/ws/handler.ts b/src/server/ws/handler.ts
+index eb2f1d70f..3780c054c 100644
+--- a/src/server/ws/handler.ts
++++ b/src/server/ws/handler.ts
+@@ -4104,13 +4104,18 @@ function stampServerTs(message: ServerMessage): ServerMessage {
+   if (
+     message.type === 'content_delta' ||
+     message.type === 'thinking' ||
+-    message.type === 'tps_tokens'
++    message.type === 'tps_tokens' ||
++    message.type === 'tool_use_complete'
+   ) {
+     return { ...message, serverTs }
+   }
+   if (message.type === 'agent_run_event') {
+     const event = message.event
+-    if (event.type === 'content_delta' || event.type === 'thinking') {
++    if (
++      event.type === 'content_delta' ||
++      event.type === 'thinking' ||
++      event.type === 'tool_use_complete'
++    ) {
+       return { ...message, event: { ...event, serverTs } }
+     }
+   }

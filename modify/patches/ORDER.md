@@ -133,3 +133,19 @@ patches/tps/tps-estimation-unified-patch1.patch
 # 4 文件（workspaceContentStore.ts/test、CurrentTurnChangeCard.tsx/test）。
 # 干净 `dfbfe9dc5` 上 apply ⇒ 4 文件逐字节一致 ✅ 2026-10-14 已实测。
 patches/workspace/workspace-history-budget-degrade-patch1.patch
+
+# 45：⚠️ 基座 = `782661ba7`（0.6.7 血缘）—— **独立应用**。
+# TPS ids 探测与校准学习修复（2026-10-14）：两个耦合缺陷——
+# ① ids probe 从请求发起计时：长 prefill（实测 ~1M token 上下文 23s）超 10s 探测窗即记 miss，
+#   两次即拉黑 origin（进程内永久）→ 之后不再向完全支持 ids 的本地引擎要 ids → 客户端 10s 静默
+#   降回字符采样（"老是跳到次级估算路线"）。修复：miss 改在流结束时判定（openaiChatStreamToAnthropic
+#   与 anthropicTokenTap 各加 onStreamEnd 钩子）；origin 一旦真正收到过 ids 即标记支持、此后永不拉黑；
+#   miss 记录 10 分钟衰减，历史偶发不再永久生效。
+# ② 校准学习样本缺口：整块工具输入（attempt 重放/非流式答案）从未以文本到达 meter，而引擎 usage
+#   照计 → 最小二乘把 kCjk/kAscii 拉向学习上限（K_MAX=6）并持久化 → 之后每次字符测量读数虚高数倍
+#   （用户观测"估算 3-5 倍"）。修复：tool_use_complete 时该块若无流式 delta 则整块补喂 meter
+#   （server 给该帧打 serverTs 保住 generation 时钟；desktop/types 同步字段）；子代理整块工具输入
+#   同样补喂 run meter；学习加护栏——real 超出帧可解释范围（>4×units）的样本直接丢弃；校准存储
+#   v5→v6 丢弃中毒条目重学。
+# 11 文件（5 desktop/ + 6 src/）。干净 `782661ba7` 上 apply ⇒ 11 文件逐字节一致 ✅ 2026-10-14 已实测。
+patches/tps/tps-ids-probe-calibration-patch1.patch
