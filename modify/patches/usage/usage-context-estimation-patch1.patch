@@ -89,10 +89,109 @@ index e220736f9..854b2fda5 100644
    keptLines.push('\n[... section truncated for length ...]')
    return { lines: keptLines, wasTruncated: true }
 diff --git a/src/services/compact/autoCompact.test.ts b/src/services/compact/autoCompact.test.ts
-index 1b0fc1882..f54b0a22f 100644
+index 329d85108..f54b0a22f 100644
 --- a/src/services/compact/autoCompact.test.ts
 +++ b/src/services/compact/autoCompact.test.ts
-@@ -248,7 +248,8 @@ describe('model context window resolution', () => {
+@@ -6,6 +6,7 @@ import {
+   getAutoCompactTier,
+   getEffectiveContextWindowSize,
+   getForcedCompactThreshold,
++  getVccRetentionBudget,
+   getResolvedContextWindow,
+   shouldAutoCompact,
+ } from './autoCompact.js'
+@@ -95,9 +96,9 @@ describe('model context window resolution', () => {
+     // explicitly configured window states the model's real limit and must win,
+     // otherwise auto-compact aims at 1M and the provider hard-caps first.
+     expect(getContextWindowForModel('k3[1m]')).toBe(262_144)
+-    // The configured 262,144 wins, so this lands in the <=300K tier (21% left):
+-    // 242_144 effective * 0.79 = 191_293.
+-    expect(getAutoCompactThreshold('k3[1m]')).toBe(191_293)
++    // The configured 262,144 wins, so this lands in the <=320K tier (15% left):
++    // 242_144 effective * 0.85 = 205_822.
++    expect(getAutoCompactThreshold('k3[1m]')).toBe(205_822)
+   })
+ 
+   test('[1m] marker still wins over built-in table entries', () => {
+@@ -131,33 +132,56 @@ describe('model context window resolution', () => {
+   })
+ 
+   test('derives auto-compact thresholds from provider context windows', () => {
+-    // Thresholds now come from the window tier (13/17/21/17/15% left) instead
+-    // of a flat 13K buffer, capped by the legacy min(13K, window/3) guard.
+-    expect(getAutoCompactThreshold('deepseek-v4-pro')).toBe(833_000)
+-    expect(getAutoCompactThreshold('zai-org/GLM-5.2')).toBe(833_000)
+-    expect(getAutoCompactThreshold('glm-5.1')).toBe(149_400)
+-    expect(getAutoCompactThreshold('glm-4.5-air')).toBe(89_640)
+-    expect(getAutoCompactThreshold('kimi-k2.6')).toBe(191_293)
+-    expect(getAutoCompactThreshold('MiniMax-M2.7')).toBe(145_992)
+-    expect(getAutoCompactThreshold('gpt-5.6-terra')).toBe(276_722)
++    // Thresholds come from the window tier's soft share (10/13/15/13/10% left),
++    // measured on the effective window, capped by the legacy min(13K, window/3)
++    // guard. Each is `floor(effective * (1 - softPctLeft))`.
++    expect(getAutoCompactThreshold('deepseek-v4-pro')).toBe(882_000)
++    expect(getAutoCompactThreshold('zai-org/GLM-5.2')).toBe(882_000)
++    expect(getAutoCompactThreshold('glm-5.1')).toBe(156_600)
++    expect(getAutoCompactThreshold('glm-4.5-air')).toBe(93_960)
++    expect(getAutoCompactThreshold('kimi-k2.6')).toBe(205_822)
++    expect(getAutoCompactThreshold('MiniMax-M2.7')).toBe(160_776)
++    expect(getAutoCompactThreshold('gpt-5.6-terra')).toBe(290_058)
+   })
+ 
+-  test('tiers compaction by declared window, with the 300K-500K band at 17%/53K', () => {
++  test('puts the forced trigger at the tier forced share, always after the soft one', () => {
++    // floor(effective * (1 - forcedPctLeft)); effective = declared - 20_000 for
++    // every model here.
++    expect(getForcedCompactThreshold('deepseek-v4-pro')).toBe(911_399)
++    expect(getForcedCompactThreshold('glm-5.1')).toBe(162_000)
++    expect(getForcedCompactThreshold('gpt-5.6-terra')).toBe(300_060)
++
++    for (const model of ['deepseek-v4-pro', 'glm-5.1', 'kimi-k2.6', 'gpt-5.6-terra']) {
++      const soft = getAutoCompactThreshold(model)
++      const forced = getForcedCompactThreshold(model)
++      // Crossing the forced line must imply the soft line was already crossed.
++      expect(forced).toBeGreaterThan(soft)
++      expect(forced).toBeLessThan(getEffectiveContextWindowSize(model))
++    }
++  })
++
++  test('budgets a compaction at the forced share, with the soft share as ceiling', () => {
++    // The context a compaction should leave behind: the window the forced
++    // trigger reserves, so the next compaction is not already due.
++    expect(getVccRetentionBudget('glm-5.1')).toEqual({
++      preferredTokens: 18_000, // 180_000 effective * 0.10
++      ceilingTokens: 23_400, // 180_000 effective * 0.13
++    })
++    expect(getVccRetentionBudget('kimi-k2.6')).toEqual({
++      preferredTokens: 31_478, // 242_144 * 0.13
++      ceilingTokens: 36_321, // 242_144 * 0.15
++    })
++  })
++
++  test('tiers compaction by declared window, 10%/8% through 13%/10% to 15%/13%', () => {
+     const tierOf = (model: string) => getAutoCompactTier(getResolvedContextWindow(model))
+ 
+-    // >=500K: 15% left, 65K floor.
+-    expect(tierOf('deepseek-v4-pro')).toEqual({ pctLeft: 0.15, floorTokens: 65_000 })
+-    // The 368,640-token preset sits in the 300K-500K band.
++    // >520K is the loosest band: 10% left before compacting, 7% forced.
++    expect(tierOf('deepseek-v4-pro')).toEqual({ softPctLeft: 0.1, forcedPctLeft: 0.07 })
++    // The 368,640-token preset sits in the 320K-520K band.
+     process.env.CLAUDE_CODE_AUTO_COMPACT_WINDOW = '368640'
+-    expect(tierOf('unconfigured-model')).toEqual({ pctLeft: 0.17, floorTokens: 53_000 })
++    expect(tierOf('unconfigured-model')).toEqual({ softPctLeft: 0.13, forcedPctLeft: 0.1 })
+     delete process.env.CLAUDE_CODE_AUTO_COMPACT_WINDOW
+-
+-    // The hard trigger must never precede the soft one.
+-    for (const model of ['deepseek-v4-pro', 'glm-5.1', 'kimi-k2.6', 'gpt-5.6-terra']) {
+-      expect(getForcedCompactThreshold(model)).toBeGreaterThanOrEqual(
+-        getAutoCompactThreshold(model),
+-      )
+-    }
+   })
+ 
+   test('scales compaction headroom for small context windows', async () => {
+@@ -224,7 +248,8 @@ describe('model context window resolution', () => {
        toolUseContext: { options: { tools: [] } },
      } as never)
  
@@ -102,7 +201,7 @@ index 1b0fc1882..f54b0a22f 100644
      expect(await shouldAutoCompact(messages, 'custom-16k')).toBe(false)
      expect(await shouldAutoCompact(
        messages,
-@@ -259,6 +260,111 @@ describe('model context window resolution', () => {
+@@ -235,6 +260,111 @@ describe('model context window resolution', () => {
      )).toBe(true)
    })
  
@@ -214,8 +313,20 @@ index 1b0fc1882..f54b0a22f 100644
    test('crosses the GPT-5.6 threshold without recounting encrypted siblings', async () => {
      const responseId = 'msg_threshold'
      const messagesAt = (tokens: number) => [
+@@ -274,9 +404,9 @@ describe('model context window resolution', () => {
+       },
+     ] as never
+ 
+-    expect(await shouldAutoCompact(messagesAt(276_721), 'gpt-5.6-terra'))
++    expect(await shouldAutoCompact(messagesAt(290_057), 'gpt-5.6-terra'))
+       .toBe(false)
+-    expect(await shouldAutoCompact(messagesAt(276_722), 'gpt-5.6-terra'))
++    expect(await shouldAutoCompact(messagesAt(290_058), 'gpt-5.6-terra'))
+       .toBe(true)
+   })
+ })
 diff --git a/src/services/compact/autoCompact.ts b/src/services/compact/autoCompact.ts
-index cfcfb49f1..8629547e2 100644
+index 37e0f45f7..8629547e2 100644
 --- a/src/services/compact/autoCompact.ts
 +++ b/src/services/compact/autoCompact.ts
 @@ -12,13 +12,14 @@ import { hasExactErrorMessage } from '../../utils/errors.js'
@@ -238,7 +349,137 @@ index cfcfb49f1..8629547e2 100644
  import { zodToJsonSchema } from '../../utils/zodToJsonSchema.js'
  import { getFeatureValue_CACHED_MAY_BE_STALE } from '../analytics/growthbook.js'
  import { getMaxOutputTokensForModel } from '../api/claude.js'
-@@ -333,6 +334,45 @@ export function estimateFallbackFixedContextTokens(
+@@ -108,35 +109,44 @@ export const MANUAL_COMPACT_BUFFER_TOKENS = 3_000
+ 
+ /**
+  * Auto-compact tiers, keyed by the *declared* context window
+- * (`getResolvedContextWindow`). Each tier states how much should be left when
+- * compaction starts (`pctLeft` of the window) and the absolute floor below
+- * which compaction is forced regardless of percentage (`floorTokens`).
++ * (`getResolvedContextWindow`). Both numbers are shares of the window that
++ * should still be free, and both are applied to the *effective* window (the
++ * declared one minus the summary reserve) because the quantity they are
++ * compared against is a real token count.
++ *
++ * - `softPctLeft` — compaction starts here.
++ * - `forcedPctLeft` — compaction is forced here, whatever the soft rule says.
++ *   Also the budget a compaction aims to land under: see
++ *   {@link getVccRetentionBudget}.
++ *
++ * Every band keeps more than half the gap between the two, so the forced
++ * threshold is always the later of the pair.
+  *
+  * Bands are inclusive upper bounds, evaluated top to bottom.
+  */
+ export const AUTOCOMPACT_TIERS: ReadonlyArray<{
+   upToWindow: number
+-  pctLeft: number
+-  floorTokens: number
++  softPctLeft: number
++  forcedPctLeft: number
+ }> = [
+-  { upToWindow: 100_000, pctLeft: 0.13, floorTokens: 13_000 },
+-  { upToWindow: 200_000, pctLeft: 0.17, floorTokens: 32_000 },
+-  { upToWindow: 300_000, pctLeft: 0.21, floorTokens: 36_000 },
+-  { upToWindow: 500_000, pctLeft: 0.17, floorTokens: 53_000 },
+-  { upToWindow: Number.POSITIVE_INFINITY, pctLeft: 0.15, floorTokens: 65_000 },
++  { upToWindow: 120_000, softPctLeft: 0.1, forcedPctLeft: 0.08 },
++  { upToWindow: 210_000, softPctLeft: 0.13, forcedPctLeft: 0.1 },
++  { upToWindow: 320_000, softPctLeft: 0.15, forcedPctLeft: 0.13 },
++  { upToWindow: 520_000, softPctLeft: 0.13, forcedPctLeft: 0.1 },
++  { upToWindow: Number.POSITIVE_INFINITY, softPctLeft: 0.1, forcedPctLeft: 0.07 },
+ ]
+ 
+ export function getAutoCompactTier(declaredWindow: number): {
+-  pctLeft: number
+-  floorTokens: number
++  softPctLeft: number
++  forcedPctLeft: number
+ } {
+   for (const tier of AUTOCOMPACT_TIERS) {
+     if (declaredWindow <= tier.upToWindow) {
+-      return { pctLeft: tier.pctLeft, floorTokens: tier.floorTokens }
++      return { softPctLeft: tier.softPctLeft, forcedPctLeft: tier.forcedPctLeft }
+     }
+   }
+   const last = AUTOCOMPACT_TIERS[AUTOCOMPACT_TIERS.length - 1]!
+-  return { pctLeft: last.pctLeft, floorTokens: last.floorTokens }
++  return { softPctLeft: last.softPctLeft, forcedPctLeft: last.forcedPctLeft }
+ }
+ 
+ // Stop trying autocompact after this many consecutive failures.
+@@ -155,7 +165,7 @@ const MAX_CONSECUTIVE_AUTOCOMPACT_FAILURES = 3
+  */
+ export function getAutoCompactThreshold(model: string): number {
+   const effectiveContextWindow = getEffectiveContextWindowSize(model)
+-  const { pctLeft } = getAutoCompactTier(getResolvedContextWindow(model))
++  const { softPctLeft: pctLeft } = getAutoCompactTier(getResolvedContextWindow(model))
+ 
+   const tieredThreshold = Math.floor(
+     effectiveContextWindow * (1 - pctLeft),
+@@ -181,23 +191,47 @@ export function getAutoCompactThreshold(model: string): number {
+ }
+ 
+ /**
+- * Hard trigger: remaining tokens below the tier's absolute floor. The soft
+- * percentage normally fires first, so this is a backstop — it guarantees a
+- * compaction attempt when the remaining budget is genuinely small even if the
+- * percentage path was bypassed (overridden, or already compacted and refilled).
++ * Hard trigger: the tier's `forcedPctLeft` of the window is all that is left.
++ * The soft percentage normally fires first, so this is a backstop — it
++ * guarantees a compaction attempt when the remaining budget is genuinely small
++ * even if the percentage path was bypassed (overridden, or already compacted
++ * and refilled).
+  *
+- * Never returned earlier than the soft trigger, so crossing it always implies
+- * the soft condition was already satisfied.
++ * Measured on the effective window, the same basis as the soft threshold: both
++ * are a share of the window held against a real token count, so putting them on
++ * different bases would make the gap between them depend on the summary reserve.
++ * Never returned earlier than the soft trigger.
+  */
+ export function getForcedCompactThreshold(model: string): number {
+-  // Measured on the declared window, the same basis as the tier bands: the
+-  // floor is stated as an absolute number of tokens left, so it has to be
+-  // subtracted from the window the operator declared. Both are clamped so the
+-  // result can never precede the soft trigger.
+-  const declaredWindow = getResolvedContextWindow(model)
+-  const { floorTokens } = getAutoCompactTier(declaredWindow)
+-  const floor = Math.min(floorTokens, declaredWindow)
+-  return Math.max(declaredWindow - floor, getAutoCompactThreshold(model))
++  const effectiveContextWindow = getEffectiveContextWindowSize(model)
++  const { forcedPctLeft } = getAutoCompactTier(getResolvedContextWindow(model))
++  const forced = Math.floor(effectiveContextWindow * (1 - forcedPctLeft))
++  return Math.max(forced, getAutoCompactThreshold(model))
++}
++
++/**
++ * What a completed compaction should leave behind, in tokens of context.
++ *
++ * `preferredTokens` is the target: the share of the window the forced trigger
++ * reserves — i.e. a compaction should land where the next compaction is not
++ * already due. `ceilingTokens` is the most that may be kept when the live tail
++ * is too large to fit the target, and it is the *soft* share: past it the
++ * compaction would have made the context no safer than not compacting at all.
++ *
++ * The window is the effective one, matching how both triggers are measured.
++ */
++export function getVccRetentionBudget(model: string): {
++  preferredTokens: number
++  ceilingTokens: number
++} {
++  const effectiveContextWindow = getEffectiveContextWindowSize(model)
++  const { softPctLeft, forcedPctLeft } = getAutoCompactTier(
++    getResolvedContextWindow(model),
++  )
++  return {
++    preferredTokens: Math.floor(effectiveContextWindow * forcedPctLeft),
++    ceilingTokens: Math.floor(effectiveContextWindow * softPctLeft),
++  }
+ }
+ 
+ export function calculateTokenWarningState(
+@@ -300,6 +334,45 @@ export function estimateFallbackFixedContextTokens(
    }))
  }
  
@@ -284,7 +525,7 @@ index cfcfb49f1..8629547e2 100644
  export async function shouldAutoCompact(
    messages: Message[],
    model: string,
-@@ -342,6 +382,9 @@ export async function shouldAutoCompact(
+@@ -309,6 +382,9 @@ export async function shouldAutoCompact(
    // Subtract the rough-delta that snip already computed.
    snipTokensFreed = 0,
    fallbackFixedContextTokens = 0,
@@ -294,7 +535,7 @@ index cfcfb49f1..8629547e2 100644
  ): Promise<boolean> {
    // Recursion guards. session_memory and compact are forked agents that
    // would deadlock.
-@@ -399,19 +442,46 @@ export async function shouldAutoCompact(
+@@ -366,19 +442,46 @@ export async function shouldAutoCompact(
      }
    }
  
@@ -349,7 +590,7 @@ index cfcfb49f1..8629547e2 100644
    )
  
    const { isAboveAutoCompactThreshold, isAtForcedCompactLimit } =
-@@ -456,6 +526,7 @@ export async function autoCompactIfNeeded(
+@@ -423,6 +526,7 @@ export async function autoCompactIfNeeded(
      querySource,
      snipTokensFreed,
      estimateFallbackFixedContextTokens(cacheSafeParams),
@@ -357,6 +598,542 @@ index cfcfb49f1..8629547e2 100644
    )
  
    if (!shouldCompact) {
+diff --git a/src/services/compact/compact.ts b/src/services/compact/compact.ts
+index 2aa076f21..e658cf430 100644
+--- a/src/services/compact/compact.ts
++++ b/src/services/compact/compact.ts
+@@ -128,6 +128,8 @@ import {
+   runVccSliceCompaction,
+   type VccCompactionOutput,
+ } from './vcc/vccCompact.js'
++import { getVccRetentionBudget } from './autoCompact.js'
++import { getMainLoopModel } from '../../utils/model/model.js'
+ import { loadCcGlobalIndexByUuid } from './vcc/ccGlobalIndex.js'
+ import type { CcMessage } from './vcc/adapter.js'
+ import { parseKeepAndPrompt } from './vcc/vendor/core/compact-args.js'
+@@ -438,6 +440,10 @@ export function maybeVccCompact(
+       globalIndexByUuid,
+       preCompactTokenCount,
+       keepUserTurns,
++      // A compaction should land where the next one is not already due: the
++      // window share the forced trigger reserves, with the soft share as the
++      // most that may be kept when the live tail cannot fit that.
++      retentionBudget: getVccRetentionBudget(getMainLoopModel()),
+     })
+   } catch (error) {
+     // pi-vcc is pure computation over message shapes ported from a different
+diff --git a/src/services/compact/vcc/engine.ts b/src/services/compact/vcc/engine.ts
+index c08b56613..9f35ce515 100644
+--- a/src/services/compact/vcc/engine.ts
++++ b/src/services/compact/vcc/engine.ts
+@@ -33,6 +33,25 @@ export const MIN_SMART_TAIL_TOKENS = 5_000
+ export const MAX_SMART_TAIL_TOKENS = 25_000
+ export const OVERSIZED_TAIL_FACTOR = 2.5
+ 
++/**
++ * How much of the context a compaction may keep verbatim, minus whatever the
++ * summary itself costs.
++ *
++ * Two numbers rather than one because a tail is not freely divisible: the
++ * messages worth keeping are whole turns, and the newest turn may be larger
++ * than the target on its own.
++ *
++ * - `preferredTokens` — the budget to fill and to stay inside. The retained
++ *   tail is grown to use it, so the post-compaction context sits where the
++ *   forced trigger intends rather than in some arbitrary smaller place.
++ * - `ceilingTokens` — what may be kept when the newest turn does not fit the
++ *   target. Past it the tail is cut down from the end.
++ */
++export interface TailAllowance {
++  preferredTokens: number
++  ceilingTokens: number
++}
++
+ export interface VccCutResult {
+   ok: boolean
+   /** Pi messages to summarize (everything before the kept tail). */
+@@ -71,7 +90,7 @@ export const buildVccCut = (
+   sourceIndices: Array<number | undefined>,
+   ccIndices: number[],
+   keepUserTurns: number,
+-  opts: { charsPerToken?: number } = {},
++  opts: { charsPerToken?: number; tailAllowance?: TailAllowance } = {},
+ ): VccCutResult => {
+   const totalUserTurns = userTurnsOf(messages).length
+   const finish = (core: CutCore): VccCutResult => {
+@@ -121,9 +140,43 @@ export const buildVccCut = (
+   for (let i = cutIdx; i < messages.length; i++)
+     tailTokens += estimateMessageContentTokens(messages[i].content, cpt)
+ 
+-  // Token-budget tail re-cut: only fires when the kept tail exceeds
+-  // MAX * OVERSIZED_TAIL_FACTOR (mirrors pi-vcc's applyTailBudget case B).
+-  if (tailTokens > MAX_SMART_TAIL_TOKENS * OVERSIZED_TAIL_FACTOR) {
++  // Token-budget tail re-cut. With an allowance the ceiling is the one the
++  // compaction budget set; without one it keeps the pre-budget rule (fires only
++  // past MAX * OVERSIZED_TAIL_FACTOR, mirrors pi-vcc's applyTailBudget case B).
++  const allowance = opts.tailAllowance
++
++  if (allowance) {
++    if (tailTokens > allowance.ceilingTokens) {
++      // The largest *suffix* that fits, so what is kept is as much of the recent
++      // past as the ceiling pays for. A tail is kept in whole messages: the
++      // newest message may be larger than the whole ceiling, and then nothing
++      // fits — keeping it anyway would leave the context no safer than before
++      // compacting, which is the opposite of what a compaction is for.
++      const start = largestSuffixWithin(messages, allowance.ceilingTokens, cpt)
++      if (start >= messages.length)
++        return finish({
++          cutPi: messages.length,
++          keptUserTurns: 0,
++          keepFallbackToCompactAll: true,
++          budgetCut: "oversized_tail",
++        })
++      // Snap forward off any toolResult to the next valid boundary.
++      let idx = start
++      for (let j = Math.max(start, 1); j < messages.length; j++) {
++        if (messages[j].role !== "toolResult") {
++          idx = j
++          break
++        }
++      }
++      if (idx > cutIdx)
++        return finish({
++          cutPi: idx,
++          keptUserTurns: messages.slice(idx).filter((m) => m.role === "user").length,
++          keepFallbackToCompactAll: false,
++          budgetCut: "oversized_tail",
++        })
++    }
++  } else if (tailTokens > MAX_SMART_TAIL_TOKENS * OVERSIZED_TAIL_FACTOR) {
+     let acc = 0
+     let crossed = -1
+     for (let i = messages.length - 1; i >= 0; i--) {
+@@ -160,6 +213,26 @@ export const buildVccCut = (
+   })
+ }
+ 
++/**
++ * Index of the first message of the longest trailing run whose tokens fit
++ * `budget`, or `messages.length` when even the last one does not.
++ */
++const largestSuffixWithin = (
++  messages: Message[],
++  budget: number,
++  cpt?: number,
++): number => {
++  let acc = 0
++  let start = messages.length
++  for (let i = messages.length - 1; i >= 0; i--) {
++    const tokens = estimateMessageContentTokens(messages[i].content, cpt)
++    if (acc + tokens > budget) break
++    acc += tokens
++    start = i
++  }
++  return start
++}
++
+ const tailTokensForKeep = (
+   messages: Message[],
+   userIndices: number[],
+@@ -176,19 +249,46 @@ const tailTokensForKeep = (
+ }
+ 
+ /**
+- * Smart keep-tail: if the keep:1 tail is <= MIN tokens, grow keep to the
+- * largest N whose tail stays <= MAX tokens. Mirrors pi-vcc's
+- * resolveSmartKeepUserTurns.
++ * Smart keep-tail: grow the kept tail to the largest N turns that fits.
++ *
++ * With `allowance` the budget is the context the compaction is meant to leave
++ * behind, so the tail is grown to *use* it — landing under the target is fine
++ * but landing far under it throws away verbatim history the target had already
++ * paid for. The newest turn is kept regardless of the target; {@link buildVccCut}
++ * is what enforces the ceiling when that turn does not fit.
++ *
++ * Without one (the slice/partial path, and pi-vcc parity callers) it falls back
++ * to the fixed MIN/MAX pair: grow only when keep:1 came in under MIN.
+  */
+ export const resolveSmartKeepUserTurns = (
+   messages: Message[],
+   calibration: TokenEstimateCalibration,
++  allowance?: TailAllowance,
+ ): { keepUserTurns: number; smartAdjusted: boolean; fromKeep: number } => {
+   const userIndices = userTurnsOf(messages)
+   const baseKeep = 1
+   const cpt = calibration.charsPerToken
+ 
+   const baseTokens = tailTokensForKeep(messages, userIndices, baseKeep, cpt)
++
++  if (allowance) {
++    if (baseTokens == null)
++      return { keepUserTurns: baseKeep, smartAdjusted: false, fromKeep: baseKeep }
++    // `tailTokensForKeep` only grows with `k`, so a newest turn that is already
++    // over the target simply ends the loop at one turn kept.
++    let selected = baseKeep
++    for (let k = baseKeep + 1; k <= userIndices.length; k++) {
++      const tokens = tailTokensForKeep(messages, userIndices, k, cpt)
++      if (tokens == null || tokens > allowance.preferredTokens) break
++      selected = k
++    }
++    return {
++      keepUserTurns: selected,
++      smartAdjusted: selected !== baseKeep,
++      fromKeep: baseKeep,
++    }
++  }
++
+   if (baseTokens == null || baseTokens > MIN_SMART_TAIL_TOKENS)
+     return { keepUserTurns: baseKeep, smartAdjusted: false, fromKeep: baseKeep }
+ 
+diff --git a/src/services/compact/vcc/retentionBudget.test.ts b/src/services/compact/vcc/retentionBudget.test.ts
+new file mode 100644
+index 000000000..270f17855
+--- /dev/null
++++ b/src/services/compact/vcc/retentionBudget.test.ts
+@@ -0,0 +1,161 @@
++import { describe, expect, test } from 'bun:test'
++
++import { buildVccCut, resolveSmartKeepUserTurns, type TailAllowance } from './engine.js'
++import { runVccCompaction } from './vccCompact.js'
++
++// 4 chars per token, stated rather than calibrated so the arithmetic in the
++// expectations is the same arithmetic the code does.
++const CALIBRATION = { mode: 'calibrated' as const, charsPerToken: 4 }
++
++/** `turns` turns of `charsPerTurn` chars each, split evenly user/assistant. */
++const windowOf = (turns: number, charsPerTurn: number) => {
++  const messages: Array<{ role: string; content: string }> = []
++  for (let i = 0; i < turns; i++) {
++    messages.push({ role: 'user', content: 'u'.repeat(charsPerTurn / 2) })
++    messages.push({ role: 'assistant', content: 'a'.repeat(charsPerTurn / 2) })
++  }
++  return messages
++}
++
++const cutOf = (
++  messages: Array<{ role: string; content: string }>,
++  keepUserTurns: number,
++  allowance?: TailAllowance,
++) =>
++  buildVccCut(
++    messages as never,
++    messages.map(() => undefined),
++    messages.map((_, i) => i),
++    keepUserTurns,
++    { charsPerToken: CALIBRATION.charsPerToken, tailAllowance: allowance },
++  )
++
++const keptTokens = (messages: Array<{ role: string; content: string }>, start: number) =>
++  messages
++    .slice(start)
++    .reduce((total, m) => total + Math.ceil(m.content.length / CALIBRATION.charsPerToken), 0)
++
++/** A cc-shaped window of `turns` turns, `charsPerTurn` chars each. */
++const ccWindowOf = (turns: number, charsPerTurn: number) =>
++  Array.from({ length: turns * 2 }, (_, i) => {
++    const isUser = i % 2 === 0
++    return {
++      type: isUser ? 'user' : 'assistant',
++      uuid: `m${i}`,
++      message: {
++        role: isUser ? 'user' : 'assistant',
++        content: (isUser ? 'u' : 'a').repeat(charsPerTurn / 2),
++      },
++    }
++  })
++
++/** What the context costs once the compaction is in place. */
++const resultTokens = (result: { summary: string; messagesToKeep: unknown[] }) =>
++  Math.ceil(result.summary.length / CALIBRATION.charsPerToken) +
++  result.messagesToKeep.reduce((total, m) => {
++    const content = (m as { message: { content: string } }).message.content
++    return total + Math.ceil(content.length / CALIBRATION.charsPerToken)
++  }, 0)
++
++describe('retained tail under a retention budget', () => {
++  test('grows the tail to use the target instead of stopping at a fixed minimum', () => {
++    // Five 1k-token turns. A 3k target pays for three of them, and keeping fewer
++    // would throw away history the target had already paid for.
++    const messages = windowOf(5, 4_000)
++    const allowance: TailAllowance = { preferredTokens: 3_000, ceilingTokens: 6_000 }
++
++    const keep = resolveSmartKeepUserTurns(messages as never, CALIBRATION, allowance)
++
++    expect(keep.keepUserTurns).toBe(3)
++    expect(keep.smartAdjusted).toBe(true)
++  })
++
++  test('keeps the newest turn when it alone exceeds the target', () => {
++    // The live turn is never summarized away just because it is large; the
++    // ceiling is what decides whether it can be kept at all.
++    const messages = windowOf(5, 4_000)
++    const allowance: TailAllowance = { preferredTokens: 500, ceilingTokens: 2_000 }
++
++    const keep = resolveSmartKeepUserTurns(messages as never, CALIBRATION, allowance)
++
++    expect(keep.keepUserTurns).toBe(1)
++    const cut = cutOf(messages, keep.keepUserTurns, allowance)
++    expect(cut.budgetCut).toBe('none')
++    expect(keptTokens(messages, cut.keptCcStart)).toBe(1_000)
++  })
++
++  test('falls back to the fixed rule when no budget is given', () => {
++    // Slice/partial compaction and the pi-vcc parity callers pass no allowance:
++    // the kept tail is then only grown while it stays under MAX.
++    const messages = windowOf(5, 4_000)
++
++    const keep = resolveSmartKeepUserTurns(messages as never, CALIBRATION)
++
++    // Four, not five: a cut always keeps something before it, so the oldest turn
++    // cannot be part of a kept tail.
++    expect(keep.keepUserTurns).toBe(4)
++  })
++
++  test('cuts the tail back from the end when it exceeds the ceiling', () => {
++    // A bulky newest turn — 5k of prompt and a 1k answer — against a 2.5k
++    // ceiling. The answer fits; the prompt it answered does not, so the kept
++    // region starts at the answer rather than at the turn boundary.
++    const messages = [
++      ...windowOf(4, 4_000),
++      { role: 'user', content: 'u'.repeat(20_000) },
++      { role: 'assistant', content: 'a'.repeat(4_000) },
++    ]
++    const allowance: TailAllowance = { preferredTokens: 1_000, ceilingTokens: 2_500 }
++
++    const keep = resolveSmartKeepUserTurns(messages as never, CALIBRATION, allowance)
++    const cut = cutOf(messages, keep.keepUserTurns, allowance)
++
++    expect(cut.budgetCut).toBe('oversized_tail')
++    expect(cut.keptCcStart).toBe(9)
++    expect(keptTokens(messages, cut.keptCcStart)).toBeLessThanOrEqual(
++      allowance.ceilingTokens,
++    )
++    expect(cut.keptUserTurns).toBe(0)
++  })
++
++  test('compacts everything when even the newest message is past the ceiling', () => {
++    // Keeping it would leave the context no safer than before compacting, so the
++    // budget wins: nothing is kept verbatim and the summary carries the window.
++    const messages = [
++      ...windowOf(2, 4_000),
++      { role: 'user', content: 'u'.repeat(4_000) },
++      { role: 'assistant', content: 'a'.repeat(40_000) },
++    ]
++    const allowance: TailAllowance = { preferredTokens: 1_000, ceilingTokens: 1_500 }
++
++    const keep = resolveSmartKeepUserTurns(messages as never, CALIBRATION, allowance)
++    const cut = cutOf(messages, keep.keepUserTurns, allowance)
++
++    expect(cut.budgetCut).toBe('oversized_tail')
++    expect(cut.keepFallbackToCompactAll).toBe(true)
++    expect(cut.keptCcStart).toBe(messages.length)
++    expect(cut.toSummarize).toHaveLength(messages.length)
++  })
++
++  test('leaves the whole context inside the ceiling end to end', () => {
++    // Twelve 1k-token turns, and the budget a small window would hand down:
++    // 3k of context is all that may remain. The fixed rule would keep ~11k.
++    const messages = ccWindowOf(12, 4_000)
++    const budget = { preferredTokens: 2_000, ceilingTokens: 3_000 }
++
++    const budgeted = runVccCompaction({
++      messages: messages as never,
++      preCompactTokenCount: 12_000,
++      retentionBudget: budget,
++    })
++    const unbudgeted = runVccCompaction({
++      messages: messages as never,
++      preCompactTokenCount: 12_000,
++    })
++
++    expect(resultTokens(budgeted)).toBeLessThanOrEqual(budget.ceilingTokens)
++    expect(budgeted.keptUserTurns).toBeGreaterThan(0)
++    // The budget is what changed the outcome, not the fixture being small.
++    expect(resultTokens(unbudgeted)).toBeGreaterThan(budget.ceilingTokens)
++  })
++})
+diff --git a/src/services/compact/vcc/vccCompact.ts b/src/services/compact/vcc/vccCompact.ts
+index b800f7063..815db3ae8 100644
+--- a/src/services/compact/vcc/vccCompact.ts
++++ b/src/services/compact/vcc/vccCompact.ts
+@@ -18,6 +18,10 @@ import {
+ } from "./engine"
+ import { compileRanked } from "./vendor/core/summarize"
+ import { wrapLongLines } from "./vendor/core/format"
++import {
++  estimateMessageContentTokens,
++  estimateTokensFromChars,
++} from "./vendor/core/token-estimate"
+ import type { FileOps } from "./vendor/types"
+ 
+ // pi-vcc's before-compact ranking budget (0.8.0 hook): brief transcript
+@@ -56,6 +60,17 @@ const extractPreviousSummary = (messages: CcMessage[]): string | undefined => {
+     if (msg.type !== "user" || !msg.isCompactSummary) continue
+     const content = msg.message?.content
+     if (typeof content !== "string") continue
++    // Anchor on the first section header, not the head line: the head is
++    // localized, and a stray copy of CONTINUATION_PREFIX inside the body (it
++    // used to be harvested into Session Goal as a bullet) sliced away
++    // everything before it — including the `[Session Goal]` header.
++    const headerAt = SECTION_HEADERS
++      .map((h) => content.indexOf(`[${h}]`))
++      .filter((n) => n >= 0)
++      .sort((a, b) => a - b)[0]
++    if (headerAt !== undefined) return content.slice(headerAt).trim()
++    // No section headers at all (legacy/foreign shape) — fall back to the
++    // head line.
+     const idx = content.indexOf(CONTINUATION_PREFIX)
+     if (idx < 0) return content
+     // The prefix line ends after "earlier portion of the conversation."
+@@ -86,6 +101,13 @@ export interface VccCompactionInput {
+    * > 0 it overrides the smart-keep resolution. `null`/absent = smart keep.
+    */
+   keepUserTurns?: number | null
++  /**
++   * What the post-compaction context may cost, in tokens — the window share the
++   * forced trigger reserves (`preferredTokens`) and, when the live tail cannot
++   * fit it, the soft share as an absolute ceiling (`ceilingTokens`). Omit to
++   * keep pi-vcc's fixed MIN/MAX tail rule.
++   */
++  retentionBudget?: { preferredTokens: number; ceilingTokens: number }
+ }
+ 
+ export interface VccCompactionOutput {
+@@ -118,35 +140,49 @@ export const runVccCompaction = (input: VccCompactionInput): VccCompactionOutput
+     adapted.messages,
+     input.preCompactTokenCount,
+   )
+-  const keep =
++  const previousSummary = extractPreviousSummary(messages)
++  const compile = (msgs: CcMessage[], indices: Array<number | undefined>) =>
++    compileRanked({
++      messages: msgs,
++      sourceIndices: indices,
++      previousSummary,
++      fileOps: adapted.fileOps,
++      ranking: rankingFor(adapted.fileOps, calibration.charsPerToken),
++    })
++  const cpt = calibration.charsPerToken
++  const budget = input.retentionBudget
++
++  // What the summary costs is part of the budget, and its size is only known
++  // once compiled — and it is not bounded by the brief budget, because the
++  // structural sections (goals, changed files, commits) are sized separately.
++  // So the tail is first cut against a draft summary, then re-cut against the
++  // one actually built if that came out larger than the draft.
++  const draftReserve = budget
++    ? tokensOfText(compile(adapted.messages, adapted.sourceIndices), cpt)
++    : 0
++  let allowance = allowanceFor(budget, draftReserve)
++
++  const keepUserTurns =
+     input.keepUserTurns != null && input.keepUserTurns > 0
+-      ? {
+-          keepUserTurns: input.keepUserTurns,
+-          smartAdjusted: false,
+-          fromKeep: input.keepUserTurns,
+-        }
+-      : resolveSmartKeepUserTurns(adapted.messages, calibration)
+-
+-  const cut = buildVccCut(
+-    adapted.messages,
+-    adapted.sourceIndices,
+-    adapted.ccIndices,
+-    keep.keepUserTurns,
+-    { charsPerToken: calibration.charsPerToken },
+-  )
++      ? input.keepUserTurns
++      : resolveSmartKeepUserTurns(adapted.messages, calibration, allowance)
++        .keepUserTurns
+ 
+-  const previousSummary = extractPreviousSummary(messages)
++  const buildCut = (allow: ReturnType<typeof allowanceFor>) =>
++    buildVccCut(
++      adapted.messages,
++      adapted.sourceIndices,
++      adapted.ccIndices,
++      keepUserTurns,
++      { charsPerToken: cpt, tailAllowance: allow },
++    )
++
++  let cut = buildCut(allowance)
+ 
+   if (!cut.ok) {
+     // Too few live messages to form a useful summary. Fall back to a
+     // compact-all so the caller still produces a boundary.
+-    const summary = compileRanked({
+-      messages: adapted.messages,
+-      sourceIndices: adapted.sourceIndices,
+-      previousSummary,
+-      fileOps: adapted.fileOps,
+-      ranking: rankingFor(adapted.fileOps, calibration.charsPerToken),
+-    })
++    const summary = compile(adapted.messages, adapted.sourceIndices)
+     return {
+       summary,
+       messagesToKeep: [],
+@@ -158,13 +194,22 @@ export const runVccCompaction = (input: VccCompactionInput): VccCompactionOutput
+       sections: sectionsOf(summary),
+     }
+   }
+-  const summary = compileRanked({
+-    messages: cut.toSummarize,
+-    sourceIndices: cut.toSummarizeIndices,
+-    previousSummary,
+-    fileOps: adapted.fileOps,
+-    ranking: rankingFor(adapted.fileOps, calibration.charsPerToken),
+-  })
++
++  let summary = compile(cut.toSummarize, cut.toSummarizeIndices)
++
++  if (budget) {
++    // A tail is kept in whole messages, so the first cut can overshoot the
++    // ceiling; `buildVccCut` only ever cuts the tail smaller, so this converges.
++    for (let attempt = 0; attempt < 2; attempt++) {
++      const kept = tokensOfMessages(messages.slice(cut.keptCcStart), cpt)
++      if (tokensOfText(summary, cpt) + kept <= budget.ceilingTokens) break
++      const tightened = allowanceFor(budget, tokensOfText(summary, cpt))
++      const nextCut = buildCut(tightened)
++      if (nextCut.keptCcStart <= cut.keptCcStart) break
++      cut = nextCut
++      summary = compile(cut.toSummarize, cut.toSummarizeIndices)
++    }
++  }
+ 
+   return {
+     summary,
+@@ -178,6 +223,31 @@ export const runVccCompaction = (input: VccCompactionInput): VccCompactionOutput
+   }
+ }
+ 
++/**
++ * The tail's share of the retention budget: the whole budget minus what the
++ * summary costs. Floored at zero — a summary that alone fills the budget leaves
++ * no room to keep anything verbatim, which the cut then resolves.
++ */
++const allowanceFor = (
++  budget: { preferredTokens: number; ceilingTokens: number } | undefined,
++  reservedForSummary: number,
++) =>
++  budget == null
++    ? undefined
++    : {
++        preferredTokens: Math.max(budget.preferredTokens - reservedForSummary, 0),
++        ceilingTokens: Math.max(budget.ceilingTokens - reservedForSummary, 0),
++      }
++
++const tokensOfText = (text: string, charsPerToken: number): number =>
++  estimateTokensFromChars(text.length, charsPerToken)
++
++const tokensOfMessages = (msgs: CcMessage[], charsPerToken: number): number =>
++  msgs.reduce(
++    (total, m) => total + estimateMessageContentTokens(m.content, charsPerToken),
++    0,
++  )
++
+ const rankingFor = (
+   fileOps: FileOps,
+   cpt: number,
 diff --git a/src/services/tokenEstimation.test.ts b/src/services/tokenEstimation.test.ts
 index aa1f68953..81c0ddaf5 100644
 --- a/src/services/tokenEstimation.test.ts

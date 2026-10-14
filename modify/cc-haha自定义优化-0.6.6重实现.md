@@ -7,146 +7,63 @@
 > 当前为**骨架版**：仅保留章节结构与标题，实施时逐节填充（问题背景 / 0.6.6 现状核对 / 实施方案 / 验证）。
 > **备注：旧优化文档的内容、逻辑、实现原理仅作为参考，具体在新代码（0.6.6 基座）上落地需量身定制**——组件名、挂载点、store/API、i18n key 等一律以 0.6.6 实际代码现状为准，逐章先核对再实施，不做整块照搬。
 
-## 📇 分类目录（按优化项归类）
+## 📇 分类目录（按功能域归章，2026-10-14 重组）
 
-| 主题 | 章节 | 源章节 | 状态 |
-|------|------|--------|------|
-| 功能特性 | 一 H5 访问「需要访问令牌」开关 + 免令牌豁免 | 旧§二 | ✅ |
-| 功能特性 | 二 会话导出（md/html/txt + 压缩边界范围） | 旧§三 | ✅ |
-| 工具调用/协议 | 三 会话刷新按钮（卡住软刷新规避） | 旧§八 | ✅ |
-| 功能特性 | 四 实时解码速度（TPS）指示器 + 手机端两行 | 旧§九/§十六 | ✅ |
-| 功能特性 | 五 文件下载桥接 | 旧§十二 | ✅ |
-| 功能特性 | 六 设置-关于-更新：禁止更新开关 | 旧§十三 | ✅ |
-| 计费/上下文 | 七 上下文缓存与计费显示（cache 命中率修正） | 旧§十四 | ✅ |
-| 功能特性 | 八 思考模式二级开关（think 是否回传后端） | 旧§二十五 | ✅ |
-| 功能特性 | 九 H5 设置页与桌面端全 tab 对齐（放开浏览器「两 pill」围栏） | —（新增） | ✅ |
-| 工程/开发 | 十 本地开发模式注意事项（sidecar 开发模式跑通记录） | — | ✅ |
-| 移动端/H5 | 十一 H5 悬浮快捷入口（任务列表 / 终端 / 文件浏览 / 审查） | 旧§5.2 FAB（参考） | ✅ |
-| 工程/质量 | 十二 src/server 既有 22 条测试失败清零 | —（新增） | ✅ |
-| 上下文/压缩 | 十三 pi-vcc 算法压缩移植（transcript-preserving，无 LLM 调用）+ 双后端热切换 + vcc_recall 工具 | 新增（参考 @sting8k/pi-vcc 0.8.0） | ✅ |
-| 移动端/H5 | 十四 H5/移动端支持打开插件市场（技能·连接器） | —（新增） | ✅ |
-| 移动端/H5 | 十五 H5/移动端支持打开计划任务（定时任务）页 | —（新增） | ✅ |
-| 连接器/平台 | 十六 连接器目录 Linux 平台支持（x64/arm64，服务端 H5 场景生效） | —（新增） | ✅ |
-| 移动端/H5 | 十七 H5/移动端 技能市场页 header 布局适配（副标题不再折多行） | —（新增） | ✅ |
-| 平台/功能 | 十八 Computer Use 解锁 Linux（X11）平台 | —（新增） | ✅ |
-| 上下文/压缩 | 十九 bc 压缩后 context usage 不收敛（显示总量改 usage 锚口径） | —（新增） | ✅ |
-| 性能/传输 | 二十 H5 远端 API 响应 gzip 压缩传输（非本机默认开启，省 68% 带宽） | —（新增） | ✅ |
-| 功能特性/显示 | 二十一 思考计时与工具计时综合优化（思考 token+耗时 badge、收纳栏总计时+token、轮次用量、**子代理耗时+子代理收纳栏总耗时+后台任务耗时**） | —（新增） | ✅ |
-| 性能/历史 | 二十二 历史记录膨胀（`toolUseResult.originalFile`）致大体积会话打不开 | —（新增） | 🔍 主要实施（A+B+E+G+H ✅；C 证伪；D `projectContext` 候选；F 待授权） |
-| 性能/显示 | 二十三 子代理内容实时反馈（opencode 式，替代当前间隔刷新） | —（新增） | ⬜ 待办（仅登记，不推进） |
-| 上下文/压缩 | 二十四 上下文压缩阈值按窗口分档（软/强制**双百分比**）+ 压缩后保留预算 | —（新增） | ✅ 已实施（2026-10-06 修订，见§二十四·补） |
-| 功能特性/显示 | 二十五 轮次用量 + think 用量 + 收纳栏 综合优化 | —（新增） | ➡ 已并入第二十一章（子优化②） |
-
-| 工程/登记 | 二十七 未纳入章节链的既有改动（测试环境隔离 / vcc 校准脚本 / 章内残余 delta） | `chapter-27-test-env-isolation` / `chapter-27-vcc-calibration-scripts` / `chapter-27-residual-hunks`（链位 58–60） | ✅ 已补补丁 |
+| 章 | 功能域 | 收纳原章 | 状态 |
+|---|---|---|---|
+| 一、H5 远程访问与移动端 | ✅ | 一、九、十、十一、十四、十五、十七、三十三、三十五、三十八、四十 |
+| 二、会话与历史传输 | ✅（二十三 ⬜ 仅登记） | 二、三、五、六、八、二十、二十二、二十三、三十一、三十二 |
+| 三、TPS 指示器与速度估算 | ✅ | 四、二十八、二十九、三十、四十二、四十四 |
+| 四、用量计费与上下文估算 | ✅ | 七、十九、三十九 |
+| 五、压缩链路与大会话 | ✅ | 十三、二十四、二十四·补、四十一 |
+| 六、思考计时与子代理 | ✅（部分 ⬜） | 二十一、二十五、二十六、三十六 |
+| 七、提示词中文化与语言开关 | ✅ | 三十四、三十七 |
+| 八、Computer Use（Linux） | ✅ | 十六、十八 |
+| 九、测试基线与环境 | ✅ | 十二、二十七 |
+| 十、工作区面板与文件操作 | ✅ | 四十三 |
 
 ## 📦 联动 Patches
 
-> 各优化项的实施 diff 以 patch 文件形式统一存放到本 `modify/` 目录（后期全部归档于此），与上文章节联动：每完成一项，patch 入库并在此登记；升级/重打基座时按本表逐个 `git apply` 重放。
->
-> **2026-09-26 重基**：全部 patch 重基到上游 `068b3ebd`（origin/main 2026-09-25，含 20 个新 commit：CORS 门控重做/切 tab 保视图/历史不全保聊天/内存保存竞态两修/pending 问题超时自动回答/聊天外观偏好/OAuth 2.1.281 对齐/agent-teams/Kimi K3 图片透传/定时任务持久化串行化）。应用方式=按下表从上到下逐章 `git apply`（**不需要 `--allow-empty`**）。
->
-> **当前链规模（2026-09-29）**：共 **61 patch**（**全部实体，无空补丁**）。链位 61 = `subagent-live-metrics`（二十一章 子优化⑤：子代理运行中用量/耗时爬升 + 移动端紧凑 + **TPS 汇聚子代理读数修复**；**保留链尾、未与链位 21 融合**，理由见二十一章子优化⑤的链位说明）。**同时重生成链位 54 `tps-batched-delivery`**（187→316 行）：把 `sliceRate()` 的可行性过滤从「全局间隔」改为「同一流的间隔」——多流交织时前者误杀约 70% 样本，使 4 子代理并发下 UI 读数只有引擎真值的 1/3。两条均经**反向应用旧补丁 → 正向应用新补丁 → 逐字节比对工作区**往返验证（10/10 文件一致）。
->
-> **当前链规模（2026-10-02）**：共 **65 patch**。最新链位 **65** = `tps-anthropic-token-ids`（二十八 28.5：**Anthropic 协议 token ids 采集端**——私网 anthropic provider 走代理 + `anthropicTokenTap` 旁路采 ids + `count_tokens` 透传；6 文件 542 行）。相对链终态 `a6276429` 生成，**#1..#64 无需重生成、无级联**。
->
-> **（历史，2026-09-28）链规模 60 patch**（**全部实体，无空补丁**）。最新三位：`chapter-27-test-env-isolation` / `chapter-27-vcc-calibration-scripts` / `chapter-27-residual-hunks`（**链位 58–60**，二十七章：把此前「只登记不产补丁」的既有改动全部补成补丁）。**至此「基线 + 全链」100% 复现工作树**——实测干净 worktree@`068b3ebd` 按 1→60 依次 apply **60/60 成功**，终态与工作树差异**仅剩 2 个有意排除项**：`bun.lock`（锁文件随依赖解析变化）与 `desktop/src-tauri/resources/preview-agent.js`（构建产物，纳入补丁会在每次构建后失效）。前一位（性能三连）：`transcript-metadata-durable`（元数据投影落盘 10.24s→0.016s，链位 57）、`session-find-bounded-read`（findSessionFile 4345ms→2ms，链位 56）、`session-history-context-durable`（归属投影索引落盘，链位 55）。完整链位见上表。
->
-> **全链验证（2026-09-28 复核，最新口径）**：干净 worktree@`068b3ebd` 上按上表顺序 `git apply --index` **57 个 patch → 失败 0 个**，且**无需 `--allow-empty`**（两个空补丁已移除，见下）。终态 vs 工作树（仅 `src`/`desktop`）剩余 **19 个文件的「非章 delta」**——这些改动来自未纳入章节体系的提交，**属预期内**，清单与原因见下节。
->
-> **非章 delta（2026-09-28 实测，取代早前过时的「4 个」口径）**：19 个文件 / +36 −203 行 —— `desktop/package.json`、`desktop/src-tauri/resources/preview-agent.js`（构建产物）、`desktop/src/lib/providerModels.ts`、`desktop/src/pages/TerminalSettings.tsx`、`src/testUtils/modelEnv.ts`、`src/utils/permissions/PermissionUpdate.ts`、`src/services/api/claude.ts`、`src/cli/print.sessionMessage.test.ts`、`src/constants/system.test.ts`、`src/entrypoints/sdk/coreSchemas.modelInfo.test.ts`、`src/services/api/client.test.ts`、`src/skills/bundled/computerUse.test.ts`、`src/tools/AgentTool/builtInAgentOverrides.test.ts`、`src/utils/__tests__/thinking.test.ts`、`src/utils/effort.agent.test.ts`、`src/utils/model/{agent,fable,opus5,opus55}.test.ts`。来源提交主要是 `1df6bf70`（消除两条基线前端测试失败）、`ca4fc6c1`（#83 收尾：dev env 下 src/server 零失败）、`06cc19c4`（收纳栏总用量 + 会话扩展信息开关的 package.json 部分）。**若要 100% 复现工作树，需为这些提交另行生成补丁；当前有意不纳入章节链。**
->
-> ⚠️ **复核方法上的坑**：比对终态时**必须用 `git apply --index`**。不加 `--index` 时补丁新建的文件在 worktree 里是**未跟踪**状态，`git diff <commit>` 看不到它们，会把 `vcc/**`、`tpsMeter.ts` 等一大批新增文件**误报成删除**（一度得到「94 文件 / −11432 行」的假缺口）。
->
-> **全链验证（2026-09-27 收尾，决定性）**：在干净基线 `068b3ebd` 的**临时 worktree** 上按上表顺序 `git apply --allow-empty` 全部 **35 个 patch → 失败 0 个**；应用后终态与工作树在**本轮 4 个新 patch 涉及的全部 14 个文件**上**逐字节一致**，全树剩余差值仅为下节「已知非章 delta」。此为权威口径（早前「HEAD 上暂存往返」是非全链验证，已由本次全链取代）。**2026-09-27 追加第 36 位（`h5-mobile-run-records`）与 `tps-indicator`/`turn-usage` 重生成后复验：36 链同样失败 0，第 7 章 8 文件 + `chatStore.test.ts` + `AppShell.{tsx,test.tsx}` 逐字节等于工作树。** **2026-09-27 二次追加第 37/38 位（`tps-real-token-accounting`、`compact-dead-import-cleanup`）后复验：干净重跑 38 链失败 0，本轮 23 个文件（20 TPS + 3 dead-import）**逐字节等于工作树**。** **2026-09-27 三次追加第 39 位（`session-speed-and-usage-pairing`）后复验：干净重跑 39 链失败 0，本轮 13 个文件**逐字节等于工作树**。** **2026-09-27 四次追加：第 40/41/42 位（`tps-content-accounting`、`subagent-background-task-durations`、`vcc-compact-fallback`）随链入库（未单独复记全链）。** **2026-09-27 五次追加第 43 位（`background-task-duration-restore`）：干净 `068b3ebd` worktree 重跑 **43 链失败 0**，本轮 6 文件（`SessionActivityPanel.{tsx,test.tsx}`、`chatStore.{ts,test.ts}`、`MessageList.{tsx,test.tsx}`）**逐字节等于工作树**；生成时以 `HISTORY_STITCH_MAX_PAGES`/`agentGroupSpanMs`/`ingestSubagentTps` 三个「链内既有」标志串反查误记，均为 **0**。**
+**2026-10-14 重排：45 → 15**。原 45 个单优化项 patch 合并为两段式 15 个——段一 8 个域 bundle（基座 `068b3ebd`，PR 提交层），段二 7 个独立项（基座 `3a51ef84` 起，0.6.7 血缘）。应用顺序、收纳映射与权威校验见 `modify/patches/ORDER.md` 与 `modify/patches/README.md`；被合并的原文件归档于 `modify/archive/patches-merged-20261014/`。
 
-> **2026-09-27 六次（vcc 摘要召回提升，未增链位、重生成 2 个已链 patch）**：收编 `RANKED_BRIEF_CEILING_TOKENS` 2000→2500 与 `Modified`/`Created` 封顶 10→36 进**链位 15**（`vcc-compactor`）；**并补上一个既有缺口**——片段模式的实现（`runVccSliceCompaction` 等 + `compact.ts` 的 `maybeVccSliceCompact` 及其回归测试）**从未被任何 patch 收录**，已分别收编进链位 15 与**链位 42**（`vcc-compact-fallback`）。干净 `068b3ebd` worktree 重跑 **43 链失败 0**；链涉及 **234 个文件中 232 个逐字节等于工作树**，余 2 个（`services/api/claude.ts`、`src/utils/__tests__/thinking.test.ts`）**均在下方「已知非章 delta」列内**。生成法：先在临时 worktree 固定「上一链位终态」为**基线 commit**，再取差值（直接 `git diff --cached` 会带出全部已应用 patch 的改动，导致下游 patch 重复应用而失败）。
-
->
-> ⚠️ **必须按表顺序应用，不是「任意顺序」**：patch 之间存在**同文件重叠**——`turn-usage` 与 `thinking-tool-timing`（均改 `chatStore.ts`/`types/chat.ts`）、`tps-indicator`（`chatStore.ts`）、`h5-require-token`（`i18n/locales/*`）共享文件。重叠 patch 的 hunk 上下文取自各自上游状态，乱序应用可能失败。早期「各 patch 文件互不重叠、可任意顺序」的说明仅对当时较小的链成立，**现已作废**。
->
-> ⚠️ **生效方式不同**：服务端 4 个 patch 由 bun 直跑源码，重启 sidecar 即生效；`history-first-paint-bound` 是**前端**（`desktop/src/api/sessions.ts`），**必须 `vite build` 重建 dist** 才生效（H5 与桌面共用 `desktop/dist`）。
-### 命名与存放约定（**2026-10-03 重组：按 PR 主题两层**）
-- 存放：`modify/patches/<主题>/<主题>-<优化项>-patch<N>.patch` —— **主题目录 = 上游 PR 的 8 个功能域；一个优化项一个 patch，拆不开才 `patch2`/`patch3`**
-- 主题：`h5` / `session` / `tps` / `usage` / `test` / `vcc` / `computer-use` / `thinking-subagent`
-- **应用顺序 = `modify/patches/ORDER.md` 自上而下**（**36 个 patch，基座 = 上游 `068b3ebd`**；**另有 1 个「另起基座」patch** `h5/h5-file-open-patch1.patch`，基座 = `cchaha-067scode` `align-latest` HEAD（0.6.7 血缘），**不可**接在链尾，见第三十三章）：
-
-```bash
-cd <repo>
-while read -r p; do git apply -p1 "$p"; done < modify/patches/ORDER.md
-```
-
-### 📦 优化项分组（8 主题 / 34 项 / 原 67 个平铺补丁）
-
-> 重组前：`modify/patches/*.patch` 共 **67 个**平铺文件（按开发史顺序）。
-> 重组后：**8 个主题目录 / 34 个优化项 patch**（含 2026-10-03 新增的 `tps-session-total`）。
-> **终态树与重组前逐字节一致**：前 33 项应用后 = 参考树 `580c2991`；第 34 项在其上仅动 5 个 TPS 文件 ⇒ 全 34 项 = `56923871`（已验证）。
-> 优化项与链位的对应依据 `pr-prepare/00-overview.md` 的「链位→PR 组」表。
-> 原 67 个平铺补丁归档于 `modify/archive/patches-flat-20261003/`。
-
-| # | Patch（相对 `modify/`） | 优化项 |
+| 段 | patch | 收纳 |
 |---|---|---|
-| 1 | `patches/h5/h5-access-token-patch1.patch` | h5 / access-token-patch1 |
-| 2 | `patches/session/session-export-patch1.patch` | session / export-patch1 |
-| 3 | `patches/h5/h5-settings-parity-patch1.patch` | h5 / settings-parity-patch1 |
-| 4 | `patches/session/session-refresh-patch1.patch` | session / refresh-patch1 |
-| 5 | `patches/tps/tps-indicator-patch1.patch` | tps / indicator-patch1 |
-| 6 | `patches/session/session-file-download-patch1.patch` | session / file-download-patch1 |
-| 7 | `patches/session/session-disable-updates-patch1.patch` | session / disable-updates-patch1 |
-| 8 | `patches/usage/usage-cache-billing-patch1.patch` | usage / cache-billing-patch1 |
-| 9 | `patches/session/session-thinking-switch-patch1.patch` | session / thinking-switch-patch1 |
-| 10 | `patches/test/test-server-test-baseline-patch1.patch` | test / server-test-baseline-patch1 |
-| 11 | `patches/h5/h5-mobile-quick-actions-patch1.patch` | h5 / mobile-quick-actions-patch1 |
-| 12 | `patches/vcc/vcc-compactor-patch1.patch` | vcc / compactor-patch1 |
-| 13 | `patches/h5/h5-mobile-scheduled-patch1.patch` | h5 / mobile-scheduled-patch1 |
-| 14 | `patches/computer-use/computer-use-connector-linux-patch1.patch` | computer-use / connector-linux-patch1 |
-| 15 | `patches/h5/h5-mobile-market-layout-patch1.patch` | h5 / mobile-market-layout-patch1 |
-| 16 | `patches/computer-use/computer-use-linux-patch1.patch` | computer-use / linux-patch1 |
-| 17 | `patches/usage/usage-context-usage-anchor-patch1.patch` | usage / context-usage-anchor-patch1 |
-| 18 | `patches/session/session-gzip-transport-patch1.patch` | session / gzip-transport-patch1 |
-| 19 | `patches/thinking-subagent/thinking-subagent-thinking-tool-timing-patch1.patch` | thinking-subagent / thinking-tool-timing-patch1 |
-| 20 | `patches/vcc/vcc-autocompact-window-tiers-patch1.patch` | vcc / autocompact-window-tiers-patch1 |
-| 21 | `patches/session/session-history-transport-patch1.patch` | session / history-transport-patch1 |
-| 22 | `patches/session/session-baseline-typecheck-patch1.patch` | session / baseline-typecheck-patch1 |
-| 23 | `patches/h5/h5-mobile-run-records-patch1.patch` | h5 / mobile-run-records-patch1 |
-| 24 | `patches/vcc/vcc-compact-dead-import-patch1.patch` | vcc / compact-dead-import-patch1 |
-| 25 | `patches/usage/usage-session-speed-usage-pairing-patch1.patch` | usage / session-speed-usage-pairing-patch1 |
-| 26 | `patches/h5/h5-local-index-multi-root-patch1.patch` | h5 / local-index-multi-root-patch1 |
-| 27 | `patches/thinking-subagent/thinking-subagent-split-no-double-count-patch1.patch` | thinking-subagent / split-no-double-count-patch1 |
-| 28 | `patches/session/session-open-speed-patch1.patch` | session / open-speed-patch1 |
-| 29 | `patches/test/test-chapter-27-tests-patch1.patch` | test / chapter-27-tests-patch1 |
-| 30 | `patches/vcc/vcc-calibration-scripts-patch1.patch` | vcc / calibration-scripts-patch1 |
-| 31 | `patches/tps/tps-engine-rewrite-patch1.patch` | tps / engine-rewrite-patch1 |
-| 32 | `patches/thinking-subagent/thinking-subagent-subagent-usage-cross-client-patch1.patch` | thinking-subagent / subagent-usage-cross-client-patch1 |
-| 33 | `patches/tps/tps-density-estimation-patch1.patch` | tps / density-estimation-patch1 |
-| 34 | `patches/tps/tps-session-total-patch1.patch` | tps / session-total-patch1 |
+| 一 | `patches/h5/h5-bundle-patch1.patch` | h5-access-token 等原链位 1/3/11/13/15/23/26 共 7 项 |
+| 一 | `patches/session/session-bundle-patch1.patch` | session-export 等原链位 2/4/6/7/9/18/21/22/28/35/36 共 11 项 |
+| 一 | `patches/tps/tps-bundle-patch1.patch` | tps-indicator 等原链位 5/31/33/34 共 4 项 |
+| 一 | `patches/usage/usage-bundle-patch1.patch` | usage-cache-billing 等原链位 8/17/25 共 3 项 |
+| 一 | `patches/test/test-bundle-patch1.patch` | test-server-test-baseline 等原链位 10/29 共 2 项 |
+| 一 | `patches/vcc/vcc-bundle-patch1.patch` | vcc-compactor 等原链位 12/20/24/30 共 4 项 |
+| 一 | `patches/computer-use/computer-use-bundle-patch1.patch` | computer-use-connector-linux 等原链位 14/16 共 2 项 |
+| 一 | `patches/thinking-subagent/thinking-subagent-bundle-patch1.patch` | thinking-tool-timing 等原链位 19/27/32 共 3 项 |
+| 二 | `patches/h5/h5-file-open-patch1.patch` | 原 37：H5 文件打开四轮 |
+| 二 | `patches/usage/usage-context-estimation-patch1.patch` | **原 38+41 合并**：压缩分档/保留预算 + 估算口径统一 |
+| 二 | `patches/prompt/prompt-i18n-localization-patch1.patch` | 原 39：提示词中文化+中文思考+语言开关 |
+| 二 | `patches/h5/h5-provider-test-buttons-patch1.patch` | 原 40：H5 模型配置测试/获取按钮 |
+| 二 | `patches/compact/compact-summary-anchor-patch1.patch` | 原 42：摘要身份锚点 |
+| 二 | `patches/tps/tps-estimation-unified-patch1.patch` | **原 43+45 合并**：TPS 估算统一 + ids 探测/校准 |
+| 二 | `patches/workspace/workspace-history-budget-degrade-patch1.patch` | 原 44：超预算会话工作区降级 |
 
-> **已知非章 delta（有意不入 patch，链终态与工作树的结构性差值）**：`#83` 测试修复族（`src/testUtils/modelEnv.ts` 及 11 个 `*.test.ts`：`print.sessionMessage`/`constants/system`/`coreSchemas.modelInfo`/`api/client`/`skills/bundled/computerUse`/`builtInAgentOverrides`/`effort.agent`/`model/{agent,fable,opus55,opus5}`/`__tests__/thinking`/`permissions/PermissionUpdate`）、`MessageList.test.tsx`（flaky 超时放宽，见附录）、`TerminalSettings.tsx`、`lib/providerModels.ts`、`services/api/claude.ts`（bound-thinking WIP）、`desktop/package.json`（本轮新增 `build:renderer`/`typecheck` 两条 **dev 脚本**，electron-builder 打包时会剥离 `scripts`，故不影响产物）、`bun.lock`。
->
-> ⚠️ **上面这份清单已过时**（写于「本章只登记不产补丁」时期）：其中的 `modelEnv.ts` 族、`TerminalSettings.tsx`、`providerModels.ts`、`claude.ts`、`package.json` 后来都已补成**链位 58–60**。**当前权威结论见 §28.4**：链终态与工作树只差 `bun.lock` 与 `desktop/src-tauri/resources/preview-agent.js`。
+## 一、H5 远程访问与移动端
 
-### 移植通用注意事项- stale `.js` 孪生：改 `src/*.ts` 走 sidecar 打包路径时，须核对被改文件同名 `.js` 是否存在且同步（旧树 `.js` 优先加载坑）。
-- 0.6.6 已有对应能力需**融合**而非整块覆盖（如 H5 安全配对、缓存 token 显示、rewind 等），各章落地前先核对现状。
-- 桌面 UI 项 i18n 需覆盖 5 语言（en/zh/jp/kr/zh-TW）。
-- 验证：`bunx tsc --noEmit` + 相关 vitest + UI 人工验证。
+> 本章收纳原第 一、九、十、十一、十四、十五、十七、三十三、三十五、三十八、四十 章（2026-10-14 按功能域重组；各原章降为小节，内容原样）。
 
----
+### 原一、H5 访问「需要访问令牌」开关 + loopback/私网/ULA 免令牌（源§二，✅ 2026-09-24）
 
-## 一、H5 访问「需要访问令牌」开关 + loopback/私网/ULA 免令牌（源§二，✅ 2026-09-24）
-
-### 需求背景
+#### 需求背景
 
 旧§二在 0.5.3 上实现：H5「需要访问令牌」开关 + loopback/RFC1918/ULA 私网来源免令牌（2026-08-11 补充私网豁免）。本次在 0.6.6 重实现，并与用户确认两点最终语义：
 - **默认不启用 H5 令牌**（`requireToken: false`）= 0.0.0.0/0 全免 token；
 - 开关开启（`true`）时：loopback + RFC1918（10/8、172.16/12、192.168/16、169.254）+ IPv6 ULA（fc00::/7）来源**按 socket 源地址**（`server.requestIP()`）免 token，公网来源需 Bearer token；
 - 开关在桌面端设置 → H5 访问 tab 内联动（即时生效，非 draft/save 模式）。
 
-### 0.6.6 现状核对
+#### 0.6.6 现状核对
 
 - 0.6.6 的 `H5AccessSettings`（`src/server/services/h5AccessService.ts`）**无 requireToken 字段**，`normalizeStoredSettings` 静默丢弃；token 是 H5 能力路径的唯一门槛。
 - 策略单点 `shouldRequireH5Token`（`src/server/h5AccessPolicy.ts`）：h5Enabled && 能力路径 && `classify==='h5-browser'` → 要 token；loopback 请求被 `local-trusted` 分类直接豁免，**私网来源不豁免**（外部 IP 浏览器一律 h5-browser）。
 - 桌面端 `desktopRuntime.ts` 的 `requiresH5AuthForServerUrl` 只豁免 loopback → LAN IP 打开 H5 即使服务端免 token 也会在前端弹 token 输入。
 
-### 实施方案
+#### 实施方案
 
 服务端（4 文件 + 2 测试）：
 - `h5AccessService.ts`：`H5AccessSettings` 加 `requireToken: boolean`（默认 false）；`DEFAULT_STORED_SETTINGS.requireToken = false`；`normalizeStoredSettings` 用 `value.requireToken === true` 解析（旧配置升级后默认关闭）；`toPublicSettings`/`updateSettings` 透传。
@@ -160,7 +77,7 @@ while read -r p; do git apply -p1 "$p"; done < modify/patches/ORDER.md
 - `lib/desktopRuntime.ts`：`initializeBrowserServerUrl` 加 **tokenless 快速路径**——health 通过后先 `ensureBrowserApiAccessibleWithoutH5(url)` 探 `/api/status`（仅 401 才抛 `H5ConnectionRequiredError('missing-token')`），成功即 `setAuthToken(null)` 直连；仅 missing-token 时落入原 token 输入流程。
 - i18n 5 语言各加 `h5AccessRequireToken`/`h5AccessRequireTokenHint` 2 key；`generalSettings.test.tsx`/`settingsStore.test.ts` fixture 补 `requireToken: false`，另 4 处 `updateH5AccessSettings` 精确匹配断言**不含**该字段（H5 save 处理器只发 3 字段，开关独立）。
 
-### 验证
+#### 验证
 
 - 服务端 `bun test`：h5-access-policy 31/31 + h5-access-service 28/28 pass（含新增私网/ULA 边界用例）。
 - 桌面端 vitest：`generalSettings.test.tsx` 131 pass、`settingsStore.test.ts` 64 pass、`desktopRuntime.test.ts` 30/30（新增 LAN 免 token 直连用例）；`tsc -b` exit 0。
@@ -171,7 +88,7 @@ while read -r p; do git apply -p1 "$p"; done < modify/patches/ORDER.md
 - 真实设备回归：192.168.10.140 手机此前弹「需要 token」，根因是 **dist bundle 过期**（旧 `requiresH5AuthForServerUrl` 逻辑），重 build + 重启后免 token 直连成功。
 - Patch：`modify/patches/h5/h5-access-token-patch1.patch`（基线 2f8d819d，v0.6.6）。
 
-### 1.1 附带修复：H5 选「自动模式」持续 400（✅ 2026-09-24）
+#### 1.1 附带修复：H5 选「自动模式」持续 400（✅ 2026-09-24）
 
 **问题**：H5（手机浏览器）会话中权限审批选择「自动模式」时，点确认后 toast 一直报错（400）。
 
@@ -184,7 +101,7 @@ while read -r p; do git apply -p1 "$p"; done < modify/patches/ORDER.md
 - dev 7788 live（LAN 视角，h5-browser 分类）：`PUT /api/settings/user {skipAutoPermissionPrompt:true}` 修复前 400 → 修复后 200，且 `GET` 读回 `{"skipAutoPermissionPrompt":true}` 落盘正确。
 - Patch：`modify/patches/h5/h5-access-token-patch1.patch`（基线 2f8d819d，v0.6.6，2 文件 37 行，`git apply --check` 干净应用）。
 
-### 1.2 H5 终端桥接：让 H5 浏览器端也能用终端（✅ 2026-09-24）
+#### 1.2 H5 终端桥接：让 H5 浏览器端也能用终端（✅ 2026-09-24）
 
 **需求**：终端能力原本桌面独占——`browserHost.capabilities.terminal=false`（`desktop/src/lib/desktopHost/browserHost.ts:19`），`terminalApi.isAvailable()`（`desktop/src/api/terminal.ts:33`）在浏览器下为 false，`TerminalSettings.tsx` 只显示「unavailable」空态。目标是让通过 H5 访问的手机浏览器也能起一个真实 PTY 终端，默认工作目录跟随当前会话 workDir，功能完整对齐（含 shell 选择 + bash 路径设置）。
 
@@ -221,13 +138,378 @@ while read -r p; do git apply -p1 "$p"; done < modify/patches/ORDER.md
 
 ---
 
-## 二、会话导出功能（源§三，✅ 2026-09-24）
+### 原九、H5 设置页与桌面端全 tab 对齐（放开浏览器「两 pill」围栏）（✅ 2026-09-24）
 
-### 需求背景
+#### 需求背景
+
+0.6.6 的浏览器/H5 端设置页被「围栏」限制：`desktop/src/pages/Settings.tsx:28-30` 依据 `getDesktopHost().isDesktop` 分流，浏览器只渲染 `H5Settings`，而 `H5Settings.tsx` 原本只放 **2 个 pill**（模型配置 providers + 通用 general）。桌面端 `DesktopSettings` 则有 15 个主 tab + about 独立分组（共 16 个设置项）。用户要求 H5 在手机浏览器上能像桌面端一样**看到并使用全部设置项**（含通用 tab 换桌面完整版 GeneralSettings，接受浏览器端设置写回主机）。
+
+#### 0.6.6 现状核对
+
+- 分流点：`Settings.tsx:29` `getDesktopHost().isDesktop ? <DesktopSettings/> : <H5Settings/>`（**不改**，H5 入口仍是 H5Settings）。
+- `DesktopSettings`（`Settings.tsx:32-112`）：195px 侧栏 `TabButton` 列表 `:69-87`（15 主 + about 独立分组），内容 switch `:92-107`。
+- 各 tab 组件浏览器安全性（Explore 审查结论）：多数自带 `getDesktopHost()` capabilities 降级——
+  - Terminal：浏览器 `terminalApi.isAvailable()`(=`capabilities.terminal`)=false → 显示「需桌面端」EmptyState（`TerminalSettings.tsx:712`）。
+  - Pet / ComputerUse / About：各自 `isDesktop`/capabilities 降级。
+  - DirectoryPicker（Adapter/Mcp/Agent 共用）：浏览器走 `filesystemApi.browse` 浏览模式。
+  - General：`setTheme` 只写 uiStore 不写回主机；dialogs/appMode/notifications 三处桌面 host 调用均有 capability 或 desktop-only 渲染守卫。
+  - 数据全部走 `/api`（H5 可达）。
+- `SettingsTab` union 已含 16 值（`uiStore.ts:233-249`）；`SettingsPill` 自带 `aria-pressed` + 渲染 `<button>`（`SettingsSection.tsx:101-129`）；i18n `settings.tab.*` 全部已存在。
+
+#### 实施方案
+
+1. **提取 tab 常量供两端复用**（`Settings.tsx`）：新增模块级 `export const SETTINGS_TABS`（15 项 `{id, icon}` 数组，顺序与桌面 rail 一致）+ `export const SETTINGS_ABOUT_TAB = { id:'about', icon:'info' }`；`DesktopSettings` 侧栏改为遍历 `SETTINGS_TABS.map(...)`，about 独立分组保持不变。
+2. **重写 `H5Settings.tsx`** 暴露与桌面端完全一致的 16 项（15 主 + about）：
+   - `selected = pending ?? active`，pending 消费 effect（`setActiveSettingsTab(pending)` + `setPendingSettingsTab(null)`）。
+   - 导航改为**横向可滚动 pill 条**（`overflow-x-auto` + 隐藏滚动条），适配窄屏；选中 pill 自动 `scrollIntoView`。
+   - 内容区 16 分支与 `DesktopSettings:92-107` 一致（trace 用 `overflow-hidden` 全宽容器特殊分支），providers 保留 `<ProviderSettings browserMode />`，general 用桌面完整版 `<GeneralSettings />`。
+   - skills/plugins 用本地 `H5SkillSettings`/`H5PluginSettings` 包装（selected 详情模式，`SettingsPageHeader` + List），与桌面 rail 的 SkillSettings/PluginSettings 同构。
+3. **删除** `H5GeneralSettings.tsx`（仅旧 H5Settings 引用，被桌面 GeneralSettings 取代）；保留 `h5Settings.*` i18n key 不动。
+4. **重写 `H5Settings.test.tsx`**：13 个页面组件 `vi.mock`（工厂函数，导出名与真实模块导出名一致），8 个用例——pill 数断言 **16**（15 主 + about）、导航到 Terminal/H5Access、4 个 ProviderSettings browserMode 原用例保留、Settings 路由 16 pill + provider 渲染。
+
+#### 验证
+
+- **单测**：`H5Settings.test.tsx` 8/8 pass；desktop 全量 vitest 6137 pass（2 个既有失败：`providerModels.test.ts` 分组顺序、`MessagePayloadRetention.test.tsx` 5s 超时，均非本次触及）；`tsc -b` 0 错误。
+- **重 build + 重启 7788 dev**：`cd desktop && node ./node_modules/vite/bin/vite.js build` → 新 bundle `index-B_ViiZEH.js`（旧 `index-ZWgLHPz_.js`）；线上 App chunk 含新横向导航特征 class（`overflow-x-auto border-b`）2 处，确认新 H5 设置页已打包并伺服。
+- **patch 干净应用**：`modify/patches/h5/h5-settings-parity-patch1.patch`（4 文件）经 `git apply --check` 验证可干净应用于 v0.6.6 基线 2f8d819d。
+- **待手机实测**：192.168.10.140 开 `http://192.168.10.43:7788` 确认 16 项可见可切换（含 H5 访问里的 requireToken 开关）。
+
+#### 9.x H5 设置项 400/403 修复（remoteBrowser 白名单对齐，✅ 2026-09-27）
+
+**问题**：H5 放开全 tab 后，手机（LAN public 源）操作通用/网络等设置项大面积 400「Unsupported General setting」，部分子路由 403。loopback curl 全 200 不暴露——因为 `classifyH5Request`（`src/server/h5AccessPolicy.ts`）仅对 public 源（`h5-browser`）走 `validateRemoteSettingsPatch` 白名单（`src/server/router.ts:68`），loopback 属 local-trusted 直连 `handleUserSettings`（宽松，只查 JSON）。
+
+**根因**：`remoteBrowserPolicy.ts` 的 `READ_SETTINGS`/`WRITE_SETTINGS` 白名单是 H5 设置放开前的小集合（10/8 key），而桌面完整版 `GeneralSettings` 经 settingsStore 会写 16 个字段，其中 8 个不在 WRITE 白名单：`agentTeamsEnabled`/`autoDreamEnabled`/`skipWebFetchPreflight`/`desktopNotificationsEnabled`（bool）、`cleanupPeriodDays`（number 0–3650）、`webSearch`/`updateProxy`/`network`（对象）。另 `/api/settings` 子路由（output-styles、output-style、session-cleanup）不在 `remoteSettingsRouteAllowed`；`session-cleanup` 还被 `LOCAL_CREDENTIAL_ONLY_PATHS` 拦（设计=只许本地桌面进程调，用户拍板移除以完全对齐桌面）。
+
+**修复**（7 文件，全 src/server/）：
+1. `remoteBrowserPolicy.ts`：READ/WRITE 白名单 +8；新增形状校验器 `isValidWebSearch`（mode∈auto/anthropic/tavily/brave/disabled + 可选 apiKey 字符串）、`isValidUpdateProxy`（mode∈system/manual + url）、`isValidNetwork`（aiRequestTimeoutMs 30s–2^31ms + proxy.mode∈direct/system/manual + url）、`isValidCleanupPeriodDays`（int 0..3650）；`projectRemoteSettings` 重写为按 READ_SETTINGS 循环投影，4 个对象/数值字段校验后深拷贝（防 H5 刷新后对象值丢失回弹）；`remoteSettingsRouteAllowed` 扩：settings/user GET/PUT + output-styles GET + output-style PUT + session-cleanup POST。
+2. `router.ts`：字段白名单校验+GET 投影只 gate `/api/settings/user`（`parts[2]==='user'`），子路由 body 交 handler 自校验。
+3. `h5AccessPolicy.ts`：`LOCAL_CREDENTIAL_ONLY_PATHS` 清空（保留 gate 机制与注释）。
+4–7. 测试同步：`remoteBrowserPolicy.test.ts` +12 路由白名单断言；`router.remoteBrowser.test.ts` +子路由用例（200/403）；`h5-access-policy.test.ts` 反转 session-cleanup 断言（仍保留 /api/h5-access 本地限定）；`h5-access-auth.test.ts` preflight 403 列表去掉 session-cleanup。
+
+**验证**：live 7788 LAN（192.168.10.43 + H5 token）——8 字段 PUT 全 200、GET/PUT output-style(s) 200、POST session-cleanup 200、错误方法 403、`/project`/`/cli-launcher`/`/permission-mode` 仍 403、GET /user 投影回读 6 新字段全在、坏形状（mode:'bogus'/3651/-1）仍 400；3 测试文件 13/13；`src/server` 全量零回归。
+
+**patch**：`modify/patches/h5/h5-settings-parity-patch1.patch`（7 文件 357 行，链位 12，基线 6d4fd126）。
+
+---
+
+### 原十、本地开发模式注意事项（✅ 2026-09-24 跑通）
+
+> 0.6.6 基座的本地开发模式（sidecar server 直接跑源码）已跑通，本节固化关键节点，避免遗失。
+> 目的：开发模式与在用的桌面端（`/opt/Claude Code Haha`，端口 8877）完全隔离，互不干扰。
+
+#### 10.1 环境准备
+
+- 依赖：仓库根 `bun install` + `cd desktop && bun install`（bun 位于 `~/.bun/bin/bun`）。
+- H5 静态页：sidecar 从 `CLAUDE_H5_DIST_DIR`（或 cwd 下 `desktop/dist`）读静态资源，**必须先构建**：
+  `cd desktop && bun run build`（含 preview-agent 构建 + tsc -b + vite build，产物在 `desktop/dist/`）。
+
+#### 10.2 数据/配置复制（与桌面端隔离）
+
+- 数据根目录规则：`$CLAUDE_CONFIG_DIR/cc-haha/`（代码内 `path.join(configDir, 'cc-haha', ...)`，`configDir = process.env.CLAUDE_CONFIG_DIR || ~/.claude`）。
+  - 桌面端在用：`~/.claude/cc-haha`（210M，db/ 占 209M：index-v1.sqlite 78M + search-index-v1.sqlite 110M 等）。
+- 复制方法（dev 用独立副本）：
+  ```bash
+  mkdir -p /home/zeaxion/cc-haha-dev
+  cp -a ~/.claude/cc-haha /home/zeaxion/cc-haha-dev/cc-haha
+  ```
+- dev 副本 `settings.json` 改 `h5Access.fixedPort: 8877 → 7788`（`publicBaseUrl` 保持 plain-lan `http://192.168.10.43` 即可，0.6.6 会自动用实际绑定端口刷新，`refreshLanPublicBaseUrlPort`）。
+- 复制时桌面端仍在跑：SQLite 的 `-wal`/`-shm` 也一并复制，dev 副本索引状态会报 `LOCAL_INDEX_DISCOVERY_INCOMPLETE`（索引内 transcript 路径仍指向原 home 下的文件，dev 副本里没有），**属正常现象**；SQLite 库本体完好，数据可读写。
+
+#### 10.3 启动命令（端口 7788，对外 0.0.0.0）
+
+```bash
+cd /home/zeaxion/myproject/cchaha-06scode
+CLAUDE_CONFIG_DIR=/home/zeaxion/cc-haha-dev \
+CLAUDE_H5_DIST_DIR=/home/zeaxion/myproject/cchaha-06scode/desktop/dist \
+~/.bun/bin/bun run desktop/sidecars/claude-sidecar.ts server \
+  --app-root /home/zeaxion/myproject/cchaha-06scode \
+  --host 0.0.0.0 --port 7788
+```
+
+关键点：
+- **`--app-root` 必填**：sidecar launcher（`desktop/sidecars/launcherRouting.ts` 的 `parseLauncherArgs`）缺省会抛 `Missing --app-root`；dev 模式指向仓库根即可（preload.ts 只设 MACRO 并 chdir 到 `CALLER_DIR`，不依赖 app-root 是 asar）。
+- 端口/绑定：`--host`/`--port` 在 `src/server/index.ts` `resolveServerOptions` 解析（env `SERVER_HOST`/`SERVER_PORT` 兜底，默认 127.0.0.1:3456）。
+- dev 模式下会话 CLI 子进程：`resolveClaudeCliLauncher`（`src/utils/desktopBundledCli.ts`）因 execPath 是 bun 而非 sidecar 二进制而返回 null，走 `bin/claude-haha` 脚本路径（内部再 spawn bun 跑 `src/entrypoints/cli.tsx`）——所以 CLI 能力无需编译 sidecar 二进制。
+
+#### 10.4 H5「允许所有 IP」的 0.6.6 语义
+
+- 0.6.6 的 H5 鉴权**没有** `requireToken` 字段（那是旧§二本地优化，0.6.6 `normalizeStoredSettings` 会静默丢弃该字段）；门槛只有 H5 token。
+- 鉴权策略（`src/server/h5AccessPolicy.ts`）：
+  - 外部 IP 浏览器请求 → `classify==='h5-browser'`，能力路径（`/api/`、`/ws/`、`/proxy/`、`/local-file/`、`/preview-fs/`）需 Bearer H5 token；
+  - loopback（127.0.0.1/::1/localhost，且无代理头、URL hostname 也是 loopback）→ `local-trusted`，免 token；
+  - 静态页（`/`、`/assets/`）不鉴权，任何人可打开首页。
+- 因此「允许 0.0.0.0/0」= `--host 0.0.0.0` + `h5Access.enabled: true` + 有效 token；外部 IP 带 token 即可全量访问，**无需任何私网豁免代码**（旧§二的 requireToken 开关/私网豁免是叠加在此之上的新开关，见本章原第一节）。
+- dev 复用桌面端同一 token：`h5_H7kDPNb-KkhMnULdmQ-B0eoAd8ey-Pcc9PhtcpbeSUQ`。
+
+#### 10.5 验证结果（2026-09-24）
+
+| 验证点 | 结果 |
+|--------|------|
+| 启动日志 | `[Server] Claude Code API server running at http://0.0.0.0:7788` |
+| 静态首页（外部 IP，无 token） | 200（index.html 11133 bytes） |
+| `/api/sessions` 外部 IP 无 token | 401 `Missing H5 access token` |
+| `/api/sessions` 外部 IP 带 token | 200，索引 `discovered:23/indexed:23`，databaseBytes 78561280 |
+| `/api/sessions` loopback 无 token | 200（local-trusted，符合策略） |
+| `/api/h5-access`（控制面，H5 token） | 403 `can only be changed from the local desktop app`（控制面需 desktop process token，符合设计） |
+| 与桌面端共存 | 8877（桌面）与 7788（dev）同时 LISTEN，数据目录独立互不干扰 |
+
+#### 10.6 注意事项 / 坑位
+
+- **改过 H5 前端源码后必须重 build 并重启 sidecar**：sidecar 直接伺服 `desktop/dist/` 静态产物，源码改动不会热更。2026-09-24 实例：`desktopRuntime.ts` 16:09 加入免 token 直连逻辑，dist 还是 15:23 的旧产物 → LAN 设备（192.168.10.140）访问仍弹「需要访问令牌」；重跑 `cd desktop && node ./node_modules/vite/bin/vite.js build` + kill/重启 sidecar 后解决。判断 bundle 是否过期：比对 `dist/index.html` mtime 与 `desktop/src/` 改动文件 mtime。
+- dev 副本与桌面端**独立写库**：在 dev 上做的会话/设置改动不会回到 `~/.claude/cc-haha`，反之亦然；需要回灌时手动合并。
+- 改 `src/*.ts` 后 sidecar 需**重启**才生效（bun 直接跑源码无热更）；H5 前端改动需重跑 `desktop && bun run build`。
+- 停 dev：直接 kill sidecar 进程；`~/.cc-haha-dev` 副本可随时删掉重拷。
+- `LOCAL_INDEX_DISCOVERY_INCOMPLETE` 出现时列表接口 `total` 可能为 0（列表作用域=活跃会话索引），但索引计数正常；若需要完整列表，可在 dev 副本上重建 local index 或从桌面端同步。
+
+---
+
+### 原十一、H5 悬浮快捷入口（任务列表 / 终端 / 文件浏览 / 审查）（源参考：旧§5.2 移动端 FAB，✅ 2026-09-27）
+
+**需求**：移动端（H5 手机浏览器）会话页右上角缺少桌面端的任务列表 / 终端 / 文件浏览 / 审查入口（0.6.6 现状：`AppShell.tsx:406` 移动端不渲染 TabBar；三面板均硬编码 `!isMobileLayout` 禁用）。需为移动端提供悬浮（FAB）快捷入口，点击展开菜单打开对应面板，面板以全屏 overlay 呈现。
+
+**参考（旧 fork §5.2 MobileQuickActions，2026-08 已实施，模式可复用）**：
+- 旧实现 `desktop/src/components/chat/MobileQuickActions.tsx`：圆形 FAB（`add` 图标）→ 点击横向展开 3 个带图标+文字按钮（任务列表 `assignment` / 终端 `terminal` / 文件浏览 `folder`）；点外部或再点 FAB 收起（`useDismissable`）；FAB `absolute` 定位在 ChatInput 右上角半重叠，仅移动端渲染。
+- 动作路由：任务列表 → `useActivityPanelStore.open(activeTabId)`；文件浏览 → `workspaceStore` setMode('workspace')+openPanel；面板移动端全屏 overlay（fixed 全屏 + slide-in + 顶部标题栏 + 关闭按钮），去掉面板的 `!isMobileLayout` 硬禁。
+- 旧版含横屏适配（顶栏缩高、输入框缩小、chip 归位 toolbar、MobileBottomSheet 缩放、FAB pointer-events 修复等）——本次按需取舍，先做竖屏核心，横屏适配视验证情况跟进。
+
+**与旧版的差异（本次范围）**：
+- 入口 4 项 = **任务列表 / 终端 / 文件浏览 / 审查**（旧版是 任务列表/终端/文件浏览 3 项；本次在其基础上新增「审查」——审查 = 文件浏览面板的 review tab，`workspaceReviewStore`，i18n `workspace.reviewTabTitle`「审查」）。
+- **终端**：与文件/审查共用移动端全屏 overlay（同一 `WorkspaceSurface dock="side"` 容器），区别仅在 `openWorkspaceTarget` 的 `target.kind`：文件=`{kind:'file',path:''}`（preview:true），审查=`{kind:'review'}`，终端=`{kind:'terminal',cwd:getSessionTerminalCwd(session)??'',dock:'side'}`——终端 tab 由 `WorkspaceSurface` 内 `TerminalPanel` 渲染（H5 终端桥接，WS `/ws/terminal`，spawn 走 `terminalWs`）。
+
+#### 施（2026-09-27，patch `patches/h5/h5-mobile-quick-actions-patch1.patch`，9 文件 481 行）
+
+**0.6.6 现状核对（调研结论）**：
+- 任务列表已有移动端 overlay 先例：`ActiveSession.tsx:971-983` 在 `isMobileLayout` 下渲染 `SessionActivityPanel placement="overlay"`（需 `hasVisibleActivity` 才出现）；FAB 回调只需 `activityPanelStore.open(activeTabId)`（即 `openActivityPanel`）。
+- 文件/审查无独立面板 store——0.6.6 已并入 `useWorkspaceStore`：`openTarget(sessionId, target)`（`kind:'file' path:''` = 文件树+空 pane，`kind:'review'` = review tab）；封装 `openWorkspaceTarget(request)`（`lib/workspace/openTarget.ts:26`）。**移动端硬禁**在 `ActiveSession.tsx:373-375` `workspaceEnabled = ... && !isMobileLayout`（side dock 因此不渲染）→ 本章新设计点=移动端用全屏 overlay 呈现 workspace。
+- FAB 锚点：0.6.6 `ActiveSession.tsx` 渲染处是裸 `<ChatInput/>`，无旧 fork 的 `<div className="relative">` 包裹 → 本次恢复该 relative 包裹，FAB `absolute -top-[14px] right-2.5` 半重叠挂输入框右上。
+- overlay 先例：`MobileBottomSheet.tsx`（createPortal + `--z-sheet` backdrop）+ `SessionActivityPanel placement='overlay'`。
+
+**实现**：
+1. **`desktop/src/components/chat/MobileQuickActions.tsx`（新增，移植旧 fork 模式）**：props `{onOpenTasks, onOpenTerminal, onOpenFiles, onOpenReview}`；`useState` open + `containerRef`；`useDismissable({open, refs:[containerRef], onDismiss:()=>setOpen(false), stopEscapePropagation:true})`（点外部/Esc 收起）；`run(action)`=先 `setOpen(false)` 再执行 action（点项立即收起菜单）；4 胶囊按钮 icons `assignment`/`terminal`/`folder`/`rate_review`（16px）+ i18n `chat.openTasks/openTerminal/openFiles/openReview`；FAB `h-[39px] w-[39px] rounded-full`、`bolt` 23px、open 时 `rotate-45`、`aria-label`/`aria-expanded`（`chat.quickActions`）；容器 `pointer-events-none absolute -top-[14px] right-2.5 z-[var(--z-dropdown)]`，`data-testid="mobile-quick-actions"`。
+2. **`desktop/src/pages/ActiveSession.tsx`**：① 新增 import（`openWorkspaceTarget`/`MobileQuickActions`/`IconButton`）；② `workspaceIsGitRepo` 后加移动端状态——`memberInfo`/`isMemberSession`（复用 composer 门控：`useTeamStore.getMemberBySessionId` 或 `activeTabType==='subagent'`）、**本地 `mobileWorkspaceOpen` useState**（而非派生 store layout——后台 `openTarget` 不得弹 overlay，仅 FAB 显式点按才弹）、`mobileLayout` selector、派生 `mobileWorkspaceVisible`（`isMobileLayout && !isMemberSession && activeTabId && isSessionTabState && mobileWorkspaceOpen && layout!=='hidden'`）、`useEffect` 随 `activeTabId` 变化重置、`handleMobileOpenWorkspace`（`openWorkspaceTarget` + `preview:true`（file）+ `setOpen true`）、`handleMobileCloseWorkspace`（`setOpen false` + `setLayout hidden`）；③ JSX 加移动端全屏 overlay（`fixed inset-0 z-[var(--z-sheet)]`，顶栏 `workspace.panelLabel` + `IconButton close` `data-testid="mobile-workspace-close"`，内容 `WorkspaceSurface dock="side"`，`reviewUnavailableReason` 依 `workspaceIsGitRepo===false`）+ 恢复 `<div className="relative">` 包裹 `ChatInput` 并挂 `MobileQuickActions`（门控 `isMobileLayout && !mobileWorkspaceVisible && activeTabId && !isMemberSession && isSessionTabState`）。`handleMobileOpenWorkspace` 支持 3 种 `kind`：`file`（`openWorkspaceTarget({kind:'file',path:''},preview:true)`）、`review`（`openWorkspaceTarget({kind:'review'})`）、`terminal`（`openWorkspaceTarget({kind:'terminal',cwd:getSessionTerminalCwd(session)??'',dock:'side'})`）——终端与文件/审查共用同一全屏 overlay 容器，由 `WorkspaceSurface` 内部 tab 切换区分。
+3. **i18n 5 语言**（`en/zh/zh-TW/jp/kr.ts`，插 `chat.refreshSession` 后）：`chat.quickActions`（Quick actions/快捷功能/快捷功能/クイック操作/빠른 작업）、`chat.openTasks`（Tasks/任务列表/任務列表/タスク一覧/작업 목록）、`chat.openTerminal`（Terminal/终端/終端/ターミナル/터미널）、`chat.openFiles`（Files/文件浏览/檔案瀏覽/ファイル閲覧/파일 탐색）、`chat.openReview`（Review/审查/審查/レビュー/검토）。
+**验证**：
+- 单测：新增 `MobileQuickActions.test.tsx` 3 用例（默认折叠无 4 项 / 点 FAB 展开 4 项+`aria-expanded` / 点 Files 触发 `onOpenFiles` 一次其余零次+折叠）；`ActiveSession.test.tsx` 既有移动测试补「后台 openTarget 不弹 overlay 但 FAB 在」+ 新用例「点 Files 打开全屏 overlay（`workspace-surface-side` 在、`workbench-panel` 不在）→ 关闭后 overlay 卸载且 `layout==='hidden'`」+「点 Terminal 打开终端 overlay（`workspace-terminal-*` 在）→ 关闭」断言。
+- `tsc -b` exit 0；受影响 `MobileQuickActions`+`ActiveSession`+`AppShell` 58/58；**全量前端 vitest 6150 pass / 0 fail / 6 skipped**（基线 6146，+4 新用例，零回归）；`vite build` App-DMDs5MZr.js。
+- **live 7788 iPhone 14（390×844 @3x）全验证**：FAB「快捷功能」展开 4 项（任务列表/终端/文件浏览/审查，图标 assignment/terminal/folder/rate_review）；点「文件浏览」→ overlay 全屏 `0,0,390×844` 完美覆盖 + 文件树正常渲染（项目文件列表+内容面板+底部标签条）；点「审查」→ overlay 正确渲染 review tab（比较范围/未暂存/还原全部/暂存全部 + 文件 diff 列表）；点「终端」→ overlay 渲染终端 tab（`workspace-terminal-*` + xterm），WS spawn 后显示 zsh prompt `/tmp/project-root %`（H5 终端桥接全链路）；点关闭 → overlay 卸载、正常回到会话页、FAB 复现。
+
+---
+
+### 原十四、H5/移动端支持打开插件市场（✅ 2026-09-25）
+> 用户 verbatim：「还有，移动端需要能打开插件市场，这个也需要处理一下。也纳入H5访问优化内」。
+
+#### 现状核对
+- 插件市场页面=`desktop/src/pages/ExtensionMarket.tsx`（tab 容器：plugins→`Connectors.tsx`、skills→`Market.tsx`），路由=tab 类型（`ContentRouter.tsx:39-40`，market/connectors→`<ExtensionMarket/>`）；入口=`Sidebar.tsx:1058` NavItem（`MARKET_TAB_ID`，i18n `sidebar.extensions`「技能·连接器」）+桌面 `TabBar.tsx` 标签。
+- 纯 HTTP 无宿主依赖：`api/market.ts`→`/api/market/*`，install 由服务端本机 fs 执行（`services/market/installService.ts`）；服务端 H5 白名单（`remoteBrowserPolicy.ts`）只 gate `/providers`、`/settings`，`/api/market` 直通无 403。
+- H5 被挡两点：①`Sidebar.tsx:1058` 市场 NavItem 包在 `{!isMobile && ...}` 内→移动端侧边栏抽屉无市场按钮；②`AppShell.tsx:275` 移动端 effect 早退条件不含 market→非 chat/settings 的 market tab 被强制踢回会话。
+
+#### 实施方案（2 文件 3 处）
+1. `Sidebar.tsx`：市场 NavItem 移出 `{!isMobile}` 包裹（scheduled 仍隐藏）；
+2. `AppShell.tsx:275`：早退条件加 `|| activeTab?.type === 'market'`；
+3. `AppShell.tsx` mobile-session-header：market tab 标题分支（`t('sidebar.extensions')`，settings 分支范式）。
+
+#### 验证
+- tsc exit 0；Sidebar/AppShell/ContentRouter 3 文件 135/135；全量前端 vitest 12300 pass/12 skip/0 fail（仅既有 MessageList 虚拟化负载 flaky，单跑 198/198）。
+- **live 7788 移动端（iPhone 14 390×844）**：侧边栏抽屉出现「技能·连接器」按钮→点击→header 标题「技能·连接器」+ 插件列表渲染（飞书/钉钉/企业微信等连接器卡片）。
+- **16 链全验证**（worktree@2f8d819d 顺序 apply 16 patch：15 既有 + `h5-mobile-market`）全干净；链上 Sidebar/AppShell 与工作树逐字节一致（已知非章 delta 不变：bun.lock、TerminalSettings.tsx、providerModels.ts、MessagePayloadRetention.test.tsx）。
+
+**patch**：`modify/patches/h5/h5-mobile-market-layout-patch1.patch`（2 文件 61 行，链位 16，基线 10d7d52a）。
+
+### 原十五、H5/移动端支持打开计划任务（定时任务）页（✅ 2026-09-26）
+
+> 用户 verbatim：「再把计划任务也给移动端访问H5打开适配」。
+
+#### 现状核对
+- 计划任务页 `desktop/src/pages/ScheduledTasks.tsx` 纯 `taskStore`+HTTP（`api/tasks`），无桌面宿主依赖，移动端可打开；布局 `px-11` 在 390px 下两侧占 88px 偏宽。
+- 与十四章同构的两处拦截：①`Sidebar.tsx` 定时任务 NavItem 包在 `{!isMobile && ...}` 内→移动端抽屉无入口；②`AppShell.tsx:275` 移动端 effect 早退条件不含 scheduled→scheduled tab 被踢回会话。
+
+#### 实施方案（3 文件 3 处 + 1 测试更新）
+1. `Sidebar.tsx`：定时任务 NavItem 移出 `{!isMobile}` 包裹；
+2. `AppShell.tsx:275`：早退条件加 `|| activeTab?.type === 'scheduled'`；
+3. `AppShell.tsx` mobile-session-header：scheduled tab 标题分支（`t('sidebar.scheduled')`，settings/market 分支范式）；
+4. `ScheduledTasks.tsx`：内容容器 `px-11` → `px-4 lg:px-11`（移动端响应式）。
+5. `Sidebar.test.tsx`：「keeps mobile navigation focused on chat sessions」用例原断言移动端无 Scheduled/Extension Market——该断言在十四章（market 上移动端）后已失配（HEAD 即失败），本轮随 scheduled 上移动端一并更新为「两者均在」。
+
+#### 验证
+- tsc exit 0；Sidebar/AppShell/ContentRouter 3 文件 135/135（含更新后的移动端导航用例）；全量前端 vitest 12298 pass / 12 skip / 2 fail（2 条=既有 MessageList 虚拟化负载 flaky「preserves the expanded change card through virtual unmount」，.tsx/.js 孪生各 1，单跑 198/198 过）。
+- **live 7788 移动端（iPhone 14 390×844）**：侧边栏抽屉出现「定时任务」→点击→页头 h1=定时任务、新建任务按钮可用、桌面在线提示条正常显示。
+- **18 链全验证**（worktree@2f8d819d 顺序 apply 18 patch：16 既有 + `h5-mobile-scheduled` + `connector-linux-platform`）全干净；链上 8 个本章+十六章文件与工作树逐字节一致（diff 全空，0 差异）。
+
+**patch**：`modify/patches/h5/h5-mobile-scheduled-patch1.patch`（4 文件，链位 17，基线 cc88daa5）。
+
+### 原十七、H5/移动端 技能市场页 header 布局适配（✅ 2026-09-26）
+
+> 用户反馈（verbatim）：「主要是技能市场，该页面内大标题下面的文字排成了9行，这相当不合理。」
+
+#### 现状核对
+- 移动端（390px）打开「技能」tab（`MarketHome`）实测：header 是 `flex flex-wrap`，三子项=图标 56px（`flex-shrink-0`）+ 标题/副标题列（`min-w-0 flex-1`）+ 右侧集群（`SourceStatusBar` 228px + 「已安装技能」按钮 146px）。390px 减 padding 后可用 342px，被图标+右侧集群 min-content 挤死，**标题列只剩 16px**：副标题「浏览、预览并安装来自 ClawHub 与 SkillHub 的技能。」折 **15 行**（用户设备更宽折 9 行），标题「技能市场」一字一行，header 总高 **508px ≈ 屏幕 60%**。
+- 桌面（≥1024px）同布局无此问题（空间充足，右侧集群同行右对齐）。
+
+#### 实施方案（1 文件 1 行，纯响应式 CSS）
+- `desktop/src/components/market/MarketHome.tsx:121` 右侧集群容器加 `max-lg:items-start max-lg:basis-full`：窄屏（<1024px）换行独占一行（`basis-full` 强制 100% 宽），标题列拿满剩余宽度；桌面端 `max-lg:` 不生效，布局零变化。
+- 无新 i18n 键、无组件结构改动、无逻辑改动。
+
+#### 验证
+- **live 7788 移动端 390×844**：副标题 15 行→**2 行**（宽 262px），标题 1 行，header 508px→**158px**；右侧集群（来源状态 + 已安装技能按钮）落到标题行下方，信息全保留。
+- **桌面 1280px**：header 74px，按钮与标题同行（`sameRow=true`），副标题 1 行 594px——桌面布局零变化。
+- **tsc exit 0**；市场+页面 vitest 872/872；**全量前端 vitest 12300 pass / 12 skip / 0 fail**（=基线零回归）。
+- **19 链全验证**（worktree@2f8d819d 顺序 apply 19 patch：18 既有 + `h5-mobile-market-layout`）全干净；`MarketHome.tsx` 与工作树逐字节一致（全树 diff 仅 4 个已知非章 delta：bun.lock、TerminalSettings.tsx、providerModels.ts、MessagePayloadRetention.test.tsx）。
+---
+
+### 原三十三、H5 文件打开：轮次卡点击 / 非工作区文件 / 预览上限（✅ 2026-10-06，⚠️ `patches/h5/h5-file-open-patch1.patch` **基座另起**）
+
+> **本章 patch 的基座与前面 36 条不同**：= `cchaha-067scode` 的 `align-latest` HEAD（**0.6.7 血缘**），**不是**上游 `068b3ebd`。理由见 33.4。
+
+#### 33.1 症状（用户三次反馈）
+
+H5（远端手机浏览器）打开会话里生成的文件，**点击无效**或**在服务端打开**（`xdg-open` 跑在服务器桌面上，用户看不到）。逐轮明确为三条需求：
+
+1. 轮次结束卡上「N 个文件已更改」列出的文件，点开要**在 H5 页面内**打开（可预览的预览；不可预览的给下载）；
+2. **非本工作区**的文件（workdir 之外）不应点开即死，应能预览或至少能下载；
+3. 预览上限：**文本 4 MiB**（超限先提示大小、再显示截断内容，不拒绝），**图像 16 MiB**（超限只提示 + 下载）。
+
+#### 33.2 根因（四类，逐条对应）
+
+| # | 症状 | 根因 |
+|---|---|---|
+| ① | 点了**没反应** | `workspaceOpen.*` 只写 store 里的 `layout`，而移动端浮层的显隐另有一个**本地 state** `mobileWorkspaceOpen`，此前只由底部快捷按钮设置 ⇒ 移动端点轮次卡等于"改了布局但浮层不弹" |
+| ② | **在服务端打开** | `openLocalFileWithSystem` 在**无 shell 运行时**兜底调 `POST /api/open-targets/open` ⇒ 服务端执行 `xdg-open`。H5 是远端手机访问，这条路径语义上就是错的 |
+| ③ | 区外文件点开死 / **不能下载** | 工作区路由（`/api/sessions/:id/workspace/file`）对绝对路径要求落在**已注册根**内，越界 403；而客户端此前**不区分路径是否在工作区内**，一律走工作区路由 ⇒ 标签页打开一个 403 空页 |
+| ④ | 图像预览不设上限 | `readFile` 对**文本**按 `MAX_PREVIEW_BYTES`（原 1 MiB）截断，但**图像整体 base64 成 `dataUrl` 返回、无任何上限** ⇒ 大图把内存和等待都推到两端 |
+
+#### 33.3 修法
+
+- **① 浮层与调用来源解耦**：新增 `requestedBy: 'user' | 'agent'`（**默认 `agent`**），从调用点透传到 `workspaceStore.lastUserOpen` 的 nonce；`ActiveSession` 监听 nonce 变化后弹浮层。**首值只记录、不动作**——否则切换标签会误弹。
+- **② 无 shell 不触达服务端**：`SystemOpenUnavailableError` + `canOpenWithSystem()`，在调用服务端**之前**抛出；统一入口 `openFileWithSystemOrOfferSave` → 弹 `FileUnavailableDialog`；`useSystemFileAction` 让「用系统程序打开」按钮在无 shell 时**变成「下载」**。「打开方式」菜单同步按 `systemOpenAvailable` 过滤掉系统/IDE/文件管理器行。
+- **③ 区外文件按「大小 + 可达性」判定**（新文件 `lib/openOutsideWorkspaceFile.ts`）：
+  1. `GET /local-file/<abs>?info=1` 取 `{name,size,mime}` —— **`stat` 级、不读字节**，经 `api.get` 走鉴权通道（H5 也带 Bearer）；
+  2. 取不到 ⇒ 服务端**根本不供**该路径：弹「不在本工作区」且 **`canDownload:false`**（下载同走服务端，同样不可能，不给假按钮）；
+  3. 超限图像 ⇒ 弹「过大 + 实际大小」+ 下载；
+  4. 小但无可预览类型（pptx/zip）⇒ 弹「无法在页面内打开」+ 下载；
+  5. 媒体跳过工作区路由检查（它走 `/local-file`，第 1 步已证明可达）；其余先问 `sessionsApi.getWorkspaceFile`，**不可服务就不开那个必然 403 的标签页**；
+  6. 否则 `workspaceOpen.file(abs, { requestedBy:'user' })`。
+  - 该判定**只在无 shell 运行时生效**，桌面端行为刻意保持不变。
+- **④ 预览上限（服务端 `workspaceService.ts`）**：
+  - `MAX_PREVIEW_BYTES` 1 MiB → **4 MiB**：超限**不拒绝**，返回文件头 + `truncated:true` + 真实 `size`；`WorkspaceFileTab` 在内容**上方**渲染 `role="status"` 提示条（含大小，附 `OpenInSystemButton`——无 shell 时即"下载"）。
+  - 新增 `MAX_IMAGE_PREVIEW_BYTES` = **16 MiB**（server/client 同名同值）：图像是唯一被**整份 base64 携带**的预览，故只对它按大小设门；超限**在读字节之前**返回 `state:'too_large'`（含 size），复用既有 `too_large` 分支 → `PanelMessage` + 下载按钮。
+- **音视频**：新增 `MediaSurface`（裸 `<audio>/<video src>`，走 `/local-file`）。⚠️ `/api/…/workspace/raw` **只服务 pdf/docx/xlsx 且不支持 Range**，媒体用它会坏。
+- 文案：`workspace.previewState.tooLargeSized`、`workspace.previewState.truncated`、`workspace.fileUnavailable.{tooLarge,outside,unreachable}Body`，5 语言同步。
+
+#### 33.4 patch 与基座（⚠️ 本节是本章与其余 chapters 的关键差异）
+
+- patch：`patches/h5/h5-file-open-patch1.patch`（**66 文件 / +1680−192**，含 7 个新文件）。
+- **基座 = `cchaha-067scode` 的 `align-latest` HEAD（0.6.7 血缘）**。实测：干净 HEAD 上 `git apply` **apply --check OK**，应用后本轮 **66/66 文件逐字节等于工作树**。
+- **为什么不能接在前面 36 条之后**：那 36 条的基座是上游 `068b3ebd`（0.6.6 血缘），其链终态 = `cchaha-06scode` 树（实测 `desktop/src` 差异 **0**）。而本轮 66 个文件里 **56 个**在 0.6.6 基座中**不存在或布局不同**——`components/workspace/surfaces/document/`、`OpenInSystemButton.tsx`、`MediaSurface.tsx`、`WorkspaceChangesFallback.tsx` 等在那条血缘里没有对应路径。⇒ 只能**另起基座、单独应用**。
+- 反面对照（为何前两条能"链尾追加"）：`session-upstream-session-id` / `session-local-index-budget` 的目标文件在两个血缘里**逐字节相同**（实测两个 patch 对 06 血缘与 067 血缘双方 `git apply --check` 均 OK）。**判据是"文件级"的，不是"链级"的。**
+- 泄漏自检：patch 内 `MAX_PROJECTION_RECORDS` / `session-upstream` / `H5_REQUIRE_TOKEN` 等**链内既有改动标志串命中 0**。
+
+#### 踩坑记录
+
+1. **「点了没反应」≠ store 没更新**：`workspaceOpen` 确实写进了 store，问题在于移动端浮层的显隐由**另一个本地 state** 决定。只查 store 会误判为"点击未生效"。以后遇到"H5 上布局变了但界面没动"，先找**浮层/抽屉自己的开关**，别只看 store。
+2. **`requestedBy` 必须以 `agent` 为默认**：第一版把默认设成"弹浮层"更直觉，但所有**非用户**的 `workspaceOpen` 调用（恢复标签、agent 自动打开）都会跟着弹一个浮层。默认 `agent`、只在真实点击处传 `user` 才安全；且 nonce **首值不动作**，否则切换会话/标签时误弹。
+3. **两套 gate 不是一套**：`/local-file` 的 gate 是 `isAllowedFilesystemPath`（`$HOME` / tmp / **已注册根**），而工作区路由对绝对路径要求 `isWithinRegisteredFilesystemRoot`。**"`/local-file` 能取"不等于"工作区标签能开"**，反之亦然。轮次改过的区外文件其目录会被 `registerChangedFileAccessRoot` 注册，所以多数情况两者都通——不同时现在会**明确告知**，而不是开个 403 空页。**教训：判断"能不能打开"必须问对应的那条路由，别用一条路的结果推断另一条。**
+4. **`?info=1` 是免下载拿大小的正解**：`GET /local-file/<abs>?info=1` 只 `stat`、不读字节，能在**传输任何内容之前**拿到 `{name,size,mime}`，且在越界时与内容路由**同样 403**——这让"能不能显示/能不能存"和"多大"都能在点击瞬间答出来。别为了拿大小先去下载。
+5. **「大小门」只该套在图像上**（本轮真实返工）：我曾把 16 MiB 门套在**所有**区外文件上，与"文本超限仍显示截断内容"直接矛盾——区外 64 MiB 的 `.log` 被错误拒绝。修法＝门只对 `isWorkspaceImageFile` 生效。**教训：限制的语义要跟着"代价"走——文本的代价是截断（服务端给头即可），图像的代价是必须整份携带（base64），二者不是一个规则。**
+6. **大日志别用"零字节空洞"造**：测截断时用 `truncate` 造稀疏文件，文本内容会被读成 NUL ⇒ 走 `state:'binary'` 分支，测不到目标。文本必须写**真实字节**（5 MiB 可接受）；图像可以用稀疏文件（不需要被读）。
+7. **`.deb` 的 `app.asar` 不可 grep**：前端产物其实在 `resources/app.asar.unpacked/dist/assets/`（未打包目录）。核验新鲜度要 grep 那里，不是 `app.asar`——否则会得到"全 0 命中"而误判为旧包。
+8. **服务端常量核验别只 grep 数字**：`1048576` 这类值在 sidecar 里遍地都是（大量无关代码用 1 MiB），单看数字命中无法证明新鲜度。有效锚点＝**结构化签名或比较式**，如 `state:"too_large",path:$.relativePath,previewType:"image"`（新分支独有，实测命中正好 1）与 `>4194304`（2 处）/`>16777216`（1 处）。
+9. **token 用量类的"提示色"要挑存在的 token**：提示条初版用了 `--color-surface-raised`（不存在），被 `tokenUsage.test.ts` 拦下。改为 `--color-surface-container-low`。
+
+#### 33.5 验证
+
+| 项 | 结果 |
+|---|---|
+| 服务端 | `bun run check:server` ⇒ **files=554 / tests=6625 / failed 0** |
+| 桌面 | `bun run test -- --run` ⇒ **496 文件 / 8276 通过 / 6 skipped / 0 失败** |
+| 类型与 lint | `bun run lint`（eslint + `tsc --noEmit`）**绿** |
+| 前端构建 | `bun run build` 绿；`grep dist` 确认新 key 进包 |
+| patch 复现度 | 干净 `align-latest` HEAD + 本 patch ⇒ 本轮 **66/66 逐字节一致**；`apply --check` OK |
+| 新增测试 | 解析器决策表 9 条、弹窗理由 6 条、`WorkspaceFileTab` 截断/超限 3 条、轮次卡 H5 分支 1 条、服务端预览上限 4 条 |
+
+#### 33.6 deb 产物与核验（2026-10-06）
+
+| 项 | 值 |
+|---|---|
+| 产物 | `desktop/build-artifacts/linux-x64/Claude-Code-Haha-0.6.7-linux-amd64.deb` |
+| 大小 / 时间 | **203,867,468 B** / **2026-10-06 20:19** |
+| 构建命令 | `LINUX_TARGETS=deb SKIP_INSTALL=1 bash desktop/scripts/build-linux.sh` |
+| package-smoke | **PASS** |
+
+**制品新鲜度核验**（改 `app.asar` 为 grep 前端 unpacked 目录，见踩坑⑦）：
+
+```
+resources/app.asar.unpacked/dist/assets/App-TVh-Qr3w.js      2412343 B  20:18
+resources/app.asar.unpacked/dist/assets/index-D7HY4RJw.js    1850679 B  20:18
+  └ workspace.previewState.truncated / .tooLargeSized        ✓ 命中（本轮新 key）
+  └ "Only the beginning of this" / "outside the workspace and the server"  ✓ 命中
+sidecar（claude-sidecar-x86_64-unknown-linux-gnu，111786112 B  20:18）
+  └ state:"too_large",path:$.relativePath,previewType:"image"  ✓ 命中 1（本新增分支）
+  └ >4194304（4 MiB 文本门）2 处 ／ >16777216（16 MiB 图像门）1 处  ✓
+```
+
+- deb 内 `dist` 两个 chunk 与本地 `desktop/dist` **同名同大小**（构建于 20:18），即本轮前端码确已进包。
+
+---
+
+### 原三十五、H5 模型配置补齐测试/获取按钮（✅ 2026-10-11）
+
+**问题**：H5 远程访问后，设置 → 模型配置里缺三个按钮：配置页无「获取模型」「测试连接」（仅桌面有）；供应商行内「设为默认」与「编辑」之间缺「测试」。
+
+**根因**：H5 复用桌面 `ProviderSettings`（`desktop/src/pages/settings/H5Settings.tsx:80` 传 `browserMode`），三处被 `!browserMode &&` 一刀切隐藏——来自 `8d7b5ea56`「加固远程凭据处理」的保守决策（同批禁的还有 cc-switch 导入）。非技术限制：H5 经同一隧道到同一服务端，`POST /api/providers/models`、`/api/providers/test`、`/api/providers/:id/test` 全部可达。
+
+**改动**（仅 1 文件 + 测试）：
+- `desktop/src/pages/settings/ProviderSettings.tsx`：删 3 处 `!browserMode &&` 门控（行内 Test 按钮、表单模态「获取模型」「测试连接」）。结果展示区本就存在，无需新布局。
+- `desktop/src/pages/settings/ProviderSettings.test.tsx`：新增 `browserMode exposes provider testing affordances` 用例——断言行内 Test 按钮数量 = 供应商数、模态内「Fetch models / Test Connection」可见。
+- `desktop/src/pages/settings/H5Settings.test.tsx`：旧用例锁定了「H5 下无这三个按钮」（8d7b5ea56 的行为），改为断言存在；Settings JSON 粘贴的缺席断言保留。
+
+**保持不动**：cc-switch 导入（:251）——读本地文件系统扫描，经隧道做无意义，仍禁。settings JSON 粘贴（:2122）——凭据加固的本意，仍禁。
+
+**安全论证**：无新密钥暴露。apiKey 已持久化在本地服务端且每次聊天都在用；测试/获取只是把已填/已存的值走同一链路；行内「测试」甚至不经客户端传 key（服务端自读配置）。
+
+**测试**：`bunx vitest run ProviderSettings.test.tsx` 23/23（原 22 + 新 1）。
+
+### 原三十八、H5 模型配置：测试/获取按钮真正接通 + 明文 key 下发（✅ 2026-10-12）
+
+**用户报告**：远端经 H5 访问，设置 → 模型配置里对已有供应商点「测试」报「① 连通失败: 请求失败」；点「获取模型」点不动没反应。桌面应用两者均正常。另要求 H5 与桌面一样能看到 API 密钥 key。
+
+**根因（两层，第一层是「三十五」的半成品）**：
+
+1. **路由准入没跟着前端一起放开**。「三十五」只删了前端 `!browserMode &&` 门控（按钮可见了），服务端 `src/server/remoteBrowserPolicy.ts` 的 `remoteProviderRouteAllowed` 未动。`test` / `models` 之所以在 `RESERVED_PROVIDER_PATHS` 里，只是为了**路由消歧**（阻止 `GET /api/providers/test` 被解析成 id=test 的供应商），但没有像 `presets`/`official`/`reorder` 那样配一条**显式放行**分支 → 落进兜底规则 `!RESERVED_PROVIDER_PATHS.has(id) && ['GET','PUT','DELETE'].includes(method)` → 三个 POST 全被拒。该策略被 `publicAccess.ts:40`（公网配对隧道）与 `router.ts:63`（LAN/H5）共用，两处一起 403：
+   - `POST /api/providers/:id/test` → 403 → 前端 catch → 「连通失败: 请求失败」（行内「测试」走这条）
+   - `POST /api/providers/test`、`POST /api/providers/models` → 同样 403
+2. **凭据投影让按钮直接 disabled**。`projectRemoteProvider` 把 `apiKey` 置为 `''`（`8d7b5ea56`「加固远程凭据处理」）。H5 编辑已有供应商时 key 栏为空 → `canFetchModels = hasModelsBaseUrl && hasModelsApiKey` 为 false → 「获取模型」禁用（表现为「点不了」）；「测试」不依赖 key 故可点，但撞上第 1 层的 403。
+
+**改动**（2 文件 + 4 组测试）：
+
+- `src/server/remoteBrowserPolicy.ts`：
+  - `remoteProviderRouteAllowed`：新增 `if (id === 'test' || id === 'models') return method === 'POST'`；4 段分支的 action 白名单由 `'activate'` 扩为 `activate | test`。**仅限 POST**——`GET/DELETE /api/providers/test`（防止当 id 用）与 `/:id/models`（官方 OAuth 模型别名）继续拒绝。
+  - `projectRemoteProvider`：`apiKey: ''` → `provider.apiKey ?? ''`，主 key 与 `imageGeneration.apiKey` 两处，**推翻** `8d7b5ea56` 的远端脱敏。
+- 测试：`remoteBrowserPolicy.test.ts` 新增路由边界断言；`router.remoteBrowser.test.ts`、`router.remoteCredentials.test.ts`、`__fixtures__/remoteBrowserSettingsSmoke.ts` 由「断言脱敏」翻转为「断言回显」（key 应到达客户端，白名单外字段仍不下发）。
+
+**保持不动**：cc-switch 扫描/导入（读宿主文件系统，过隧道无意义）、`/api/providers/settings`、`/:id/models` 官方别名、`PUT` 时 `apiKey === '' → delete`（空值=保留旧 key）、`remoteProviderNeedsCredentials`（换目的地必须显式给新 key）、投影白名单外的字段（`futureCredential`、`env`、隐藏 compatibility 字段）。
+
+**安全论证（本次是确认后的有意放宽，非疏漏）**：H5 是扫码配对 + 30 天会话的受信设备，经 ngrok 公网隧道到达同一服务端。放开后 key 会明文经隧道抵达浏览器并留在页面内存——配对 cookie 一旦泄露即等于 key 泄露。已与用户确认选择「完全下发（与桌面一致）」，故 `hasApiKey` 标志之外再回传真实值；未列入白名单的字段继续不下发。
+
+**验证**：`check:server` 全绿；desktop `ProviderSettings` + `H5Settings` 31/31；远端相关 5 个 server 测试文件 31/31。
+
+### 原四十、H5 模型配置：测试/获取/测试连接按钮贯通（✅ 2026-10-11 初版 + 10-12 补齐，`patches/h5/h5-provider-test-buttons-patch1.patch`，⚠️ 基座 `53199e3f7` 独立应用）
+
+**内容**：删 ProviderSettings 3 处 `!browserMode` 门控，H5 端恢复行内 **Test / 获取模型 / 测试连接** 三个按钮 + 测试；2026-10-12 补齐服务端路由放行（`remoteProviderRouteAllowed` 的 `test/models` POST、`:id/test`）与远端回传已存 apiKey，H5 页面与桌面端行为对齐。
+
+**patch**：8 文件（3 desktop/ + 5 src/）。干净 `53199e3f7` 上 apply ⇒ 8 文件逐字节一致。
+
+
+## 二、会话与历史传输
+
+> 本章收纳原第 二、三、五、六、八、二十、二十二、二十三、三十一、三十二 章（2026-10-14 按功能域重组；各原章降为小节，内容原样）。
+
+### 原二、会话导出功能（源§三，✅ 2026-09-24）
+
+#### 需求背景
 
 旧§三在 0.5.3 上实现：会话列表右键菜单新增「导出会话」，支持导出 **Markdown / HTML / 纯文本**，并可选导出范围（默认「最近一次压缩 → 最新消息」，可选具体压缩边界节点或「全部」）。0.6.6 中该功能不存在，本次以旧 fork 树（`CC-HAHA-Scode`）的完整实现为参考移植到 0.6.6 基座。
 
-### 0.6.6 现状核对
+#### 0.6.6 现状核对
 
 - compact 边界 JSONL 行形态 `{type:'system', subtype:'compact_boundary'|'microcompact_boundary', content:'Conversation compacted'|'Context microcompacted', timestamp, uuid, ...}`（`src/utils/messages.ts:4744-4797` `createCompactBoundaryMessage`/`createMicrocompactBoundaryMessage`），**无 `message` 字段**。
 - 服务端 `entriesToMessages`（`src/server/services/sessionService.ts:5183`）以 `if (!entry.message?.role) continue` 把所有无 `message.role` 的条目（含 compact 边界）过滤掉，且 `MessageEntry`（服务端 `:218` / 前端 `desktop/src/types/session.ts:46`）**无 `subtype` 字段** → 前端从 `/api/sessions/:id/messages` 拿不到边界节点，无法切分导出范围。
@@ -235,7 +517,7 @@ while read -r p; do git apply -p1 "$p"; done < modify/patches/ORDER.md
 - UI 已能渲染 compact：`mapHistoryMessagesToUiMessages`（`desktop/src/stores/chatStore.ts:7699-7708`）把 `type:'system' && content==='Conversation compacted'` 映射为 `compact_summary` → 放行边界条目与现有 UI 行为一致，无回归。
 - 0.6.6 已具备所需 UI 原语 `Modal`/`SelectField`/`Button`（`desktop/src/components/ui/`）；右键菜单在 `desktop/src/components/layout/Sidebar.tsx`（「重命名」/「删除」项，H5 手机共用同一 Sidebar）。
 
-### 实施方案
+#### 实施方案
 
 - **服务端**（`src/server/services/sessionService.ts`）：`MessageEntry` 加 `subtype?: string`；`entriesToMessages` 在 `if (!entry.message?.role) continue` 之前对 `type==='system' && subtype ∈ {compact_boundary, microcompact_boundary}` 特殊放行，push `{id, type:'system', subtype, content, timestamp}` 后 `continue`。其余逻辑不变。
 - **前端类型**（`desktop/src/types/session.ts`）：`MessageEntry` 加 `subtype?: string`。
@@ -244,7 +526,7 @@ while read -r p; do git apply -p1 "$p"; done < modify/patches/ORDER.md
 - **右键菜单**（`desktop/src/components/layout/Sidebar.tsx`）：加 `exportTarget` 状态；「重命名」与「删除」之间插入「导出」项（取会话 title）；组件返回体渲染 `<ExportConversationDialog />`。
 - **i18n**（5 语言 en/zh/jp/kr/zh-TW）各加 6 key：`session.export.title/.export/.format/.range/.range.latest/.range.all`。
 
-### 验证
+#### 验证
 
 - 类型：desktop `tsc -b` exit 0。
 - desktop vitest：6137 pass，2 个既有失败（`providerModels.test.ts` / `MessagePayloadRetention.test.tsx`，未触及，不变）。
@@ -256,13 +538,13 @@ while read -r p; do git apply -p1 "$p"; done < modify/patches/ORDER.md
 
 ---
 
-## 三、会话刷新按钮（授权/提问卡住软刷新规避）（源§八，✅ 2026-09-24）
+### 原三、会话刷新按钮（授权/提问卡住软刷新规避）（源§八，✅ 2026-09-24）
 
-### 需求背景
+#### 需求背景
 
 会话中需要用户授权（can_use_tool）或提问问答（AskUserQuestion）时，有概率卡在「准备工具」不弹授权/问答对话框。根因是实时 WS 投递链路在特定条件下丢弃消息（`forwardCliMessageToSessionClients` 在 `clients.size===0` 时 return、`bindClientSessionOutput` 在 transcript epoch 不匹配时 return），而服务端 `pendingPermissionRequests` **总是完整记录**——刷新页面重连后服务端重放 permission 消息即可恢复。方案：手动「刷新会话」软刷新按钮，无需整页刷新。
 
-### 0.6.6 现状核对（调研结论）
+#### 0.6.6 现状核对（调研结论）
 
 - **服务端重放机制已存在，无需新增**：`src/server/ws/handler.ts:639-646` 每个新连接/重连的 open 必发 `replayPendingPermissionRequests`（:4269-4286 逐条重发 `{type:'permission_request'}`）+ `{type:'permission_requests_snapshot', toolRequestIds, computerUseRequestIds, turnActive}`。
 - pending 存储：`conversationService.ts:227-237` 内存 `Map<requestId,...>` 挂 session，不落盘；断连宽限 30 分钟（`handler.ts:162 PENDING_PERMISSION_DISCONNECT_CLEANUP_MS`）。**AskUserQuestion 与 can_use_tool 是同一套 pending 机制**（`tool_name:'AskUserQuestion'` 进同一个 `pendingPermissionRequests`）。
@@ -270,7 +552,7 @@ while read -r p; do git apply -p1 "$p"; done < modify/patches/ORDER.md
 - 前端现成 API：`chatStore.disconnectSession(id)`（:3180）→ `connectToSession(id)`（:2941，重连触发服务端重放+全新 bootstrap 拉历史）→ `reloadHistory(id)`（:4003，无 guard 调用时直接应用结果；与 bootstrap 有 lifecycleGeneration 协调，重复拉取幂等）。
 - 挂载点：桌面 `SessionChatHeader` 已支持 `actions` prop（`SessionChatSurface.tsx:61` 渲染标题右侧）；移动端 `AppShell.tsx` `mobile-session-header`（0.6.6 只有侧栏 toggle 按钮，无菜单）。
 
-### 实施方案（纯前端，7 文件 73 行）
+#### 实施方案（纯前端，7 文件 73 行）
 
 - **handler（两处各一份，同逻辑）**：`useState refreshingSession` 防重入；`disconnectSession(activeTabId)` → 等 120ms → `connectToSession(activeTabId)`（服务端重放 permission_request/snapshot）→ `await reloadHistory(activeTabId)`（补 AskUserQuestion tool_use）。函数经 `useChatStore.getState()` 取（避免订阅 churn）。
 - **桌面**：`desktop/src/pages/ActiveSession.tsx` 加 `handleManualRefresh`，按钮挂 `SessionChatHeader actions`（`Button variant="ghost" size="sm"`，`refresh` material icon，刷新中 `animate-spin`，`data-testid="session-manual-refresh"`）。
@@ -278,7 +560,7 @@ while read -r p; do git apply -p1 "$p"; done < modify/patches/ORDER.md
 - **i18n**：新增 `chat.refreshSession` 5 语言（en 'Refresh session' / zh '刷新会话' / zh-TW '重新整理對話' / jp 'セッションを更新' / kr '세션 새로고침'）。
 - 参照旧 fork（CC-HAHA-Scode 2026-08）同功能实现，0.6.6 挂载点/组件名以本基座实际代码为准。
 
-### 验证
+#### 验证
 
 - `desktop tsc -b` exit 0；vitest `AppShell.test.tsx` + `ActiveSession.test.tsx` 54/54 pass（chatStore mock 已含 disconnectSession/connectToSession/reloadHistory）。
 - `vite build` 成功，新 bundle `App-BVVJKg7-.js`；dev 7788 伺服 dist/ 即生效（H5 会话页标题栏/移动端 header 右侧可见刷新按钮）。
@@ -286,19 +568,653 @@ while read -r p; do git apply -p1 "$p"; done < modify/patches/ORDER.md
 
 ---
 
-## 四、实时解码速度（TPS）指示器（源§九）+ 手机端顶栏两行显示（源§十六，✅ 2026-09-24）
+### 原五、文件下载桥接功能（源§十二，✅ 2026-09-24）
 
-### 需求背景
+#### 需求背景
+
+H5 浏览器端打开文件链接时，`/local-file/<absPath>` 直接内联显示而非触发下载，需要 `Content-Disposition: attachment` 头让 H5 真正下载文件；会话导出的文件列表卡（DownloadReferencesCard）需要展示文件名/大小/下载按钮，大小走批量 `/local-file/info` 端点一次拿全。
+
+#### 0.6.6 现状核对
+
+- 服务端 `localFile.ts` 只有 `?download=1`/`?info=1` 未实现，`/local-file/` 走 `serveFileWithRange` 内联返回；`previewFs.ts` 有 `downloadHeadersFor()`（RFC5987 attachment 头）与 `servePreviewFsFile(download=false)` 参数预留，但路由没读 query 没传参。
+- 前端无 `DownloadReferencesCard` / `fileSizeCache` / `downloadFileMeta`（三者均老 fork 独有，0.6.6 全缺）；`localFileUrl` 已在 `handlePreviewLink.ts:44-51`。
+- 老 fork 完整实现=4 块：①localFile.ts `?info=1`/`?download=1` 分支 + `handleBatchLocalFileInfo`（POST `/local-file/info`）；②previewFs.ts 路由读 `?download=1` 传 `servePreviewFsFile`；③`DownloadReferencesCard.tsx`（收集 turn 内 Read 调用，`localFileUrl+?download=1`）；④`fileSizeCache.ts`（hot 50/120s→cold 150/30min，localStorage 持久化）+ `downloadFileMeta.ts`（fileTypeIcon/formatFileSize）。
+
+#### 实施方案（12 文件，3 新文件）
+
+- **`src/server/api/localFile.ts`**：`?info=1`→JSON `{name,size,mime}`（`Bun.file().stat()`，不读内容）；`?download=1`→`serveFileWithRange(...,downloadHeadersFor())` 加 RFC5987 attachment 头（unicode/空格文件名正确）；`handleBatchLocalFileInfo(body)`：批量 stat，逐 path 走 `$HOME` sandbox，失败的静默跳过，返回 `{files:{path:{name,size,mime}}}`。
+- **`src/server/index.ts`**：`POST /local-file/info` 路由插在 `/local-file/` 前缀分支**之前**（`/local-file/info` 也匹配该前缀，顺序敏感）。
+- **`src/server/api/previewFs.ts`**：`handlePreviewFs` 读 `?download=1` 传 `servePreviewFsFile`；`servePreviewFsFile` 加 `download` 参数——download 时跳过 HTML base-rewrite 变换直接流式 + attachment 头（浏览器要原始字节非预览变换版）。
+- **前端 3 新文件**：`fileSizeCache.ts`（两级 LRU，hot 50/120s + cold 150/30min，LRU 淘汰，localStorage `cc-haha:file-sizes` 持久化，`__clearFileSizeCache` 测试用）；`downloadFileMeta.ts`（fileTypeIcon 按扩展名映射 Material Symbols 图标 + formatFileSize 自适应单位）；`DownloadReferencesCard.tsx`（`TurnDownloadCard` 收集 turn 内 Read 调用的 `file_path`，去重；默认折叠不请求，展开时批量 `POST /local-file/info` 拿缺失大小并写入两级缓存；20 条分页 + "显示更多" + "显示全部"；下载链接=`localFileUrl+?download=1`）。
+- **`ToolCallGroup.tsx` 接入**：import `TurnDownloadCard`；memory 分支（`MemoryToolActivityGroup` 后）与常规 return（`ToolCallGroupContent` 后）各插一处 `<TurnDownloadCard toolCalls={...} />`。
+- i18n：`chat.downloadableFiles`/`chat.downloadableMore`/`chat.downloadableAll`/`workspace.download` 5 语言，插在 `chat.tpsSpeedTitle` 行后。
+
+#### 补全：文件浏览下载入口 + H5 内置浏览器提示（2026-09-25）
+
+初版只做了「会话内 Read 文件下载卡」，文件浏览（工作区文件树 / open-with 菜单）里仍只能「添加到对话」不能下载，且 H5 点「应用内浏览器」无提示。本次补 3 项（复用既有 `?download=1` 端点与已有 i18n 键 `workspace.download`/`workspace.browser.unavailableTitle`，零新 i18n 键）：
+
+- **A 文件树右键加「下载」**：`WorkspaceFileTreePane.tsx` 右键菜单「添加到对话」后加下载按钮（仅非目录行，`data-testid="workspace-tree-download"`），`resolveAbsoluteOpenPath(path, workDir)`（`systemFileOpen.ts:24`，path 已绝对/无 workDir 原样返回，否则 join）解析绝对路径后调共享下载入口。
+- **B open-with 菜单加「下载」**：`openWithItems.ts` `OpenWithIcon` 联合加 `'download'`、`OpenWithDeps` 加 `downloadFile?`、`buildOpenWithItems` 在 clipboard 组（copy 之后）推 `id:'download'` 行（label 复用 `workspace.download`）；`openWithMenuItems.ts` 绑定 `downloadFile=(p)=>downloadLocalFile(p)`（file context 块）；`OpenWithMenu.tsx` `ItemIcon` 加 `download`→lucide `Download` 图标分支；`WorkspaceFileOpenWith.tsx` 的 `filter` 放行 `item.id==='download'`。
+- **C H5 内置浏览器提示**：`openWithMenuItems.ts` `openInAppBrowser` 改——`!isWorkspaceBrowserAvailable()`（`workspace/browserHost.ts:37`）时 `addToast({type:'info', message:t('workspace.browser.unavailableTitle')})`（=「内置浏览器需要桌面版」）+ `window.open(url,'_blank','noopener,noreferrer')` 兜底，桌面版仍走 `workspaceOpen.browser`。
+- **共享下载入口**：`handlePreviewLink.ts` 新增 `export downloadLocalFile(absolutePath)`——临时 `<a href=localFileUrl(serverBase,absPath)?download=1 rel=noopener>` appendChild+click+remove（anchor 法而非 fetch：二进制直下 + 服务端 RFC5987 attachment 头定保存名，无需缓冲整文件或猜 MIME）。
+
+#### 验证
+
+- `desktop tsc -b` exit 0；6 受影响测试文件 **149/149**（openWithItems 54/handlePreviewLink 34/OpenWithMenu 17/openWithMenuItems 3/WorkspaceFileOpenWith 10/WorkspaceFileTreePane 31）；全量前端 vitest **12300 pass / 12 skip / 0 fail**（零回归，对齐基线）。
+- `vite build` 成功，新 bundle `App-48eEOxTf.js`。
+- **live 7788 H5 全确认**：A 文件树右键含「添加到对话/下载」；B 文件 tab 右上角 split-button open-with 下拉含「…复制文件内容/下载/刷新工作区」；C open-with 点「应用内浏览器」→ toast「内置浏览器需要桌面版」+ 系统浏览器打开。
+- **坑（.js 孪生）**：仓内每个 `.ts/.tsx` 有一个 untracked 的 `.js` 孪生（tsc emit 风格，批量生成），Vite 默认 `resolve.extensions` 把 `.js` 排在 `.tsx` 前 → `vite build` 实际 bundle 旧的 `.js` 而非改过的 `.tsx`（症状=新 testid/字符串在 dist/ grep 0 命中）。修法=`tsc -p tsconfig.json --noEmit false` 同步全部 `.js`（TS5096 allowImportingTsExtensions 报错不阻断 emit）→ 清 `dist`+`node_modules/.vite` → `vite build`。`tsc -b`（noEmit:true）不生成孪生。`.js` 全 untracked 不入 git/patch。
+- **权威零回归（初版）**：全量 `src/server` bun test junit 比对基线 worktree（2f8d819d）——新增 1 条 `diagnostics API`，单独跑 3 次（当前树+基线各 37/37 全绿）确认负载 flaky，非引入。
+- 坑（初版）：`previewFs.ts` 0.6.6 缺 `downloadHeadersFor` 定义（仅老 fork 有）→ import 时报 `Export named 'downloadHeadersFor' not found`，需从老 fork 移植到 `serveFileWithRange` 后。
+- Patch：`modify/patches/session/session-file-download-patch1.patch`（**20 文件 951 行**，含 3 前端新文件 mode 100644 + 6 文件浏览下载入口文件；2026-09-26 因第四章子代理汇聚新增 i18n 键而连锁重生成）。**19 patch 全链 `git apply` 干净且逐字节等于工作树（仅 5 已知非章 delta）**。
+
+---
+
+#### 子优化（2026-09-28）：下载改走 blob 取字节——`file://` 下 DOM 自己的请求 Origin 是 `null`（链位 53）
+
+- **触发（用户 verbatim）**：「文件浏览的两个下载触发，虽然是可以触发下载，但是提示**"无法从网站上提取文件"**，也要修。」
+- **实测定位**（对运行中的 8877 直接 curl 同一路由 `/local-file/<abs>?download=1`）：
+
+  | 请求 Origin | 结果 |
+  |---|---|
+  | 无 | **200**（正常返回 6719 字节） |
+  | `http://127.0.0.1:8877` / `localhost:8877` | **200** |
+  | `file://` | **200** |
+  | **`null`** | **403 `CORS origin not allowed`** |
+
+  打包版渲染进程在 `file://`（`main.ts` 的 `rendererEntry()` → `loadFile`），而**由 DOM 发起的下载请求，其 Origin 序列化为 `null`** —— 不是 `file://`。服务端 `resolveCors`（`middleware/cors.ts`）只在「无 Origin ／ 本机 Origin ／ H5 白名单」三者之一放行，`null` 不在其中，于是下载能发起、随即被拒。
+- **为什么不用「放行 `null`」**：`null` 是**所有不透明来源**的序列化值，恶意网页里的 `sandbox` iframe 正是这个来源 —— 放行它等于让任意网站驱动本地 API（读会话、读文件）。`file://` 不同：网页无法伪造它。所以修的是**调用方**，不是门控。
+- **修法**：`downloadLocalFile` 改为 `apiGetBlob`（`desktop/src/api/client.ts`）取字节 → `URL.createObjectURL` → 带 `download` 的临时锚点点击。**本仓库对 app icon 早已是同一解法**，`client.ts:459-463` 的注释写明了同一条理由：DOM 直接加载的资源**既带不了 Authorization 也带不了可信 Origin**；改为「先取字节」就走上了其余调用一样的凭证路径。代价＝文件经内存转 blob（与既有的图标/导出下载同一取舍）。
+  - blob URL 无文件名，故仍显式设 `anchor.download = fileNameFromPath(...)`（此时服务端的 `Content-Disposition` 帮不上忙）。
+  - `URL.revokeObjectURL` 延到下一个 task：同步撤销可能取消尚未开始的下载。
+  - 两个调用点（文件树菜单、「打开方式」菜单）改为 `void downloadLocalFile(...)`；助手自身**吞掉失败并记录原因**（调用方是即发即忘的菜单回调，抛出只会变成 unhandled rejection，用户什么都看不到）。
+- **踩坑记录**：
+  1. **我早前在代码注释里写了一个未经验证的因果**：称「下载卡片能用、树菜单不能」。实测两者**同样失败**（下载卡片是用户点击的锚点，DOM 点击的下载请求 Origin 同为 `null`）。**教训：写进注释的因果也要有取证，否则它会留在代码里误导下一个人（包括未来的自己）。**
+  2. **测试里让 vitest mock 抛异常会污染结果**：`mockRejectedValue` / `mockImplementation(async () => { throw … })` 都被 vitest 记为一条**独立失败**（未消费的拒绝承诺），即便调用方已 await 并 catch，表现为「测试明明写了 catch 却红」。改为把失败**布置在保存步骤**（`URL.createObjectURL` 抛）即可干净地验证「失败被吞、不抛给调用方」。同步抛出的 `mockImplementation(() => { throw … })` 同样会被计为失败。
+  3. `jsdom` 既无 `createObjectURL` 也无 `revokeObjectURL`，需在测试顶部兜底定义。
+- **验证**：`handlePreviewLink.test` **39 全绿**（其中 4 条为改写后的下载用例：走 API 客户端而非 DOM、保留路由与文件名、DOM 无残留、失败返回 false 且不抛）；桌面 `tsc -b` **0 错**；全量前端测试见交接快照。
+- **入库**：链位 **53** `patches/session/session-file-download-patch1.patch`（4 文件 133 增 / 54 删）。
+
+#### 补记（2026-09-28 定稿）：下载必须走 **anchor 导航**，不是 fetch（链位 55）
+
+- **触发（用户 verbatim）**：先「两处下载点击**无反应**」→ 我改 fetch+blob；再「**还是点了没反应**」→ 我改主进程 IPC；第三次用户直接指出方向错了：「**文件浏览、文件预览的卡片是坏的，[对话里的卡片]能下，你搞错方向**」。
+- **关键在那句「能下」**：对话里的下载卡片（`DownloadReferencesCard`）用的是**裸 anchor 指向 `/local-file/...?download=1`**，它一直是好的 ⇒ 那条「DOM 直接指向路由」的老路**本来就是通的**，我前两轮的两次「修」是把它越改越坏。
+- **实测三态（决定性证据）**：
+
+  | 请求形状 | 服务端 |
+  |---|---|
+  | **无 Origin**（anchor 点击＝导航） | **200 + `Content-Disposition: attachment`** |
+  | `Origin: null`（fetch） | 403 |
+  | `Origin: file://`（应用自身 fetch） | 200 |
+
+- **我的推理错在哪**：我测到 `Origin: null` → 403，就断定「DOM 下载会被服务端拒」。但 **anchor 点击是导航、不是 fetch——导航不带 Origin**，于是走「无 Origin」那条放行路径。这正是卡片一直能用的原因。我改成 `fetch` 反而主动把请求推进了被拒的那条路；而「**不透明来源里 mint 的 `blob:` URL 不可下载**」又让失败变成**静默**（无异常、无提示），所以现象从「下载失败(403)」升级为「点了毫无反应」。
+- **做法**：`downloadLocalFile` 回到初版（`6c7d4a62`）的形状——建 anchor → `href` 指路由 → 带 `download` 名 → `click()`，同步返回。**文件浏览（右键）与文件预览（打开方式 → 下载）都走这一个函数，一处修好两处**；对话卡片无需改动。顺带删掉上一轮在错误前提下加的整套 IPC 机件（`desktop:file:save-copy` 通道 + `files.saveCopy` + `services/fileSave.ts` 等 **7 文件**），净 **−282 行**。
+- **踩坑记录**：
+  1. **最贵的错：抱着自己的假设不放**。连续两轮都在「DOM 下载被拒」这个前提上打补丁升级（blob → IPC），而**反证一直摆在眼前**——同一份代码里的另一个入口（卡片）能用。**当现象里存在一个能用的同类入口时，它就是现成的对照实验，先看它为什么能行。**
+  2. **「测到 403」≠「这条请求会被 403」**：403 是我**构造**的形状（`Origin: null`）得到的，真实点击走的是**另一种形状**（导航、无 Origin）。**先确认自己复刻的是不是真实请求，再去解释结果。**
+  3. **静默失败把方向带偏**：blob 不可下载时**不报错**，于是「下载失败」变成「毫无反应」，让我误判成更底层的权限问题。**失败模式的变化本身就是线索。**
+  4. 无头 Chrome 上的「file:// 页面能否下载 blob」实验**没有有效对照组**（两种来源都不落盘），当时就不该拿它当证据。
+  5. 收尾时我用 `pkill -f "claude-code-desktop"` **把用户正在用的生产实例一起杀了**。往后**只按精确 PID 停自己起的进程**（先用唯一 profile 串列出 PID、逐个确认再 kill），**绝不用模式匹配杀**。
+- **验证（真机，不只是单测）**：
+  - **打包 app 的 `file://` 渲染进程里真落盘**：CDP 把下载目录指到 `/tmp/e2e-nav-out`，在页面里点同形状的 anchor → **文件写出且内容一致（PASS）**。这是「导航下载可用」的直接证据。
+  - 服务端三态如上表实测。
+  - `handlePreviewLink` **38 绿**（下载段重写为「anchor 指向路由」断言）；`electron/ipc`+`services`+`workbench` **653 绿**；全量前端 **6346 绿**；`check:server` **493 文件 5950 绿**；`tsc -b` 0 错；链位 55/56 在链基 worktree apply **FAIL=0**。
+- **入库**：链位 **55** `patches/session/session-file-download-patch1.patch`（2 文件）。
+
+#### 补记（2026-09-28）：打开大会话「一直转圈」＝归属投影全量扫盘（链位 57）
+
+- **触发（用户 verbatim）**：「老会话打不开」→ 追问后确认为「**一直转圈/很久没反应**」。
+- **定位过程（先证伪、再锁定）**：
+  - 打开门槛**不是**元凶：82 个会话**全是 UUID v4 名**、**无单条 >8MB 记录**（门槛 `HISTORY_SEMANTIC_RECORD_BYTES=8MB`、`isValidSessionId`）。
+  - vcc 扫盘**不是**元凶：`loadCcGlobalIndexByUuid` 实测 60MB→647ms。
+  - git 命令**不是**：仓库内 git 查询 3–4ms。
+  - 索引 DB 查询**不是**：4ms。
+  - **决定性对照**：`GET /api/sessions/<id>` **单独**就要 6.09s（小会话 0.55s）；再按选项切分 ⇒ 真凶是 `projectContext`。
+- **真根因**：`GET /api/sessions/<id>` 调 `getSessionHistoryPage(sessionId)`（**不带** `projectContext:false`）⇒ `projectHistoryPageEntries` → `readHistoryContexts`（`sessionHistoryContext.ts`）为给**一页**算出 `parent_tool_use_id`，把**整个转录从头流式扫一遍**。离线实测：
+
+  | 调用 | 耗时 | 扫描 |
+  |---|---|---|
+  | 默认（含投影） | **2,949ms** | **193,509,210 字节** |
+  | `projectContext:false` | **6ms** | 0 |
+
+  慢约 **500 倍**。代码注释自己写着「Building the ownership index scans the transcript from the start, which is what **stalls the shared server**」——但只有显式传 `projectContext:false` 才跳过，UI 正常打开走的是**会扫描**的那条。
+- **为什么反复转圈**（而不只是第一次慢）：缓存是 **`mkdtemp` 临时目录 + 内存 Map 仅 4 项**，且 `process.once('exit')` 直接 `rm -rf` ⇒ **每次服务重启、每次淘汰都要重扫**。
+- **顺带发现的泄漏**：`/tmp/claude-history-context-*` 累积 **634 个目录 / 92MB**（最早 09-24）——exit 钩子在 SIGKILL/崩溃时根本不执行，且内存只留 4 个、其余 build 完就无人回收。
+- **做法**：把索引的**可续跑状态写进 DB 的 `meta` 表**（`schema/identity/size/mtime/offset/suppressed/fingerprint`），并**与 context 行同事务提交**（保证索引永不与自身内容矛盾）；每个转录的索引放到**稳定路径** `<cc-haha>/db/history-context-v1/<sha256(路径)>.sqlite`（`CC_HAHA_HISTORY_CONTEXT_DIR` 可覆盖）。淘汰只 `close` **不删文件**；`pruneOnce()` 每进程最多一次、删 7 天未动的索引。
+  - **所有失效判定原样保留**（identity/size/mtime/前缀指纹）：索引仍只对建它时那个文件身份+大小+mtime 生效，不一致就丢弃重建。**正确性不变，变的只是「进程内易失」→「跨进程可用」。**
+- **验证（跨进程 = 跨重启）**：冷启动 2,949ms → 第 2 个进程 **37ms** → 第 3 个进程 **36ms**（后两次 `ctxScan=0`）；索引文件仅 **3.3MB**。`sessionHistoryContext.test.ts` **8/8**（新增两条：冷启动复用落盘索引、冷启动仍拒绝被替换的转录）；`check:server` **493 文件 5952 通过 0 失败**。
+- **踩坑记录**：
+  1. **别把「文件大」当成「上下文大」**：该会话 139MB / 4 万条消息，但**送进 API 的上下文只有 73K token**。压缩（auto/手动、vcc/llm）**都不会缩小转录文件**。用户以为「该压缩了」，其实阈值 418K 远没到。
+  2. **先证伪再锁定**：我依次排掉了打开门槛、vcc 扫盘、git、索引 DB 四个「看起来很像」的原因，最后用「单独测元数据端点」把范围从「历史分页」缩到「投影」。
+  3. **离线复现比读代码快得多**：写个脚本直接 import `sessionService` 调同一方法 + 按选项切分，一次就量出 2,949ms vs 6ms；纯读代码很难看出 `projectContext` 默认值是开着的。
+  4. 别用 `pkill -f` 停自己起的进程（同期误杀了用户生产实例，见 `feedback_kill_own_processes_only`）。
+- **入库**：链位 **57** `patches/session/session-open-speed-patch1.patch`（2 文件）。
+
+#### 补记二（2026-09-28）：大会话「一直转圈」＝`findSessionFile` 全量解析转录（链位 58）
+
+- **上文（链位 57）修的是归属投影，但只解决了 `/messages` 那一半。** 用户实测「还是慢」后继续查，得真根因。
+- **定位方法（关键）**：读代码猜不出，于是给 `getSessionSummary` 的每个步骤加**临时计时**（env 门控），一次拿到真相：
+
+  | 请求 | find | stat | summary | hydrate | 总 |
+  |---|---|---|---|---|---|
+  | 1 | **6065** | 0 | **5570** | 1 | 11.6s |
+  | 2 | 0 | 0 | **3424** | 0 | 3.4s |
+  | 3 | **4345** | 0 | 0 | 0 | 4.3s |
+
+  ⇒ **重复开销在 `findSessionFile`（单次 4–6 秒）**；`summary` 只在冷进程付一次。
+  ⚠️ 中途我一度误判是 `getMetadataProjection` 每次全量重扫（静态读代码得出的结论），**加诊断后立刻被推翻**（诊断行数为 0 ⇒ 它根本没被调用、缓存是命中的）。**别在没装探针的情况下靠读代码定性能根因。**
+- **根因**：`findSessionFiles` 里那行判「有没有真实对话」：
+
+  ```ts
+  const entries = await this.readJsonlFile(match.filePath)   // 全量读 + 逐行 JSON.parse
+  hasTranscript: this.hasConversationTranscript(entries)
+  ```
+
+  注释写的是「**one bounded read** here」，实际是全量。而**同一个 session id 在多个发现根下各有一份**（本例 139.7MB + 184.5MB）⇒ **每次 `findSessionFile` 解析约 320MB**。它几乎在每个会话端点上。
+- **修法**：`hasConversationTranscript` 问的是**存在性**问题，读到第一个合格条目即可回答。新增 `hasConversationTranscriptInFile`：只读文件头、**命中即停**，并设 **8MB 上限**兜住「头部全是元数据」的病态文件（该标志**只用于多个匹配间的排序**，所以上限的语义代价很小）。
+- **实测收益**：
+  - `findSessionFile` **4345–6065ms → 2–8ms**（约 1000 倍）
+  - 「老会话打不开」(13.5MB)：冷首开 **0.71s** → 之后 ~30ms
+  - 「…时间线交叉」(139.7MB×2)：热态连打 6 次 **0.010–0.017s**（改前 6.5 / 14.6 / 6.9s 且**不随请求次数改善**）
+- **仍未解决（下一个瓶颈，已实测）**：冷进程**首次** `/summary` 仍 **9.60s** —— `getMetadataProjection` 需要一次**全量遍历**（`messageCount`、最后时间戳、`launchCount` 等本就需要），且两份拷贝**各建一次**。对照：`/messages` 走链位 57 的落盘索引，冷态只要 **0.013s**。下一步可让元数据投影也落盘（同链位 57 的手法）。
+- **踩坑记录**：
+  1. **`pgrep -f` 自匹配我连续踩了两次**（第二次是命令里的 heredoc 文本含 `claude-sidecar.ts server`，导致匹配到我自己的 shell 并把它杀了）。正解：`pgrep -x bun` 再筛 `/proc/<pid>/cmdline`，**绝不按字符串模式杀进程**。
+  2. inspector 手段走了弯路：bun 的 `Runtime.evaluate` **不支持 `awaitPromise`**、`require` 未定义、`Debugger.pause` 不生效，且**开着 inspector 会把请求从 4s 拖到 45s**（测量被扭曲）。结论：**要定性能根因，最短路径是给代码加 env 门控的临时计时，量完立刻撤**。
+  3. 临时诊断**必须记得撤**：本轮已在提交前 `grep` 确认无残留。
+- **入库**：链位 **58** `patches/session/session-open-speed-patch1.patch`（2 文件）。
+
+#### 补记三（2026-09-28）：元数据投影落盘，冷进程首开 10.2s → 0.016s（链位 59）
+
+- **上文（链位 57/58）已解决「重复开销」，但冷进程首次打开超大会话仍要 9.6s。** 用户选择先修掉它，再做 patch 合并。
+- **成本性质（与链位 58 不同）**：`getMetadataProjection` 要算 `messageCount`、最后时间戳、`launchCount`、标题优先级等，**本来就需要一次全量遍历**——不像「有没有真实对话」那样读到第一个合格条目就能答。所以不能靠「少读」解决，只能**别重复读**。而它此前只存在内存缓存里（`metadataProjectionCache`，上限 32），**进程一重启就没了**；且同一 session id 的两份拷贝（139.7MB + 184.5MB）**各建一次**。
+- **做法**：投影结果是**几 KB 的纯标量**，落盘即可 —— 新增 `transcriptMetadataCache`：
+  - 路径 `<cc-haha>/db/transcript-metadata-v1/<sha256(configDir+文件路径)>.json`（`CC_HAHA_TRANSCRIPT_METADATA_DIR` 可覆盖，供测试用，避免写进真实配置目录）。
+  - 写：`tmp` + `rename`（读者不会看到半写文件）；失败静默（它是缓存）。
+  - 读：**只认建它时那个 signature**（`dev:ino:size:mtimeNs`）且 `projectDir` 相同 ⇒ **陈旧条目的代价是重扫，绝不给出错误答案**。
+  - 每进程最多扫一次、删 7 天未动的条目。
+  - 顺带把内联的「上限 32」容量守卫抽成 `enforceMetadataProjectionCacheCapacity()` 供两处复用。
+- **实测（两个独立冷进程）**：
+  - 第 1 次冷启动（无落盘）首开 **10.24s** → 第 2 次冷启动 **0.016s**
+  - 落盘条目仅 **1.3–1.9KB**
+  - 两个真实会话冷进程首开：「老会话打不开」(13.5MB) **0.76s** 后 ~29ms；「…时间线交叉」(139.7MB+184.5MB) **0.027s**（改前 **9.29s**）
+- **测试写法（值得复用）**：要证明「命中来自落盘而非重扫」，不能只看返回值和耗时。做法是**把转录 `chmod 000` 后再读**：`fs.stat` 仍成功（signature 拿得到），但重扫一定 `EACCES` ⇒ 能返回正确值就证明确实读了落盘（root 下跳过该用例，因 chmod 拦不住 root）。另一条用「同长度改写让 mtime 变化」验证 signature 不符时条目不采信。
+- **踩坑记录**：本轮**没有**再犯前两轮的错（未用 `pgrep -f`、未靠读代码定因），代价是**用了 4 个冷启动来回实测**——但每次都有明确数字对照（10.24s → 0.016s），值。
+- **入库**：链位 **59** `patches/session/session-open-speed-patch1.patch`（3 文件）。
+
+### 原六、设置-关于-更新：禁止更新开关（源§十三，✅ 2026-09-25）
+
+#### 需求背景
+
+源§十三：桌面端 设置→关于→更新 区域加「禁止更新」开关，彻底关闭自动更新检查与下载（0.5.x 现状：启动即 `checkForUpdates({silent:true,autoDownload:true})` 检查+自动下载，AboutSettings 仅手动检查按钮，无开关）。
+
+**语义决策（用户拍板）= 完全禁用（含手动）**：启动检查跳过 + 手动「检查更新」按钮置灰。`checkForUpdates` 外部调用方仅 AboutSettings 按钮一处，守卫放在 store 层即可全覆盖。
+
+#### 0.6.6 现状核对
+
+- 更新系统：`UpdateChecker.tsx` 挂载即 `useUpdateStore.initialize()`；`updateStore.initialize()` 延迟 5s 后 `checkForUpdates({silent:true})`（startupCheckPromise 单飞）；`checkForUpdates({silent,autoDownload})` 内 `autoDownload && (shouldOffer||!silent)` 触发 `downloadUpdate()`。
+- 设置持久化=REST `/api/settings/user`，服务端 `settingsService.updateUserSettings` 顶层浅合并（`Object.assign`）→ **新 boolean 字段服务端零改动**（照 `autoDreamEnabled` 完整 boolean toggle 范式）。
+- **坑（live 发现）**：H5 浏览器端（`remoteBrowser=true`，由 `classifyH5Request==='h5-browser'` 判定）走 `router.ts:68 validateRemoteSettingsPatch`（`WRITE_SETTINGS` 白名单）与 `:93 projectRemoteSettings`（`READ_SETTINGS` 投影）——新 key 两侧都不在名单 → PUT 400「Unsupported General setting」+ 乐观更新回弹、GET 读回永远 false。loopback 桌面直连不走此路径（loopback curl 200），所以单测全绿仍会漏。
+
+#### 实施方案
+
+1. `desktop/src/types/settings.ts`：`UserSettings` 加 `disableUpdates?: boolean`（webSearch 与 updateProxy 之间）。
+2. `desktop/src/stores/settingsStore.ts`：`disableUpdates: boolean` 字段（初始 false）+ hydrate `userSettings.disableUpdates === true` + `setDisableUpdates(enabled)` 乐观 set→`settingsApi.updateUser`→失败回滚 throw（照 `setAutoDreamEnabled`）。
+3. `desktop/src/stores/updateStore.ts` 两处守卫：`initialize()` 在 `getUpdateHost()` 后、`checkForUpdates()` 在 host 判定后各加 `if (useSettingsStore.getState().disableUpdates) return (null)`——启动/手动检查全拦，自动下载随检查入口一并停。
+4. `desktop/src/pages/settings/AboutSettings.tsx`：Check now 按钮 `disabled={disableUpdates}`；按钮块后插 `Switch`（label/description 走 i18n）——「关于」tab 桌面+H5 共用（H5Settings.tsx:92 已渲染 AboutSettings）。
+5. **`src/server/remoteBrowserPolicy.ts`**：`disableUpdates` 加进 `READ_SETTINGS` 与 `WRITE_SETTINGS`（boolean 走默认 `typeof value==='boolean'` 校验）——H5 手机可读写该开关（同 `skipAutoPermissionPrompt` 先例）。
+6. i18n `update.disableUpdates`/`update.disableUpdatesDescription` 5 语言（en/zh/zh-TW/jp/kr，插在 `update.failed` 后）。
+7. 测试：`updateStore.test.ts` +2（disableUpdates 时手动 check 返回 null 且不触发 check；initialize+fakeTimers 6s 启动检查不触发）；`remoteBrowserPolicy.test.ts` +3 断言（`validateRemoteSettingsPatch({disableUpdates:true})` true、非 boolean false、`projectRemoteSettings` 透传）。
+
+#### 验证
+
+- 桌面 `tsc -b` exit 0；`updateStore.test.ts` 20/20；全量前端 vitest **6143 pass/2 fail**（2 条=基线既有 providerModels、MessagePayloadRetention，零回归）；`remoteBrowserPolicy`+`router.remoteBrowser` 10/10。
+- vite build → App-BxBY2ThW.js；dev 7788 live（H5 关于页）：开关开→persisted=true+「检查更新」置灰、关→persisted=false+恢复，console 无错（400 修复前开关回弹）。
+- **坑实录**：初版漏改 `remoteBrowserPolicy.ts` → H5 PUT 400、开关回弹（loopback curl 200 未暴露）；补 READ+WRITE 白名单后 H5 读写全通。
+- Patch：`modify/patches/session/session-disable-updates-patch1.patch`（12 文件 302 行）。**9 patch 全链 `git apply` 干净且 disable-updates 12 文件逐字节等于工作树（0 差异）**。
+
+---
+
+### 原八、思考模式二级开关：think 是否回传后端 API（源§二十五，✅ 2026-09-26）
+
+#### 需求背景
+
+CC-HAHA 默认把上一轮 thinking 全文发回后端（Anthropic 格式原样透传，且 1P/Bedrock/Vertex 还发 `context_management clear_thinking keep:'all'` 显式要求服务端保留）。对自建 vLLM（无 1P 缓存保留机制）= 每轮实打实的额外 prefill token 开销。本项在「设置-通用-思考模式」下新增**二级开关**「将思考内容回传后端 API」：
+
+- **关（默认/缺省）**：构造 API 请求体时剥离上轮 assistant 的 `thinking` / `redacted_thinking` block，不再作为上下文发给后端。
+- **开（`sendThinkingHistory=true`）**：维持原行为（thinking 原样随 messages 回传）。
+- **本地留存不变**：无论开关状态，本地会话历史（内存滚动 / jsonl 落盘 / 会话内回看渲染）完整保留 thinking。
+
+设计意图：**升级后默认行为翻转**（thinking 不再回传省 token）。若发现模型质量回退，设置页打开二级开关或 `CC_HAHA_SEND_THINKING_HISTORY=1` 即恢复。
+
+#### 0.6.6 现状核对
+
+- settings schema：`src/utils/settings/types.ts` 顶层 `.passthrough()`(:1174) 但文件校验 `.strict()`(:193) → 新字段须进 schema，否则被 strip 掉。范式 `alwaysThinkingEnabled`(:746-752)。
+- thinking 工具：`src/utils/thinking.ts`（env 先例 `shouldSendExplicitDisabledThinking():220-222`）；`getSettingsWithErrors()` 已 import(:8)，返回 `{settings, errors}`。
+- 主 API 咽喉点：`src/utils/messages.ts:2022` `normalizeMessagesForAPI(messages, tools, currentModel)`（3 参），尾部清理链 :2393-2472。`isThinkingBlock`:5026（匹配 `thinking`/`redacted_thinking`）；`stripSignatureBlocks`:5321 成熟模式可复用。
+- 主路径挂载：`src/services/api/claude.ts:1417` 调用 + `getAPIContextManagement`:1837（局部 `hasThinking`:1721 另用于 temperature）。
+- OpenAI 路线：`src/server/proxy/handler.ts:706` `roundTripReasoningContent`（DeepSeek/opencode.ai 明文回传）；`src/services/openaiAuth/fetch.ts:225` 响应方向 `preserveOpenAIReasoning`（请求方向 :61 保持 `true`）。
+- **与老 fork 差异**：0.6.6 `normalizeMessagesForAPI` 是 **3 参**（本次加 options 成第 4 参）。0.6.6 有 `remoteBrowserPolicy.ts` 白名单（老 fork 无），新字段须同步 READ/WRITE 否则 H5 PUT 400 + 开关回弹（第六章坑）。0.6.6 `providers.test.ts` 有 2 个断言 DeepSeek `reasoning_content` 回传的用例（老 fork 无），门控默认关会让它们回归。
+
+#### 实施方案
+
+1. **`src/utils/settings/types.ts`**：`alwaysThinkingEnabled` 后加 `sendThinkingHistory: z.boolean().optional().describe(...)`（缺省/absent=false=不回传）。
+2. **`src/utils/thinking.ts`**：新增 `shouldSendThinkingToAPI(): boolean`——env `CC_HAHA_SEND_THINKING_HISTORY` 强开（`isEnvTruthy`，调试逃生门）→ `getSettingsWithErrors().settings.sendThinkingHistory === true`。
+3. **`src/utils/messages.ts`**：`normalizeMessagesForAPI` 加第 4 参 `options?: { stripThinking?: boolean }`；在尾部清理链 `relocated` 之后、`filterOrphanedThinkingOnlyMessages` 之前插入 `withStrippedThinking = options?.stripThinking ? stripThinkingBlocksForAPI(relocated) : relocated`（顺序约束：thinking-only 剥空由 `ensureNonEmptyAssistantContent` 占位兜底，API 400 不变式全保持）。新增 `stripThinkingBlocksForAPI`——map assistant 消息 `content.filter(block => !isThinkingBlock(block))`，复用 `stripSignatureBlocks` 模式。其余旁路调用方（token 估算/compact 等）不传参 → **零行为变化**。
+4. **`src/services/api/claude.ts`**：:1417 调用加第 4 参 `{ stripThinking: !shouldSendThinkingToAPI() }`（desktop/CLI/SDK 唯一 API 咽喉点）；`getAPIContextManagement` 改 `hasThinking: hasThinking && shouldSendThinkingToAPI()`（开关关时不发无意义的 `clear_thinking keep:'all'`；局部 `hasThinking` 仍用于 temperature 等）。
+5. **`src/services/openaiAuth/fetch.ts`**：仅**响应方向** :225 `preserveOpenAIReasoning: shouldSendThinkingToAPI()`（**请求方向 :61 保持 `true`**，忠实老 fork）。
+6. **`src/server/proxy/handler.ts`**：:706 `roundTripReasoningContent: (knownDeepSeekHost || reasoningProfile?.family === 'deepseek-v4') && shouldSendThinkingToAPI()`（其余 Chat 兼容商本就丢弃，不变）。
+7. **`src/tools/ConfigTool/supportedSettings.ts`**：白名单加 `sendThinkingHistory`（`{source:'settings',type:'boolean',description:...}`，无 appStateKey）。
+8. **`src/server/remoteBrowserPolicy.ts`**（0.6.6 特有）：`sendThinkingHistory` 加进 `READ_SETTINGS` 与 `WRITE_SETTINGS`（boolean 走默认校验）——H5 手机可读写（第六章坑）。
+9. **桌面端**：`desktop/src/types/settings.ts` 加 `sendThinkingHistory?: boolean`；`settingsStore.ts` 加 `thinkingSendBack`（默认 false、读 `=== true`、setter 乐观 set→`updateUser({sendThinkingHistory})`→catch 回滚）；`GeneralSettings.tsx` 思考卡片主 checkbox 后插二级 checkbox（`thinkingEnabled &&` 门控）。
+10. **i18n（5 语言）**：`settings.general.thinkingSendBackTitle` / `thinkingSendBackHint` 各 2 条（en/zh/zh-TW/jp/kr，插在 `thinkingHint` 后）。
+11. **测试**：`thinking.test.ts` +4（`mock.module('../settings/settings.js')` 范式；absent=false / false=false / true=true / env 强开覆盖 false setting）；`messages.test.ts` +3（默认保留 / 剥离 thinking+redacted 且 text、tool_use 保留 / thinking-only 消息无错，**4 参调用** `(...,[],undefined,{stripThinking:true})`）；`providers.test.ts` 2 个 DeepSeek round-trip 用例内显式 `CC_HAHA_SEND_THINKING_HISTORY=1`（门控默认关会让它们回归，测试本意=验证 round-trip 路径）。
+
+#### 验证
+
+- **server 全量零回归**：全量 `src/server` **3330 pass / 22 fail**，22 条失败名单与基线 worktree 逐条一致（含 2 条 DeepSeek round-trip 回归修好后）。`thinking.test.ts`+`messages.test.ts` 新增 7 用例全过（`thinking.test.ts` 既有 1 条 `shouldIncludeFirstPartyOnlyBetas` 环境依赖失败=基线既有，非本章引入）；`providers.test.ts` 142/142。
+- **桌面**：`tsc -b` exit 0；`H5Settings`+`SettingsOutputStyle` 10/10；全量前端 vitest **6146 pass / 0 fail**（1df6bf70 修复后基线，零回归）。
+- vite build → `App-Cl3KkIFE.js`（2201.04 kB，2.71s）。
+- **行为矩阵**（对齐源§二十五）：Anthropic 关=剥离 + `clear_thinking` 不发 / 开=原样 + `keep:'all'`；OpenAI Chat DeepSeek 关=不发 `reasoning_content` / 开=发明文；Codex OAuth 关=不发加密信封 / 开=发；其余商本就丢弃；本地历史始终完整保留。
+- **热更新**：开关在每次 API 请求时经 `getSettingsWithErrors` 读取（changeDetector 文件监听 + resetSettingsCache 既有机制），改完即对下一次请求生效，无需推控制消息。
+- **Patch**：`modify/patches/session/session-thinking-switch-patch1.patch`（19 文件 619 行，含 3 测试文件）。**11 patch 全链 `git apply` 干净（仅 h5-settings-parity 既有 EOF 空白 warning）且 thinking-switch 19 文件逐字节等于工作树（0 差异）**。
+
+---
+
+### 原二十、H5 远端 API 响应 gzip 压缩传输（非本机默认开启）（✅ 2026-09-26）
+
+#### 需求背景（用户 2026-09-26 verbatim）
+
+「通过H5访问，似乎会发送全量消息记录，那么通过发送压缩解压全量消息记录的方式似乎更佳，轮询判定访问来源ip非本机持有的时候，默认开启压缩传输机制。既能节省带宽，又能提速。先做仔细严格的调研分析可行性。」
+
+#### 调研结论（live 实测，全部硬数据）
+
+- **前提坐实**：H5 打开会话 = 客户端 `getFullHistory`（`desktop/src/api/sessions.ts:446`）先 `mode=full` 后逐页 cursor 循环拉**全量**历史。生产 37206 条会话（jsonl 193MB）实测 wire=**139MB / 701 页 / 25.9s（loopback）**。
+- **无现成压缩**：`Bun.serve` 无 compression 选项，全仓无 content-encoding 中间件（proxy/ 除外）。
+- **压缩比**：同 payload 实测 gzip ≈3.0x、brotli(q4) ≈6.0x（Bun 1.3.14 走 node:zlib，无 Bun.Gzip 全局 API）。选 gzip（兼容性优先，浏览器 fetch 原生透明解压）。
+- **客户端零改动**：浏览器 `fetch` 按 HTTP 规范透明解压 gzip，`res.text()`/`res.json()` 拿到明文 JSON；`readJsonBody` 的 `MAX_JSON_RESPONSE_BYTES=530MB` 门槛按解压后明文算（136MB 不过）。
+- **IP 判定**：复用 `server.requestIP(req)?.address`（`index.ts:309`）+ `isLoopbackHost`（h5AccessPolicy.ts:41）——非 loopback 默认压缩，本机桌面路径零影响（用户要「轮询判定」，实际每请求实时判定，更强）。
+
+#### 实施（commit 26375d8f，3 文件 246 行）
+
+- `src/server/responseCompression.ts`（新）：`shouldGzipResponse`（门控）+ `withGzipIfEligible`（压缩）。门控=仅 GET 200 + `Accept-Encoding` 含 gzip + **非 loopback** + content-type json + >128KB（`MIN_COMPRESS_BYTES`；Response.json 不保证 content-length，权威判定在 arrayBuffer 读取后）。`gzipSync level 6`。env 开关 `CC_HAHA_TRANSPORT_GZIP=0` 关 / `=1` 强制 loopback 也压（测试用）。前 5 次压缩打一条日志（MB→MB + 倍数）。
+- `src/server/index.ts`：`/api` 分支一行接线 `withCors(await withGzipIfEligible(req, response, clientAddress), cors)`。
+- 单测 `responseCompression.test.ts`：10 例（门控/透明性/loopback/小 payload/env 开关）。
+
+#### 验证（dev 7788 E2E，LAN IP 192.168.10.43 触发压缩 vs 127.0.0.1 基线，同一大会话）
+
+- wire **136.19MB → 43.09MB（-68%）**；解压后**逐字节一致**（27984 条 / 705 页全对齐）。
+- 705 页中 485 页压缩，<128KB 小页正确透传；loopback `gz_pages=0` 桌面零影响。
+- 耗时 loopback 口径仅 -7%（本机瓶颈=服务端分页读盘+JSON 序列化，非传输；移动网络弱网收益=带宽为主）。
+- typecheck 干净；server 全量 **3442 pass / 0 fail**（178 文件，#83 基线标准）。
+
+#### 踩坑记录
+
+1. **arrayBuffer 耗 body 后回退返回原 Response → 空 200**：`response.arrayBuffer()` 消耗 body 后，「太小不压/压不小」两条回退路径若仍 `return response`，客户端收到 200+空 body（705 页 walk 在第 18 页抓出，3 次复现全中）。修=回退一律 `new Response(raw, {status, headers})` 重建。
+2. **Bun 的 `Response.text()` 不像浏览器透明解压**：单测若直接 `out.text()` 拿 gzip 字节 JSON.parse 失败（Bun 忠实于"body 原始字节"）；真实浏览器 fetch 按规范解压→生产无碍，单测须手动 `gunzipSync` 模拟客户端视角。
+3. **Bun 1.3.x 无 `Bun.Gzip`/`Bun.BrotliCompressStream` 全局 API**（typeof undefined）；`node:zlib` 的 gzipSync/gunzipSync/brotliCompressSync 全部可用，流式 `createGzip` 管道也通。
+
+#### 状态
+
+✅ 已完成并提交（2026-09-26，commit 26375d8f）；patch `patches/session/session-gzip-transport-patch1.patch`（3 文件 277 行，基线 d6767a02）。
+
+---
+
+### 原二十二、历史记录膨胀（`toolUseResult.originalFile`）致大体积会话打不开（✅ 主要实施：A+B+E+G+H+F；C 证伪，2026-09-26）
+
+> **完整调研报告另立**：`modify/reports/历史记录膨胀致大体积会话打不开-调研报告.md`
+> 本节仅登记结论与去向，实施细节以报告为准。
+
+#### 需求背景
+
+- 远端 H5 打开会话「优化小批量 GEMM 推理吞吐」（`db39b34d-420a-4151-a3a1-77e5d48635e4`）**一片空白、无任何历史消息**；本地桌面同样长时间无内容。
+- 用户初步判断为「升级 0.6.6 后会话记录丢失」。
+
+#### 结论摘要
+
+1. **数据未丢失**：文件 114.3 MB / 6891 行 / 坏行 **0**，索引在册，端点 `summary`/`messages`/`mode=full` 全 200——与「升级丢数据」无关。
+2. **膨胀源**=`toolUseResult.originalFile`（Edit/Write 落盘的**改前整文件**）：本会话 20 条 >1MB 记录共 78.6 MB（占 66%），其中 `originalFile` 独占 **76.1 MB**；全局 518 个 transcript 共 **3.0 GB**。**且与 file-history 备份内容重复**（本会话 86 MB / 全局 550 MB，已有 `readBackupFileSafely` 可安全取回）。
+3. **白屏真因（v2 修正）**：客户端首个 `mode=full` 请求撞 **120 s 超时**（诊断日志 `timed out after 120s` × **12**，含仅 13.6 MB 的 `4e1f6c0c`）→ 阻塞式 `await getFullHistory`（`chatStore.ts:2318`）永不 resolve → 不 apply → 白屏。**v1 的「翻完才渲染置空 messages」判断已证伪**（置空的是派生状态；时间线用 `uiMessages`）。体积是放大器：超预算记录独占一页 → 实测 152 页未完成。
+
+#### 优化方向（详见报告第七节）
+
+| 序 | 层 | 做法 | 数据变更 |
+|---|---|---|---|
+| **A** | 读取层 | 主历史路径套有界 preview（`displayPreview` 同款） | 无 |
+| **B** | 客户端层 | 首屏渐进渲染 + `projectContext:false` 绕开 context lane（cap=1 全文件重建）+ 超时兜底 | 无 |
+| **C** | 写入层（根治） | 落盘收口（`cleanMessagesForLogging`）裁 `originalFile` 为有界预览 + 新增 `originalFileTruncated/Bytes/Ref` 键，**保留 `structuredPatch`** | 无（只影响新写入） |
+| **D** | 读取层 | 新增按需端点：`file-history/content` → `readBackupFileSafely` 取回原文 | 无 |
+| **E** | 存储层 | file-history `-completed-*` 去重/变动才建/版本上限（550 MB 冗余） | 无 |
+| **F** | 写入层 | 落盘时对 `originalFile` 做 16KB 有界裁剪（+ 标记键） | ✅ 已实施（patch #33，2026-09-27） |
+| **G** | 传输层 | gzip 改流式/异步；活跃会话历史缓存窗口化 | 无 |
+| **H** | 读取预算 | `HISTORY_FULL_BYTES` **32 MB → 8 MB**（`boundedSessionHistory.ts:20`） | 无 |
+
+#### H 项说明（参数调参，本次仅入设计未改代码）
+
+- **收益**：`mode=full` 单响应上限 32 MB → 8 MB，压掉内存尖峰与远端同步 `gzipSync` 阻塞；
+- **⚠️ 三个连带影响**：①不减少总字节只重新分配（首屏外的量改由 page 请求承担）；②**单独改会让页数变多**（瓶颈是「超预算记录独占一页」，降低预算不缩小记录）→ **须与 A/C 同批落地**；③`historyComplete:false` 更频繁 → 触发 `historyWindowed` 横幅 + 更多 recovery（lane cap=1）；
+- **⚠️ 关键**：真正的耗时上界是 `HISTORY_FULL_SCAN_BYTES`=**64 MB**（扫描预算），不是输出预算。只降输出等于允许「读 64 MB 吐 8 MB」，**延迟上界没变** → 建议**配对**降到 24 MB（待裁决）；
+- **回归已核对**：测试断言为宽松区间（`>0 && <40`），8 MB 下仍过；无 `.js` 孪生；无硬编码断言；
+- **生效方式**：server 侧 TS 由 bun 直跑，**仅需重启 sidecar**，无需 `vite build`。
+
+#### 硬约束（方案可行性前提，详见报告第六节）
+
+- **`originalFile` 是 schema 必填 `z.string()`** + `FileEditTool/UI.tsx:90` 无保护 `.split` ⇒ **只能裁成字符串预览，不能删字段**（删则 `safeParse` 失败、结果完全不渲染）；
+- **`toolUseResult` 对象不可整体删除**（被 `isHumanTurn` 等当「非人类消息」判别位）；
+- **新增键只能进 `toolUseResult` 内部**（顶层键序被 transcript 解析优化依赖）；
+- ⚠️ **展示层裁剪切忌置 `bodyTruncated`**——会翻转 `historyComplete=false` → 触发 recovery 循环 + `historyWindowed` 横幅误显（最易踩的坑）；
+- recovery / 语义归约路径必须保留原文。
+
+#### 实施进度（2026-09-26）
+
+**已落地 A + H**（patch `patches/session/session-history-transport-patch1.patch`，3 文件 +108/−17，已往返校验）
+
+| 项 | 落点 | 内容 |
+|---|---|---|
+| **A** | `boundedSessionHistory.ts` 新增 `boundToolUseResultPreview()` + `sessionService.entryToMessage` 接入 | 传输层对 `toolUseResult` 做有界投影：**只截超长字符串（>16KB）**，键与容器类型全保留；**不置 `bodyTruncated`**（避免翻转 `historyComplete` 触发 recovery 循环）。仅作用于展示/传输路径，**recovery 与语义归约路径仍取原始记录** |
+| **H** | `boundedSessionHistory.ts:10/20` | `HISTORY_FULL_BYTES` 32MB→**8MB**；**配对** `HISTORY_FULL_SCAN_BYTES` 64MB→**24MB**（=3× 输出，扫描预算才是延迟上界） |
+
+**实测收益（真实会话 `db39b34d`，1844 条 toolUseResult）**
+
+| 指标 | 前 | 后 |
+|---|---|---|
+| toolUseResult 合计 | 106.6 MB | **6.6 MB（−93.8%）** |
+| 单条最大 | 3.93 MB | **48 KB** |
+| `mode=full` 单响应上限 | 33.2 MB（预算 32MB） | **≤8 MB** |
+
+**保留性验证**（关键字段未被破坏）：`filePath` 原样；`structuredPatch` 未被截（hunk 完整，turn diff 依赖）；`originalFile` 仍为**字符串**（满足 `FileEdit` schema 必填 `z.string()` 与 UI 无保护 `.split`）；全部键保留。
+
+**验证**：`boundedSessionHistory` 21/21；会话相关服务端测试 342/342；改动文件 tsc 0 错误；新增 3 个专项用例（截断保键、小结果字节不变、不置 `bodyTruncated`）。
+
+#### 追加落地 E + G（patch `patches/session/session-history-transport-patch1.patch` / `patches/session/session-gzip-transport-patch1.patch`）
+
+**E｜file-history 重复消除（`fileHistory.ts`）**——`fileHistoryCompleteSnapshot` 原来是**每轮对每个被追踪文件无条件 `copyFile`**，且追踪集只增不减 ⇒ O(文件数 × 轮数) 份拷贝、绝大多数逐字节相同。实测该目录 **1512 MB / 15494 文件，却只有 2057 种内容（87% 是重复）**，估算可回收 **1171 MB（77%）**。
+
+修复：套用 `fileHistoryMakeSnapshot` 既有惯用法 `checkOriginFileChanged()`——内容未变则**复用上一轮的 `-completed-` 备份**，仅在真变化时才建新拷贝；沿用 `-completed-` 命名，**不动 rewind 的 after-boundary 语义**。
+
+**G｜gzip 异步化（`responseCompression.ts`）**——`gzipSync` 在事件循环上完成整个 deflate，而远端历史正是「多页顺序拉取」，每页都会把其他请求连同翻页循环一起卡住。改为 `node:zlib` 的异步 `gzip`（libuv 线程池）。
+
+#### ⚠️ C 方案被证伪（重要）
+
+原计划 C「裁掉 `originalFile` 并指向 file-history 备份」**不可行**——实测**反证**：
+
+| 检查（本会话） | 结果 |
+|---|---|
+| transcript 中 20 个巨型 `originalFile` | 20 个内容互不相同 |
+| 能在 file-history 里找到 | **仅 5 个** |
+| **备份里没有（裁了即永久丢失）** | **15 个（75%）** |
+
+原因：一轮内多次编辑**不会被逐次备份**，`trackedFileBackups` 只保轮次边界。故 C 不可按原设计实施；如需根治磁盘新增，只能走「有界预览 + 自行落一份内容寻址副本」（磁盘基本持平）或接受**有损裁剪**（需用户明确同意）。**当前以 A（传输层）+ E（存量去重）替代 C**。
+
+#### gzip 会话大小门控（G2，用户 2026-09-26 指示，已实施）
+
+**用户指令**：gzip 压缩传输，只有**整个会话大于 10M** 才开启。
+
+> **打包说明**：G（异步化）与 G2（会话门控）同改 `responseCompression.ts`，分两个 patch 会互相包含（后者基于前者生成）→ 顺序应用冲突，故**合并为单个 `patches/session/session-gzip-transport-patch1.patch`**。
+
+**实现**（patch `patches/session/session-gzip-transport-patch1.patch`，含 G+G2，共 3 文件 +175/−5）
+
+| 落点 | 内容 |
+|---|---|
+| `responseCompression.ts` | 新增 `MIN_COMPRESSIBLE_SESSION_BYTES = 10 MB`、`sessionIdFromPath()`；`withGzipIfEligible` 增第 4 参 `resolveSessionSize?` |
+| `server/index.ts` | 新增 `resolveSessionSizeBytes()`（`findSessionFile` + `stat`，**10s TTL 缓存**），注入中间件 |
+
+**设计要点**
+
+- **门控放在异步路径、且排在最后**：先过全部便宜检查（GET/200/json/gzip 协商/非 loopback），再查会话大小 → **loopback、小响应、非会话路由都不付查询成本**；
+- **`shouldGzipResponse` 签名不变**（既有 3 参测试不受影响）；
+- **查不到大小（`null`）→ 回落为压缩**，避免 stat 抖动把大会话误判为不压；
+- 每响应 128KB 底线（`MIN_COMPRESS_BYTES`）**保留**，与会话 10MB 底线**同时生效**；
+- 10s TTL 缓存让 H5 翻页（数百次请求）只查一次。
+
+**评估备注（与先前分析的关系）**：本项为**用户明确决策**，优先于此前「按响应即可」的建议。实测压缩收益仍成立（裁剪后比率 4.4–6.0x，128 KB 档 2.4 ms 换 ~99 KB），故 10MB 门控属**保守选择**：小会话放弃压缩、换取零 CPU；大会话行为不变。
+
+**实测数据（裁剪后真实会话，18.9 MB JSON）**
+
+| 原始 | gzip 后 | 比率 | 中位耗时 |
+|---|---|---|---|
+| 32 KB | 9 KB | 3.5x | 0.9 ms |
+| 128 KB | 29 KB | 4.4x | 2.4 ms |
+| 256 KB | 57 KB | 4.5x | 4.3 ms |
+| 1 MB | 217 KB | 4.7x | 16 ms |
+| 8 MB | 1.36 MB | 6.0x | 102 ms |
+
+**附带发现（不修，但已用测试钉住）**：Bun 的 `Response.json()` **不设 `content-length`**，故 `responseCompression.ts` 的「按声明长度快速跳过」**从不触发**——小响应会先被 `arrayBuffer()` 缓冲、再由 body 长度判定，因此**小响应也会触发一次会话大小查询**（有 10s 缓存，成本可忽略）。已加用例 `a small response still compresses nothing, though the size is consulted` 固定该顺序，使未来改动成为显式决策。
+
+#### B｜首屏翻页上限（已实施）
+
+**问题**：`getFullHistory` 从 `mode=full` 起按 `nextCursor` **无上限**拼接，且**结束时把 `nextCursor` 置 null**。两个后果：①时间线在整个拼接完成前不渲染 → 深会话表现为「打不开」；②`MessageList` 的「加载更早」入口条件是 `historyWindowed && historyPage.nextCursor`，而 `nextCursor` 恒为 null ⇒ **既有分页链路永远不可达**。
+
+**修复**（`desktop/src/api/sessions.ts`，+2 常量）：拼接循环加 `HISTORY_STITCH_MAX_PAGES = 40` 与 `HISTORY_STITCH_DEADLINE_MS = 12_000` 两个上界，越界即 `break`；返回时改为 `nextCursor: cursor`、`hasMore: !exhausted`，`historyComplete` 仅在真正走完（`cursor === null`）时才可能为 true。
+
+**关键性质**：`cursor === null`（走完）时各字段与旧的「无条件 null」行为**完全一致**——**提前返回是唯一新增路径**，故既有测试 23 个一字未改即通过。
+
+**效果**：首屏**不再阻塞**；剩余历史由**既有**「加载更早」按钮接管（每点一次 prepend 一页），无需新建渐进渲染系统。
+
+**未做的另一半（`projectContext: false`）——有意不做**
+
+调研发现 `getSessionHistoryPage` 在 `projectContext !== false` 时会调 `projectHistoryPageEntries` **从文件头重建 ownership 索引**（源码注释明确：「this is what stalls the shared server while a model pages backward」），这很可能是 13.6 MB 会话也超时的元凶；而 `/messages` 端点**从不传** `projectContext:false`（`conversationService.ts:425` 与 `sessionCollaborationHost.ts:80` 都传了）。
+
+但该索引产出的是**父子 tool-activity 归属**，而渲染层**依赖**它把子代理活动并入主时间线——关掉即**丢功能**。故**不擅自实施**，列为待你裁决的候选优化（若要尝试，建议做成「首屏 `projectContext:false` + 后台补索引」两步，而非整体关闭）。
+
+#### F｜存量瘦身（已实施，2026-09-27）
+
+**用户指示**：先全量备份，然后直接开始瘦身。
+
+**① 全量备份（前置条件，已核实）**
+
+| 项 | 值 |
+|---|---|
+| 备份位置 | `/mnt/data1/claude-backup-20260927-023315/` |
+| 内容 | `projects/`（3.2 GB，519 个 jsonl，与备份时源目录同数）+ `file-history/` + `tasks/` |
+| 抽查比对 | `3e0bcac3` 343 MB、`07e8b34d` 284 MB、`40e72cd0` 179 MB —— 均为**瘦身前**体积 |
+
+**② 瘦身口径：写入侧收口（非改写存量语义）**
+
+`sessionStorage.ts` 新增 `boundOriginalFileForStorage()`，在 `cleanMessagesForLogging()` 落盘路径上对 `toolUseResult.originalFile` 施加 **16KB** 上限，并写 `originalFileTruncated: true` / `originalFileBytes: <原长>` 让记录自证被裁。
+
+- **为什么裁它**：`originalFile` 是编辑前的整文件，**模型看不到**（走 API 的是 `mapToolResultToToolResultBlockParam`），编辑卡片的 diff 实际读 `structuredPatch`。实测该字段占 transcript 的 ~2/3（3.1 GB 中 2.1 GB）。
+- **为何只裁这一个字段**：其它 `toolUseResult` 字段会被 recovery / 语义归约路径读回，必须保留原样。
+- **与既有传输层一致**：上限取 `TOOL_USE_RESULT_STRING_LIMIT`（16KB，`boundedSessionHistory.ts`）**同一个数**——客户端历来的预览就是这个界，故**源侧裁剪不改变任何人可见的内容**。
+
+**③ 实测收益**
+
+| 指标 | 前 | 后 |
+|---|---|---|
+| `~/.claude/projects` 总量 | 3.1 GB | **1.2 GB（−61%）** |
+| `3e0bcac3` | 359 MB | **61 MB** |
+| `07e8b34d` | 297 MB | **7.5 MB** |
+| `6877e7d2` | 261 MB | **13 MB** |
+| `40e72cd0` | 186 MB | **17 MB** |
+| `db39b34d` | 119 MB | **19 MB** |
+
+**④ 验证**：`sessionStorage.originalFileBound.test.ts` 专项用例（小结果不动、超限裁剪且标记正确、非字符串/非对象透传）与 `pipInstall` 合并跑 **15/15 通过**；改动文件 tsc 0 报错。
+
+#### 状态
+
+🔍 调研完成 + 方案定稿（报告 v2）；**A+B+H+E+G+G2 已实施**（patch 第 25–28 位），**C 已证伪**，D 需重估，**F 已实施**（patch 第 33 位，2026-09-27，备份已核实）。
+
+**本轮 patch（5 个，改文件互不重叠）**
+
+| patch | 位置 | 内容 | 生效方式 |
+|---|---|---|---|
+| `patches/session/session-history-transport-patch1.patch` | #25 | A 有界投影 + H 预算收紧（8MB/24MB） | 重启 sidecar |
+| `patches/session/session-history-transport-patch1.patch` | #26 | E `-completed-*` 重复消除 | 重启 sidecar |
+| `patches/session/session-gzip-transport-patch1.patch` | #27 | G 异步化 + G2 会话 10MB 门控（同文件故合并） | 重启 sidecar |
+| `patches/session/session-history-transport-patch1.patch` | #28 | B 首屏翻页上限 | **前端须 `vite build`** |
+| `patches/session/session-history-transport-patch1.patch` | #33 | F 写入侧 `originalFile` 16KB 有界裁剪 | 重启 sidecar（**仅影响新写入**） |
+
+**全量验证（2026-09-26）**：服务端 `bun test src/server/` **3452 pass / 0 fail**（178 文件）；`desktop/src/api/sessions` **24/24**、`chatStore` **354/354**；四 patch 链式应用后与工作树 diff **逐字节一致**；改动文件 tsc **0 新增错误**（`index.ts` TS2502 经暂存法核验为**既有基线**：HEAD 在 281 行、加 36 行后位移至 317）。
+
+**F 的生效边界（重要）**：写入侧裁剪**只约束此后的新写入**；存量瘦身是**已执行的一次性数据操作**（备份即其回滚点），不属于 patch 的可重复效果——重放 patch 不会、也不应再次改写历史文件。
+
+**补记二（2026-09-27）：收纳栏加总 token 用量**
+
+用户 verbatim：「"派遣了X个代理...耗时"这个改为"派遣了N个代理...用量xk（token用量）· 耗时"，仅这个总收纳栏上体现总用量，各子代理所属对应行内不体现 token 用量 即保持现状只体现耗时即可。」
+
+- **汇总栏** `派遣了 N 个子代理 · 用量 30.00k · 总耗时 8m19s · 已完成`——**用量在耗时之前**（与本章「token 在前、耗时在后」同一顺序约定；各子代理行**不加** token，保持只显耗时）。
+- **为什么用量求和、耗时取跨度**：同一句里两个数**拓扑不同**。耗时是**时间**，并发派发只能取并集跨度；token 是**工作量**，三个并发各 10k 就是 30k，不存在"重叠共享"。故 `agentGroupTokens` **求和**，与 `agentGroupSpanMs` **取跨度**并列存在——同一行里两个不同的聚合规则，各有各的理由。
+- **数据来源（一处新解析）**：后台子代理的 token 在 `agentTaskNotifications[id].usage.totalTokens`；**同步**子代理的 token 只存在于 Agent 工具结果文本里的 `<usage>total_tokens: N …</usage>` 块（`AgentTool.tssx` 生成、客户端此前只用于**剥掉**它 `stripAgentResultMetadata`）。新增 `agentRunTokens()`：上报值优先 → 否则从结果文本正则解析。**注意**：这与耗时不同，token **无法从区间推算**，两边都没有就不显示（不猜）。
+- 落点：`activityGroupModel.ts` 新增 `agentRunTokens` / `agentGroupTokens`；`ToolCallGroup.tsx` 汇总栏插用量 span（`data-agent-group-usage`）；5 语言新增 `toolGroup.agentTotalUsage`。
+- **验证**：`ToolCallGroup.test` 新增 3 条（30.00k = 两个并发 10k+20k **相加**；无数据时**不显示 0**；**逐行不含 token**）；`ActivityGroup.test` 22 条不变；桌面全量 0 失败、tsc 0 错。
+
+**补记三（2026-09-27）：设置新增「会话扩展信息」总开关**
+
+用户 verbatim：「将所有我们后添加的 用量信息、耗时信息，除轮次完成后 "9月27日 20:10 · 用量 37.91k · 耗时 31 分 11 秒" 也就是"日期 时间 用量 耗时"这个里面的用量保持现状，其它后添加内容，需要在设置内新增一项开关 "会话扩展信息"。用类似"配色主题"一样的开关，位置就放到"上下文压缩"下面。」
+
+- **字段**：`sessionExtendedInfo`，**默认 true**（关键：这些读数在开关出现**之前**就已存在，若默认关掉等于凭空改变所有人的界面）。
+- **位置**：设置 → 通用 → **「上下文压缩」正下方**，样式仿「配色主题」（`SettingsSection` + `Switch`，同款圆角卡片）。
+- **描述文案（用户要求必须解释关联范围与联动）**：明确列出关联的七处读数（思考栏右侧 token 用量与耗时、收纳栏总用量与总耗时、子代理行耗时、后台任务耗时、TPS 速度表），并写明**与「思考回传」的联动**——**回传** → 收纳栏显示整轮**总** token 用量与总耗时（口径为 API 真实计数）；**不回传** → 思考用量只能估算，故拆为「**思考用量 + 工具用量**」两段显示，耗时口径不变。
+- **唯一例外**：轮次页脚 `日期 时间 · 用量 · 耗时` 里的**用量**不受开关控制、**始终显示**（用户明确保留），只有其**耗时**受控。代码里该例外带注释说明，避免后人"统一"掉。
+- **落点（gating，9 处）**：`ToolCallGroup`（汇总栏用量、汇总栏耗时、逐行耗时）、`ThinkingBlock`（思考徽章，**保留正文与实时计时**）、`ActivityGroup`（token 与耗时两处）、`TpsIndicator`（**整组件返回 null**，两处渲染点由一次提前返回覆盖）、`SessionActivityPanel`（行耗时、详情卡耗时，**卡片其余字段照常**）、`TurnCompletionStamp`（仅耗时，用量例外）。
+- **踩坑**：**H5 端必须同步白名单**，否则手机端改这个开关会 **PUT 400 + 开关回弹**——`remoteBrowserPolicy.ts` 的 `READ_SETTINGS` / `WRITE_SETTINGS` / 校验三处都要加（loopback 直连不暴露该问题，故容易漏）。另需同步服务端 zod schema 与 `ConfigTool/supportedSettings.ts`。
+- **实现注意**：`SessionActivityPanel` 的读设置必须放在 `groupProgress` **提前返回之前**，否则构成条件式 Hook 调用。
+- **验证**：新增 4 条测试（思考徽章、子代理汇总栏、TPS 整个消失、页脚用量留/耗时去）；桌面全量 6312 通过 0 失败；desktop 与服务端 `tsc` 均 0 错。
+
+---
+
+### 原二十三、子代理内容实时反馈（opencode 式，替代当前间隔刷新）（⬜ 待办，仅登记，2026-09-26）
+
+#### 需求背景（用户 2026-09-26 verbatim）
+
+「子会话的子代理think、思考的内容改为实时反馈（类似 opencode 的样式），而不是间隔刷新。此作为新增优化项，仅做记录，暂时不做处理。」
+
+#### 现状
+
+- 主会话流式 thinking/正文逐 delta 实时渲染（`content_delta`/`thinking` WS 事件 → chatStore 即时 append）；
+- 子代理（Agent 工具派生的 run）内容经 `agent_run_event` 路由到子会话，**展示为间隔刷新**（子会话事件批量落地/整块落盘后统一映射，非逐 delta 跟随）；
+- 参照物=opencode：子代理输出与主会话同级逐 token 流式呈现。
+
+#### 方案要点（实施时细化）
+
+- 子会话流事件（thinking/content_delta）逐条透传渲染，复用主会话既有 merge 路径（`findStreamMergeTargetIndex`/`joinThinkingContent`）；
+- 需核对 `agent_run_event` 批量缓冲（`pendingAgentRunEvents`/`bufferAgentRunEvent`）是否在实时路径上造成合并粒度变粗；
+- 子代理卡片（Agent 工具行）内嵌实时预览 vs 子会话页实时，二选一或双通道（实施时定）；
+- 与章二十一 badge 机制正交（badge 读 `thinkingDurationMs`，实时反馈只改渲染粒度）。
+
+#### 状态
+
+⬜ 待办（2026-09-26 登记，**仅记录暂不推进**）；无 patch。
+
+---
+
+### 原三十一、私网上游「会话 id 丢失」修复（✅ 2026-10-04，`patches/session/session-upstream-session-id-patch1.patch`）
+
+**症状**：cc-haha 把请求转发到**私网上游**（本机/LAN 上我们自己的引擎，如 bc / vLLM）时，引擎收不到 **CLI 会话 id**。而 bc/vLLM 正是以该 id 作为会话状态的键（引擎按 session id 上报 `tps_tokens`），于是 TPS 面板读数无法归属/串会话。
+
+**根因**：私网上游的请求头只有通用的 `upstreamHeaders`；代表调用者的内部头（会话 id）被透传过滤器当作「内部客户端头」拦掉，**没有一条「只对私网上游生效」的注入通道**。而公开网关不能收到这类内部头（`custom` 等预设公私共用），否则等于把会话标识泄给公网。
+
+**修法**：新增 `upstreamHeadersPrivate`（与 `upstreamHeaders` 同构，但**仅当上游落在私网**时合并进模板）——
+- `src/server/config/providerPresets.ts` / `.json`：schema 加 `upstreamHeadersPrivate` 字段 + 预设声明；
+- `src/server/proxy/handler.ts`：`isPrivateNetworkUrl(baseUrl)` 为真时 `{...upstreamHeaders, ...upstreamHeadersPrivate}`，否则只用 `upstreamHeaders`；
+- `src/server/services/providerRuntimeEnv.ts` / `providerService.ts`：运行时常量/映射透传；
+- `src/server/__tests__/proxy-anthropic-compat.test.ts`：+66 行回归（私网注入 / 公网不注入）。
+
+**验证**：`proxy-anthropic-compat.test.ts` 通过；全量 server 套件 **554 文件 / 6621 通过 / 0 失败**。
+
+**patch**：`patches/session/session-upstream-session-id-patch1.patch`（链尾追加，零级联；已在该链终态上 `git apply --check -p1` 通过）。
+
+#### 踩坑记录
+- 该修复所在的移植提交（`726c219c`）**同时带进来一个测试文件合并事故**：`src/services/compact/compact.test.ts` 导入重复（同批符号 import 两次）+ `stripImagesFromMessages` 段少 `})`，`{`/`}` 各差 2 ⇒ TS1005 `'}' expected`。已修（合并重复导入 + 补闭合），修后 **15 pass**。
+- **该修复不并入链 patch**：它针对的是 HEAD 侧的新版文件（含上游 #1373 用例，335 行），而链终态里该文件是**旧版**（215 行、括号平衡、无此缺陷）——链基座比 HEAD 旧一截上游，故此项**随提交走**，不进 `patches/`。
+
+#### 31.1 deb 产物与核验（2026-10-05）
+
+含本节修复（git `37aa7b56`）的安装包：
+
+| 项 | 值 |
+|---|---|
+| 产物 | `desktop/build-artifacts/linux-x64/Claude-Code-Haha-0.6.7-linux-amd64.deb` |
+| 大小 / 时间 | **203,846,284 B** / **2026-10-05 03:57:00** |
+| 构建命令 | `LINUX_TARGETS=deb SKIP_INSTALL=1 bash desktop/scripts/build-linux.sh` |
+| package-smoke | **PASS**（用 cwd 绕过法复核：`CCHAHA_CWD=<repo> bun --preload /tmp/bun-cwd-shim.js scripts/quality-gate/package-smoke/index.ts --platform linux --package-kind release --artifacts-dir desktop/build-artifacts/linux-x64`） |
+
+**制品新鲜度核验**：新串 `upstreamHeadersPrivate` 同时命中
+- 侧车（服务端）：`…/app.asar.unpacked/src-tauri/binaries/claude-sidecar-x86_64-unknown-linux-gnu` ✓
+- 前端（渲染）：`…/app.asar.unpacked/dist/assets/index-D-ROgf7v.js` ✓
+
+> ⚠️ 版本号已由 **0.6.6 → 0.6.7**（`package.json` 升级）；§29.2 记的 0.6.6 是上一版产物。
+> ⚠️ 构建脚本末步 package-smoke 会在本环境因 **bun cwd 钉死**报 `ENOENT …/gov-managerment-plan/desktop/package.json` 并以 exit 1 收尾——**deb 已在之前产出**，该失败是假红，须用上表绕过法复核。
+
+---
+
+### 原三十二、本地索引「元数据预算」失配修复（✅ 2026-10-05，`patches/session/session-local-index-budget-patch1.patch`）
+
+**症状**：长会话（本机实测 29.5 万字符 深度的 5de884c1 会话，jsonl **287 MB**）在诊断页显示**本地索引已降级**，`index` 状态 `state=degraded`、`lastErrorCode=LOCAL_INDEX_SOURCE_LIMIT`，唯一下降级源就是该会话自己的 transcript（其余 84/85 全部 `ready`）。
+
+**根因（两个预算口径失配）**：`sessionProjector.ts` 里
+```ts
+MAX_PROJECTION_RECORDS = 50_000        // 记录（行）数墙
+MAX_PROJECTION_METADATA_BYTES = 32 MiB // 元数据墙
+```
+但每条记录至少要按 **64 B/字段槽 × ~19 槽**（`uuid`/`timestamp`/`model`/`role`/`cwd`/`id`…）计费 ⇒ **50,000 条天然意味着 ~58 MiB 元数据**，于是 **32 MiB 的墙先到（≈47K 条处穿越）**，记录数墙（50,001 条）形同虚设。
+
+**实测取证**（按 reducer 记账口径跑一遍该 jsonl）：
+
+| 预算 | 用量 | 上限 | 结论 |
+|---|---|---|---|
+| `MAX_PROJECTION_RECORDS`（行数） | 48,739 | 50,000 | 未越 |
+| **`MAX_PROJECTION_METADATA_BYTES`** | **33.12 MiB** | **32 MiB** | ✗ 第 47,116 条处穿越 |
+| 超长值被 clamp | 0 | — | 非「异常值」所致，纯计数累积 |
+
+⇒ 每记录 ≈ 0.68 KiB（33.12 MiB ÷ 48,739），**是「记录太多」而非「某条异常」**。
+
+**修法**（`sessionProjector.ts`，两常量对齐）：
+```ts
+MAX_PROJECTION_RECORDS = 96_000          // 50_000 → 96_000
+MAX_PROJECTION_METADATA_BYTES = 64 MiB   // 32 → 64 MiB
+```
+按 0.68 KiB/条，96,000 条 ≈ **63.8 MiB ≈ 64 MiB** ⇒ 两墙**基本重合**，不再互相空转。本会话 48.7K 条 / 33.1 MiB，两墙皆不碰。
+
+**验证**：`sessionProjector.test.ts` + `coordinator.test.ts` **102 pass / 0 fail**。同时把 `enforces aggregate retained metadata across appended windows` 这条测试的样本量由**硬编码 8000+4000**（旧按 32 MiB 校准）改为**从 `MAX_PROJECTION_METADATA_BYTES` 推导**——否则常量一改它就假红（本项实测踩到：抬到 64 MiB 后原样本不再越界 ⇒ 1 fail）。
+
+**patch**：`patches/session/session-local-index-budget-patch1.patch`（链尾追加，零级联）。
+
+#### 踩坑记录
+- **只抬 `MAX_PROJECTION_RECORDS` 不解决问题**：元数据墙在 ~47K 条先撞，记录数抬到多少都白搭——本项最初按「改 50000→160000」下单，实测才确认真正卡点是元数据预算。
+- **已降级源是「粘性」的**：`sessionProjector.ts:1024-1034` 对 `append`/`unchanged` 的已降级源**直接再抛错、根本不读文件**，只在文件被重写或 **parser 版本变更**时才重试 ⇒ 只抬预算 + 重启，该会话仍然是 degraded。要让它当场恢复须抬 `SESSION_SUMMARY_PARSER_VERSION`（会触发 85 个源全量重索引）或手工重置该源状态。**本次按用户要求不改索引状态**，留待新 deb 上手工处理重索引。
+- 公开状态里 `degradedSources:4` / `lastErrorCode=LOCAL_INDEX_SOURCE_CHANGED` 是**内存 `failedPaths`** 的运行时对账失败（文件正被写时被索引器读到，活跃会话正常 churn），会自动重试；与 DB 里那条持久的 `SOURCE_LIMIT` 是两回事。
+
+#### 32.1 deb 产物与核验（2026-10-05）
+
+含本节修复（git `67ae4b54`）的安装包：
+
+| 项 | 值 |
+|---|---|
+| 产物 | `desktop/build-artifacts/linux-x64/Claude-Code-Haha-0.6.7-linux-amd64.deb` |
+| 大小 / 时间 | **203,844,272 B** / **2026-10-05 04:31:48** |
+| 构建命令 | `LINUX_TARGETS=deb SKIP_INSTALL=1 bash desktop/scripts/build-linux.sh` |
+| package-smoke | **PASS**（cwd 绕过法复核，同上节） |
+
+**制品新鲜度核验**（侧车 `…/binaries/claude-sidecar-x86_64-…` 内压缩形态）：
+
+```
+var R07=9,Ea5=8388608,tk1=96000,ek1=67108864,Ca5=4096,…  "LOCAL…
+        └parser=9   └8 MiB   └96_000 ✓新  └64 MiB ✓新      └4096
+```
+
+- `tk1=96000` / `ek1=67108864` = 本次两个新值 ✓
+- `R07=9` = `SESSION_SUMMARY_PARSER_VERSION` **仍为 9**（本次**未动** parser 版本，符合「不动索引」要求）
+
+---
+
+
+## 三、TPS 指示器与速度估算
+
+> 本章收纳原第 四、二十八、二十九、三十、四十二、四十四 章（2026-10-14 按功能域重组；各原章降为小节，内容原样）。
+
+### 原四、实时解码速度（TPS）指示器（源§九）+ 手机端顶栏两行显示（源§十六，✅ 2026-09-24）
+
+#### 需求背景
 
 会话流式输出时显示实时解码速度（token/秒），帮助用户感知模型吞吐；移动端顶栏空间有限，指示器改为两行竖排（TPS 标签 + 数值）。
 
-### 0.6.6 现状核对
+#### 0.6.6 现状核对
 
 - 0.6.6 无任何 TPS 相关代码；chatStore 已有 `appendPendingDelta`（content_delta 缓冲，:1026 区）与 `appendPendingToolInputDelta`（工具入参流式 JSON 缓冲）——两处都是「新 token 到达」的准确喂入点。
 - 无 `subagent_tps` 消息类型（老 fork 有，0.6.6 无）→ 该项省掉。**⚠️ 2026-09-27 更正：帧可以省，需求不能省**（子代理文本已随 `agent_run_event` 到达客户端，直接复用即可；省掉后近一天里子代理 TPS 形同虚设，详见下方 2026-09-27 子优化）。
 - 桌面挂载选 `SessionChatHeader actions` 簇（与刷新按钮同侧），而非 metadata 行——metadata 行有「分隔符数量」契约测试（ActiveSession.test.tsx:2486），塞入会破坏「空闲会话恰 3 项 2 分隔符」断言。
 
-### 实施方案（12 文件，3 新文件）
+#### 实施方案（12 文件，3 新文件）
 
 - **`desktop/src/lib/tpsMeter.ts`（新增，移植自老 fork）**：1.5s 滑动窗口字符增量→token/s；CJK≈1 token/字、ASCII≈1/3.5 字（`estimateTokens`）；会话结束瞬间 2s 平均 fallback 保持速度不骤降 0（`computeFallbackTps`，跳过最近 300ms 流切换）；`SPARSE_SPEED_THRESHOLD=5` 流边界（text↔thinking↔tool）稀疏读数回退 fallback。
 - **`desktop/src/components/chat/TpsIndicator.tsx`（新增，移植+量身定制）**：180ms 轮询；四档着色 <27红/<53橙/<80绿/≥80紫；5 分钟空闲隐藏；组件内 30%+70% 指数平滑；**`vertical` prop 两行竖排**（移动端用）；opt23 §11.27 `Math.max(span, windowMs/1000)` 防移动端突发批量 content_delta 虚高；**硬编码中文改 i18n**（`useTranslation` + `chat.tpsSpeedTitle`/`chat.tpsLabel` 5 语言）。
@@ -306,14 +1222,14 @@ while read -r p; do git apply -p1 "$p"; done < modify/patches/ORDER.md
 - **挂载**：桌面 `ActiveSession.tsx` 挂 `SessionChatHeader actions`（TPS 在刷新按钮左侧，横排）；移动 `AppShell.tsx` mobile-session-header 刷新按钮左侧 `vertical` 两行。
 - AppShell.test.tsx 的 chatStore mock 补 `getSessionTpsMeter` stub（hasStreamed: false → 指示器隐藏，不影响既有断言）。
 
-### 验证
+#### 验证
 
 - `desktop tsc -b` exit 0；vitest `tpsMeter.test.ts` 4/4（fallback 保速/稀疏边界/350ms 跳过/token 估算校准）+ AppShell 22/22 + ActiveSession 32/32；全量前端 vitest **6141 pass / 2 fail**（2=基线既有 providerModels、MessagePayloadRetention，零回归）。
 - `vite build` 成功，新 bundle `App-BTQt5ZiK.js`。
 - 坑：TpsIndicator 早期 `if (!isTpsEnabled()) return null` 在 hooks 之后 → `useTranslation` 须声明在早退之前。
 - Patch：`modify/patches/tps/tps-indicator-patch1.patch`（12 文件 633 行，3 新文件 mode 100644）。
 
-### 子优化（2026-09-25）：起步速度更准确 + 标签精简
+#### 子优化（2026-09-25）：起步速度更准确 + 标签精简
 
 - **起步速度修正（tpsMeter.ts）**：新增 `BURST_FLOOR_MS=400`，`value()` 改 `elapsed = Math.max(span, BURST_FLOOR_MS/1000)`（替换原 `Math.max(span, windowMs/1000)` + <0.05 外推分支）。作用=回合并流初期不再被摊到整窗 1.5s 而低估（20 token 突发从虚高 2000 降到 ~75），UI 30/70 指数平滑兜底。
 - **标签去冗（TpsIndicator.tsx）**：桌面 `42 t/s`（删「TPS」词与 `chat.tpsLabel` 前缀，min-w-[6ch]）；移动两行 `TPS`/`42`（删 `t/s`）；title 保留 `chat.tpsSpeedTitle`。色档 27/53/80 未动。
@@ -321,7 +1237,7 @@ while read -r p; do git apply -p1 "$p"; done < modify/patches/ORDER.md
 - 验证：tsc -b exit 0；全量前端 vitest 6144 pass / 2 fail（2=既有，零回归）；vite build `App-CJApNwcB.js`。
 - Patch 重生成：`patches/tps/tps-indicator-patch1.patch` 12 文件 633 行（含子优化终态）。
 
-### 子优化（2026-09-26）：thinking 计入 TPS + 保持值口径改为正文结束前 0.5s 平均 + 数字行居中
+#### 子优化（2026-09-26）：thinking 计入 TPS + 保持值口径改为正文结束前 0.5s 平均 + 数字行居中
 
 - **问题（用户反馈：「总显示在不对的速度上一动不动」+「thinking 没计入 TPS」）**：①thinking 走独立 WS 事件（handler.ts:3584 `thinking_delta`→`{type:'thinking',text}`），前端 `case 'thinking'`（chatStore.ts:5068）从不喂 TpsMeter → 整段思考零采样；②正文结束→窗口排空→稀疏守卫 `result<SPARSE_SPEED_THRESHOLD(5)` 冻结→fallback 停在正文结束前旧值（`value()` 里 `if(result>0) this.fallbackTps=result` 死代码分支让 shrinking 窗口持续覆盖保持值，是卡住的帮凶）。
 - **修复 3 文件**：
@@ -331,7 +1247,7 @@ while read -r p; do git apply -p1 "$p"; done < modify/patches/ORDER.md
 - **验证**：`bun /tmp/tps_check2.ts` 数值全对（稳态 80/s 停止后保持 84≈80、加速尾正确、thinking-fed 跟随不再冻结）；chatStore.test 347 + chatStore.golden 14 + tpsMeter.test 4 = **365/365**；全量前端 vitest **812 pass/2skip** + 12300 pass/12skip/0fail 零回归（基线）；tsc 仅 TS5096 非阻断；grep dist 确认 `FALLBACK_WINDOW_MS=500` 孪生已同步（.js 孪生坑照例 `tsc -p --noEmit false` 重发）。
 - **Patch 重生成**：`patches/tps/tps-indicator-patch1.patch` 12 文件 **654 行**（3 章内文件 hunks 更新，9 共享文件不变；3 文件不在后续 patch 中，19 链顺序 apply 全 OK，逐字节=工作树）。
 
-### 子优化（2026-09-26）：子代理 TPS 汇聚到主会话显示
+#### 子优化（2026-09-26）：子代理 TPS 汇聚到主会话显示
 
 - **需求**：会话并发跑子代理（Agent 工具）时，主会话 TPS 只反映主线程自身 decode；子代理输出应汇聚进同一指示器，并显式标注子代理数量。
 - **实现 4 文件**：
@@ -343,7 +1259,7 @@ while read -r p; do git apply -p1 "$p"; done < modify/patches/ORDER.md
 - **Patch 重生成**：`patches/tps/tps-indicator-patch1.patch` 13 文件（含新测试文件 new file mode）929 行。因新 i18n 键插入在 `chat.tpsSpeedTitle` 后，**连锁重生成**下游锚定该区域的 `patches/session/session-file-download-patch1.patch`（20 文件 951 行）与 `patches/h5/h5-mobile-quick-actions-patch1.patch`（9 文件 481 行）；19 链 worktree 顺序 apply 全 OK，与工作树逐字节一致（仅 5 已知非章 delta）。
   - 坑：fd/mqa 重生成须以「工作树终态区块逐字取用」法（en/zh-TW 的 `chat.downloadableFiles`+`chat.downloadableMore` 同行双键、尾随空行都是工作树原貌）；以旧 commit（c1bacc0c）为基底会带入已删的 `chat.tpsLabel`。
 
-### 子优化（2026-09-27）：子代理 TPS 真正汇聚——修复「不打开子代理页就完全不计入」
+#### 子优化（2026-09-27）：子代理 TPS 真正汇聚——修复「不打开子代理页就完全不计入」
 
 - **问题（用户 verbatim）**：「主会话分派的子代理在运行过程中的 TPS 似乎还是没有汇聚到主会话的 TPS」——上一版（2026-09-26）按「tab 归属」聚合，实际几乎永不生效。
 - **根因（两层，缺一即失效）**：
@@ -365,7 +1281,7 @@ while read -r p; do git apply -p1 "$p"; done < modify/patches/ORDER.md
   - **`patches/thinking-subagent/thinking-subagent-thinking-tool-timing-patch1.patch`**（链位 31）：12 文件 **637 → 679 行**。`chatStore.test.ts` 是**末位触碰它的 patch**（#23 也在该文件，其 import hunk 上下文正好覆盖我要插入的行），故新增测试的归属放这里；按 `diff(S_post30 → 工作树)` 重生成该 section。
   - **验证**：干净 worktree@`068b3ebd` 按表序（1→35，非字母序）`git apply --allow-empty` **全部 35 个 patch → 失败 0**；第 7 章 8 文件与 `chatStore.test.ts` 终态**逐字节等于工作树**（`chatStore.test.ts` 由 delta 归零）。
 
-### 子优化（2026-09-27）：TPS 采样改真实 token 口径——自适应三层源 + 真实对账校准
+#### 子优化（2026-09-27）：TPS 采样改真实 token 口径——自适应三层源 + 真实对账校准
 
 > ⚠️ **2026-09-27 后续更正（本条设计已被替换，见下一条「TPS 计量改为按内容度量」）**：本条的「无 ids 时按帧计数（chunk 层）× 学习到的每帧 token 数」在**6 并发子代理**下把读数抬到真实值的 **2~3 倍**（面板 ~800 tok/s，引擎日志实为 ~250~290）。原因是「每帧多少 token」随内容种类相差约 40 倍（文本帧 ~2.5、thinking ~12、工具入参 JSON ~90~220），单个全局系数会被工具入参那次调用污染到夹逼上限。以下保留原始记录，**现行为按内容度量**。
 
@@ -398,7 +1314,7 @@ while read -r p; do git apply -p1 "$p"; done < modify/patches/ORDER.md
 - **UI 可见性**：TPS 指示器新增 `data-tps-source`（`ids`/`chunk`/`char`），非 ids 源时 title 追加 ` · ≈`，一眼可辨「精确 / 校准」；视觉与封顶/平滑/Σn 徽章不变。
 - **入库**：链位 **37** `patches/tps/tps-indicator-patch1.patch`（20 文件 1717 行，桌面 + 服务端同链）；dead-import 清理单列链位 **38** `patches/vcc/vcc-compact-dead-import-patch1.patch`（3 文件 36 行）。两条补丁均为「链终态（改前）→ 工作树（改后）」的干净差分，故 **#1..#36 无需重生成、无级联**（TPS 改动不落在这 36 条的 hunk 上下文里）。
 
-### 子优化（2026-09-27）：面板「生成速度」分子分母配对 + transcript usage 去重丢 output 修复
+#### 子优化（2026-09-27）：面板「生成速度」分子分母配对 + transcript usage 去重丢 output 修复
 
 - **触发（用户 verbatim）**：「这个会话里面，最后执行的轮次，上下文浮动卡片里面的生成速度显示 6044tok/s，这是很不合理的。你需要检查一下。」
 - **定位**：显示的是上下文浮动卡片的**会话累计**生成速度（`contextIndicator.sessionSpeed`，单位 `tok/s`）= `totalOutputTokens / totalDecodeDuration`。会话已锁定为用户提问的那个（DB 里标题「请用三句话简单介绍你自己，先深度思考再回答。」）：主会话 25 次调用 Σoutput=**24,356**，另有 **68 个子代理** Σoutput=**382,443**。显示 6044 意味着分母只有 ~67 秒（或按主会话 4.0 秒），**分母比真实少一到两个数量级**。
@@ -423,7 +1339,7 @@ while read -r p; do git apply -p1 "$p"; done < modify/patches/ORDER.md
 - **验证**：`sessionUsageMetrics.test` 24（新增「只除同批 token」「无配对 token 时退回 API 口径」）、`state.generationTiming.test` 3（span 缺失不计时间也不计 token）、`sessions.test` 316（新增末行计价用例）、`transcriptReducer.test` 31（新增末行替换用例）、`ContextUsageIndicator.test` 27；桌面 `tsc --noEmit` 0 错、`vitest run` **6290+ 全绿**；根 `tsc --noEmit` 0 错；服务端 `bun test src/server` **3460 pass / 0 fail**；`check:policy`（dead-imports/module-graph）全绿。
 - **入库**：链位 **39** `patches/usage/usage-session-speed-usage-pairing-patch1.patch`（13 文件 1183 行）。同样是「链终态 → 工作树」干净差分，**#1..#38 不动**。
 
-### 子优化（2026-09-27）：TPS 计量改为按内容度量——修复「6 并发子代理时聚合读数约为真实值的 2~3 倍」
+#### 子优化（2026-09-27）：TPS 计量改为按内容度量——修复「6 并发子代理时聚合读数约为真实值的 2~3 倍」
 
 **触发（用户 verbatim）**
 
@@ -492,14 +1408,14 @@ ids 帧 = 0（tps_tokens 从未发出）
 
 **入库**：链位 **40** `patches/tps/tps-indicator-patch1.patch`（8 文件 1016 行）。为「链终态（39 链）→ 工作树」的干净差分，**#1..#39 不动、无级联**（已在该终态上 `git apply --check` 通过）。
 
-### 子优化（2026-09-26）：TPS 展示改造——去椭圆背景 + head 栏两行 + "TPS XXXt/s" 格式（commit 966ca8f1，#82）
+#### 子优化（2026-09-26）：TPS 展示改造——去椭圆背景 + head 栏两行 + "TPS XXXt/s" 格式（commit 966ca8f1，#82）
 
 - **需求（用户 verbatim）**：「TPS 显示应该是"TPS XXt/s"」——去椭圆背景改纯文字，桌面 head 栏改两行堆叠（费用上、TPS 下），TPS 与数字间留白。
 - **实现 3 文件**：TpsIndicator.tsx 去 pill 背景改 `TPS {n}t/s` 纯文字（色档 27/53/80 未动）；AppShell.tsx 移动端 head 栏 TpsIndicator 与 SessionCostBadge 两行堆叠（h-[15px] 费用行 + h-[13px] TPS 行，36px 容器）；ActiveSession.tsx 移动头栏同口径。
 - **验证**：desktop 3 文件 vitest 59/59。
 - 注：本 commit 在 patch 最后重基（638c9bca，09-26 06:33）之后实施，当时 patch 未含其 delta——由下述 #90 重生成一并收编（8 文件）。
 
-### 子优化（2026-09-26）：#90 思考过程 TPS 关联确认 + 显示格式（commit 7062daaa + 352e5241）
+#### 子优化（2026-09-26）：#90 思考过程 TPS 关联确认 + 显示格式（commit 7062daaa + 352e5241）
 
 - **用户 verbatim（#90）**：「think思考过程的tps速率信息似乎还是没关联上。另外tps显示应该是"TPS XXt/s"最多四位数 TPS和数字之间应该有个间隔留白。」
 - **关联确认（三层实证，结论=已关联且实时）**：
@@ -512,9 +1428,9 @@ ids 帧 = 0（tps_tokens 从未发出）
 - **验证**：TpsIndicator.test 4/4（含新封顶用例）；desktop tsc -b exit 0；前端全量 vitest 6228 pass（1 fail=MessageList 虚拟化用例 5s 超时，隔离单跑 201/201 过=负载 flaky 非回归）；src/server scrub env 3442/0。
 - **Patch 重生成**：`patches/tps/tps-indicator-patch1.patch` **8 文件 839 行**（收编 966ca8f1 的 AppShell.tsx/ActiveSession.tsx 两行堆叠 delta + #90 格式/封顶 delta；此前 patch 停在 638c9bca 态缺这两块）。21 链（068b3ebd 基线顺序 apply 全 patch）FAIL=0，8 章文件逐字节=工作树，树级 delta 仅已知非章 WIP（#83 测试修复族 + #85 WIP + bun.lock/TerminalSettings/providerModels 3 项既有）。
 
-> 注：上下文面板「生成速度」口径修正（decode-only，分母用 `totalDecodeDuration` 而非 `totalAPIDuration`）归**第七章**（patches/usage/usage-cache-billing-patch1.patch），见该章。
+> 注：上下文面板「生成速度」口径修正（decode-only，分母用 `totalDecodeDuration` 而非 `totalAPIDuration`）归原第七章（现第四章，patches/usage/usage-cache-billing-patch1.patch），见原第七章小节。
 
-### 子优化（2026-09-27）：费用/TPS **保持两行**，TPS 第二行改居中（patch `patches/tps/tps-indicator-patch1.patch` #32）
+#### 子优化（2026-09-27）：费用/TPS **保持两行**，TPS 第二行改居中（patch `patches/tps/tps-indicator-patch1.patch` #32）
 
 **用户指示（verbatim）**
 
@@ -527,7 +1443,7 @@ ids 帧 = 0（tps_tokens 从未发出）
 - **踩坑（本轮走过的弯路，记录以免重犯）**：曾一度把两行**改成单行并排**（并在 `TpsIndicator` 删掉 `vertical` 分支），属**理解错需求**——用户要的是「两行 + 居中」，不是「合并成一行」。已回退：`TpsIndicator.tsx` 恢复原样（`vertical` 分支保留），故该文件**不在本 patch 内**。
 - **验证**：`TpsIndicator`(4) + `AppShell` + `ActiveSession`(34) 三文件 vitest **60/60 全绿**；35 链中该 patch 2 文件与工作树**逐字节一致**。
 
-### 子优化（2026-09-28）：TPS 相位切换脉冲的**真根因**——分母不覆盖被它除的那些 token（链位 52）
+#### 子优化（2026-09-28）：TPS 相位切换脉冲的**真根因**——分母不覆盖被它除的那些 token（链位 52）
 
 - **触发（用户 verbatim，第二轮）**：「TPS还是在数据还是在异常飙升，尤其是动作阶段切换，比如思考切工具，正文切思考。尤其是在思考结束后，经常夸张飙升到**9999**t/s」+「所以TPS信息，前0.23s和后0.23数据，不能直接取，应该取**稳态数据**。延迟0.23s的时间稳态后再变动也不是不行。」
 - **前置事实**：链位 44 的 `preWindowAt` 锚**已在生产 bundle 中**（实测 `/opt/.../PetRenderer-CYfWUDvl.js` 含该符号）⇒ 不是制品陈旧，是**锚的覆盖不足**。故本轮先**离线复现**再改（见下）。
@@ -558,7 +1474,7 @@ ids 帧 = 0（tps_tokens 从未发出）
 - **验证**：`tpsMeter`(23→**25**)/`tpsCalibration`(8)/`TpsIndicator`(6) = **39 全绿**（新增 2 条回归：`does not read a backlog as a burst one flush later`、`holds the last rate instead of rating a block handed over in one sample`）；桌面 `tsc -b` **0 错**；全量前端测试见本轮交接快照。
 - **入库**：链位 **52** `patches/tps/tps-indicator-patch1.patch`（1 文件 +2 测试）。
 
-### 补记二（2026-09-28）：TPS 上千读数真因＝**打包投递被当成生成节奏**（链位 56）
+#### 补记二（2026-09-28）：TPS 上千读数真因＝**打包投递被当成生成节奏**（链位 56）
 
 - **触发（用户 verbatim）**：「TPS数据**还是冲上1600**了，这明显不对。尤其是在**执行bash动作**的时候。」
 - **关键推断**：bash 动作期间**没有新的解码**（流是停的），指示器此时显示的是**持有值**，所以「在 bash 时爆」说明**持有值本身虚高**——即前两轮的窗口/锚修正都没触到这条路径。
@@ -583,215 +1499,424 @@ ids 帧 = 0（tps_tokens 从未发出）
 - **验证**：`tpsMeter` **27**（新增 2 条钉住两个 bursting 场景）/`tpsCalibration` 8/`TpsIndicator` 7 = **42 全绿**；桌面 `tsc -b` 0 错。
 - **入库**：链位 **56** `patches/tps/tps-indicator-patch1.patch`（4 文件）。
 
-## 五、文件下载桥接功能（源§十二，✅ 2026-09-24）
+### 原二十八、TPS 速率引擎重写（125ms 分桶）+ 子代理跨客户端用量一致性（✅ 2026-09-29）
 
-### 需求背景
+> **本章两个 patch**：链位 **62**（TPS 速率引擎重写，`e4b737dc`，19 文件）、链位 **63**（子代理跨客户端用量一致性，`18061170` + 工作区，11 文件）。
+> **链复现度**：干净 worktree@`068b3ebd` 按链序 apply **63/63 失败 0**，终态与工作树差异**仅剩 2 个有意排除项**（`bun.lock`、`desktop/src-tauri/resources/preview-agent.js`，理由见 27.4）。
 
-H5 浏览器端打开文件链接时，`/local-file/<absPath>` 直接内联显示而非触发下载，需要 `Content-Disposition: attachment` 头让 H5 真正下载文件；会话导出的文件列表卡（DownloadReferencesCard）需要展示文件名/大小/下载按钮，大小走批量 `/local-file/info` 端点一次拿全。
+#### 28.1 TPS 速率引擎重写为 125ms 分桶（链位 62）
 
-### 0.6.6 现状核对
+**需求（用户 verbatim，5 条规格）**
 
-- 服务端 `localFile.ts` 只有 `?download=1`/`?info=1` 未实现，`/local-file/` 走 `serveFileWithRange` 内联返回；`previewFs.ts` 有 `downloadHeadersFor()`（RFC5987 attachment 头）与 `servePreviewFsFile(download=false)` 参数预留，但路由没读 query 没传参。
-- 前端无 `DownloadReferencesCard` / `fileSizeCache` / `downloadFileMeta`（三者均老 fork 独有，0.6.6 全缺）；`localFileUrl` 已在 `handlePreviewLink.ts:44-51`。
-- 老 fork 完整实现=4 块：①localFile.ts `?info=1`/`?download=1` 分支 + `handleBatchLocalFileInfo`（POST `/local-file/info`）；②previewFs.ts 路由读 `?download=1` 传 `servePreviewFsFile`；③`DownloadReferencesCard.tsx`（收集 turn 内 Read 调用，`localFileUrl+?download=1`）；④`fileSizeCache.ts`（hot 50/120s→cold 150/30min，localStorage 持久化）+ `downloadFileMeta.ts`（fileTypeIcon/formatFileSize）。
+> 1、每125ms，收到多少token，除以时间，每秒可显示8次，再将每个第8个也就是到整个1s的数据时求这8个平均。
+> 2、初始起步可能速度会异常高，所以一开始的125ms的数据不能直接迸发，而是等到第二个125ms才开始均衡显示。
+> 3、每次流式传输结束的时候，尾巴上可能速度也会异常，所以尾巴上的125ms数据与倒数第二个125ms进行均衡显示。
+> 4、流式传输结束后，要让速度信息残留显示5分钟，所以流式结束后要根据跨度最大到最近1500ms的数据求平均。
+> 5、如果引擎发来的数据带ids，则优先采用精准ids进行取数处理后显示；若拿不到ids则走推断估算。
 
-### 实施方案（12 文件，3 新文件）
+**做法：推倒旧连续滑窗，整块重做。** 旧实现（`sliceRate` + `WINDOW_MS` / `SETTLE_MS` / `BURST_FLOOR_MS` / `MAX_INSTANT_TPS` / `preWindowAt` / `computeFallbackTps` / `sampleTokens`）**全部删除**，换成固定网格分桶：
 
-- **`src/server/api/localFile.ts`**：`?info=1`→JSON `{name,size,mime}`（`Bun.file().stat()`，不读内容）；`?download=1`→`serveFileWithRange(...,downloadHeadersFor())` 加 RFC5987 attachment 头（unicode/空格文件名正确）；`handleBatchLocalFileInfo(body)`：批量 stat，逐 path 走 `$HOME` sandbox，失败的静默跳过，返回 `{files:{path:{name,size,mime}}}`。
-- **`src/server/index.ts`**：`POST /local-file/info` 路由插在 `/local-file/` 前缀分支**之前**（`/local-file/info` 也匹配该前缀，顺序敏感）。
-- **`src/server/api/previewFs.ts`**：`handlePreviewFs` 读 `?download=1` 传 `servePreviewFsFile`；`servePreviewFsFile` 加 `download` 参数——download 时跳过 HTML base-rewrite 变换直接流式 + attachment 头（浏览器要原始字节非预览变换版）。
-- **前端 3 新文件**：`fileSizeCache.ts`（两级 LRU，hot 50/120s + cold 150/30min，LRU 淘汰，localStorage `cc-haha:file-sizes` 持久化，`__clearFileSizeCache` 测试用）；`downloadFileMeta.ts`（fileTypeIcon 按扩展名映射 Material Symbols 图标 + formatFileSize 自适应单位）；`DownloadReferencesCard.tsx`（`TurnDownloadCard` 收集 turn 内 Read 调用的 `file_path`，去重；默认折叠不请求，展开时批量 `POST /local-file/info` 拿缺失大小并写入两级缓存；20 条分页 + "显示更多" + "显示全部"；下载链接=`localFileUrl+?download=1`）。
-- **`ToolCallGroup.tsx` 接入**：import `TurnDownloadCard`；memory 分支（`MemoryToolActivityGroup` 后）与常规 return（`ToolCallGroupContent` 后）各插一处 `<TurnDownloadCard toolCalls={...} />`。
-- i18n：`chat.downloadableFiles`/`chat.downloadableMore`/`chat.downloadableAll`/`workspace.download` 5 语言，插在 `chat.tpsSpeedTitle` 行后。
+| 规格 | 实现 |
+|---|---|
+| 每 125ms 一桶、显示=最近 8 桶平均（1s，每秒 8 次） | `BUCKET_MS=125` / `READ_BUCKETS=8`；**只读「已完成」的桶**；不足 8 桶时除以**已过桶数**而非 8 |
+| 起步：首桶不单独显示 | `MIN_BUCKETS_FOR_READ=2`，不足时返回**保持值** |
+| 尾部：末桶与倒数第二桶 **50/50 均衡** | `settle()` 把两者都置为均值（⚠️ 均值守恒：只改分布不改读数，用户明确要求按字面实现） |
+| 结束后保持 5 分钟 | `heldValue` 冻结；**引擎真值优先**（`endCall` 的 `realTokens/decodeSpan`），无真值则用 ≤1500ms 的桶平均（`HOLD_BUCKETS=12`）；5 分钟隐藏仍由指示器 `HIDE_AFTER_IDLE_MS` 管 |
+| 优先生成钟、到达钟兜底 | `TpsClock='generation'\|'arrival'`，模块级 `setTpsClock/getTpsClock`，默认 **generation** |
 
-### 补全：文件浏览下载入口 + H5 内置浏览器提示（2026-09-25）
+其他决策：空桶**计 0**（暂停如实显示为凹陷）；静默 **>1.5s 清空窗口**并重新计时（否则恢复后那 1 秒会被残留的 0 拉低）。
 
-初版只做了「会话内 Read 文件下载卡」，文件浏览（工作区文件树 / open-with 菜单）里仍只能「添加到对话」不能下载，且 H5 点「应用内浏览器」无提示。本次补 3 项（复用既有 `?download=1` 端点与已有 i18n 键 `workspace.download`/`workspace.browser.unavailableTitle`，零新 i18n 键）：
+##### 踩坑记录（28.1）
 
-- **A 文件树右键加「下载」**：`WorkspaceFileTreePane.tsx` 右键菜单「添加到对话」后加下载按钮（仅非目录行，`data-testid="workspace-tree-download"`），`resolveAbsoluteOpenPath(path, workDir)`（`systemFileOpen.ts:24`，path 已绝对/无 workDir 原样返回，否则 join）解析绝对路径后调共享下载入口。
-- **B open-with 菜单加「下载」**：`openWithItems.ts` `OpenWithIcon` 联合加 `'download'`、`OpenWithDeps` 加 `downloadFile?`、`buildOpenWithItems` 在 clipboard 组（copy 之后）推 `id:'download'` 行（label 复用 `workspace.download`）；`openWithMenuItems.ts` 绑定 `downloadFile=(p)=>downloadLocalFile(p)`（file context 块）；`OpenWithMenu.tsx` `ItemIcon` 加 `download`→lucide `Download` 图标分支；`WorkspaceFileOpenWith.tsx` 的 `filter` 放行 `item.id==='download'`。
-- **C H5 内置浏览器提示**：`openWithMenuItems.ts` `openInAppBrowser` 改——`!isWorkspaceBrowserAvailable()`（`workspace/browserHost.ts:37`）时 `addToast({type:'info', message:t('workspace.browser.unavailableTitle')})`（=「内置浏览器需要桌面版」）+ `window.open(url,'_blank','noopener,noreferrer')` 兜底，桌面版仍走 `workspaceOpen.browser`。
-- **共享下载入口**：`handlePreviewLink.ts` 新增 `export downloadLocalFile(absolutePath)`——临时 `<a href=localFileUrl(serverBase,absPath)?download=1 rel=noopener>` appendChild+click+remove（anchor 法而非 fetch：二进制直下 + 服务端 RFC5987 attachment 头定保存名，无需缓冲整文件或猜 MIME）。
+1. **⚠️⚠️ 两个时钟绝不可混算（本设计的硬约束）**：`serverTs` 是 **epoch ms**，`performance.now()` 是**自页面加载的单调钟**，相减得 ~1.7e12。规则：桶间距只用**所选时钟**；「静默多久 / 是否还活着 / 5 分钟隐藏」只用**到达钟**（`lastDataTime()` 语义不变，回收器与隐藏逻辑依赖它）。且**时钟选择对每个米表是粘性的**：生成钟米表一旦收到无戳帧就**永久降级**到到达钟并重建网格（`degradeToArrival`）。
+2. **只读「已完成」的桶**：把「进行中的桶」计入，会把部分桶当成空桶、并悄悄把最旧的桶挤出窗口——实测**稳定 104 t/s 被读成 91**。到达钟下 `readIndex = floor(T/125) - 1`。
+3. **环必须远宽于读数窗**（`RING_SIZE=64`＝8s）：积压摊平（`depileBucket`，上限 `MAX_BUCKET_TPS=5000`）靠把 token **推出窗口之外**才有效——在窗口内摊平是均值守恒、等于没做。实测 1200 的单桶从 9600 t/s 降到 ~1210。
+4. **`endCall` 不能标记「已结束」**：一轮里有多次 API 调用（工具循环），冻结会截断轮中读数。终态靠 `endStream()`（run 的 `task.status !== 'running'` 分支）+ **静默隐含结束**（run 的终态是 task 事件而非帧，「帧 + 节流」那道守卫可能永不触发）。
+5. **`settle()` 必须用 `lastIndex` 而非 `readIndex(now)`**：静默之后 `now` 已越过末尾，否则会给两个**空桶**做均衡、把保持值归 0。
+6. **`touch()`（ids 模式下的文本帧）不得参与降级判定**，否则生成钟会被无故降级。
+7. **指示器的 30/70 指数平滑已移除**：桶平均本身即平滑，再叠一层只是增加延迟；保留「接近 0 时保持上一值」的防闪 0。
 
-### 验证
+**时钟纪律 A/B（永久用例 `TpsMeter clock discipline`）**：同一组真实时序（40 帧、生成 125ms/帧、到达 25ms/帧＝5× 排空压缩）下，**生成钟读 104 t/s（真值），到达钟读 >300**。与此前实测的移动端 1000+ 同因 ⇒ **默认 generation**。
 
-- `desktop tsc -b` exit 0；6 受影响测试文件 **149/149**（openWithItems 54/handlePreviewLink 34/OpenWithMenu 17/openWithMenuItems 3/WorkspaceFileOpenWith 10/WorkspaceFileTreePane 31）；全量前端 vitest **12300 pass / 12 skip / 0 fail**（零回归，对齐基线）。
-- `vite build` 成功，新 bundle `App-48eEOxTf.js`。
-- **live 7788 H5 全确认**：A 文件树右键含「添加到对话/下载」；B 文件 tab 右上角 split-button open-with 下拉含「…复制文件内容/下载/刷新工作区」；C open-with 点「应用内浏览器」→ toast「内置浏览器需要桌面版」+ 系统浏览器打开。
-- **坑（.js 孪生）**：仓内每个 `.ts/.tsx` 有一个 untracked 的 `.js` 孪生（tsc emit 风格，批量生成），Vite 默认 `resolve.extensions` 把 `.js` 排在 `.tsx` 前 → `vite build` 实际 bundle 旧的 `.js` 而非改过的 `.tsx`（症状=新 testid/字符串在 dist/ grep 0 命中）。修法=`tsc -p tsconfig.json --noEmit false` 同步全部 `.js`（TS5096 allowImportingTsExtensions 报错不阻断 emit）→ 清 `dist`+`node_modules/.vite` → `vite build`。`tsc -b`（noEmit:true）不生成孪生。`.js` 全 untracked 不入 git/patch。
-- **权威零回归（初版）**：全量 `src/server` bun test junit 比对基线 worktree（2f8d819d）——新增 1 条 `diagnostics API`，单独跑 3 次（当前树+基线各 37/37 全绿）确认负载 flaky，非引入。
-- 坑（初版）：`previewFs.ts` 0.6.6 缺 `downloadHeadersFor` 定义（仅老 fork 有）→ import 时报 `Export named 'downloadHeadersFor' not found`，需从老 fork 移植到 `serveFileWithRange` 后。
-- Patch：`modify/patches/session/session-file-download-patch1.patch`（**20 文件 951 行**，含 3 前端新文件 mode 100644 + 6 文件浏览下载入口文件；2026-09-26 因第四章子代理汇聚新增 i18n 键而连锁重生成）。**19 patch 全链 `git apply` 干净且逐字节等于工作树（仅 5 已知非章 delta）**。
+**验证**：`tpsMeter.test.ts` 重写为 **27 例**（规则 1–8 + 校准 + 聚合）；`tpsMeter` / `tpsCalibration` / `TpsIndicator` **46/46**；相关 8 文件 495 测试全绿；`tsc` / lint 绿；构建后 7788 入口 hash ＝ 仓库 dist。
+⚠️ **真机观感验证当时未做**（无 playwright；headless dump-dom 在 H5 的 SPA + 长连接上会挂住），后由用户实测确认（见 28.2 收官）。
+
+#### 28.2 子代理跨客户端用量一致性（链位 63）
+
+**需求（用户 verbatim，两轮）**
+
+> 轮一：A 客户端发起的会话能看到实时准确的用量在跑，而 B 客户端打开同一会话，**有很长一段时间看不到用量爬升**。
+> 轮二：B 能接近及时看到用量在跑了，但 B 看到的用量是**从 0 开始爬升**的，**没有跟 A 看到的数据保持一致**。
+
+**两个根因，都修完才对得上。**
+
+##### 根因一：`runAgentId` 与「派发它的 Agent 工具调用 id」被当成同一个 id
+
+两个 id **不是一回事**，且**都各自被当作键用**：
+
+| id | 含义 | 形态 | 出现处 |
+|---|---|---|---|
+| `runAgentId` | run 自己的 id（＝`task_id`＝`agentId`） | 6 位十六进制（`a74ce8`） | `agent_run_event.runAgentId`、实时帧的寻址键 |
+| `tool_use_id` | **派发它的 Agent 工具调用** id | `call_00_…` | `task_started` / `task_progress` 的 `tool_use_id` |
+
+- **UI 按 tool-call id 读**：`MessageList.tsx` 把 `backgroundAgentTasks` 折成 `usage[task.toolUseId]`（注释：只键 running，避免陈旧快照盖住终值）；`ToolCallGroup.tsx` 用 `agentTaskLiveUsage?.[toolCall.toolUseId]` 取数。
+- **实时写入方却在编造 `toolUseId`**：`ingestSubagentLiveUsage` 在无既有行时建 `{taskId: agentId, toolUseId: agentId}` ⇒ **`toolUseId` ＝ runAgentId** ⇒ **UI 永远查不到**。
+- **A 为何没事**：A 收到了派发时的 `task_started`，`normalizeBackgroundAgentTaskEvent` 把它规范成 `taskId=task_id`、`toolUseId=tool_use_id` ⇒ A 的行**键是 runAgentId、但 `toolUseId` 是对的**，写入按 `candidate === agentId` 命中该行，UI 按键取得到。
+- **B 为何看不到**：B 在 `task_started` 之后才连上，而**没有任何路径重放该帧**（历史重建只从**终态**通知建行：`backgroundTaskRecordFromNotifications` 只认终态，`reconstructBackgroundShellTasks` 只管 Bash/PowerShell）⇒ B 建的行带假 `toolUseId` ⇒ 不显示。等某个子代理跨过**工具轮次边界**，`task_progress` 带来真 `tool_use_id`，`upsertBackgroundAgentTask` 改写该行 ⇒ **数字突然出现**。这正是「几分钟不显示、然后突然出现」。
+
+**修法**：
+- 服务端 `activeSubagentIds` → **`activeSubagentRuns`**，返回 `{taskId, toolUseId}[]`（`activeAgentTasks` 里两个 id 本来都有）；`runningAgentUsage` 每项带**两个 id**。
+- **身份「没有总量也要发」**：总量只在跨过边界后才有（rollup 读子转录、按 API 响应写入），而**最需要身份的时刻恰恰是开头那段没有边界的长生成**——只发「有总量」的 run，B 就仍然没东西可挂。故 `totalTokens` 可选，`taskId`/`toolUseId` 必需。
+- 客户端种子行**按 run 的 id 作键、携带 tool-call id**（与 A 经 `task_started` 得到的形状一致）⇒ **一行同时满足写入方（按 runAgentId 找）与 UI（按 toolUseId 读）**，不需要任何映射表、不编造 id。
+- `ingestSubagentLiveUsage` 建行时**不填 `toolUseId`**。
+
+##### 根因二：基线只有「分界粒度」，后加入者从 0 起
+
+身份修好之后 B 能爬了，但**从 0 起**：B 的种子来自**转录 rollup**，而 rollup **只在越过分界后有值**；B 若在开头那段长生成里接入 ⇒ 种子为空 ⇒ 从 0 累加，直到某个边界才被权威值校正。A 从 run 开始就在计数，所以有基数。
+
+**修法：服务端在飞外推器**（新增 `src/server/services/agentRunUsageProjection.ts`）
+- **计数点＝`conversationService` 的 `notifyOutputCallbacks` 之前**（该文件里 CLI stdout 泵，**每会话每条消息恰好一次**）。
+- **规则刻意镜像客户端**（`ingestSubagentLiveUsage`）：`text_delta` / `input_json_delta` → text，`thinking_delta` → thinking，`/4` 估 token；`tool_use_id` 由 `task_started` / `task_progress` 关联。
+- **必须同时镜像「哪些不计」**（否则种子会**高于**在看的客户端，反而更不一致）：
+  - `assistant` 整条消息里的 text 块，**只在同 message id 未被流式发送时才计**——服务端靠 `stream_event` 的 `message_start` 学 id（与 `streamState.streamedAssistantMessageIds` 同源）；
+  - **整条消息里的 thinking 块从不计**（客户端只计 `complete !== true` 的 thinking 片段）。
+- **种子取值 `max(rollup, projection)`**：rollup 是**真值但只在分界时更新**，projection **实时但按字符估**。取大者 ⇒ 过了分界就是真值、飞行途中是估计。**完成时该 run 的终态通知仍是权威**（渲染侧 `settledFinal` 阴影守卫优先它）⇒ **估计绝不会盖过终局真值**。
+- **生命周期**：4 处 `this.sessions.delete(sessionId)` 收尾都调 `clearAgentRunUsage`（正常 stop ×2 + 启动失败 + CLI 异常退出）；每会话上限 64 个 run，超出按插入序淘汰。
+
+##### 顺带修掉的真缺陷：基准被采用后不计账 ⇒ 永远爬不起来
+
+种入绝对用量后，数字**永远不动**。机制：rebase 之后 `totalTokens` 恰好等于行里已有的值 ⇒ 那次写入被「无变化就 return」**跳过** ⇒ `lastWritten` 停在 0 ⇒ **下一帧把基准重算一遍、把刚累加的字符清零**（无限循环）。
+修法：**rebase 时就 `acc.lastWritten = reported`**（采用基准即记账），不要只在写入成功时才记。
+
+##### 踩坑记录（28.2）
+
+1. ⭐ **「A 好 B 坏」不等于数据没到，往往只是身份没对齐。** 我先假设「B 收不到实时帧」，**被推翻**：H5/移动端与桌面端**是同一份 `desktop/dist`**（`staticH5.ts`），`sendToSession` 遍历 Set、`conversationService.onOutput` 是 `outputCallbacks[]` **多监听者**，唯一按客户端裁剪的是 pet token。**必须先用代码证明「通道通不通」，再谈是不是通道问题。**（沿用上一轮的教训：UI 不更新优先怀疑**取数口径**，而非数据通道。）
+2. ⭐ **一个实体有「两个都被当键用的 id」时，症状是「数据明明在、UI 就是空」，且只在缺少那个把两者绑起来的帧时发作**（这里＝后加入的客户端）。本地客户端因为收到了绑定帧而完全正常。
+3. **假的 id 不是「无用」而是「不可查」**：把 `toolUseId` 填成 runAgentId 后，行**看起来完全健康**（有 status、有 usage），却**永远读不到**。宁可不填，等边界帧补齐。
+4. **服务端外推的计数点绝不能放在 `translateAgentRunMessage`**：那是**每个客户端各调一次**，N 个客户端会把同一个 run 的产出算成 **N 倍**（这坑先前在别处踩过，此处刻意避开）。
+5. **镜像速率要连「不计的部分」一起镜像**：我的测试当场抓出漏了 `message_start` ⇒ 整条消息与增量**双计**（10→20）。
+6. ⚠️ **测试必须每个用例独立 run id**：累加器是**模块级全局**且**按 run id 限流**，复用同一 id 会让后一个用例静默丢帧（继承前例的写节流）——本轮又踩一次，现象是「上一例跑完，下一例首帧不生效」。
+7. **`git diff <commit>` 看不见未跟踪文件**：链位 63 第一版漏掉了两个**新增**文件（`agentRunUsageProjection.ts` 及其测试），而复现度比对当场把它暴露出来（`A src/server/services/agentRunUsageProjection.ts`）。生成补丁前先 `git add`，或用 `git diff --cached <commit>`。
+
+##### 验证（28.2）
+
+| 项 | 结果 |
+|---|---|
+| 身份对齐核心回归 | 种一行 `{taskId:'a74ce8', toolUseId:'call_00_x'}` + 喂 `runAgentId:'a74ce8'` 的帧 ⇒ 写入落**同一行**、爬过种子值、`toolUseId` 不变、**只有一行** |
+| 服务端 | `activeSubagentRuns` 5 例；路由 11 例；投影 10 例（含「已流式则不重复计」「整条 thinking 不计」两条镜像回归） |
+| 客户端 | `chatStore` **380/380**；`chatStore`+`MessageList`+`ToolCallGroup` **597/597** / **584/584** |
+| `check:server` | **496 文件 / 5975 条 / 0 失败**（基线 495 / 5963） |
+| 链复现度 | 63/63 apply 0 失败；终态 vs 工作树仅差 2 个排除项 |
+| **真机** | 用户确认：「能接近及时看到用量在跑」，且 B 与 A 数值一致 —— **本轮达标** |
+
+#### 28.3 补充参考：服务端推送 + 客户端轮询（**未实施**，留作后续可选）
+
+28.2 已让 B **直接落在 A 附近的数**上，无需额外通道。以下两点是**已设计但按用户决定暂缓**的加码项，登记备查（用途：把「≈一致」升级为「逐位一致」，并覆盖不跑该段客户端代码的适配器，如 IM/pet）：
+
+1. **WS 主动推送**：在 `ServerMessage` 联合（服务端 `ws/events.ts` + 客户端 `types/chat.ts`）加一种「在飞用量快照」帧，服务端按 ~250ms 用 `sendToSession` 广播给该会话全部客户端；客户端在 `handleServerMessage` 的 `switch` 加分支，按**绝对快照**写入（复用既有 `reported > acc.lastWritten` 的 rebase 语义）。相当于把 `ingestSubagentLiveUsage` 的计数搬到服务端后回灌。
+2. **REST 轮询兜底**：新增**轻端点** `GET /api/sessions/:id/agent-usage`（挂在 `handleSessionsApi` 的子资源分发旁），返回与 `runningAgentUsage` 同一份 payload。⚠️ **轮询绝不能打 `/messages`**——那是整个转录。客户端仅在「有在飞的子代理行」且「推送已陈旧」时启动 ~1s 轮询；照抄 `ContextUsageIndicator` 的写法（`inFlight` 防叠、`isDocumentVisible()` 跳过隐藏页、`clearInterval` 清理）。
+
+**已知局限（现状即如此，非缺陷）**：外推器只计**它自己看到过的帧** ⇒ 服务端若在 run 中途重启，早先那段会丢、种子偏低；`max(rollup, …)` 只能在跨过分界后补上。
+
+#### 28.4 后台标签页切回后 TPS 飙高 / 卡着不动（链位 64）
+
+**需求（用户 verbatim）**
+
+> 如果客户端浏览器缩小切出去一段时间，再切回浏览器，会导致 TPS 显示速率异常（要么飙高、要么一直卡着不动。）
+
+**根因（离线实测复现，真值 104 t/s、冻结 60s）**
+
+浏览器把后台/最小化的标签页节流：定时器停摆、帧不再被处理，而**引擎那头照常产出**。切回时**整段积压在同一瞬间交付**，于是几百帧落进**同一个到达 125ms 桶**。而 `depileBucket` 的「摊平」只在**环内能找到更早的、有内容的桶**时才做（`previous >= 0`）且要求 `spread >= 2`；长静默必然清空环 ⇒ `previous === -1` 被读成「run 从这里开始」⇒ **不摊平**，整段积压按**一个 125ms** 计费。
+
+实测读数序列（到达钟）：
+
+| 时刻 | 读数 | 说明 |
+|---|---|---|
+| drain 完成 | **0** | `elapsed < 2` 走 `held()`，而 `heldValue` 从未被设置过 ⇒ 0 |
+| +2 桶 | **25,012** | 巨桶进窗（6240 token / 0.25s；单桶计费 6240/0.125 ≈ 50k t/s） |
+| +3…+8 桶 | 16,709 → 12,558 → 10,067 → 8,406 → 7,220 → **6,331** | 巨桶逐拍被挤出窗 |
+| +9 桶 | **104** | 恢复真值 |
+
+⇒ **「飙高」与「一直卡着不动」是同一个机制的两端**：先读出 0，而指示器有「近零则保持上一值」的防闪规则，把那个 0 变成**无限期冻结**；紧接着巨桶进窗就是那个 9999 级的尖峰。
+
+**修法（四处，全部客户端）**
+
+1. **无可归属区间的积压桶 → 丢弃，而不是摊平**（`depileBucket`，`previous < 0`）：环内没有任何已测区间可归属它 —— 要么长静默刚清了环，要么内容比环还旧（那里摊平会把几分钟的 token 除以 8 秒而**高读**）。两种情况都不可测，故不计入速率。
+2. **丢弃是粘性的**（`Bucket.dropped`）：否则后续 token 会把该桶几单位几单位地重建，把积压一点点漏回读数。
+3. **丢弃桶不进分母**（`averageOver`）：它是**没测到**，不是「空的 125ms」。未写入的桶**仍然计 0** —— 那才是真的没产出，暂停要如实读成凹陷。
+4. **跨静默保留最后读数**：`readGrid()` 在重锚前把它记入 `heldValue`，且 `settle()` 不再用 0 覆盖已有的真读数（`avg > 0` 才写）。否则「答案在后台期间写完」会显示 0。
+5. **指示器防闪保持改为有界**（`HOLD_UNCHANGED_MAX_MS = 1500`）：原意是跨过 text↔thinking↔tool 边界的瞬时低谷；**无界**保持意味着任何**持续**低于 0.5 t/s 的真实慢速都会把数字冻结在旧值上 —— 正是用户报的「一直卡着不动」。超窗后按真实读数显示。
+
+**踩坑记录（28.5）**
+
+1. ⭐ **「飙高」与「卡住」同源，别分头查**：序列是「先 0、后巨桶」。只看到其中一个，就会以为有两个独立缺陷。
+2. ⭐ **「空桶」与「丢弃桶」语义不同，混起来必错**：空桶＝真的没产出（计 0）；丢弃桶＝没测到（不进分母）。我第一版把丢弃桶当空桶算，真值 104 被读成 **52**（丢弃桶占了分母的一半）；改成不进分母后立即回到 104。
+3. **生成钟（`serverTs`）本来就挺得住**：同一冻结在生成钟下**全程 104**（每帧带服务端接收时刻，积压按真实生成时间落桶）。⇒ 到达钟是**降级路径**（只有无戳帧才走），但它是**受支持**的回退，照样必须正确。这条同时给了判据：**若读数在生成钟上仍异常，那另有原因，别往这里归因**。
+4. ⭐ **必须证明用例在修复前会失败**：两条新用例（到达钟飙升、held 归 0）在还原源码后分别以 **6331** 与 **0** 失败，与预测数字一致；另两条（生成钟、**环内**积压仍需摊平）**两种情况下都通过**，用来锁住「不该变的行为」。**只写会绿的用例等于没测。**
+5. **fake timers 会接管 `performance.now`**：指示器用例里 `beforeEach` 装好的 spy 会被 `vi.useFakeTimers()` 顶掉，必须在启用假定时器**之后**重新 spy，且推进定时器时要**同步推进时钟**，否则「保持窗口」的时间判据根本不动。
+6. **别用 `{ ...meterInstance }` 造桩**：类实例的方法在原型上，展开后全丢（`hasLiveSamples` / `hasStreamed` 直接消失，汇总逻辑随之走偏）。要替某个方法就用 `vi.spyOn(instance, 'value')`。
+
+**验证（28.5）**：`tpsMeter.test.ts` 27 → **31**（+4）；`TpsIndicator.test.tsx` 11 → **12**（+1）；相关 6 套件（tpsMeter / TpsIndicator / tpsCalibration / chatStore / MessageList / ActiveSession）**669/669**；`tsc --noEmit` 与 `npm run lint` 绿；`src/` **零改动**（故服务端 `check:server` 不受影响）；链复现度 **64/64 apply 0 失败**，终态与工作树仅差 2 个既定排除项。
+
+#### 28.5 Anthropic 协议（`/v1/messages`）token ids 采集端（链位 65，2026-10-02）
+
+**需求（用户 verbatim）**：「修bc中间件anthropic协议透传token ids」。
+
+**关键发现（推翻了「改 bc 中间件」的预设）**
+
+- **bc 不是缺口**：`billion-context` bundle 里 `token_ids` / `reasoning_tokens` 各 **0 处引用**；bc 按协议路由但**不做协议转换、不改路径**（`/v1/messages` → 上游 `/v1/messages`），纯转发（`resolveUpstream` / `buildForwardTarget`；日志自称 "forwarding unchanged"）。
+- **引擎侧原来没有字段可放**：`entrypoints/anthropic/protocol.py` 的响应模型里 `token_ids` **0 处**、`serving.py` 也不产出 ⇒ 即便算了也无处承载。（对比同引擎 OpenAI 协议 `chat_completion/protocol.py` 明确有 `choices[].token_ids` 与顶层 `prompt_token_ids`。）→ **引擎侧**按 vLLM 范式补齐：`1cat-vllm-v130/patches/opt21-anthropic-token-ids-v1.patch`（输出 ids **常开**、`prompt_token_ids` 走请求 opt-in，因后者体积大）。
+- **决定性事实**：真实客户端（dev 7787）`settings.json` 的 `ANTHROPIC_BASE_URL = http://192.168.10.43:8878/bili/http://192.168.10.43:8000` ⇒ **CLI 直连 bc，cc-haha 服务端不在 HTTP 链路上**。cc-haha 的 ids 采集通道（`tpsTokenSink` → `tps_tokens` WS → TPS 表）**只在请求经 cc-haha 代理时才有数据**；而链位 35 的 `providerRuntimeEnv` 对 anthropic provider 一律「直连、不过代理」。这正是「cc-haha 当初设计 ids 时假设请求会经它代理」的缺口。
+
+**做法（6 文件，均 `src/server/**`）**
+
+1. **私网 anthropic provider 自动经代理**（`services/providerRuntimeEnv.ts` 的 `buildProviderManagedEnv` + `activeProviderNeedsProxy` 两处）：新增分支 `apiFormat === 'anthropic' && isPrivateNetworkUrl(baseUrl)` ⇒ `ANTHROPIC_BASE_URL` 指向 cc-haha `/proxy`；公网 anthropic provider（deepseek/zhipu/minimax）不受影响。
+2. **共享判定模块** `services/api/localEngineHost.ts`（新增）：把 `handler.ts` 私有的 `isLocalEngineHost` 提出，另加 `isPrivateNetworkHost/Url`。
+3. **退守放宽**（`proxy/handler.ts` 的 anthropic 400 守卫）：原「anthropic + `supportsNestedToolResultMedia=true` ⇒ 400 `proxy not needed`」改为**仅当上游非本机/私网时才 400**。
+4. **SSE 采集 tap** `proxy/streaming/anthropicTokenTap.ts`（新增）：仿 `captureTraceStream` 的 tee —— `pipeThrough` 里**先转发原始字节**再旁路解析 SSE，取每个 `content_block_delta` 顶层的 `token_ids`，按 `delta.type` 映射 kind（thinking/content/tool），喂既有 `createTpsTokenRelay`（200ms 合批 + 负缓存）。压缩体（`content-encoding` 非 identity）原样转发、不解析。
+5. **`count_tokens` 端点透传**（`handler.ts` 新增 `forwardAnthropicCountTokens`）：`/proxy/v1/messages/count_tokens` 原样转发（无事件流、无 ids 可采）。
+6. **测试**：`anthropicTokenTap.test.ts`（5 例：字节不变 + 按 kind 计数 + 跨 chunk 边界重组 + 无 ids/空数组/坏 JSON 忽略 + 压缩体不解析）、`provider-presets.test.ts`（+3 例：私网→走代理、公网→直连、**loopback→仍直连**）。
+
+##### 踩坑记录（28.5）
+
+1. **⚠️⚠️「修 bc」是错的落点**：最初预设改 bc 中间件，实测 bundle 里 `token_ids`/`reasoning_tokens` **零引用**且 bc 只按协议路由、不改路径 ⇒ 缺的是**引擎协议字段**，不是中间件。**看到「中间件在链路上」不等于「缺口在中间件」**。
+2. **⚠️⚠️「引擎改造已生效」与「UI 拿到值」是两件事**：客户端 base URL 直指 bc ⇒ cc-haha 服务端**不在链路上**，引擎发了 ids 也没人读。必须先确认流量确实过 cc-haha（本项即靠「私网自动经代理」把 anthropic 流引回代理）。
+3. **loopback 必须排除出路由门控**：`127.0.0.1` 更可能是 cc-haha 自己的 `/proxy`（`http://127.0.0.1:3456/proxy`）或测试替身；把它也路由进代理会**自环**并改掉其 auth 与非 Messages 路径。故**路由用 `isPrivateNetworkUrl`（RFC1918，不含 loopback）**，而「是否发 `return_token_ids`」仍用 `isLocalEngineHost`（含 loopback）——两个判定**故意不同**。
+4. **tap 必须「先转发后解析」**：客户端字节不能等旁路解析（`controller.enqueue(chunk)` 在 `reader.push` 之前）；且用 `pipeThrough` 而非自建 reader，才能保持「可原样交给 Response」的流形态。
+5. **压缩体不解析**：本地引擎 SSE 不压缩；遇 `content-encoding` 非 identity 只原样转发并报 0 ids，避免把二进制当文本切行。
+
+**验证**
+
+- **引擎直连探针（阶段①）**：`curl /v1/messages`（流式 + 非流式）断言 `content_block_delta.token_ids` 与顶层 `token_ids` 存在，取值与同引擎 OpenAI 路径一致。
+- **经 bc（阶段②）**：`8878/bili/…:8000` 转发后**逐字段对比原始 SSE**，bc 原样透传 `token_ids`（bc 注入 kernel 标签后事件结构不变）。
+- **cc-haha**：目标 2 测试文件 `28 pass / 0 fail`；服务端基线 `check:server` 见 §28.6；`check:policy` 除**既有** `scripts/vcc-slice-judge.ts` 未用导入外无新增失败（该 2 条与本改动无关）。
+- **7787（align 树）**：本链位已同步移植到 `/tmp/align`，`git apply` 直落（仅 `providerRuntimeEnv.ts` 偏移 14 行）。
+
+**入库**：链位 **65** `patches/tps/tps-engine-rewrite-patch1.patch`（542 行，6 文件）。相对链终态 `a6276429` 生成 ⇒ **#1..#64 无需重生成、无级联**（改动不落在这 64 条的 hunk 上下文里；`handler.ts` 虽被链位 11/35/44 触及，但本项新增/放宽的均为独立区域）。
+
+#### 28.6 链复现度：65/65（2026-10-02 实测）
+
+| 链位 | patch | 内容 | 文件数 |
+|---|---|---|---|
+| 62 | `patches/tps/tps-engine-rewrite-patch1.patch` | 28.1：TPS 速率引擎重写为 125ms 分桶（`e4b737dc`） | 19 |
+| 63 | `patches/thinking-subagent/thinking-subagent-subagent-usage-cross-client-patch1.patch` | 28.2：子代理跨客户端用量一致性（身份对齐 + 服务端在飞外推 + 基准记账修复 + 轮次页脚字号） | 11 |
+| 64 | `patches/tps/tps-engine-rewrite-patch1.patch` | 28.4：后台标签页切回后 TPS 飙高/卡住的根因修复（积压桶丢弃 + 丢弃桶不进分母 + 跨静默保留读数 + 指示器保持改为有界） | 4 |
+| 65 | `patches/tps/tps-engine-rewrite-patch1.patch` | 28.5：Anthropic 协议 token ids 采集端（私网 anthropic 走代理 + SSE tap + `count_tokens` 透传） | 6 |
+
+> ⚠️ **本表故意不写 `patches/` 前缀**（与 §27.4 同）：链位表用的是 `` `patches/xxx.patch` `` 形式，若此处也带前缀，任何「按 `| 链位 | `patches/…`` 抽取链序」的脚本都会把这两行**当成第二个同号条目**（重复命中）。表格写法保持与链位表可区分。
+
+**验证口径（2026-10-02 实测）**：干净 worktree@`068b3ebd` 按链序（链位 **1→65**）`git apply --allow-empty --index` ⇒ **65/65 失败 0**；终态与工作树比对，`src/server` **逐字节一致**，全树剩余差异**仅**构建产物与非源码目录（`node_modules` / `desktop/{dist,electron-dist,build-artifacts}` / `desktop/src-tauri/binaries` / `tsconfig.tsbuildinfo` / `runtime/__pycache__`）以及 `bun.lock`、`desktop/src-tauri/resources/preview-agent.js`、`modify/`、`pr-prepare/`、`.claude/`。
+
+⚠️ **两个易踩的操作坑**（本轮都踩了）：
+1. **顺序表末尾缺换行**：`printf ... >> order.txt` 会把新行**粘到上一行**，导致链位 61 被跳过、后续补丁因缺基底而失败（现象像是「补丁坏了」，其实是表坏了）。
+2. **比对要用 tree 对 tree**（`git write-tree` + `git diff-tree`），不要用 `git diff <commit>`：后者看不见未跟踪文件，会把新增文件**误报成缺失**（见 28.2 踩坑 7）。
+
+
+> ⚠️ **本表故意不写 `patches/` 前缀**（与 §27.4 同）：链位表用的是 `` `patches/xxx.patch` `` 形式，若此处也带前缀，任何「按 `| 链位 | `patches/…`` 抽取链序」的脚本都会把这两行**当成第二个同号条目**（重复命中）。表格写法保持与链位表可区分。
+
+**验证口径（2026-10-02 实测）**：干净 worktree@`068b3ebd` 按链序（链位 **1→67**）`git apply --allow-empty --index` ⇒ **67/67 失败 0**；终态与工作树比对，**`src/**` 与 `desktop/src/**` 逐字节一致**，全树剩余差异**仅**构建产物与非源码目录（`node_modules` / `desktop/{dist,electron-dist,build-artifacts}` / `desktop/src-tauri/binaries` / `tsconfig.tsbuildinfo` / `runtime/__pycache__`）以及 `bun.lock`、`desktop/src-tauri/resources/preview-agent.js`、`modify/`、`pr-prepare/`、`.claude/`。
+
+⚠️ **两个易踩的操作坑**（本轮都踩了）：
+1. **顺序表末尾缺换行**：`printf ... >> order.txt` 会把新行**粘到上一行**，导致链位 61 被跳过、后续补丁因缺基底而失败（现象像是「补丁坏了」，其实是表坏了）。
+2. **比对要用 tree 对 tree**（`git write-tree` + `git diff-tree`），不要用 `git diff <commit>`：后者看不见未跟踪文件，会把新增文件**误报成缺失**（见 28.2 踩坑 7）。
+
+#### 28.7 TPS 读数节拍改 4 次/秒 + 静默阈值统一为 `LIVE_GAP_MS`（链位 67，2026-10-02）
+
+**用户报**：066 时读数每秒多次变化，067 却「每秒才变一次」。
+
+**真因＝不是轮询，是「1 秒均值把起伏抹平」**。轮询本来就是 4–8 Hz（`POLL_SLOW_MS=250` / `POLL_FAST_MS=125`，≥50 t/s 走快档），从来不是每秒一次。`READ_BUCKETS=8`（1 秒均值）下，每个新 125ms 桶只替换窗口的 1/8 ⇒ 稳态流下取整后的数字**几乎不动** ⇒ 观感「每秒才跳一次」甚至冻住。
+
+**改法**：`READ_BUCKETS` 8 → **2**（读数窗 250ms）；轮询双档 → 单一 **`POLL_MS=250`**（4 次/秒）。实测（抖动喂法）**4.0 次/秒**；对照 RB=8 + poll=250 仅 3.4/秒。
+
+**同时纠正一处我引入的重复常量**：缩窗口时我顺手把 live→held 换成 `LIVE_MS = 8 × BUCKET_MS`（1000ms）——**错**。设计里这个阈值本就是 `LIVE_GAP_MS = 1500`（§28.1「静默 **>1.5s 清空窗口**并重新计时」；其 docstring 原文即 *"the reading switches to its held value, and the bucket grid is dropped"*）。`LIVE_MS` 只是「窗口长度」的别名 ⇒ **缩窗口会静默地把交接阈值一起缩短**。**正解＝删 `LIVE_MS`，`value()` 直接用 `LIVE_GAP_MS`**：一个阈值、一个名字，`value()` 的 live→held 与 `placeFrame` 的清格同门。实测边界：静默 **1200ms → 读数 0**（如实凹陷，由指示器有界 1.5s 防闪保证显示不回弹）；**≥1490ms → 切 held**。
+
+**文件**：`desktop/src/lib/tpsMeter.ts`、`desktop/src/lib/tpsMeter.test.ts`、`desktop/src/components/chat/TpsIndicator.tsx`（3 文件）。
+
+##### 踩坑记录（28.7）
+1. ⭐ **「显示冻结」≠「读数频率低」**：先怀疑「窗口太长把起伏抹平」，别先怪轮询频率（轮询本就够快）。
+2. ⭐ **仿真必须用抖动喂法**：我第一版用**匀速**喂法，得出「改窗口几乎没用」的**错误结论**——匀速流在**任何**窗口下都是常量。真实流在 125ms 尺度上是起伏的（思考/正文/工具参数交替）。
+3. ⭐ **改一个由推导式定义的常量前，先看它推导自什么、被谁引用**：`READ_BUCKETS` 同时喂了「读数窗」与「静默阈值」两个语义，改一个动了两个——这正是 `LIVE_MS` 陷阱的成因。
+4. 短窗口的代价＝平滑变少、数字更跳（读的是最近 250ms 速率而非 1 秒均值）；2↔4 桶间可调。
+5. **本轮走「新增链位 67」而非改链位 62/64**：改老 patch 会级联（62 有 **16** 个、64 有 **9** 个 hunk 都落在 `tpsMeter.ts`），按文档「新增链位」规范零级联追加（先例＝链位 65/66）。
+
+
+### 原二十九、TPS 双路径架构：A 引擎真值优先 → B 智能估算兜底（✅ 2026-10-02，链位 66）
+
+> **本章 1 个 patch**：链位 **66**（`patches/tps/tps-density-estimation-patch1.patch`，10 文件）。配合链位 65（Anthropic ids 采集）。
+
+#### 29.1 TPS 估算方案重做（B 路径）+ 在飞用量 A 优先（链位 66）
+
+**需求（用户 verbatim 汇总）**
+
+1. **两条独立路径**：① 从引擎取 **token ids** 作第一优先级（准确 TPS）；② cc-haha **自身智能估算** 作次级兜底。**A 不可用 ⇒ 启用 B**。
+2. A 的取法要**启发式**（不要求前端声明）；先查清「行业标准里 ids 是否默认带」。
+3. B：先设**尽量靠近准确的初始比例**兜底 → 以**历史消息为范本自动学习**；**池 20 条轮换**；**达 10 条后以学习值优先**；池恒 20。
+4. 范本覆盖 **纯英 / 纯中 / 中英混合 / 单纯字符** 四类，「通杀几乎所有模型服务商」。
+5. **会话扩展信息里所有 token 用量**：未落盘前**按新方式爬升**（A 优先、B 兜底），**落盘由 `usage` 校正**（例：爬升收尾 12.3k → 落盘 11.7k，相差不大）。
+
+**调研结论：token ids 不是行业标准**（§0 判据的依据）
+
+| 来源 | 响应含 token ids？ |
+|---|---|
+| OpenAI 标准 API | ❌ 仅 `usage` 计数 |
+| Anthropic 标准 API | ❌ 无任何该字段 |
+| vLLM 系（本引擎 OpenAI 协议） | ✅ 扩展 `return_token_ids`（**默认 off**） |
+| vLLM 系（本引擎 Anthropic 协议） | ✅ 本项目新增（`opt21-anthropic-token-ids-v1`，**触发才发**） |
+
+⇒ **必须启发式**（探测 + 按 origin 记忆），不能假定「流式/非流式默认带」。
+
+**A 路径（第一优先级）**
+
+- **触发**：cc-haha 仅对**本机/私网 origin**（`shouldRequestTokenIds`/`isLocalEngineHost`）注入请求头 `x-return-token-ids: 1`（链位 65）；引擎认头出 ids。
+- **可用性状态机**（按 origin）：`unknown --发触发--> 有 ids ⇒ A-active`；**连续 2 次无 ids（10s 窗）⇒ A-unsupported**（停探测，只用 B）。复用既有 `tokenIdUnsupportedOrigins`/`tokenIdProbeMisses`。
+- **公网服务商**：非私网 ⇒ **永不注入** ⇒ 天然 A 不可用 ⇒ B。
+
+**B 路径（次级兜底）——核心：样本只存「计数」，不存文本**
+
+估算是**字符数的线性函数** ⇒ 学习只需计数：
+
+```ts
+type DensitySample = { cjk: number; latin: number; digit: number; sym: number; tokens: number }
+// 池 = 最近 20 条（每 model 一个环形缓冲，FIFO）
+```
+
+- **4 类互斥**（每个字符恰属一类）：CJK（表意/假名/谚文）≈1.003 tok/字、拉丁 a-zA-Z ≈0.286、数字 0-9、符号/标点/其它。「中英混合」是**样本形态**（由回归自然处理），**不是第 5 类**（否则矩阵共线）。
+- **免策展、不死锁**：真实会话本就混合 ⇒ 谁常出现谁学得准；**不需要「每类至少 N 条」**（离散门槛会让某类缺样本时**整条学习路径永不开启**，把已学好的类也拖死）。
+- **收缩（岭回归）**：`k_c = (n_c·k̂_c + λ·k_c⁰)/(n_c+λ)`，先验 `k_c⁰` 用**实测值**（非中性 1.0）⇒ 某类 0 样本退回先验（可用，不是垃圾）、1~2 样本不震荡、放宽总数也无害。
+- **门槛保留为全局成熟门**：样本数 ≥10 后以学习值优先（管「先验表 vs 学习值」），与逐维收缩不冲突。
+- **半持久化**：`localStorage['cc-haha.tpsDensity']`，样本池（20×5 整数）+ 版本号 + 按 model 分桶 + 节流写 + 坏数据回退先验表。
+
+**在飞用量：A 优先（用户明确）**
+
+三源成链：`在飞 A（真实 ids 累加）──不可用──> B（学习估计）──落盘──> usage（权威，覆盖）`。
+
+- **数据面统一**：A 通道 = **`tps_tokens`**（tap 产出的真实计数，带 `kind`）= 既是 **TPS 速率的分子**、也是 **所有在飞用量（轮次/子代理/收纳栏/后台任务）的分子** ⇒ 二者读**同一份**计数，天然自洽。
+- 服务端 `agentRunUsageProjection.ts` 与客户端 `subagentLiveChars` 的「单一 `/4` 常数」**全部移除**（见 29.1 踩坑 a）⇒ 改 A 优先、B 兜底。
+- 落盘由既有「完成通知/边界帧带权威 `usage` 二次校正」骨架（链位 49/63）覆盖，只升级分子。
+
+**验证**
+
+- 单测：`tokenDensity.test`、`tpsDensityStore.test`、`agentRunUsageProjection.test`、`StreamingIndicator.test`、`session-messages-http.test` 全绿；服务端全量 **498 文件 / 5994 通过 / 0 失败**。
+- **7788 端到端**：13 个 delta 带真实 ids、0 个 null、**3 条 `tps_tokens`**（thinking 36/6 + content 18）。
+- 桌面 `vitest`：`tpsDensityStore`+`StreamingIndicator` **14 通过**；`tsc` 无新错误（仅既有 `compact.test.ts` 损坏）。
+- **7787（align 树）同步后**：同款端到端 **3 条 `tps_tokens`** 复现。
+
+**踩坑记录（本项）**
+
+| # | 坑 | 一句话 |
+|---|---|---|
+| a | **`/4` 对中文低算约 4×** | 服务端 `agentRunUsageProjection` 与客户端 `subagentLiveChars` 都用常数 `CHARS_PER_TOKEN=4`（≈0.25 tok/char = **拉丁**密度）折 token，而**中文≈1.0** ⇒ 中文在飞用量被低算约 4 倍。**「两处一致」不等于「正确」**——一致地错也是一种错。 |
+| b | **离散门槛会饿死学习** | 若按「每类至少 2 条」才启用，某类（如纯英文）长期缺样本 ⇒ **整条学习路径永不开启**，已学好的类也停在中性值；放宽为「总数达标」又让稀疏类出垃圾系数。正解是**收缩**（先验兜底，有多少数据用多少），门槛只保留「全局成熟」一层。 |
+| c | **4 类必须互斥** | 「纯英/纯中/中英混合/纯字符」若当 4 个子池，**混合与前两者不互斥**（它=中+英同时出现）⇒ 回归矩阵共线。正解：4 个**互斥字符类** + 混合作为**样本形态**由回归处理。 |
+| d | **样本不必存文本** | 估算是字符数的线性函数 ⇒ 只需 `{4 类计数, tokens}` 五个整数；存文本既臃肿又有隐私问题。「范本」的精巧化 = **存计数不存文本**。 |
+| e | **「引擎改造已生效」≠「UI 拿到值」** | A 通道要求请求**经过 cc-haha 代理**；客户端 base URL 直连 bc 时，引擎发了 ids 也没人读 ⇒ 必须先做私网自动经代理（链位 65）。 |
+| f | **工作树在制品瑕疵会原样进补丁** | 首版 patch 里 `chatStore.ts` 会话复位块 4 行（`streamingText`…`statusVerb`）是 **14 空格缩进**（正确 12）——工作树当时就带着这瑕疵生成，patch 忠实复刻了它。修法=修工作树缩进后**重新生成**（1155→1149 行），并以 `git apply -R --check` 反向校验「工作树恰含补丁内容」闭环。跨树核对时 align 树同处缩进正常 ⇒ 差异纯属本树工作树，非逻辑分歧。 |
+#### 29.2 deb 产物与核验（2026-10-02）
+
+含链位 **65 + 66** 的安装包：
+
+| 项 | 值 |
+|---|---|
+| 产物 | `desktop/build-artifacts/linux-x64/Claude-Code-Haha-0.6.6-linux-amd64.deb` |
+| 大小 / 时间 | **201,452,948 B** / **2026-10-02 21:09:53** |
+| 构建命令 | `LINUX_TARGETS=deb SKIP_INSTALL=1 bash desktop/scripts/build-linux.sh` |
+| package-smoke | **PASS**（12 项检查全过：deb / app.asar / app-update.yml / node-pty / ripgrep / 侧车二进制 …） |
+
+**制品新鲜度核验**（防「修法只在工作区、没进包」）：
+
+| 层 | 指纹 | 位置 |
+|---|---|---|
+| 侧车（服务端） | `x-return-token-ids` ✓、`tps_tokens` ✓ | `app.asar.unpacked/src-tauri/binaries/claude-sidecar-*` |
+| 前端（渲染） | `cc-haha.tpsDensity` ✓、`tps_tokens` ✓ | `app.asar.unpacked/dist/assets/PetRenderer-*.js` |
+
+> ⚠️ **前端 bundle 在 `app.asar.unpacked/dist/assets/`，不在 `app.asar` 里**（grep `app.asar` 会得 0，误判「改动没进包」）。
+
+> ⚠️ **package-smoke 在本环境会因 bun cwd 钉死而假失败**（`ENOENT …/gov-managerment-plan/desktop/package.json`）。绕过：`CCHAHA_CWD=<repo> bun --preload /tmp/bun-cwd-shim.js scripts/quality-gate/package-smoke/index.ts --platform linux --package-kind release --artifacts-dir desktop/build-artifacts/linux-x64` ⇒ **PASS**（不能 `bun run`，须直跑脚本文件）。
+
+#### 29.3 补丁与文档状态（2026-10-02）
+
+- **链位 65 / 66 均为新鲜补丁**：重生成后与工作树**逐字节一致**（65 = 559 行 / 6 文件；66 = 1125 行 / 10 文件）⇒ **无需修正、无遗漏**。
+- 链清单 `patch-chain-manifest.md`：链位总数 **66**，65/66 行齐；交付包 `modify/patches/` 同步 **66** 个。
+- 优化文档三处（`cchaha-06scode` / `/home/zeaxion/myproject/cchaha-067scode` / 交付包）**md5 一致**。
+- 引擎侧增量补丁 `1cat-vllm-v130/patches/opt21-anthropic-token-ids-v1.patch` 已更新为**触发式**（300 行）。
+
+#### 29.4 修正：`chatStore.ts` 四处「+2 缩进」污染（2026-10-02 晚）
+
+**现象**：`chatStore.ts` 有 **4 组共 20 行**被多缩进 2 格（14 应为 12、16 应为 14、18 应为 16），与同层兄弟不一致；且**补丁是从该坏状态生成的**（把原行删掉、以 +2 缩进重插），使补丁与「正确的原状」不符。
+
+**四处**（06scode 行号；align 对应处偏移 +28）：`5144-5150`（`streamingResponseChars/Counts + streamAttemptStart*`，16/18→14/16）、`5292-5295`（`msg.attemptStart` 三元对象，16→14 且闭括号 14→12）、`5486-5492`（同第一处、`session.*` 版）、`6302-6305`（`session_cleared` 重置对象的 `tokenUsage/streamingResponseChars/streamingResponseCounts/slashCommands`，14→12）。
+
+**根因**：新增 `streamingResponseCounts` / `streamAttemptStartResponseCounts` 字段时，**误把整组一起缩进了 2 格**（4 处各一次）；补丁随之捕获该状态。
+
+**修法**：两树各自把那 4 组缩进**回调 2 格**（脚本带内容断言），重生成链位 66 补丁 ⇒ 补丁由「删 3 行 + 插 4 行（+2）」变为**保留原行、仅新增 `...Counts` 行**的干净形态（1149 → 1125 行）。三处补丁 md5 一致（`2f699b5a`）；链复现 **66/66、`src/server`+`desktop/src` 逐字节一致**；desktop 测试 **388/388**、服务端相关 **146/146**。
+
+**踩坑**：
+
+| # | 坑 | 一句话 |
+|---|---|---|
+| a | **「行号 + 缩进」才是可复现的坏状态指纹** | 只看内容改没改会漏判；用「同层兄弟缩进对照」+「括号深度」才能定位（本次即靠「邻居 12、这 4 行 14 且无开括号」筛出） |
+| b | **纯缩进错误骗过所有常规门禁** | 编译/类型/单测**全绿**（JS 语义与空白无关），只有**逐行缩进审计**能发现；补丁评审时要专门看 `-N → +(N+2)` 的重缩进 hunk 是否有包裹层支撑 |
+| c | **补丁「删了又加同样的行」是危险信号** | 正常新增只在原行旁插 `+`；若出现「同内容 `-`/`+` 仅缩进不同」，说明生成时的源已漂移 |
+| d | **临时补丁文件是坏状态的温床** | `/tmp/new66.patch`（21:07 生成）残留了旧坏形态；已删。**以 `modify/patches/` 为准**，temp 不作为依据 |
+
+**遗留**：21:09 构建的 deb 来自修正前源码（**影响仅空白，不影响行为**）；已按修正后源码**重建**（见 §29.2 更新）。
+
+### 原三十、会话 TPS 读数 = 会话总量（去子代理重复计，2026-10-03）
+
+**症状**：4 子代理并发时主会话 TPS 显示远超引擎真实吞吐（实测峰值 2124 vs 引擎 324 ⇒ **6.5×**；主会话空闲、子代理活跃时约 **3.3×**）。
+
+**根因**：会话 meter（`own`）收到的是 `tps_tokens` —— 引擎按 **session id** 报的**总量**（子代理的调用复用父 sessionId，其 token 也计入该 id）。但旧聚合又在 `own` 之上 `+ Σ子代理meter`，于是同一批 token 被计两次。
+
+**修法（统一「own = 会话总量」）**：显示恒 = `own`，子代理 meter 只用于运行页与计数：
+- **ids 模式**：`own` ← `tps_tokens`（引擎总量，**已含**全部子代理）；
+- **非 ids 模式**：`own` ← 主会话正文 **+** 每个子代理正文（`ingestSubagentTps` 把子代理文本也喂入会话 meter；`external` 标记使其不进调用对账）；
+- `aggregateMeterReadings` **不再相加**子代理 meter（只统计 `activeSubs` 数量）。
+
+**验证**：`tpsMeter`/`TpsIndicator`/`chatStore` 单测 **472/472**（并修掉一条假绿：`picks up subagents…` 原用 `vi.useFakeTimers()` 连 `performance.now` 一起 mock，读数恒 0 ⇒ 断言空过；改为只 fake 定时器）；7787 实测 4 子代理写长文：**显示均值 141 vs 引擎 139.7 ⇒ 1.01×**（旧口径 6.5×）。
+
+**patch**：067 = `patches/tps/tps-session-total-patch1.patch`；06 = `patches/tps-session-total-fix.patch`。
 
 ---
 
-### 子优化（2026-09-28）：下载改走 blob 取字节——`file://` 下 DOM 自己的请求 Origin 是 `null`（链位 53）
+### 原四十二、TPS 与估算口径统一到引擎真值/密度池（✅ 2026-10-14，`patches/tps/tps-estimation-unified-patch1.patch`，⚠️ 基座 `d240afe84` 独立应用）
 
-- **触发（用户 verbatim）**：「文件浏览的两个下载触发，虽然是可以触发下载，但是提示**"无法从网站上提取文件"**，也要修。」
-- **实测定位**（对运行中的 8877 直接 curl 同一路由 `/local-file/<abs>?download=1`）：
+> 本章 patch 由原 43+44+45 三个独立 patch **合并**而来（主题一脉、文件高度重叠，合一降管理成本；干净 `d240afe84` 上 apply ⇒ 7 文件逐字节一致）。
 
-  | 请求 Origin | 结果 |
-  |---|---|
-  | 无 | **200**（正常返回 6719 字节） |
-  | `http://127.0.0.1:8877` / `localhost:8877` | **200** |
-  | `file://` | **200** |
-  | **`null`** | **403 `CORS origin not allowed`** |
+**① 流式指示器吃真值**：`tps_tokens` 已喂 TPS 米表与思考徽章，但 StreamingIndicator 的「本轮 N tokens」仍走四类字符估算。新增会话态 `streamingResponseExactTokens`（`tps_tokens` 逐批累加），`estimateStreamingTokens` 真值优先、ids 通路不可用时回落估算（行为不变）。attempt 边界镜像：失败且无副作用的流尝试回滚时，精确计数与字符计数同规回滚，避免重试后数字虚高。依赖 ids 通路（onecat 侧 token_ids 剥离问题见 WORK-HANDOFF，交 studio 工作区修复）。
 
-  打包版渲染进程在 `file://`（`main.ts` 的 `rendererEntry()` → `loadFile`），而**由 DOM 发起的下载请求，其 Origin 序列化为 `null`** —— 不是 `file://`。服务端 `resolveCors`（`middleware/cors.ts`）只在「无 Origin ／ 本机 Origin ／ H5 白名单」三者之一放行，`null` 不在其中，于是下载能发起、随即被拒。
-- **为什么不用「放行 `null`」**：`null` 是**所有不透明来源**的序列化值，恶意网页里的 `sandbox` iframe 正是这个来源 —— 放行它等于让任意网站驱动本地 API（读会话、读文件）。`file://` 不同：网页无法伪造它。所以修的是**调用方**，不是门控。
-- **修法**：`downloadLocalFile` 改为 `apiGetBlob`（`desktop/src/api/client.ts`）取字节 → `URL.createObjectURL` → 带 `download` 的临时锚点点击。**本仓库对 app icon 早已是同一解法**，`client.ts:459-463` 的注释写明了同一条理由：DOM 直接加载的资源**既带不了 Authorization 也带不了可信 Origin**；改为「先取字节」就走上了其余调用一样的凭证路径。代价＝文件经内存转 blob（与既有的图标/导出下载同一取舍）。
-  - blob URL 无文件名，故仍显式设 `anchor.download = fileNameFromPath(...)`（此时服务端的 `Content-Disposition` 帮不上忙）。
-  - `URL.revokeObjectURL` 延到下一个 task：同步撤销可能取消尚未开始的下载。
-  - 两个调用点（文件树菜单、「打开方式」菜单）改为 `void downloadLocalFile(...)`；助手自身**吞掉失败并记录原因**（调用方是即发即忘的菜单回调，抛出只会变成 unhandled rejection，用户什么都看不到）。
-- **踩坑记录**：
-  1. **我早前在代码注释里写了一个未经验证的因果**：称「下载卡片能用、树菜单不能」。实测两者**同样失败**（下载卡片是用户点击的锚点，DOM 点击的下载请求 Origin 同为 `null`）。**教训：写进注释的因果也要有取证，否则它会留在代码里误导下一个人（包括未来的自己）。**
-  2. **测试里让 vitest mock 抛异常会污染结果**：`mockRejectedValue` / `mockImplementation(async () => { throw … })` 都被 vitest 记为一条**独立失败**（未消费的拒绝承诺），即便调用方已 await 并 catch，表现为「测试明明写了 catch 却红」。改为把失败**布置在保存步骤**（`URL.createObjectURL` 抛）即可干净地验证「失败被吞、不抛给调用方」。同步抛出的 `mockImplementation(() => { throw … })` 同样会被计为失败。
-  3. `jsdom` 既无 `createObjectURL` 也无 `revokeObjectURL`，需在测试顶部兜底定义。
-- **验证**：`handlePreviewLink.test` **39 全绿**（其中 4 条为改写后的下载用例：走 API 客户端而非 DOM、保留路由与文件名、DOM 无残留、失败返回 false 且不抛）；桌面 `tsc -b` **0 错**；全量前端测试见交接快照。
-- **入库**：链位 **53** `patches/session/session-file-download-patch1.patch`（4 文件 133 增 / 54 删）。
+**② 估算统一吃密度池**：两条估算路径各自学习同一件事——米表二类校准（kCjk/kAscii）与四类密度池；且米表跑引擎真值后不再拟合自身系数（endCall 跳过学习），徽章/摘要估算冻结在旧值。修复：`estimateTokens`（desktop）优先吃密度池 density（池在两种模式下都持续从 usage 学习，与 live 流式估算器同源），回落二类校准（无池时行为不变）；`setEstimationDensity` 在 meter 初始化、模型切换、每次 usage 采样后即时刷新。密度池拟合加指数新近权重（`learnDensity` `options.halfLife`，`currentTpsDensity` 传池一半）：新样本权满、每回退 halfLife 个样本减半，分词器/引擎更新时拟合跟随漂移而非跨缝平均，旧样本仍锚定稀疏类；`halfLife: 0` = 旧等权拟合。
 
-### 补记（2026-09-28 定稿）：下载必须走 **anchor 导航**，不是 fetch（链位 55）
+**③ 工具期静默读数修复 + ids 断供回落**（用户报告：Write/Edit 执行期间 TPS 定格不动）：
+- 米表冻结：工具期无 token 产出 → 静默超 `LIVE_GAP_MS=1.5s` 后 `value()` 判「流已停」返回 `held()`。静默隐式判停区分不了「回合已结束」（保持末速合理）与「引擎在执行工具」（空桶即真实读数）。修复：`value()` 仅在 `callOpen=false`（call 已对账 / `endStream`）时冻结；回合中途静默回落零桶平均——读数诚实落 0，指示器近零 hold（1.5s）挡边界抖动，下一帧 `clearGrid` 重新计量（恢复后不被暂停期零污染）。run meter 用 external push 从不开 call 窗，行为不变。
+- ids 模式饿死：`tps_tokens` 一旦说过话即粘性锁死 ids 模式，此后流帧只 `touch()` 丢弃；ids 断供（探针两轮落空拉黑 origin / 中继重启 / onecat 剥 ids）后米表饿死。修复：`lastTpsTokensAtBySession` 记录真值通路最近发言时刻，流帧持续到达而 counts 静默超 10s（中继批间隔仅 200ms）→ 自动降回字符采样并 `meter.reset()`；工具执行期流帧也不来 → 不误降级。`resetTpsWindow` 同步清表。
 
-- **触发（用户 verbatim）**：先「两处下载点击**无反应**」→ 我改 fetch+blob；再「**还是点了没反应**」→ 我改主进程 IPC；第三次用户直接指出方向错了：「**文件浏览、文件预览的卡片是坏的，[对话里的卡片]能下，你搞错方向**」。
-- **关键在那句「能下」**：对话里的下载卡片（`DownloadReferencesCard`）用的是**裸 anchor 指向 `/local-file/...?download=1`**，它一直是好的 ⇒ 那条「DOM 直接指向路由」的老路**本来就是通的**，我前两轮的两次「修」是把它越改越坏。
-- **实测三态（决定性证据）**：
+**验证**：tokenDensity 11/11、meter 35/35、chatStore 404/404（新增中途静默落 0+恢复计量、endCall 保持末速、ids 断供回落三条）、desktop 全量 8292/0、server 全量 6686/0。
+### 原四十四、TPS ids 探测与校准学习修复：长 prefill 不再拉黑本地引擎、估算虚高 3-5 倍归零（✅ 2026-10-14，`patches/tps/tps-ids-probe-calibration-patch1.patch`，⚠️ 基座 `782661ba7` 独立应用）
 
-  | 请求形状 | 服务端 |
-  |---|---|
-  | **无 Origin**（anchor 点击＝导航） | **200 + `Content-Disposition: attachment`** |
-  | `Origin: null`（fetch） | 403 |
-  | `Origin: file://`（应用自身 fetch） | 200 |
+**问题**（用户报告，双症同链）：① 本地引擎明明带 token ids，却"老是跳到次级估算路线"；② 次级估算读数与实际速度差 3-5 倍（单请求已异常，并发更甚），而最不受待见的兜底固定估算实测偏差反而 ≤30%。
 
-- **我的推理错在哪**：我测到 `Origin: null` → 403，就断定「DOM 下载会被服务端拒」。但 **anchor 点击是导航、不是 fetch——导航不带 Origin**，于是走「无 Origin」那条放行路径。这正是卡片一直能用的原因。我改成 `fetch` 反而主动把请求推进了被拒的那条路；而「**不透明来源里 mint 的 `blob:` URL 不可下载**」又让失败变成**静默**（无异常、无提示），所以现象从「下载失败(403)」升级为「点了毫无反应」。
-- **做法**：`downloadLocalFile` 回到初版（`6c7d4a62`）的形状——建 anchor → `href` 指路由 → 带 `download` 名 → `click()`，同步返回。**文件浏览（右键）与文件预览（打开方式 → 下载）都走这一个函数，一处修好两处**；对话卡片无需改动。顺带删掉上一轮在错误前提下加的整套 IPC 机件（`desktop:file:save-copy` 通道 + `files.saveCopy` + `services/fileSave.ts` 等 **7 文件**），净 **−282 行**。
-- **踩坑记录**：
-  1. **最贵的错：抱着自己的假设不放**。连续两轮都在「DOM 下载被拒」这个前提上打补丁升级（blob → IPC），而**反证一直摆在眼前**——同一份代码里的另一个入口（卡片）能用。**当现象里存在一个能用的同类入口时，它就是现成的对照实验，先看它为什么能行。**
-  2. **「测到 403」≠「这条请求会被 403」**：403 是我**构造**的形状（`Origin: null`）得到的，真实点击走的是**另一种形状**（导航、无 Origin）。**先确认自己复刻的是不是真实请求，再去解释结果。**
-  3. **静默失败把方向带偏**：blob 不可下载时**不报错**，于是「下载失败」变成「毫无反应」，让我误判成更底层的权限问题。**失败模式的变化本身就是线索。**
-  4. 无头 Chrome 上的「file:// 页面能否下载 blob」实验**没有有效对照组**（两种来源都不落盘），当时就不该拿它当证据。
-  5. 收尾时我用 `pkill -f "claude-code-desktop"` **把用户正在用的生产实例一起杀了**。往后**只按精确 PID 停自己起的进程**（先用唯一 profile 串列出 PID、逐个确认再 kill），**绝不用模式匹配杀**。
-- **验证（真机，不只是单测）**：
-  - **打包 app 的 `file://` 渲染进程里真落盘**：CDP 把下载目录指到 `/tmp/e2e-nav-out`，在页面里点同形状的 anchor → **文件写出且内容一致（PASS）**。这是「导航下载可用」的直接证据。
-  - 服务端三态如上表实测。
-  - `handlePreviewLink` **38 绿**（下载段重写为「anchor 指向路由」断言）；`electron/ipc`+`services`+`workbench` **653 绿**；全量前端 **6346 绿**；`check:server` **493 文件 5950 绿**；`tsc -b` 0 错；链位 55/56 在链基 worktree apply **FAIL=0**。
-- **入库**：链位 **55** `patches/session/session-file-download-patch1.patch`（2 文件）。
+**根因**（实测定位，两处独立缺陷互相喂招）：
+- **probe 从请求发起计时**：`createTpsTokenRelay` 建 relay 即启动 10s 探测定时器，超时无 ids 记一次 miss，两次即拉黑整个 origin（进程内永不恢复）。致命点：计时起点是请求发起而非首 chunk——实测 ~1M token 上下文的 prefill 首 chunk **23.09s** 才到，超窗一倍多，而 ids 随后正常滚滚而来（引擎实测每 chunk 带 token_ids、单 chunk ≤8 个、并发两流各自 ~66 t/s）。大会话 prefill 越长越必中——恰好是用户主场景。拉黑后客户端帧到达而 counts 静默 10s（`IDS_FALLBACK_SILENCE_MS`）→ 降回字符采样。
+- **整块工具输入是学习盲区**：流式路径 `input_json_delta` 有喂 meter，但整块兜底路径（attempt 重放、非流式答案）只发 `tool_use_complete`，处理处只清 pending 不喂 `msg.input`。学习时 `usage.output_tokens`（轮累计，含工具 JSON）>> call 窗口字符单元 → 最小二乘把 kCjk/kAscii 拉向 **K_MAX=6** 并随 `saveTpsCalibration` 持久化 → 之后每个新会话 `loadTpsCalibration` 带回毒 k → 字符测量读数持续虚高 3-6 倍（"五倍"即上限的影子；并发子代理 JSON 占比更高偏差更大）。且 ids 模式下 endCall 跳过学习（`callIds>0` 提前 return），毒值永不自愈；TPS 速度桶算的是 `cjk×kCjk + ascii×kAscii`，不走密度池——密度池再准也救不了速度读数。
 
-### 补记（2026-09-28）：打开大会话「一直转圈」＝归属投影全量扫盘（链位 57）
+**改动**（11 文件 = 5 desktop/ + 6 src/）：
+- `src/server/proxy/streaming/openaiChatStreamToAnthropic.ts` / `anthropicTokenTap.ts`：各加 `onStreamEnd` 钩子（正常/错误/取消三路径恰好一次）。
+- `src/server/proxy/handler.ts`：miss 改在**流结束时**判定（`noteMiss`）；origin 一旦真正收到 ids 即入 `tokenIdSupportedOrigins`，此后**永不拉黑**（后续沉默请求 = 传输失败/早夭重试，不是引擎变了，下一次照问）；miss 记录 10 分钟 TTL 衰减。
+- `tool_use_complete` 帧打 `serverTs`（`src/server/ws/handler.ts` stampServerTs 扩面 + `src/server/ws/events.ts` 类型 + desktop `types/chat.ts` 同步）——整块补喂据此留在 generation 时钟，避免把 meter 永久降级到 arrival。
+- `desktop/src/stores/chatStore.ts`：`toolInputStreamedCharsBySession` 跟踪当前工具块的流式字符数；`tool_use_complete` 时为 0 则整块补喂（`feedWholeBlockToolInput`，防双计）；子代理 `ingestSubagentTps` 对整块 `tool_use_complete` 同样补喂 run meter；reconnect/retry/stop/clearMessages/teardown 全边界清 tracker。
+- `desktop/src/lib/tpsMeter.ts`：学习护栏——real > **4×units**（帧可解释上限）的样本直接丢弃，缺口的轮不再把系数拉上天。
+- `desktop/src/lib/tpsCalibration.ts`：**v5→v6**，存量毒条目整体丢弃重学（`LEARN_FORGET` 衰减负责收敛，但存量必须清）。
 
-- **触发（用户 verbatim）**：「老会话打不开」→ 追问后确认为「**一直转圈/很久没反应**」。
-- **定位过程（先证伪、再锁定）**：
-  - 打开门槛**不是**元凶：82 个会话**全是 UUID v4 名**、**无单条 >8MB 记录**（门槛 `HISTORY_SEMANTIC_RECORD_BYTES=8MB`、`isValidSessionId`）。
-  - vcc 扫盘**不是**元凶：`loadCcGlobalIndexByUuid` 实测 60MB→647ms。
-  - git 命令**不是**：仓库内 git 查询 3–4ms。
-  - 索引 DB 查询**不是**：4ms。
-  - **决定性对照**：`GET /api/sessions/<id>` **单独**就要 6.09s（小会话 0.55s）；再按选项切分 ⇒ 真凶是 `projectContext`。
-- **真根因**：`GET /api/sessions/<id>` 调 `getSessionHistoryPage(sessionId)`（**不带** `projectContext:false`）⇒ `projectHistoryPageEntries` → `readHistoryContexts`（`sessionHistoryContext.ts`）为给**一页**算出 `parent_tool_use_id`，把**整个转录从头流式扫一遍**。离线实测：
+**验证**：meter 21+13 全绿（ballooned call 第三段改写为护栏语义 + 新增 v6 丢弃测试）、desktop 全量 8296/0、server 全量 6686/0；sidecar 二进制 `strings` 验含 `onStreamEnd`；干净 `782661ba7` 上 apply ⇒ 11 文件逐字节一致 ✅。装新 deb 后预期：大会话持续走 ids 真值不再跳次级；即便回落字符采样，校准从零重学且带护栏，偏差回到先验水平（实测中文 est/real ≈ 0.6-0.75——顺带发现该引擎真实密度中文 1.33-2.63 tokens/char，远高于 PRIOR 的 1.003，密度池路线会自行学习修正）。
 
-  | 调用 | 耗时 | 扫描 |
-  |---|---|---|
-  | 默认（含投影） | **2,949ms** | **193,509,210 字节** |
-  | `projectContext:false` | **6ms** | 0 |
 
-  慢约 **500 倍**。代码注释自己写着「Building the ownership index scans the transcript from the start, which is what **stalls the shared server**」——但只有显式传 `projectContext:false` 才跳过，UI 正常打开走的是**会扫描**的那条。
-- **为什么反复转圈**（而不只是第一次慢）：缓存是 **`mkdtemp` 临时目录 + 内存 Map 仅 4 项**，且 `process.once('exit')` 直接 `rm -rf` ⇒ **每次服务重启、每次淘汰都要重扫**。
-- **顺带发现的泄漏**：`/tmp/claude-history-context-*` 累积 **634 个目录 / 92MB**（最早 09-24）——exit 钩子在 SIGKILL/崩溃时根本不执行，且内存只留 4 个、其余 build 完就无人回收。
-- **做法**：把索引的**可续跑状态写进 DB 的 `meta` 表**（`schema/identity/size/mtime/offset/suppressed/fingerprint`），并**与 context 行同事务提交**（保证索引永不与自身内容矛盾）；每个转录的索引放到**稳定路径** `<cc-haha>/db/history-context-v1/<sha256(路径)>.sqlite`（`CC_HAHA_HISTORY_CONTEXT_DIR` 可覆盖）。淘汰只 `close` **不删文件**；`pruneOnce()` 每进程最多一次、删 7 天未动的索引。
-  - **所有失效判定原样保留**（identity/size/mtime/前缀指纹）：索引仍只对建它时那个文件身份+大小+mtime 生效，不一致就丢弃重建。**正确性不变，变的只是「进程内易失」→「跨进程可用」。**
-- **验证（跨进程 = 跨重启）**：冷启动 2,949ms → 第 2 个进程 **37ms** → 第 3 个进程 **36ms**（后两次 `ctxScan=0`）；索引文件仅 **3.3MB**。`sessionHistoryContext.test.ts` **8/8**（新增两条：冷启动复用落盘索引、冷启动仍拒绝被替换的转录）；`check:server` **493 文件 5952 通过 0 失败**。
-- **踩坑记录**：
-  1. **别把「文件大」当成「上下文大」**：该会话 139MB / 4 万条消息，但**送进 API 的上下文只有 73K token**。压缩（auto/手动、vcc/llm）**都不会缩小转录文件**。用户以为「该压缩了」，其实阈值 418K 远没到。
-  2. **先证伪再锁定**：我依次排掉了打开门槛、vcc 扫盘、git、索引 DB 四个「看起来很像」的原因，最后用「单独测元数据端点」把范围从「历史分页」缩到「投影」。
-  3. **离线复现比读代码快得多**：写个脚本直接 import `sessionService` 调同一方法 + 按选项切分，一次就量出 2,949ms vs 6ms；纯读代码很难看出 `projectContext` 默认值是开着的。
-  4. 别用 `pkill -f` 停自己起的进程（同期误杀了用户生产实例，见 `feedback_kill_own_processes_only`）。
-- **入库**：链位 **57** `patches/session/session-open-speed-patch1.patch`（2 文件）。
+## 四、用量计费与上下文估算
 
-### 补记二（2026-09-28）：大会话「一直转圈」＝`findSessionFile` 全量解析转录（链位 58）
+> 本章收纳原第 七、十九、三十九 章（2026-10-14 按功能域重组；各原章降为小节，内容原样）。
 
-- **上文（链位 57）修的是归属投影，但只解决了 `/messages` 那一半。** 用户实测「还是慢」后继续查，得真根因。
-- **定位方法（关键）**：读代码猜不出，于是给 `getSessionSummary` 的每个步骤加**临时计时**（env 门控），一次拿到真相：
+### 原七、上下文缓存与计费显示（源§十四，✅ 2026-09-25）
 
-  | 请求 | find | stat | summary | hydrate | 总 |
-  |---|---|---|---|---|---|
-  | 1 | **6065** | 0 | **5570** | 1 | 11.6s |
-  | 2 | 0 | 0 | **3424** | 0 | 3.4s |
-  | 3 | **4345** | 0 | 0 | 0 | 4.3s |
-
-  ⇒ **重复开销在 `findSessionFile`（单次 4–6 秒）**；`summary` 只在冷进程付一次。
-  ⚠️ 中途我一度误判是 `getMetadataProjection` 每次全量重扫（静态读代码得出的结论），**加诊断后立刻被推翻**（诊断行数为 0 ⇒ 它根本没被调用、缓存是命中的）。**别在没装探针的情况下靠读代码定性能根因。**
-- **根因**：`findSessionFiles` 里那行判「有没有真实对话」：
-
-  ```ts
-  const entries = await this.readJsonlFile(match.filePath)   // 全量读 + 逐行 JSON.parse
-  hasTranscript: this.hasConversationTranscript(entries)
-  ```
-
-  注释写的是「**one bounded read** here」，实际是全量。而**同一个 session id 在多个发现根下各有一份**（本例 139.7MB + 184.5MB）⇒ **每次 `findSessionFile` 解析约 320MB**。它几乎在每个会话端点上。
-- **修法**：`hasConversationTranscript` 问的是**存在性**问题，读到第一个合格条目即可回答。新增 `hasConversationTranscriptInFile`：只读文件头、**命中即停**，并设 **8MB 上限**兜住「头部全是元数据」的病态文件（该标志**只用于多个匹配间的排序**，所以上限的语义代价很小）。
-- **实测收益**：
-  - `findSessionFile` **4345–6065ms → 2–8ms**（约 1000 倍）
-  - 「老会话打不开」(13.5MB)：冷首开 **0.71s** → 之后 ~30ms
-  - 「…时间线交叉」(139.7MB×2)：热态连打 6 次 **0.010–0.017s**（改前 6.5 / 14.6 / 6.9s 且**不随请求次数改善**）
-- **仍未解决（下一个瓶颈，已实测）**：冷进程**首次** `/summary` 仍 **9.60s** —— `getMetadataProjection` 需要一次**全量遍历**（`messageCount`、最后时间戳、`launchCount` 等本就需要），且两份拷贝**各建一次**。对照：`/messages` 走链位 57 的落盘索引，冷态只要 **0.013s**。下一步可让元数据投影也落盘（同链位 57 的手法）。
-- **踩坑记录**：
-  1. **`pgrep -f` 自匹配我连续踩了两次**（第二次是命令里的 heredoc 文本含 `claude-sidecar.ts server`，导致匹配到我自己的 shell 并把它杀了）。正解：`pgrep -x bun` 再筛 `/proc/<pid>/cmdline`，**绝不按字符串模式杀进程**。
-  2. inspector 手段走了弯路：bun 的 `Runtime.evaluate` **不支持 `awaitPromise`**、`require` 未定义、`Debugger.pause` 不生效，且**开着 inspector 会把请求从 4s 拖到 45s**（测量被扭曲）。结论：**要定性能根因，最短路径是给代码加 env 门控的临时计时，量完立刻撤**。
-  3. 临时诊断**必须记得撤**：本轮已在提交前 `grep` 确认无残留。
-- **入库**：链位 **58** `patches/session/session-open-speed-patch1.patch`（2 文件）。
-
-### 补记三（2026-09-28）：元数据投影落盘，冷进程首开 10.2s → 0.016s（链位 59）
-
-- **上文（链位 57/58）已解决「重复开销」，但冷进程首次打开超大会话仍要 9.6s。** 用户选择先修掉它，再做 patch 合并。
-- **成本性质（与链位 58 不同）**：`getMetadataProjection` 要算 `messageCount`、最后时间戳、`launchCount`、标题优先级等，**本来就需要一次全量遍历**——不像「有没有真实对话」那样读到第一个合格条目就能答。所以不能靠「少读」解决，只能**别重复读**。而它此前只存在内存缓存里（`metadataProjectionCache`，上限 32），**进程一重启就没了**；且同一 session id 的两份拷贝（139.7MB + 184.5MB）**各建一次**。
-- **做法**：投影结果是**几 KB 的纯标量**，落盘即可 —— 新增 `transcriptMetadataCache`：
-  - 路径 `<cc-haha>/db/transcript-metadata-v1/<sha256(configDir+文件路径)>.json`（`CC_HAHA_TRANSCRIPT_METADATA_DIR` 可覆盖，供测试用，避免写进真实配置目录）。
-  - 写：`tmp` + `rename`（读者不会看到半写文件）；失败静默（它是缓存）。
-  - 读：**只认建它时那个 signature**（`dev:ino:size:mtimeNs`）且 `projectDir` 相同 ⇒ **陈旧条目的代价是重扫，绝不给出错误答案**。
-  - 每进程最多扫一次、删 7 天未动的条目。
-  - 顺带把内联的「上限 32」容量守卫抽成 `enforceMetadataProjectionCacheCapacity()` 供两处复用。
-- **实测（两个独立冷进程）**：
-  - 第 1 次冷启动（无落盘）首开 **10.24s** → 第 2 次冷启动 **0.016s**
-  - 落盘条目仅 **1.3–1.9KB**
-  - 两个真实会话冷进程首开：「老会话打不开」(13.5MB) **0.76s** 后 ~29ms；「…时间线交叉」(139.7MB+184.5MB) **0.027s**（改前 **9.29s**）
-- **测试写法（值得复用）**：要证明「命中来自落盘而非重扫」，不能只看返回值和耗时。做法是**把转录 `chmod 000` 后再读**：`fs.stat` 仍成功（signature 拿得到），但重扫一定 `EACCES` ⇒ 能返回正确值就证明确实读了落盘（root 下跳过该用例，因 chmod 拦不住 root）。另一条用「同长度改写让 mtime 变化」验证 signature 不符时条目不采信。
-- **踩坑记录**：本轮**没有**再犯前两轮的错（未用 `pgrep -f`、未靠读代码定因），代价是**用了 4 个冷启动来回实测**——但每次都有明确数字对照（10.24s → 0.016s），值。
-- **入库**：链位 **59** `patches/session/session-open-speed-patch1.patch`（3 文件）。
-
-## 六、设置-关于-更新：禁止更新开关（源§十三，✅ 2026-09-25）
-
-### 需求背景
-
-源§十三：桌面端 设置→关于→更新 区域加「禁止更新」开关，彻底关闭自动更新检查与下载（0.5.x 现状：启动即 `checkForUpdates({silent:true,autoDownload:true})` 检查+自动下载，AboutSettings 仅手动检查按钮，无开关）。
-
-**语义决策（用户拍板）= 完全禁用（含手动）**：启动检查跳过 + 手动「检查更新」按钮置灰。`checkForUpdates` 外部调用方仅 AboutSettings 按钮一处，守卫放在 store 层即可全覆盖。
-
-### 0.6.6 现状核对
-
-- 更新系统：`UpdateChecker.tsx` 挂载即 `useUpdateStore.initialize()`；`updateStore.initialize()` 延迟 5s 后 `checkForUpdates({silent:true})`（startupCheckPromise 单飞）；`checkForUpdates({silent,autoDownload})` 内 `autoDownload && (shouldOffer||!silent)` 触发 `downloadUpdate()`。
-- 设置持久化=REST `/api/settings/user`，服务端 `settingsService.updateUserSettings` 顶层浅合并（`Object.assign`）→ **新 boolean 字段服务端零改动**（照 `autoDreamEnabled` 完整 boolean toggle 范式）。
-- **坑（live 发现）**：H5 浏览器端（`remoteBrowser=true`，由 `classifyH5Request==='h5-browser'` 判定）走 `router.ts:68 validateRemoteSettingsPatch`（`WRITE_SETTINGS` 白名单）与 `:93 projectRemoteSettings`（`READ_SETTINGS` 投影）——新 key 两侧都不在名单 → PUT 400「Unsupported General setting」+ 乐观更新回弹、GET 读回永远 false。loopback 桌面直连不走此路径（loopback curl 200），所以单测全绿仍会漏。
-
-### 实施方案
-
-1. `desktop/src/types/settings.ts`：`UserSettings` 加 `disableUpdates?: boolean`（webSearch 与 updateProxy 之间）。
-2. `desktop/src/stores/settingsStore.ts`：`disableUpdates: boolean` 字段（初始 false）+ hydrate `userSettings.disableUpdates === true` + `setDisableUpdates(enabled)` 乐观 set→`settingsApi.updateUser`→失败回滚 throw（照 `setAutoDreamEnabled`）。
-3. `desktop/src/stores/updateStore.ts` 两处守卫：`initialize()` 在 `getUpdateHost()` 后、`checkForUpdates()` 在 host 判定后各加 `if (useSettingsStore.getState().disableUpdates) return (null)`——启动/手动检查全拦，自动下载随检查入口一并停。
-4. `desktop/src/pages/settings/AboutSettings.tsx`：Check now 按钮 `disabled={disableUpdates}`；按钮块后插 `Switch`（label/description 走 i18n）——「关于」tab 桌面+H5 共用（H5Settings.tsx:92 已渲染 AboutSettings）。
-5. **`src/server/remoteBrowserPolicy.ts`**：`disableUpdates` 加进 `READ_SETTINGS` 与 `WRITE_SETTINGS`（boolean 走默认 `typeof value==='boolean'` 校验）——H5 手机可读写该开关（同 `skipAutoPermissionPrompt` 先例）。
-6. i18n `update.disableUpdates`/`update.disableUpdatesDescription` 5 语言（en/zh/zh-TW/jp/kr，插在 `update.failed` 后）。
-7. 测试：`updateStore.test.ts` +2（disableUpdates 时手动 check 返回 null 且不触发 check；initialize+fakeTimers 6s 启动检查不触发）；`remoteBrowserPolicy.test.ts` +3 断言（`validateRemoteSettingsPatch({disableUpdates:true})` true、非 boolean false、`projectRemoteSettings` 透传）。
-
-### 验证
-
-- 桌面 `tsc -b` exit 0；`updateStore.test.ts` 20/20；全量前端 vitest **6143 pass/2 fail**（2 条=基线既有 providerModels、MessagePayloadRetention，零回归）；`remoteBrowserPolicy`+`router.remoteBrowser` 10/10。
-- vite build → App-BxBY2ThW.js；dev 7788 live（H5 关于页）：开关开→persisted=true+「检查更新」置灰、关→persisted=false+恢复，console 无错（400 修复前开关回弹）。
-- **坑实录**：初版漏改 `remoteBrowserPolicy.ts` → H5 PUT 400、开关回弹（loopback curl 200 未暴露）；补 READ+WRITE 白名单后 H5 读写全通。
-- Patch：`modify/patches/session/session-disable-updates-patch1.patch`（12 文件 302 行）。**9 patch 全链 `git apply` 干净且 disable-updates 12 文件逐字节等于工作树（0 差异）**。
-
----
-
-## 七、上下文缓存与计费显示（源§十四，✅ 2026-09-25）
-
-### 需求背景
+#### 需求背景
 
 旧 fork 的「缓存命中率」读数用的是**全会话累计口径**（`cacheRead / 全会话 prompt`）。长 agent 会话里每轮都会重放前文 prompt，累计比值被历史轮稀释到 ~0.5%，用户看到的命中率与当前缓存实际表现严重不符。本项要做两件事：
 
@@ -800,7 +1925,7 @@ H5 浏览器端打开文件链接时，`/local-file/<absPath>` 直接内联显�
 
 用户拍板（AskUserQuestion）：显示位置「三处全做（header 费用徽标 + 上下文指示器缓存尾巴 + 上下文面板详情行），但根据当前新源码重新制定更优雅的融合效果，老优化项的显示方式不需要完全遵守」；货币口径「USD/CNY 双显示，CNY = USD × 7.2 固定汇率（仅展示，非计费换算）」。
 
-### 0.6.6 现状核对
+#### 0.6.6 现状核对
 
 - **数据全部现成，无需新端点**：
   - `desktop/src/api/sessions.ts:187-222` `SessionUsageSnapshot` 已带 `totalCostUSD` / `costDisplay`（会话累计，服务端预格式化）。
@@ -809,7 +1934,7 @@ H5 浏览器端打开文件链接时，`/local-file/<absPath>` 直接内联显�
 - `desktop/src/lib/sessionUsageMetrics.ts` 已有 `deriveSessionUsageMetrics`（含会话累计 `cacheHitRate`）/ `formatCacheHitRate`，但无请求级命中率、无 CNY 格式化。
 - 三处展示位：上下文指示器 `ContextUsageIndicator.tsx`（含详情 `ContextUsageDetails.tsx`）、上下文概览 `LocalSlashCommandPanel.tsx` 的 `ContextOverview`、会话 header（桌面 `pages/ActiveSession.tsx` + 移动 `components/layout/AppShell.tsx`）。
 
-### 实施方案
+#### 实施方案
 
 1. **`sessionUsageMetrics.ts`**：新增 `latestTurnCacheHitRate({input_tokens, cache_creation_input_tokens, cache_read_input_tokens}): number|null`（`promptTokens = input+cacheRead+cacheWrite`，`=0` 返回 null）——请求级命中率的核心；新增 `CNY_PER_USD = 7.2` 与 `formatCnyCost(usd)`（`¥`，>0.5 两位小数、否则四位，与 USD 同精度对齐）、`formatCompactTokens`（`1.2M/375K/812`）。
 2. **`ContextUsageDetails.tsx`**：`ContextUsageSessionStats` 增 `cacheReadTokens` + `totalCostUSD`；`SessionStatGrid` 缓存命中行 rate 非 null 时橙色 `#ea580c` + 行内 compact tokens；费用行旁增 `· ¥…` CNY span。
@@ -819,7 +1944,7 @@ H5 浏览器端打开文件链接时，`/local-file/<absPath>` 直接内联显�
 6. **挂载**：桌面 `pages/ActiveSession.tsx` 会话 header actions 区（TpsIndicator 与刷新按钮之间，`active={chatState!=='idle'}`）；移动 `components/layout/AppShell.tsx` 移动 header（TpsIndicator vertical 后，`active={activeTab?.status==='running'}` + `compact`）。
 7. **i18n（5 语言）**：各增 `slash.inspector.context.cache` / `.cached`、`contextIndicator.cacheHint`（`{percent}` `{tokens}`）、`session.totalCost` 共 4 key。
 
-### 验证
+#### 验证
 
 - 桌面 `tsc -b` exit 0；受影响 4 测试文件 **84/84**（ContextUsageIndicator 27 / LocalSlashCommandPanel 3 / AppShell 22 / ActiveSession 32）；全量前端 vitest **6143 pass/2 fail**（2 条=基线既有 providerModels、MessagePayloadRetention，零回归）。
 - vite build → App-C54fEqkT.js（2200.13 kB，2.66s）。
@@ -833,7 +1958,7 @@ H5 浏览器端打开文件链接时，`/local-file/<absPath>` 直接内联显�
   迭代史：等宽 3 列 → 费用撑破 → `1fr_1fr_1.6fr`+transform 20px 右移 → 标签不对齐被否 → 内容定列宽 11:12:14+18px padding → 用户指出「中间两个间隔一宽一窄」（左窄列短值留 77px 死空，右缝仅 29px）→ 终值=**flex justify-evenly 等距**（治本，间距不再依赖列宽猜测）+ 384px 卡 + 13/10 统一字号 + 18px padding。
 - **第五章下载功能回归测试补齐**（随本次一并提交）：`6c7d4a62` 加下载项时漏改 3 处既有断言——WorkspaceFileOpenWith.test 菜单项数 4→5 + mock capabilities 补 `workspaceBrowser: true`（桌面宿主真实值，electronHost.ts:79，缺它则内置浏览器走 H5 兜底路径，2 条断言连带挂）；WorkspaceFileTreePane.test 键盘用例 `getByRole('menuitem')` 因新增下载项多匹配，加 `name: 'Add to chat'` 限定。全量 vitest 12298 pass / 2 fail=仅 MessageList 虚拟化用例负载 flaky（独立跑 198/198）。
 
-### 子优化（2026-09-25）：上下文面板「生成速度」口径修正（decode-only）
+#### 子优化（2026-09-25）：上下文面板「生成速度」口径修正（decode-only）
 
 - **根因**：`sessionUsageMetrics.ts` 的 `deriveSessionUsageMetrics` 原来用 `totalAPIDuration`（= 解码时长 + TTFT 首 token 等待）作分母算 `tokensPerSecond`，把首 token 等待混入「生成时间」→ 上下文面板「生成速度」实测偏低 ~24%（46.2 vs 真实 61.0）。
 - **修正**：分母改用 `totalDecodeDuration`（纯解码时长），`decodeMs > 0` 时优先；否则回退 `totalAPIDuration`。`generationMs = decodeMs > 0 ? decodeMs : apiMs`；`tokensPerSecond = generationMs > 0 && output > 0 ? output / (generationMs/1000) : null`。
@@ -844,247 +1969,121 @@ H5 浏览器端打开文件链接时，`/local-file/<absPath>` 直接内联显�
 
 ---
 
-## 八、思考模式二级开关：think 是否回传后端 API（源§二十五，✅ 2026-09-26）
+### 原十九、bc 压缩后 context usage 不收敛（✅ 2026-09-26 已实施）
 
-### 需求背景
+#### 需求背景（用户 2026-09-26 verbatim）
 
-CC-HAHA 默认把上一轮 thinking 全文发回后端（Anthropic 格式原样透传，且 1P/Bedrock/Vertex 还发 `context_management clear_thinking keep:'all'` 显式要求服务端保留）。对自建 vLLM（无 1P 缓存保留机制）= 每轮实打实的额外 prefill token 开销。本项在「设置-通用-思考模式」下新增**二级开关**「将思考内容回传后端 API」：
+「因为有bc中间件在前端助手和后端引擎中间，现在context usage只有持续增长到100%，没有随bc压缩收敛后显示真实usage和百分比，这个作为新优化项，先推进调研。」
 
-- **关（默认/缺省）**：构造 API 请求体时剥离上轮 assistant 的 `thinking` / `redacted_thinking` block，不再作为上下文发给后端。
-- **开（`sendThinkingHistory=true`）**：维持原行为（thinking 原样随 messages 回传）。
-- **本地留存不变**：无论开关状态，本地会话历史（内存滚动 / jsonl 落盘 / 会话内回看渲染）完整保留 thinking。
+#### 调研结论：根因已坐实（live 实证）
 
-设计意图：**升级后默认行为翻转**（thinking 不再回传省 token）。若发现模型质量回退，设置页打开二级开关或 `CC_HAHA_SEND_THINKING_HISTORY=1` 即恢复。
+**架构**：桌面 sidecar（cc-haha）→ bc/bili 中间件（:8878，无状态全量拼历史 + salvage 压缩）→ vLLM 引擎。sidecar 的 context 百分比**不读 bc 的任何信号**，完全本地计算：
 
-### 0.6.6 现状核对
+**计算链**（`src/server/services/sessionService.ts`）：
+1. `buildTranscriptContextEstimate`（:2938-3031）= 唯一显示源（inspection.contextEstimate → 前端 ContextUsageIndicator.tsx:391 直接取 `percentage`）。
+2. `accumulateTranscriptContext`（:462-524）扫**追加式 transcript JSONL**：每条 user/assistant/attachment 用 `roughTokenCountEstimationForMessage`（≈字符/4）累加进 `estimatedTokensFromMessages`；遇 `system/compact_boundary`（:466-471）才清零累加器+latestUsage。
+3. `totalTokens = min(max(contextBudget.usedTokens, providerTokens + estimatedTokensAfterUsage), rawMaxTokens)`（:2971-2980），`percentage = round(totalTokens/rawMaxTokens*100)`（:2981）。
 
-- settings schema：`src/utils/settings/types.ts` 顶层 `.passthrough()`(:1174) 但文件校验 `.strict()`(:193) → 新字段须进 schema，否则被 strip 掉。范式 `alwaysThinkingEnabled`(:746-752)。
-- thinking 工具：`src/utils/thinking.ts`（env 先例 `shouldSendExplicitDisabledThinking():220-222`）；`getSettingsWithErrors()` 已 import(:8)，返回 `{settings, errors}`。
-- 主 API 咽喉点：`src/utils/messages.ts:2022` `normalizeMessagesForAPI(messages, tools, currentModel)`（3 参），尾部清理链 :2393-2472。`isThinkingBlock`:5026（匹配 `thinking`/`redacted_thinking`）；`stripSignatureBlocks`:5321 成熟模式可复用。
-- 主路径挂载：`src/services/api/claude.ts:1417` 调用 + `getAPIContextManagement`:1837（局部 `hasThinking`:1721 另用于 temperature）。
-- OpenAI 路线：`src/server/proxy/handler.ts:706` `roundTripReasoningContent`（DeepSeek/opencode.ai 明文回传）；`src/services/openaiAuth/fetch.ts:225` 响应方向 `preserveOpenAIReasoning`（请求方向 :61 保持 `true`）。
-- **与老 fork 差异**：0.6.6 `normalizeMessagesForAPI` 是 **3 参**（本次加 options 成第 4 参）。0.6.6 有 `remoteBrowserPolicy.ts` 白名单（老 fork 无），新字段须同步 READ/WRITE 否则 H5 PUT 400 + 开关回弹（第六章坑）。0.6.6 `providers.test.ts` 有 2 个断言 DeepSeek `reasoning_content` 回传的用例（老 fork 无），门控默认关会让它们回归。
+**三条不收敛机理（全部 live 实证，本会话即实验对象）**：
+1. **本地累加器远超真实窗口**：自上一个 `compact_boundary` 后，本会话 2869 条消息的本地 rough 累加=**~787K token=340% 的 231248 窗口**；而引擎真实 usage（input 2565+cache_read 84672+output 5608=**~92K=40%**）。显示取 max → 本地项钉死 100%。
+2. **bc 压缩不写 compact_boundary**：bc 的 salvage/压缩发生在中间件层，回传的 assistant 消息照常追加进 transcript；sidecar 侧 376 个 compact_boundary 全来自 **sidecar 自己的 auto-compact**（`autoCompactIfNeeded`→`compactConversation`，`src/utils/messages.ts:4767` 写 boundary）。bc 压缩本身对 sidecar 零信号（bc bundle grep 无 compact_boundary 输出）。
+3. **窗口口径错配**：ZXSV-AI provider 配 `modelContextWindows={'zxsv-ai':231248}`+`autoCompactWindow=231248`（226K），但 bc 实际管理的是引擎 ~1M+ 窗口+自己的收敛门控（bc §1.35/§1.36 growth36000/N=12）。denominator 是 sidecar 自设值，与 bc 真实预算无关。
 
-### 实施方案
+**关键对照**（为何 auto-compact 自身行为正常但显示不收敛）：`shouldAutoCompact`（autoCompact.ts:212）用 `tokenCountWithEstimation`（tokens.ts:299）锚定**内存中最后一条真实 usage**（usage 锚 + 其后 rough 累加，锚含 cache_read → ~92K < 阈值 218K → 不误触发）；而显示路径用 `estimatedTokensFromMessages`=**全量自 boundary 累加（无 usage 锚）**。同一份数据、两个口径 → auto-compact 正常、显示钉 100%。
 
-1. **`src/utils/settings/types.ts`**：`alwaysThinkingEnabled` 后加 `sendThinkingHistory: z.boolean().optional().describe(...)`（缺省/absent=false=不回传）。
-2. **`src/utils/thinking.ts`**：新增 `shouldSendThinkingToAPI(): boolean`——env `CC_HAHA_SEND_THINKING_HISTORY` 强开（`isEnvTruthy`，调试逃生门）→ `getSettingsWithErrors().settings.sendThinkingHistory === true`。
-3. **`src/utils/messages.ts`**：`normalizeMessagesForAPI` 加第 4 参 `options?: { stripThinking?: boolean }`；在尾部清理链 `relocated` 之后、`filterOrphanedThinkingOnlyMessages` 之前插入 `withStrippedThinking = options?.stripThinking ? stripThinkingBlocksForAPI(relocated) : relocated`（顺序约束：thinking-only 剥空由 `ensureNonEmptyAssistantContent` 占位兜底，API 400 不变式全保持）。新增 `stripThinkingBlocksForAPI`——map assistant 消息 `content.filter(block => !isThinkingBlock(block))`，复用 `stripSignatureBlocks` 模式。其余旁路调用方（token 估算/compact 等）不传参 → **零行为变化**。
-4. **`src/services/api/claude.ts`**：:1417 调用加第 4 参 `{ stripThinking: !shouldSendThinkingToAPI() }`（desktop/CLI/SDK 唯一 API 咽喉点）；`getAPIContextManagement` 改 `hasThinking: hasThinking && shouldSendThinkingToAPI()`（开关关时不发无意义的 `clear_thinking keep:'all'`；局部 `hasThinking` 仍用于 temperature 等）。
-5. **`src/services/openaiAuth/fetch.ts`**：仅**响应方向** :225 `preserveOpenAIReasoning: shouldSendThinkingToAPI()`（**请求方向 :61 保持 `true`**，忠实老 fork）。
-6. **`src/server/proxy/handler.ts`**：:706 `roundTripReasoningContent: (knownDeepSeekHost || reasoningProfile?.family === 'deepseek-v4') && shouldSendThinkingToAPI()`（其余 Chat 兼容商本就丢弃，不变）。
-7. **`src/tools/ConfigTool/supportedSettings.ts`**：白名单加 `sendThinkingHistory`（`{source:'settings',type:'boolean',description:...}`，无 appStateKey）。
-8. **`src/server/remoteBrowserPolicy.ts`**（0.6.6 特有）：`sendThinkingHistory` 加进 `READ_SETTINGS` 与 `WRITE_SETTINGS`（boolean 走默认校验）——H5 手机可读写（第六章坑）。
-9. **桌面端**：`desktop/src/types/settings.ts` 加 `sendThinkingHistory?: boolean`；`settingsStore.ts` 加 `thinkingSendBack`（默认 false、读 `=== true`、setter 乐观 set→`updateUser({sendThinkingHistory})`→catch 回滚）；`GeneralSettings.tsx` 思考卡片主 checkbox 后插二级 checkbox（`thinkingEnabled &&` 门控）。
-10. **i18n（5 语言）**：`settings.general.thinkingSendBackTitle` / `thinkingSendBackHint` 各 2 条（en/zh/zh-TW/jp/kr，插在 `thinkingHint` 后）。
-11. **测试**：`thinking.test.ts` +4（`mock.module('../settings/settings.js')` 范式；absent=false / false=false / true=true / env 强开覆盖 false setting）；`messages.test.ts` +3（默认保留 / 剥离 thinking+redacted 且 text、tool_use 保留 / thinking-only 消息无错，**4 参调用** `(...,[],undefined,{stripThinking:true})`）；`providers.test.ts` 2 个 DeepSeek round-trip 用例内显式 `CC_HAHA_SEND_THINKING_HISTORY=1`（门控默认关会让它们回归，测试本意=验证 round-trip 路径）。
+**live 交叉验证**：dev 7788 短会话 inspection 回 `percentage=19 totalTokens=43053/231248 apiUsage={input 1482, cache_read 41472}`=引擎真实值，口径正确；长会话（本会话）必被本地累加项顶到 100%。
 
-### 验证
+#### 方案（实施时定夺，倾向 A+B）
 
-- **server 全量零回归**：全量 `src/server` **3330 pass / 22 fail**，22 条失败名单与基线 worktree 逐条一致（含 2 条 DeepSeek round-trip 回归修好后）。`thinking.test.ts`+`messages.test.ts` 新增 7 用例全过（`thinking.test.ts` 既有 1 条 `shouldIncludeFirstPartyOnlyBetas` 环境依赖失败=基线既有，非本章引入）；`providers.test.ts` 142/142。
-- **桌面**：`tsc -b` exit 0；`H5Settings`+`SettingsOutputStyle` 10/10；全量前端 vitest **6146 pass / 0 fail**（1df6bf70 修复后基线，零回归）。
-- vite build → `App-Cl3KkIFE.js`（2201.04 kB，2.71s）。
-- **行为矩阵**（对齐源§二十五）：Anthropic 关=剥离 + `clear_thinking` 不发 / 开=原样 + `keep:'all'`；OpenAI Chat DeepSeek 关=不发 `reasoning_content` / 开=发明文；Codex OAuth 关=不发加密信封 / 开=发；其余商本就丢弃；本地历史始终完整保留。
-- **热更新**：开关在每次 API 请求时经 `getSettingsWithErrors` 读取（changeDetector 文件监听 + resetSettingsCache 既有机制），改完即对下一次请求生效，无需推控制消息。
-- **Patch**：`modify/patches/session/session-thinking-switch-patch1.patch`（19 文件 619 行，含 3 测试文件）。**11 patch 全链 `git apply` 干净（仅 h5-settings-parity 既有 EOF 空白 warning）且 thinking-switch 19 文件逐字节等于工作树（0 差异）**。
+- **A（治本，推荐）**：显示口径对齐 auto-compact——`buildTranscriptContextEstimate` 的 `estimatedTokens` 改用 usage 锚口径（最后一条真实 usage 的 prompt 总量 + 其后 rough 累加），而非全量 `estimatedTokensFromMessages`。单点改 sessionService（复用 tokens.ts 已有 `tokenCountWithEstimation` 思路），bc 压缩后 usage 回落 → 百分比收敛。风险=低（显示只读路径，不碰压缩触发）。
+- **B（兜底）**：bc 压缩/salvage 时让 sidecar 感知——两路：①bc 在流里发 compaction 标记（需 bc 协议扩展，改动大）；②sidecar 检测到「latestUsage 总量较前值骤降 > 阈值」时视为压缩事件，清零 `estimatedTokensFromMessages`（本地启发式，无 bc 改动）。
+- **C（口径修正，可选）**：ZXSV-AI 窗口 231248 → 与 bc 真实管理窗口对齐（或留 231248 当「sidecar 自主 compact 预算」语义，文档说明）。
 
----
+#### 实施（commit 94c8f0f7，4 文件 74 行，方案 A 治本 + 伴随加固）
 
-## 九、H5 设置页与桌面端全 tab 对齐（放开浏览器「两 pill」围栏）（✅ 2026-09-24）
+- **核心（方案 A）**：`src/server/services/sessionService.ts:2970` `buildTranscriptContextEstimate` 的 `totalTokens` 从 `min(max(contextBudget.usedTokens, providerTokens+estimatedTokensAfterUsage), rawMaxTokens)` 改为 `min(providerTokens+estimatedTokensAfterUsage, rawMaxTokens)`——显示总量走 **usage 锚口径**（最后一条真实 usage 总量 + 其后 rough 累加），与 auto-compact 的 `tokenCountWithEstimation`（tokens.ts:299）同口径。bc 中间件压缩后 usage 回落 → 显示百分比收敛，不再被自 boundary 的全量 rough 累加（本会话 ~787K=340% 窗口）钉死 100%。`estimatedTokens` 仍保留全量 rough 口径供 `calculateContextBudget` 的媒体信任启发式使用；低信任+媒体的可疑 usage 尖峰仍走 `ignoredUsageReason` 分支（行为不变）。
+- **伴随加固**：`src/server/services/localIndex/sessionProjector.ts`——malformed transcript 会把 thinking 文本误解析进 tool_use name，原单字符串 metadata 上限 4KB 过紧（实测 12KB 异常值致 `LOCAL_INDEX_SOURCE_LIMIT`），放宽为 `MAX_PROJECTION_METADATA_VALUE_BYTES=16KB`（且由 `value.length` 字符判定改为 `Buffer.byteLength` 字节判定，多字节字符更准）；metadata 总量上限 `MAX_PROJECTION_METADATA_BYTES` 16MB→32MB。
+- **回归测试**：`src/server/__tests__/conversations.test.ts` 新增「全量 rough 累加(150k)≫真实 usage(1200) 时显示锚定 usage」用例（600000 字符 assistant 消息 + usage 1200，断言 totalTokens=1200/percentage=1/rawMaxTokens=200000）——stash 旧码验证该用例 fail，正确钉住本改动。`sessionProjector.test.ts` 适配新上限常量。
 
-### 需求背景
+#### 验证
 
-0.6.6 的浏览器/H5 端设置页被「围栏」限制：`desktop/src/pages/Settings.tsx:28-30` 依据 `getDesktopHost().isDesktop` 分流，浏览器只渲染 `H5Settings`，而 `H5Settings.tsx` 原本只放 **2 个 pill**（模型配置 providers + 通用 general）。桌面端 `DesktopSettings` 则有 15 个主 tab + about 独立分组（共 16 个设置项）。用户要求 H5 在手机浏览器上能像桌面端一样**看到并使用全部设置项**（含通用 tab 换桌面完整版 GeneralSettings，接受浏览器端设置写回主机）。
+- src/server 相关 4 测试家族（conversations/sessions/contextBudget/sessionProjector 等）共 **488/488 绿**（加新回归测试后）；新用例在新码 pass、stash 旧码 fail。
+- typecheck 干净（scoped，仅既有 TS5102 baseUrl 无关告警）。
+- **22 链全验证**：068b3ebd 基线顺序 apply 22 patch（含新 `patches/usage/usage-context-usage-anchor-patch1.patch`）FAIL=0，章十九 4 文件逐字节=工作树。
 
-### 0.6.6 现状核对
+#### 状态
 
-- 分流点：`Settings.tsx:29` `getDesktopHost().isDesktop ? <DesktopSettings/> : <H5Settings/>`（**不改**，H5 入口仍是 H5Settings）。
-- `DesktopSettings`（`Settings.tsx:32-112`）：195px 侧栏 `TabButton` 列表 `:69-87`（15 主 + about 独立分组），内容 switch `:92-107`。
-- 各 tab 组件浏览器安全性（Explore 审查结论）：多数自带 `getDesktopHost()` capabilities 降级——
-  - Terminal：浏览器 `terminalApi.isAvailable()`(=`capabilities.terminal`)=false → 显示「需桌面端」EmptyState（`TerminalSettings.tsx:712`）。
-  - Pet / ComputerUse / About：各自 `isDesktop`/capabilities 降级。
-  - DirectoryPicker（Adapter/Mcp/Agent 共用）：浏览器走 `filesystemApi.browse` 浏览模式。
-  - General：`setTheme` 只写 uiStore 不写回主机；dialogs/appMode/notifications 三处桌面 host 调用均有 capability 或 desktop-only 渲染守卫。
-  - 数据全部走 `/api`（H5 可达）。
-- `SettingsTab` union 已含 16 值（`uiStore.ts:233-249`）；`SettingsPill` 自带 `aria-pressed` + 渲染 `<button>`（`SettingsSection.tsx:101-129`）；i18n `settings.tab.*` 全部已存在。
+✅ 已实施（2026-09-26，方案 A + projector 加固，patch `patches/usage/usage-context-usage-anchor-patch1.patch` 入库）。
 
-### 实施方案
-
-1. **提取 tab 常量供两端复用**（`Settings.tsx`）：新增模块级 `export const SETTINGS_TABS`（15 项 `{id, icon}` 数组，顺序与桌面 rail 一致）+ `export const SETTINGS_ABOUT_TAB = { id:'about', icon:'info' }`；`DesktopSettings` 侧栏改为遍历 `SETTINGS_TABS.map(...)`，about 独立分组保持不变。
-2. **重写 `H5Settings.tsx`** 暴露与桌面端完全一致的 16 项（15 主 + about）：
-   - `selected = pending ?? active`，pending 消费 effect（`setActiveSettingsTab(pending)` + `setPendingSettingsTab(null)`）。
-   - 导航改为**横向可滚动 pill 条**（`overflow-x-auto` + 隐藏滚动条），适配窄屏；选中 pill 自动 `scrollIntoView`。
-   - 内容区 16 分支与 `DesktopSettings:92-107` 一致（trace 用 `overflow-hidden` 全宽容器特殊分支），providers 保留 `<ProviderSettings browserMode />`，general 用桌面完整版 `<GeneralSettings />`。
-   - skills/plugins 用本地 `H5SkillSettings`/`H5PluginSettings` 包装（selected 详情模式，`SettingsPageHeader` + List），与桌面 rail 的 SkillSettings/PluginSettings 同构。
-3. **删除** `H5GeneralSettings.tsx`（仅旧 H5Settings 引用，被桌面 GeneralSettings 取代）；保留 `h5Settings.*` i18n key 不动。
-4. **重写 `H5Settings.test.tsx`**：13 个页面组件 `vi.mock`（工厂函数，导出名与真实模块导出名一致），8 个用例——pill 数断言 **16**（15 主 + about）、导航到 Terminal/H5Access、4 个 ProviderSettings browserMode 原用例保留、Settings 路由 16 pill + provider 渲染。
-
-### 验证
-
-- **单测**：`H5Settings.test.tsx` 8/8 pass；desktop 全量 vitest 6137 pass（2 个既有失败：`providerModels.test.ts` 分组顺序、`MessagePayloadRetention.test.tsx` 5s 超时，均非本次触及）；`tsc -b` 0 错误。
-- **重 build + 重启 7788 dev**：`cd desktop && node ./node_modules/vite/bin/vite.js build` → 新 bundle `index-B_ViiZEH.js`（旧 `index-ZWgLHPz_.js`）；线上 App chunk 含新横向导航特征 class（`overflow-x-auto border-b`）2 处，确认新 H5 设置页已打包并伺服。
-- **patch 干净应用**：`modify/patches/h5/h5-settings-parity-patch1.patch`（4 文件）经 `git apply --check` 验证可干净应用于 v0.6.6 基线 2f8d819d。
-- **待手机实测**：192.168.10.140 开 `http://192.168.10.43:7788` 确认 16 项可见可切换（含 H5 访问里的 requireToken 开关）。
-
-### 9.x H5 设置项 400/403 修复（remoteBrowser 白名单对齐，✅ 2026-09-27）
-
-**问题**：H5 放开全 tab 后，手机（LAN public 源）操作通用/网络等设置项大面积 400「Unsupported General setting」，部分子路由 403。loopback curl 全 200 不暴露——因为 `classifyH5Request`（`src/server/h5AccessPolicy.ts`）仅对 public 源（`h5-browser`）走 `validateRemoteSettingsPatch` 白名单（`src/server/router.ts:68`），loopback 属 local-trusted 直连 `handleUserSettings`（宽松，只查 JSON）。
-
-**根因**：`remoteBrowserPolicy.ts` 的 `READ_SETTINGS`/`WRITE_SETTINGS` 白名单是 H5 设置放开前的小集合（10/8 key），而桌面完整版 `GeneralSettings` 经 settingsStore 会写 16 个字段，其中 8 个不在 WRITE 白名单：`agentTeamsEnabled`/`autoDreamEnabled`/`skipWebFetchPreflight`/`desktopNotificationsEnabled`（bool）、`cleanupPeriodDays`（number 0–3650）、`webSearch`/`updateProxy`/`network`（对象）。另 `/api/settings` 子路由（output-styles、output-style、session-cleanup）不在 `remoteSettingsRouteAllowed`；`session-cleanup` 还被 `LOCAL_CREDENTIAL_ONLY_PATHS` 拦（设计=只许本地桌面进程调，用户拍板移除以完全对齐桌面）。
-
-**修复**（7 文件，全 src/server/）：
-1. `remoteBrowserPolicy.ts`：READ/WRITE 白名单 +8；新增形状校验器 `isValidWebSearch`（mode∈auto/anthropic/tavily/brave/disabled + 可选 apiKey 字符串）、`isValidUpdateProxy`（mode∈system/manual + url）、`isValidNetwork`（aiRequestTimeoutMs 30s–2^31ms + proxy.mode∈direct/system/manual + url）、`isValidCleanupPeriodDays`（int 0..3650）；`projectRemoteSettings` 重写为按 READ_SETTINGS 循环投影，4 个对象/数值字段校验后深拷贝（防 H5 刷新后对象值丢失回弹）；`remoteSettingsRouteAllowed` 扩：settings/user GET/PUT + output-styles GET + output-style PUT + session-cleanup POST。
-2. `router.ts`：字段白名单校验+GET 投影只 gate `/api/settings/user`（`parts[2]==='user'`），子路由 body 交 handler 自校验。
-3. `h5AccessPolicy.ts`：`LOCAL_CREDENTIAL_ONLY_PATHS` 清空（保留 gate 机制与注释）。
-4–7. 测试同步：`remoteBrowserPolicy.test.ts` +12 路由白名单断言；`router.remoteBrowser.test.ts` +子路由用例（200/403）；`h5-access-policy.test.ts` 反转 session-cleanup 断言（仍保留 /api/h5-access 本地限定）；`h5-access-auth.test.ts` preflight 403 列表去掉 session-cleanup。
-
-**验证**：live 7788 LAN（192.168.10.43 + H5 token）——8 字段 PUT 全 200、GET/PUT output-style(s) 200、POST session-cleanup 200、错误方法 403、`/project`/`/cli-launcher`/`/permission-mode` 仍 403、GET /user 投影回读 6 新字段全在、坏形状（mode:'bogus'/3651/-1）仍 400；3 测试文件 13/13；`src/server` 全量零回归。
-
-**patch**：`modify/patches/h5/h5-settings-parity-patch1.patch`（7 文件 357 行，链位 12，基线 6d4fd126）。
 
 ---
 
-## 十、本地开发模式注意事项（✅ 2026-09-24 跑通）
+### 原三十九、上下文估算口径统一：分类模型 + 图片按尺寸计价 + 触发取 max（✅ 2026-10-12）
 
-> 0.6.6 基座的本地开发模式（sidecar server 直接跑源码）已跑通，本节固化关键节点，避免遗失。
-> 目的：开发模式与在用的桌面端（`/opt/Claude Code Haha`，端口 8877）完全隔离，互不干扰。
+**用户报告**：会话（`html-test` 鹈鹕）已超过面板显示的自动压缩水平线，却始终不触发压缩，最终被引擎拒绝（vLLM 500：`ChatCompletionStreamResponse` 缺 `model`/`choices`）。用户怀疑是提示词中文化引起。
 
-### 10.1 环境准备
+**排除中文化**：`git log` 逐提交核对，全部中文化/prompts 提交只改 `prompts/` 文本与 `compact/prompt.ts` 的字符串，**从未触及** `tokenEstimation`／`utils/tokens`／`utils/context`／`contextBudget`／`autoCompact`／`modelContextWindows`／`services/api/claude`。且该 provider `vccCompactBackend: "algorithm"`，算法压缩不读 `compact/prompt.ts`。**无代码因果**。
 
-- 依赖：仓库根 `bun install` + `cd desktop && bun install`（bun 位于 `~/.bun/bin/bun`）。
-- H5 静态页：sidecar 从 `CLAUDE_H5_DIST_DIR`（或 cwd 下 `desktop/dist`）读静态资源，**必须先构建**：
-  `cd desktop && bun run build`（含 preview-agent 构建 + tsc -b + vite build，产物在 `desktop/dist/`）。
+**根因：同一时刻两把尺子**（不是阈值/预留/预算问题，这三样本次未动）：
 
-### 10.2 数据/配置复制（与桌面端隔离）
+| 量 | 值 | 尺子 |
+|---|---|---|
+| 面板「已使用」 | **225,573** | `analyzeContext` 的 categories 本地累加 |
+| 触发判据 | **176,187** | `shouldAutoCompact` 的 `tokenCountWithEstimation`（引擎 usage 锚） |
+| soft 触发线（窗口 231,248） | 179,560 | — |
 
-- 数据根目录规则：`$CLAUDE_CONFIG_DIR/cc-haha/`（代码内 `path.join(configDir, 'cc-haha', ...)`，`configDir = process.env.CLAUDE_CONFIG_DIR || ~/.claude`）。
-  - 桌面端在用：`~/.claude/cc-haha`（210M，db/ 占 209M：index-v1.sqlite 78M + search-index-v1.sqlite 110M 等）。
-- 复制方法（dev 用独立副本）：
-  ```bash
-  mkdir -p /home/zeaxion/cc-haha-dev
-  cp -a ~/.claude/cc-haha /home/zeaxion/cc-haha-dev/cc-haha
-  ```
-- dev 副本 `settings.json` 改 `h5Access.fixedPort: 8877 → 7788`（`publicBaseUrl` 保持 plain-lan `http://192.168.10.43` 即可，0.6.6 会自动用实际绑定端口刷新，`refreshLanPublicBaseUrlPort`）。
-- 复制时桌面端仍在跑：SQLite 的 `-wal`/`-shm` 也一并复制，dev 副本索引状态会报 `LOCAL_INDEX_DISCOVERY_INCOMPLETE`（索引内 transcript 路径仍指向原 home 下的文件，dev 副本里没有），**属正常现象**；SQLite 库本体完好，数据可读写。
+面板说超线、触发说没超 → 用户观感「机制坏了」，实际是**两个数**。live 实证（服务端 `:8877` inspection）：`totalTokens=225573 / maxTokens=231248 / percentage=98`，而同一会话 `autoCompactThreshold=198248`（服务端自算）与触发判据不同源。
 
-### 10.3 启动命令（端口 7788，对外 0.0.0.0）
+**实测定位偏差**（对本地 `zxsv-ai` 引擎的 `count_tokens` 实测）：
 
-```bash
-cd /home/zeaxion/myproject/cchaha-06scode
-CLAUDE_CONFIG_DIR=/home/zeaxion/cc-haha-dev \
-CLAUDE_H5_DIST_DIR=/home/zeaxion/myproject/cchaha-06scode/desktop/dist \
-~/.bun/bin/bun run desktop/sidecars/claude-sidecar.ts server \
-  --app-root /home/zeaxion/myproject/cchaha-06scode \
-  --host 0.0.0.0 --port 7788
-```
+1. **图片是主因**：本地常量 `2000`/张，引擎实价 **721**（1280×577 截图）——**高估 2.77×**。该会话 96 张图 → 虚增约 12 万。
+2. **文本固定 `chars/4` 也是错的**，字符类差异巨大：纯英文 4.50、**中文 1.50**、JSON 1.83、ASCII 数字 1.00、标点 1.20、空白 0。工具调用 input 全是 JSON → 系统性低估。
+3. **纯启发式无法达 5–15%**：同一套字符构成，真实内容实测在 **1.5–4.5 字符/token 之间浮动**（BPE 对重复的压缩效应主导，字符分类建模不了）。
 
-关键点：
-- **`--app-root` 必填**：sidecar launcher（`desktop/sidecars/launcherRouting.ts` 的 `parseLauncherArgs`）缺省会抛 `Missing --app-root`；dev 模式指向仓库根即可（preload.ts 只设 MACRO 并 chdir 到 `CALLER_DIR`，不依赖 app-root 是 asar）。
-- 端口/绑定：`--host`/`--port` 在 `src/server/index.ts` `resolveServerOptions` 解析（env `SERVER_HOST`/`SERVER_PORT` 兜底，默认 127.0.0.1:3456）。
-- dev 模式下会话 CLI 子进程：`resolveClaudeCliLauncher`（`src/utils/desktopBundledCli.ts`）因 execPath 是 bun 而非 sidecar 二进制而返回 null，走 `bin/claude-haha` 脚本路径（内部再 spawn bun 跑 `src/entrypoints/cli.tsx`）——所以 CLI 能力无需编译 sidecar 二进制。
+**引擎图片公式推导**（生成 7 种尺寸实测）：引擎按 32px 补丁计费，`tokens ≈ ceil(w×h/1024)`，误差 ≤2.2%（1280×577→721、800×600→476、1920×1080→2041、512×512→257、256×256→65）。对照：Anthropic 官方文档为 `(w×h)/750`。
 
-### 10.4 H5「允许所有 IP」的 0.6.6 语义
+**改动**（10 文件）：
 
-- 0.6.6 的 H5 鉴权**没有** `requireToken` 字段（那是旧§二本地优化，0.6.6 `normalizeStoredSettings` 会静默丢弃该字段）；门槛只有 H5 token。
-- 鉴权策略（`src/server/h5AccessPolicy.ts`）：
-  - 外部 IP 浏览器请求 → `classify==='h5-browser'`，能力路径（`/api/`、`/ws/`、`/proxy/`、`/local-file/`、`/preview-fs/`）需 Bearer H5 token；
-  - loopback（127.0.0.1/::1/localhost，且无代理头、URL hostname 也是 loopback）→ `local-trusted`，免 token；
-  - 静态页（`/`、`/assets/`）不鉴权，任何人可打开首页。
-- 因此「允许 0.0.0.0/0」= `--host 0.0.0.0` + `h5Access.enabled: true` + 有效 token；外部 IP 带 token 即可全量访问，**无需任何私网豁免代码**（旧§二的 requireToken 开关/私网豁免是叠加在此之上的新开关，见第一章）。
-- dev 复用桌面端同一 token：`h5_H7kDPNb-KkhMnULdmQ-B0eoAd8ey-Pcc9PhtcpbeSUQ`。
+- `src/services/tokenEstimation.ts`：
+  - 新增 `estimateTokensByCharClass`（单遍 charCode 循环，无正则无分配）：CJK 1/1.5、字母词 `max(1, len/4.5)`、数字 1.0/字符、标点 1/1.2、空白 0。`roughTokenCountEstimation` 在多参 `bytesPerToken` 省略时走它；显式传参者（文件类型启发式）保持旧行为。
+  - 新增 `pngDimensionsFromBase64`（只解码前 32 个 base64 字符取 IHDR）+ `estimateImageTokens`：按 `w×h` 计价，**分 provider** 取除式——`isFirstPartyAnthropicBaseUrl()` 用 750，否则 1024；上限/回退仍为 `IMAGE_MAX_TOKEN_SIZE=2000`，`document` 保持 2000。
+- `src/services/compact/autoCompact.ts`：
+  - 触发判据由「仅引擎锚口径」改为 `max(tokenCountWithEstimation(messages), roughTokenCountEstimationForMessages(messages) + fallbackFixedContextTokens)`：**任一超线即触发**。引擎完全不报 usage 时本地项是唯一依据；引擎少报时本地项是最后一道防线。
+  - 新增 `EXACT_CONFIRM_BAND = 0.1`：估算落在阈值 ±10% 内时，调 `countMessagesTokensWithAPI`（引擎 `count_tokens`）取精确值。`shouldAutoCompact` 增可选 `exactCount` thunk，由 `autoCompactIfNeeded` 注入 `measureExactPromptTokens`（`normalizeMessagesForAPI` 懒加载避免循环引用）。
+- `src/services/SessionMemory/prompts.ts`：`truncateSessionMemoryForCompact` 由「字符数 ≈ token×4」改为**按 token 截断**（`estimateTokensByCharClass`）。旧字符口径下中文段会超限约 3 倍。
+- `src/utils/context.ts`：`calculateCurrentContextTokenTotal` 的 `max(budget.usedTokens, canonicalTokens)` 语义**保持**，仅补注释说明为何取 max（两个测量都不可靠，低估是危险方向）。
 
-### 10.5 验证结果（2026-09-24）
+**刻意未做**：用引擎 usage 对本地估算做 EMA 校准（`local × engine/local`）。实现后测试发现它与「引擎少报」场景**直接冲突**——引擎报 5K 而实际 200K 时，校准比率 0.025 会把本地估算拉低到 140K，反而**掩盖**该触发的情况。校准无法区分「本地比率算错」与「引擎在少报」，而后者正是第二意见存在的意义。代码中留注释记录该决策，两个测量保持独立。
 
-| 验证点 | 结果 |
-|--------|------|
-| 启动日志 | `[Server] Claude Code API server running at http://0.0.0.0:7788` |
-| 静态首页（外部 IP，无 token） | 200（index.html 11133 bytes） |
-| `/api/sessions` 外部 IP 无 token | 401 `Missing H5 access token` |
-| `/api/sessions` 外部 IP 带 token | 200，索引 `discovered:23/indexed:23`，databaseBytes 78561280 |
-| `/api/sessions` loopback 无 token | 200（local-trusted，符合策略） |
-| `/api/h5-access`（控制面，H5 token） | 403 `can only be changed from the local desktop app`（控制面需 desktop process token，符合设计） |
-| 与桌面端共存 | 8877（桌面）与 7788（dev）同时 LISTEN，数据目录独立互不干扰 |
+**回归修复**：分类模型改变了若干数值，4 处既有断言按新值更新（新值均更准）：`sessionUsageRollup.test.ts` 汉字 thinking 10→27、`LocalAgentTask.test.ts` 4000 字符 1000→889、`tokens.test.ts` 3110→3098、`autoCompact.test.ts` fixed 下界 2000→1500。新增回归：分类模型 6 组受控样本 ±15%、图片尺寸计价（两种 provider）、精算确认三态（近线偏高/偏低/远离不询问）、触发双场景（引擎高、引擎少报）。
 
-### 10.6 注意事项 / 坑位
+**性能**：`roughTokenCountEstimationForMessages` 现在每轮全量跑一次（原来有 usage 时跳过）。最大会话实测（9,586 条消息 / 23MB）**96.7ms**，可接受。
 
-- **改过 H5 前端源码后必须重 build 并重启 sidecar**：sidecar 直接伺服 `desktop/dist/` 静态产物，源码改动不会热更。2026-09-24 实例：`desktopRuntime.ts` 16:09 加入免 token 直连逻辑，dist 还是 15:23 的旧产物 → LAN 设备（192.168.10.140）访问仍弹「需要访问令牌」；重跑 `cd desktop && node ./node_modules/vite/bin/vite.js build` + kill/重启 sidecar 后解决。判断 bundle 是否过期：比对 `dist/index.html` mtime 与 `desktop/src/` 改动文件 mtime。
-- dev 副本与桌面端**独立写库**：在 dev 上做的会话/设置改动不会回到 `~/.claude/cc-haha`，反之亦然；需要回灌时手动合并。
-- 改 `src/*.ts` 后 sidecar 需**重启**才生效（bun 直接跑源码无热更）；H5 前端改动需重跑 `desktop && bun run build`。
-- 停 dev：直接 kill sidecar 进程；`~/.cc-haha-dev` 副本可随时删掉重拷。
-- `LOCAL_INDEX_DISCOVERY_INCOMPLETE` 出现时列表接口 `total` 可能为 0（列表作用域=活跃会话索引），但索引计数正常；若需要完整列表，可在 dev 副本上重建 local index 或从桌面端同步。
+**验证**：`check:server` 556 files / 6675 passed / 0 failed。图片估算 ±2.2%（原 +177%），文本分类样本平均 8%，临近线由引擎精算兜底（~2%）。
 
----
+**窗口口径**：provider `autoCompactWindow` 231,248 → **233,000**（对齐引擎 `max_model_len`，运行时配置不进 patch）。触发线 181,050（用户确认「180K 左右压缩也可以」）。注：tier 百分比作用于 effectiveWindow 而非 declaredWindow（上游设计，见 `autoCompact.ts` 注释），故比「按 declared 算」的 198,050 早约 17K。
 
-## 十一、H5 悬浮快捷入口（任务列表 / 终端 / 文件浏览 / 审查）（源参考：旧§5.2 移动端 FAB，✅ 2026-09-27）
 
-**需求**：移动端（H5 手机浏览器）会话页右上角缺少桌面端的任务列表 / 终端 / 文件浏览 / 审查入口（0.6.6 现状：`AppShell.tsx:406` 移动端不渲染 TabBar；三面板均硬编码 `!isMobileLayout` 禁用）。需为移动端提供悬浮（FAB）快捷入口，点击展开菜单打开对应面板，面板以全屏 overlay 呈现。
+**patch 固化（2026-10-14）**：`patches/usage/usage-context-estimation-patch1.patch`（**链位 41**，⚠️ 基座 = `c71ce319d`，0.6.7 血缘，**独立应用**）。4 源码 + 6 测试（10 文件）。干净 `c71ce319d` 上 apply ⇒ 10 文件逐字节一致 ✅ 已实测。
 
-**参考（旧 fork §5.2 MobileQuickActions，2026-08 已实施，模式可复用）**：
-- 旧实现 `desktop/src/components/chat/MobileQuickActions.tsx`：圆形 FAB（`add` 图标）→ 点击横向展开 3 个带图标+文字按钮（任务列表 `assignment` / 终端 `terminal` / 文件浏览 `folder`）；点外部或再点 FAB 收起（`useDismissable`）；FAB `absolute` 定位在 ChatInput 右上角半重叠，仅移动端渲染。
-- 动作路由：任务列表 → `useActivityPanelStore.open(activeTabId)`；文件浏览 → `workspaceStore` setMode('workspace')+openPanel；面板移动端全屏 overlay（fixed 全屏 + slide-in + 顶部标题栏 + 关闭按钮），去掉面板的 `!isMobileLayout` 硬禁。
-- 旧版含横屏适配（顶栏缩高、输入框缩小、chip 归位 toolbar、MobileBottomSheet 缩放、FAB pointer-events 修复等）——本次按需取舍，先做竖屏核心，横屏适配视验证情况跟进。
 
-**与旧版的差异（本次范围）**：
-- 入口 4 项 = **任务列表 / 终端 / 文件浏览 / 审查**（旧版是 任务列表/终端/文件浏览 3 项；本次在其基础上新增「审查」——审查 = 文件浏览面板的 review tab，`workspaceReviewStore`，i18n `workspace.reviewTabTitle`「审查」）。
-- **终端**：与文件/审查共用移动端全屏 overlay（同一 `WorkspaceSurface dock="side"` 容器），区别仅在 `openWorkspaceTarget` 的 `target.kind`：文件=`{kind:'file',path:''}`（preview:true），审查=`{kind:'review'}`，终端=`{kind:'terminal',cwd:getSessionTerminalCwd(session)??'',dock:'side'}`——终端 tab 由 `WorkspaceSurface` 内 `TerminalPanel` 渲染（H5 终端桥接，WS `/ws/terminal`，spawn 走 `terminalWs`）。
+## 五、压缩链路与大会话
 
-## ✅ 实施（2026-09-27，patch `patches/h5/h5-mobile-quick-actions-patch1.patch`，9 文件 481 行）
+> 本章收纳原第 十三、二十四、二十四·补、四十一 章（2026-10-14 按功能域重组；各原章降为小节，内容原样）。
 
-**0.6.6 现状核对（调研结论）**：
-- 任务列表已有移动端 overlay 先例：`ActiveSession.tsx:971-983` 在 `isMobileLayout` 下渲染 `SessionActivityPanel placement="overlay"`（需 `hasVisibleActivity` 才出现）；FAB 回调只需 `activityPanelStore.open(activeTabId)`（即 `openActivityPanel`）。
-- 文件/审查无独立面板 store——0.6.6 已并入 `useWorkspaceStore`：`openTarget(sessionId, target)`（`kind:'file' path:''` = 文件树+空 pane，`kind:'review'` = review tab）；封装 `openWorkspaceTarget(request)`（`lib/workspace/openTarget.ts:26`）。**移动端硬禁**在 `ActiveSession.tsx:373-375` `workspaceEnabled = ... && !isMobileLayout`（side dock 因此不渲染）→ 本章新设计点=移动端用全屏 overlay 呈现 workspace。
-- FAB 锚点：0.6.6 `ActiveSession.tsx` 渲染处是裸 `<ChatInput/>`，无旧 fork 的 `<div className="relative">` 包裹 → 本次恢复该 relative 包裹，FAB `absolute -top-[14px] right-2.5` 半重叠挂输入框右上。
-- overlay 先例：`MobileBottomSheet.tsx`（createPortal + `--z-sheet` backdrop）+ `SessionActivityPanel placement='overlay'`。
-
-**实现**：
-1. **`desktop/src/components/chat/MobileQuickActions.tsx`（新增，移植旧 fork 模式）**：props `{onOpenTasks, onOpenTerminal, onOpenFiles, onOpenReview}`；`useState` open + `containerRef`；`useDismissable({open, refs:[containerRef], onDismiss:()=>setOpen(false), stopEscapePropagation:true})`（点外部/Esc 收起）；`run(action)`=先 `setOpen(false)` 再执行 action（点项立即收起菜单）；4 胶囊按钮 icons `assignment`/`terminal`/`folder`/`rate_review`（16px）+ i18n `chat.openTasks/openTerminal/openFiles/openReview`；FAB `h-[39px] w-[39px] rounded-full`、`bolt` 23px、open 时 `rotate-45`、`aria-label`/`aria-expanded`（`chat.quickActions`）；容器 `pointer-events-none absolute -top-[14px] right-2.5 z-[var(--z-dropdown)]`，`data-testid="mobile-quick-actions"`。
-2. **`desktop/src/pages/ActiveSession.tsx`**：① 新增 import（`openWorkspaceTarget`/`MobileQuickActions`/`IconButton`）；② `workspaceIsGitRepo` 后加移动端状态——`memberInfo`/`isMemberSession`（复用 composer 门控：`useTeamStore.getMemberBySessionId` 或 `activeTabType==='subagent'`）、**本地 `mobileWorkspaceOpen` useState**（而非派生 store layout——后台 `openTarget` 不得弹 overlay，仅 FAB 显式点按才弹）、`mobileLayout` selector、派生 `mobileWorkspaceVisible`（`isMobileLayout && !isMemberSession && activeTabId && isSessionTabState && mobileWorkspaceOpen && layout!=='hidden'`）、`useEffect` 随 `activeTabId` 变化重置、`handleMobileOpenWorkspace`（`openWorkspaceTarget` + `preview:true`（file）+ `setOpen true`）、`handleMobileCloseWorkspace`（`setOpen false` + `setLayout hidden`）；③ JSX 加移动端全屏 overlay（`fixed inset-0 z-[var(--z-sheet)]`，顶栏 `workspace.panelLabel` + `IconButton close` `data-testid="mobile-workspace-close"`，内容 `WorkspaceSurface dock="side"`，`reviewUnavailableReason` 依 `workspaceIsGitRepo===false`）+ 恢复 `<div className="relative">` 包裹 `ChatInput` 并挂 `MobileQuickActions`（门控 `isMobileLayout && !mobileWorkspaceVisible && activeTabId && !isMemberSession && isSessionTabState`）。`handleMobileOpenWorkspace` 支持 3 种 `kind`：`file`（`openWorkspaceTarget({kind:'file',path:''},preview:true)`）、`review`（`openWorkspaceTarget({kind:'review'})`）、`terminal`（`openWorkspaceTarget({kind:'terminal',cwd:getSessionTerminalCwd(session)??'',dock:'side'})`）——终端与文件/审查共用同一全屏 overlay 容器，由 `WorkspaceSurface` 内部 tab 切换区分。
-3. **i18n 5 语言**（`en/zh/zh-TW/jp/kr.ts`，插 `chat.refreshSession` 后）：`chat.quickActions`（Quick actions/快捷功能/快捷功能/クイック操作/빠른 작업）、`chat.openTasks`（Tasks/任务列表/任務列表/タスク一覧/작업 목록）、`chat.openTerminal`（Terminal/终端/終端/ターミナル/터미널）、`chat.openFiles`（Files/文件浏览/檔案瀏覽/ファイル閲覧/파일 탐색）、`chat.openReview`（Review/审查/審查/レビュー/검토）。
-**验证**：
-- 单测：新增 `MobileQuickActions.test.tsx` 3 用例（默认折叠无 4 项 / 点 FAB 展开 4 项+`aria-expanded` / 点 Files 触发 `onOpenFiles` 一次其余零次+折叠）；`ActiveSession.test.tsx` 既有移动测试补「后台 openTarget 不弹 overlay 但 FAB 在」+ 新用例「点 Files 打开全屏 overlay（`workspace-surface-side` 在、`workbench-panel` 不在）→ 关闭后 overlay 卸载且 `layout==='hidden'`」+「点 Terminal 打开终端 overlay（`workspace-terminal-*` 在）→ 关闭」断言。
-- `tsc -b` exit 0；受影响 `MobileQuickActions`+`ActiveSession`+`AppShell` 58/58；**全量前端 vitest 6150 pass / 0 fail / 6 skipped**（基线 6146，+4 新用例，零回归）；`vite build` App-DMDs5MZr.js。
-- **live 7788 iPhone 14（390×844 @3x）全验证**：FAB「快捷功能」展开 4 项（任务列表/终端/文件浏览/审查，图标 assignment/terminal/folder/rate_review）；点「文件浏览」→ overlay 全屏 `0,0,390×844` 完美覆盖 + 文件树正常渲染（项目文件列表+内容面板+底部标签条）；点「审查」→ overlay 正确渲染 review tab（比较范围/未暂存/还原全部/暂存全部 + 文件 diff 列表）；点「终端」→ overlay 渲染终端 tab（`workspace-terminal-*` + xterm），WS spawn 后显示 zsh prompt `/tmp/project-root %`（H5 终端桥接全链路）；点关闭 → overlay 卸载、正常回到会话页、FAB 复现。
-
----
-
-## 十二、src/server 既有 22 条测试失败清零（✅ 2026-09-27）
-
-> 基线 2f8d819d 上 `bun test src/server` 存在 22 条既有失败（与本次优化无关、纯基线遗留）。本项将其**全部清零**（3396 pass / 0 fail / 0 error），达成「零失败」基线，后续任何回归都能被立刻发现。
-
-**根因分类**（8 文件，4 修代码 + 4 修测试）：
-
-| 簇 | 条数 | 根因 | 修法 |
-|---|---|---|---|
-| git locale（workspace×5 + sessions×2） | 7 | `getGitRepoInfo` 用英文 stderr 子串 `not a git repository` 判非 git 仓库；本机 git 中文 locale 输出 `不是 git 仓库` → 误判 `state:'error'` | **修代码** `workspaceService.ts`：移植 `reviewService.ts` 的退出码探针 `git rev-parse --is-inside-work-tree`（`isNotAGitRepository`），`runGit` 加 `failedToRun` 区分「git 没跑起来」vs「跑了但拒绝」；一处修复覆盖 7 条 |
-| ambient env 泄漏（conversation×4 + e2e×1） | 5 | 测试非 hermetic：本机 dev shell 导出的 `CLAUDE_CODE_EMIT_SESSION_STATE_EVENTS`/`CLAUDE_STREAM_FIRST_TOKEN_TIMEOUT_MS`/`CC_HAHA_*_ACCESS_TOKEN` 泄漏进 `buildChildEnv`/CORS 判定 | **修测试**：`conversation-service.test.ts` #1033 补清 `EMIT_SESSION_STATE_EVENTS`、#1307 补清 `FIRST_TOKEN_TIMEOUT_MS`；`full-flow.test.ts` 加 `TOKEN_ENV_KEYS` 保存/删除/恢复 |
-| findSessionFile 无界全文读（sessions×2 + recovery×1 + subagent×1） | 4 | `findSessionFilesFromFiles` 对每个候选文件 `readJsonlFile` 全文解析仅为排序优先级；mock throw 被吞 → 返回 null，破坏 inspection coalescing/launchInfo/subagent lookup | **修代码** `sessionService.ts`：文件系统回退路径改 mtime-only 排序；**仅当同 id 有 ≥2 个候选文件**（worktree transcript vs 占位符）才做 transcript 偏好读（`matches.length > 1`），单文件场景零读 |
-| 协作游标 depth 计数 | 1 | `sessionCollaborationService` 同物理页内 `end` 游标前进也 `depth+1`，8 页上限截断 130→80 条 | **修代码**：`depth` 仅在跨物理页（`page.page.nextCursor`）时递增，同页 `end` 游标保持 depth |
-| 缺依赖 500（h5-access-auth×2） | 2 | `@whiskeysockets/baileys` 仅声明于 `adapters/package.json` 未装根 node_modules；`adapters/whatsapp/session.ts` 顶层静态 import → `/api/adapters` 500 | **修代码** `adapters/whatsapp/session.ts`：改动态 `import()`（懒加载意图），顶层只留 `import type`；缺依赖只在真正 login 时失败 |
-| 平台耦合测试（connector×1 + workspaceWatch×1） | 2 | connector legacy 版本正则只认 `darwin\|win32`（本机 linux 夹具 `0.9.0-linux-x64` 失配 → 回落 1.0.0）；workspaceWatch 等 rename 后的**新名** `b.ts`（inotify 只报旧名 `a.ts`） | **修测试**：`connectorService.ts` 正则放宽平台 token 为 `[a-z]+`；`workspaceWatch.test.ts` 等待各平台都会产生的 `a.ts`（写操作触发） |
-
-**验证**：
-- `bun test src/server` 全量 **3396 pass / 0 fail / 0 error**（基线 22 条全清，零新增）。
-- 逐簇回归：conversation-service 75/75、sessions 315/315、workspace-service 20/20、historyRecovery 8/8、subagent 44/44、collaboration 4/4、connectorService 24/24、workspaceWatch 10/10、h5-access-auth 53/53、adapters 41/41。
-- 重点语义改动（协作游标）额外跑通全部协作相关测试（api/sessionCollaboration、e2e/session-collaboration、CollaborationService 39/39、CollaborationHost、CollaborationAuth 等）。
-- `desktop tsc -b` exit 0。
-
-**patch**：`modify/patches/test/test-server-test-baseline-patch1.patch`（8 文件 324 行，链位 13，基线 6d4fd126）。
-
-**13 链全验证**（`git worktree add --detach /tmp 2f8d819d` + 软链 node_modules，按序 `git apply` 全部 13 patch）：全干净；apply 后 vs 工作树仅 4 处已知非章 delta（`bun.lock`、`desktop/src/pages/TerminalSettings.tsx`、`desktop/src/lib/providerModels.ts`、`desktop/src/components/chat/MessagePayloadRetention.test.tsx`——均属独立 commit 的非章改动）。
-
-## 十三、pi-vcc 算法压缩移植 + 双后端热切换 + vcc_recall 工具（参考 @sting8k/pi-vcc 0.8.0，✅ 2026-09-25）
+### 原十三、pi-vcc 算法压缩移植 + 双后端热切换 + vcc_recall 工具（参考 @sting8k/pi-vcc 0.8.0，✅ 2026-09-25）
 
 > 移植 [pi-vcc](https://github.com/sting8k/pi-vcc)（"Algorithmic conversation compactor — transcript-preserving structured summaries, no LLM calls"）到 cc-haha。核心动机：现有 `/compact` 与 auto-compact 全走 **LLM 摘要**（`streamCompactSummary`，一轮完整模型调用，token 成本 + 延迟高，且摘要有丢失/幻觉风险）。pi-vcc 用**纯算法**（零 LLM）从消息窗口编译出 5 个语义 section + 一份 brief transcript，原始细节**不另存**——依赖已有 session JSONL 持久化，`vcc_recall` 工具按全局 message index（`#N`）无损检索回被压细节。
 
-### 需求背景
+#### 需求背景
 - 用户拍板（AskUserQuestion）：范围=**核心压缩 + recall 工具 + 双后端 UI**；挂接=**旁路摘要步、可切换后端**；默认=**默认算法压缩接管全部，设置中可手动更换，且运行中可直接切换（热切换）**。
 - 参考移植范例：`/tmp/opencode-vcc`（rumisle/opencode-vcc）——逐字 vendor pi-vcc 0.8.0 core + OpenCode↔pi 消息 adapter，是最佳跨框架移植范例。
 
-### 0.6.6 现状核对
+#### 0.6.6 现状核对
 - LLM 摘要替换点=`src/services/compact/compact.ts` 的 `compactConversation`（:534 起 `streamCompactSummary` + `PROMPT_TOO_LONG` 重试循环）；下游消费（`buildPostCompactMessages` :362-370、`annotateBoundaryWithPreservedSegment` :381-399、`query.ts`/`autoCompact.ts`/`inProcessRunner.ts`/`commands/compact/compact.ts`/`REPL.tsx partialCompact` 读 `result.messagesToKeep`）均经 `CompactionResult` 字段，VCC 字段天然兼容。
-- 设置 8 步链范本=`sendThinkingHistory`（第八章）。`src/types/message.ts` 是 @generated Proxy stub，`Message` 类型宽松（判别字段 `.type`）。
+- 设置 8 步链范本=`sendThinkingHistory`（原第八章，现第二章）。`src/types/message.ts` 是 @generated Proxy stub，`Message` 类型宽松（判别字段 `.type`）。
 
-### 实施方案（57 文件，5316 增 / 34 删）
+#### 实施方案（57 文件，5316 增 / 34 删）
 1. **算法核心移植** `src/services/compact/vcc/`（38 个 .ts，逐字 vendor pi-vcc 0.8.0）：
    - `vendor/core/`：`summarize`（`compile`/`compileRanked`+`mergePrevious` 逐 header 合并）、`brief`（tool_result 省略、连续相同 tool 行折叠 xN、bash heredoc 体删+pipe-tail 剥 `BASH_CAP=240`）、`build-sections`（Session Goal / Files And Changes / Commits / Outstanding Context / User Preferences 5 段 + `extractOutstandingContext` blocker 正则）、`format`（`BRIEF_MAX_LINES=120` 保尾部、`wrapLongLines` 120ch、`RECALL_NOTE`）、`rank`（`scoreBlock` recency*12/user+18/assistant+10/edit-tool+34/非零退出+24/trivial-bash-16 + `boostAdjacency`）、`search-entries`（BM25-lite K=1.2 B=0.75 + regex 双路 + drill-down `#N:path:full`）、`global-indices`/`jsonl`（0.8.0 新增，#N 计数 + 分块流读）。
    - `vendor/extract/`：`goals`/`files`/`preferences`/`commits`。
@@ -1094,7 +2093,7 @@ CLAUDE_H5_DIST_DIR=/home/zeaxion/myproject/cchaha-06scode/desktop/dist \
 3. **双后端设置链**（8 步，`vccCompactBackend='algorithm'|'llm'` 默认 algorithm）：`src/utils/compactionBackend.ts`（`getCompactionBackend`——**热切换：compaction 时实时读设置**）、`settings/types.ts` z.enum、`desktop` types/settings + settingsStore 5 处（乐观 setter `setVccCompactBackend`）、`GeneralSettings.tsx` `COMPACTION_BACKEND_ITEMS` + Context compaction 区块（Dropdown，responseLanguage 范式）、i18n 5 语言 6 key、`remoteBrowserPolicy.ts` READ+WRITE 白名单+枚举校验器（**H5 必须同步否则 PUT 400**）、`supportedSettings.ts`、`remoteBrowserPolicy.test.ts` +6 断言。
 4. **旁路接线** `src/services/compact/compact.ts`：新增 `maybeVccCompact`（`getCompactionBackend!=='algorithm'`→null 回落 LLM 路径），`compactConversation` 在 `getCompactPrompt` 前调用，VCC 命中时跳过 LLM 循环、`messagesToKeep` 走 `buildPostCompactMessages` 保留 tail、`annotateBoundaryWithPreservedSegment` 标注保留段；`logEvent('tengu_compact')` 加 `compactionBackend` 字段。
 
-### 验证
+#### 验证
 - 单测：`VccRecallTool.test.ts` 10/10、`remoteBrowserPolicy.test.ts` 4/4（62 expect）、`compact`/`autoCompact` 26 pass / 76 expect。
 - runtime probe（合成 8 条 cc 消息窗口）：`keptUserTurns=2/total=3`、5 section 编译、`messagesToKeep` 保 tail、`previousSummaryUsed=true` 且 merge 后文件去重。
 - **全量零回归**：前端 `desktop vitest` **12300 pass / 12 skip / 0 fail**；server `bun test` .ts 全量 2871 pass / 1 fail——该 1 条为 `cron-scheduler-launcher`（proxy 固定端口 3456 漂移 flaky，单文件复跑 12/0 通过；VCC 未触碰 cron/proxy）。全量 `bun test src/server`（含 .js 孪生 6792 用例）9 条失败全在 VCC 未触碰的 proxy/端口竞态族（`h5-access-auth` 单文件 53/0、`cron-scheduler-launcher` 单文件 12/0 均通过）。
@@ -1103,7 +2102,7 @@ CLAUDE_H5_DIST_DIR=/home/zeaxion/myproject/cchaha-06scode/desktop/dist \
 **patch**：`modify/patches/vcc/vcc-compactor-patch1.patch`（原 57 文件 5946 行；2026-09-26 子优化后重生成 **58 文件 6008 行**，链位 15，基线 2004cd16）。
 
 
-### 子优化：局部压缩接入 vcc（片段模式）+ 语料校准（2026-09-27，方案 C，**待验收**）
+#### 子优化：局部压缩接入 vcc（片段模式）+ 语料校准（2026-09-27，方案 C，**待验收**）
 
 **需求（用户 verbatim）**：「partialCompactConversation 仍走 LLM 而非 vcc，这个是什么意思」→ 解释后用户选「走方案C，用现有多个会话历史语料进行测试，用引擎压缩进行校准算法，尽量提高摘要质量」。
 
@@ -1156,11 +2155,11 @@ CLAUDE_H5_DIST_DIR=/home/zeaxion/myproject/cchaha-06scode/desktop/dist \
 
 > **2026-09-27 后续**：用户授权「带标记地改 vendor」。此后做的实际是**先修测量、再动参数**，结论见下节「摘要召回提升」——**改的不是排序逻辑，而是 `Files And Changes` 的每类封顶**；排序方向（提高散文权重）实测无效已回退。
 
-### 子优化：vcc 摘要召回提升 + 测量口径修正（2026-09-27，收编进链位 15）
+#### 子优化：vcc 摘要召回提升 + 测量口径修正（2026-09-27，收编进链位 15）
 
 **需求（用户 verbatim）**：「准确性能不能提到 87-93%」→ 追问生产上「原本的摘要压缩是压多大的片段」→「160/180k 测一下」。
 
-#### 一、先修测量：三个口径缺陷（本轮最重要的产出）
+##### 一、先修测量：三个口径缺陷（本轮最重要的产出）
 
 前几轮结论反复推翻，根因全是**测量口径**，不是算法：
 
@@ -1170,7 +2169,7 @@ CLAUDE_H5_DIST_DIR=/home/zeaxion/myproject/cchaha-06scode/desktop/dist \
 
 **生产尺寸怎么定（从代码反推，不拍脑袋）**：自动压缩触发 = `getAutoCompactThreshold` ≈ 有效窗口 × (1−pctLeft)（512k 声明窗口下实测 **418,200 tok = 81.7%**）；本地引擎窗口 **204,800 tok**；vcc 校准 **4 chars/token** → **被摘要的 ≈ 75 万字符**（512k 口径则 ≈160 万）。
 
-#### 二、两处参数改动（vendor，均带 `LOCAL EDIT (cc-haha)` 标记）
+##### 二、两处参数改动（vendor，均带 `LOCAL EDIT (cc-haha)` 标记）
 
 | 改动 | 位置 | 生产口径效果 |
 |---|---|---|
@@ -1181,7 +2180,7 @@ CLAUDE_H5_DIST_DIR=/home/zeaxion/myproject/cchaha-06scode/desktop/dist \
 
 **⚠️ 该参数必须分两种压缩口径测**（同一参数表现完全不同）：**局部压缩**（`runVccSliceCompaction`，窗口 ~75 万）下 cap 从不咬合；**整窗压缩**（`runVccCompaction`，窗口由 `CLAUDE_CODE_AUTO_COMPACT_WINDOW` 决定）下才生效。我只测前者时曾得出「零效果、建议撤掉」——**错的**。
 
-#### 三、试过并已回退的方向（vendor 树已还原）
+##### 三、试过并已回退的方向（vendor 树已还原）
 
 | 方向 | 结果 |
 |---|---|
@@ -1192,15 +2191,15 @@ CLAUDE_H5_DIST_DIR=/home/zeaxion/myproject/cchaha-06scode/desktop/dist \
 
 **共同模式：每次"往摘要里塞更多材料"都降低可用性。** 配合「封顶放宽只加预算不加内容」才是唯一有效方向。
 
-#### 四、当前指标（官方口径 `mean file-recall`，240 场景，750k 切片）
+##### 四、当前指标（官方口径 `mean file-recall`，240 场景，750k 切片）
 
 **mean 87.1% / median 88.9% / 改动文件 97.0%** —— 落入用户目标 **87-93%**。
 
-#### 五、顺带修好的链缺口
+##### 五、顺带修好的链缺口
 
 本轮重生成 patch 时发现：**片段模式的实现（`runVccSliceCompaction`/`SLICE_OMITTED_SECTIONS`/`omitSections`/`stripRefsOutside`/`appendEndState` 及 `compact.ts` 的 `maybeVccSliceCompact` + 其回归测试）从未被任何 patch 收录**——只存在于工作树。已分别收编进链位 15（vcc-compactor）与链位 42（vcc-compact-fallback）。**修后干净重跑 43 链失败 0，链涉及 234 个文件中 232 个逐字节等于工作树**，余 2 个（`services/api/claude.ts`、`__tests__/thinking.test.ts`）均在「已知非章 delta」列内。
 
-#### 六、踩坑记录（本项独立小节）
+##### 六、踩坑记录（本项独立小节）
 
 1. **测量口径不固定就下结论，等于没测**——本轮先后因 `max_tokens`、抽样漂移、切片尺寸三个口径问题得出并推翻了 5 次结论。**动参数前先把口径钉死**。
 2. **切片尺寸必须从生产参数反推**（触发阈值 × chars/token），不能凭感觉取。**测试越小越"好看"**，会系统性高估。
@@ -1211,7 +2210,7 @@ CLAUDE_H5_DIST_DIR=/home/zeaxion/myproject/cchaha-06scode/desktop/dist \
 
 
 
-### 子优化：vcc 失败降级兜底（2026-09-27，链位 42）
+#### 子优化：vcc 失败降级兜底（2026-09-27，链位 42）
 
 **需求（用户 verbatim）**：「如果 vcc 不执行或者执行失败呢，是否需要增加兜底机制让返回原本的后端引擎压缩方式？」
 
@@ -1238,7 +2237,7 @@ CLAUDE_H5_DIST_DIR=/home/zeaxion/myproject/cchaha-06scode/desktop/dist \
 **验证**：`bun test src/services/compact` **20 pass / 0 fail**（新增 3 条：抛错返回 null／abort 原样上抛／空窗口摘要为空且返回 null）；策略（dead-imports/module-graph/change-policy）**72 pass / 0 fail**；服务端 `tsc --noEmit` **0 错**；链位 42 补丁在干净 41 链终态上 `git apply` 成功且终态与工作树**逐字节一致**。
 
 
-### 子优化：compact 摘要被当作用户目标 → Session Goal 污染（2026-10-12）
+#### 子优化：compact 摘要被当作用户目标 → Session Goal 污染（2026-10-12）
 
 **现象**：会话携带的压缩摘要里，`[Session Goal]` 段混进了 `- Modified: .claude/projects/…/MEMORY.md,`、`- This session is being continued from a previous conversation…` 这类条目，且**四次压缩层层继承**——六个会话日里目标一路冻结在开局那句「从gov项目内读取本项目有关记忆，更新到当前项目记忆中」，主线换了三轮也不更新。
 
@@ -1264,7 +2263,7 @@ CLAUDE_H5_DIST_DIR=/home/zeaxion/myproject/cchaha-06scode/desktop/dist \
 
 **边界（未改）**：`previousSummary` 里的尾部注记（transcript 路径、「最近的消息已逐字保留」）仍会随 `briefOf` 进入合并后的 brief——既有行为，非本次问题，未动。
 
-### 评估：是否为提示词中文化引起？（2026-10-12，结论：不是）
+#### 评估：是否为提示词中文化引起？（2026-10-12，结论：不是）
 
 **问题**：该污染是否由本轮中文化引入（英文时代未发现）。
 
@@ -1298,7 +2297,7 @@ CLAUDE_H5_DIST_DIR=/home/zeaxion/myproject/cchaha-06scode/desktop/dist \
 | 意图正则只认英文 → 中文会话无真目标掩盖污染 | 中文化**暴露** |
 | `extractPreviousSummary` 按英文 prefix 剥头 | 中文化**引入**（次生；且以污染为前提——见上节修复 2） |
 
-### 配套：中文意图词表 + CJK 感知长度阈值（同上，cc-haha LOCAL EDIT）
+#### 配套：中文意图词表 + CJK 感知长度阈值（同上，cc-haha LOCAL EDIT）
 
 修复污染源后暴露一个残留缺口：中文会话的 Goal 段会是**会话最早**那条消息的 6 行且**永不更新**（`[Scope change]` 机制对中文失效）。
 
@@ -1319,301 +2318,191 @@ CLAUDE_H5_DIST_DIR=/home/zeaxion/myproject/cchaha-06scode/desktop/dist \
 **⚠️ 可回退点（用户待实测）**：上述词表与阈值是本仓库对 vendor 的 LOCAL EDIT，**英文路径未受影响**。若中文模式实测效果不佳，本节的改动可独立还原（删除 `SCOPE_CHANGE_RE_ZH` / `TASK_RE_ZH` / `intentLength` / `taskLengthBar` 并恢复 `length > 15`），不影响上节的污染修复——两者相互独立。
 
 
-### 子优化（2026-09-26）：设置页「上下文压缩」区块排版 + 下拉选项语言
+#### 子优化（2026-09-26）：设置页「上下文压缩」区块排版 + 下拉选项语言
 - **用户反馈（verbatim）**：「设置项中，上下文压缩 字段内容和上面的思考内容紧贴在一起，需要先换行成独立小标题，另外里面的选项还是英文，选定后收起下拉列表看到的又是中文，也需要处理一下」。
 - **根因 1（排版）**：`GeneralSettings.tsx` 的 compaction 区块（h2+描述+Dropdown）裸挂在 thinking 区块的 `</div>` 之后，没有像其他所有区块那样的 `<div className="mt-8">` 容器→与「思考」内容视觉上紧贴。
 - **根因 2（选项英文）**：`COMPACTION_BACKEND_ITEMS` 是**模块级 const**，label/description 存的是 i18n **key 字符串**；而 `Dropdown` 组件（`ui/Dropdown.tsx:271/273`）对 `item.label`/`item.description` 按**裸字符串**渲染、不做 `t()`——于是展开的选项显示原始 key（`settings.general.compactionBackend.algorithm.label` 这类英文串）；收起后的 trigger 是手工 `t()` 的→中文。两者语言不一致。
 - **修复**（2 处）：①compaction 区块包进标准 `<div className="mt-8">` 独立小节（Dropdown 自身的 `mb-8` 去重）；②`COMPACTION_BACKEND_ITEMS` 移入组件内、label/description 改为 `t(...)` 实时翻译（与同文件 `RESPONSE_LANGUAGES`/`outputStyleItems` 的 `t()` 范式一致）。i18n 键本身 5 语言早已齐备，无需加键。
 - **验证**：tsc exit 0；新增回归测试 `GeneralSettings.compaction.test.tsx`（zh locale 挂载真实 GeneralSettings→点开 compaction 下拉→断言两选项均渲染中文 label、listbox 内不出现原始 key）1/1 过；settings 族 3 文件 10/10；**全量前端 vitest 12302 pass / 12 skip / 0 fail**（=基线 12300+新增 2 条孪生用例，零回归）；**19 链全验证**：`patches/vcc/vcc-compactor-patch1.patch` 重生成（57→58 文件，基线 2004cd16，worktree@A 态叠加法）后 fresh worktree@2f8d819d 顺序 apply 19 patch 全干净，`GeneralSettings.tsx`+测试与工作树逐字节一致（全树 diff 仅 5 个已知非章 delta：bun.lock、TerminalSettings.tsx、providerModels.ts、MessagePayloadRetention.test.tsx、preview-agent.js）。
 
-## 十四、H5/移动端支持打开插件市场（✅ 2026-09-25）
-> 用户 verbatim：「还有，移动端需要能打开插件市场，这个也需要处理一下。也纳入H5访问优化内」。
+### 原二十四、上下文压缩阈值按窗口分档（软触发百分比 + 硬触发绝对下限）（✅ 已实施，patch #24，2026-09-26）
 
-### 现状核对
-- 插件市场页面=`desktop/src/pages/ExtensionMarket.tsx`（tab 容器：plugins→`Connectors.tsx`、skills→`Market.tsx`），路由=tab 类型（`ContentRouter.tsx:39-40`，market/connectors→`<ExtensionMarket/>`）；入口=`Sidebar.tsx:1058` NavItem（`MARKET_TAB_ID`，i18n `sidebar.extensions`「技能·连接器」）+桌面 `TabBar.tsx` 标签。
-- 纯 HTTP 无宿主依赖：`api/market.ts`→`/api/market/*`，install 由服务端本机 fs 执行（`services/market/installService.ts`）；服务端 H5 白名单（`remoteBrowserPolicy.ts`）只 gate `/providers`、`/settings`，`/api/market` 直通无 403。
-- H5 被挡两点：①`Sidebar.tsx:1058` 市场 NavItem 包在 `{!isMobile && ...}` 内→移动端侧边栏抽屉无市场按钮；②`AppShell.tsx:275` 移动端 effect 早退条件不含 market→非 chat/settings 的 market tab 被强制踢回会话。
+> 用户 2026-09-26 指示：**先做记录**，暂不推进。
 
-### 实施方案（2 文件 3 处）
-1. `Sidebar.tsx`：市场 NavItem 移出 `{!isMobile}` 包裹（scheduled 仍隐藏）；
-2. `AppShell.tsx:275`：早退条件加 `|| activeTab?.type === 'market'`；
-3. `AppShell.tsx` mobile-session-header：market tab 标题分支（`t('sidebar.extensions')`，settings 分支范式）。
+#### 需求背景（用户 verbatim）
 
-### 验证
-- tsc exit 0；Sidebar/AppShell/ContentRouter 3 文件 135/135；全量前端 vitest 12300 pass/12 skip/0 fail（仅既有 MessageList 虚拟化负载 flaky，单跑 198/198）。
-- **live 7788 移动端（iPhone 14 390×844）**：侧边栏抽屉出现「技能·连接器」按钮→点击→header 标题「技能·连接器」+ 插件列表渲染（飞书/钉钉/企业微信等连接器卡片）。
-- **16 链全验证**（worktree@2f8d819d 顺序 apply 16 patch：15 既有 + `h5-mobile-market`）全干净；链上 Sidebar/AppShell 与工作树逐字节一致（已知非章 delta 不变：bun.lock、TerminalSettings.tsx、providerModels.ts、MessagePayloadRetention.test.tsx）。
-
-**patch**：`modify/patches/h5/h5-mobile-market-layout-patch1.patch`（2 文件 61 行，链位 16，基线 10d7d52a）。
-
-## 十五、H5/移动端支持打开计划任务（定时任务）页（✅ 2026-09-26）
-
-> 用户 verbatim：「再把计划任务也给移动端访问H5打开适配」。
-
-### 现状核对
-- 计划任务页 `desktop/src/pages/ScheduledTasks.tsx` 纯 `taskStore`+HTTP（`api/tasks`），无桌面宿主依赖，移动端可打开；布局 `px-11` 在 390px 下两侧占 88px 偏宽。
-- 与十四章同构的两处拦截：①`Sidebar.tsx` 定时任务 NavItem 包在 `{!isMobile && ...}` 内→移动端抽屉无入口；②`AppShell.tsx:275` 移动端 effect 早退条件不含 scheduled→scheduled tab 被踢回会话。
-
-### 实施方案（3 文件 3 处 + 1 测试更新）
-1. `Sidebar.tsx`：定时任务 NavItem 移出 `{!isMobile}` 包裹；
-2. `AppShell.tsx:275`：早退条件加 `|| activeTab?.type === 'scheduled'`；
-3. `AppShell.tsx` mobile-session-header：scheduled tab 标题分支（`t('sidebar.scheduled')`，settings/market 分支范式）；
-4. `ScheduledTasks.tsx`：内容容器 `px-11` → `px-4 lg:px-11`（移动端响应式）。
-5. `Sidebar.test.tsx`：「keeps mobile navigation focused on chat sessions」用例原断言移动端无 Scheduled/Extension Market——该断言在十四章（market 上移动端）后已失配（HEAD 即失败），本轮随 scheduled 上移动端一并更新为「两者均在」。
-
-### 验证
-- tsc exit 0；Sidebar/AppShell/ContentRouter 3 文件 135/135（含更新后的移动端导航用例）；全量前端 vitest 12298 pass / 12 skip / 2 fail（2 条=既有 MessageList 虚拟化负载 flaky「preserves the expanded change card through virtual unmount」，.tsx/.js 孪生各 1，单跑 198/198 过）。
-- **live 7788 移动端（iPhone 14 390×844）**：侧边栏抽屉出现「定时任务」→点击→页头 h1=定时任务、新建任务按钮可用、桌面在线提示条正常显示。
-- **18 链全验证**（worktree@2f8d819d 顺序 apply 18 patch：16 既有 + `h5-mobile-scheduled` + `connector-linux-platform`）全干净；链上 8 个本章+十六章文件与工作树逐字节一致（diff 全空，0 差异）。
-
-**patch**：`modify/patches/h5/h5-mobile-scheduled-patch1.patch`（4 文件，链位 17，基线 cc88daa5）。
-
-## 十六、连接器目录 Linux 平台支持（x64/arm64）（✅ 2026-09-26）
-
-> 用户拍板（AskUserQuestion）：「加 Linux 平台支持」。起因=移动端 H5 市场页连接器卡片全显示「当前平台不支持」。
-
-### 现状核对
-- `supported` 由**服务端**算（`src/server/services/connectorService.ts:45` `def.platforms.includes(process.platform-process.arch)`）；H5 场景连接器运行时在服务端，判定对象正确。本机=linux-x64，旧目录只声明 darwin/win32→全部不支持（桌面 Linux 用户同样看到，语义一致）。
-- 关键=CLI 三连接器（feishu/dingtalk/wecom）走 `cliAdapter`→`managedRuntime.prepareManagedRuntime`，**按平台 pin 下载 URL + sha256/sha512 哈希**（`getArtifactPins` 缺 pin 即抛 "no pinned artifact"）；且 `:225` 原 `os = platform==='win32'?'windows':'darwin'` 把 Linux 误映射成 darwin URL。
-- 上游 Linux 产物确认（WebFetch）：飞书 @larksuite/cli=Go 原生（goreleaser linux amd64/arm64）；钉钉 dingtalk-workspace-cli=Go/CGO（glibc 2.17+，官方 macOS/Linux(x64/arm64)/Windows）；企微 @wecom/cli=Rust（npm 平台包，官方列 macOS/Linux/Windows，**无 win32-arm64**）。skill/remote 连接器平台无关（文件下载/MCP HTTP），仅需声明平台。
-
-### 实施方案（4 文件）
-1. `catalog.ts`：feishu/dingtalk/wecom `platforms` 加 `linux-x64`、`linux-arm64`（wecom 同）；`skillCatalog.ts`、`remoteCatalog.ts` 同加（保守统一）。
-2. `managedRuntime.ts`（核心）：
-   - `larkArchiveHashesV1_0_95` + linux-x64 `7da92d42…`/linux-arm64 `063012a6…`（sha256 归档）；
-   - `wecomArchiveHashesV1_2_1` + linux-x64 `rRWW/Z0…`/linux-arm64 `ndgR2jV…`（sha512 base64 归档）；
-   - `initialBinaryHashes` 三连接器各加 linux-x64/linux-arm64 二进制 sha256（feishu `44356a43…`/`8afae147…`；dingtalk `929ad4d0…`/`23c5e06b…`；wecom `a93389bd…`/`327faa17…`）；
-   - `os` 映射修 `:225`→`'win32'?'windows':'linux'==='linux'?'linux':'darwin'`（Linux 走 lark-cli-…-linux-amd64.tar.gz / dws-linux-*.tar.gz / @wecom/cli-linux-* 平台包，均已验证 URL 可达）；
-   - dingtalk 归档 sha512（`dingArchiveIntegrityV1_0_61`）复用同一 tgz 全平台共用，实测 base64 与既有 pin 逐字节一致；
-   - legacy 版本回退正则（`connectorService.ts:55`）本就通用 `[a-z]+-(?:arm64|x64)$`，linux 目录名可解析。
-3. 服务端 `.js` 孪生（untracked，bun 优先加载）同步 4 文件。
-
-### 验证
-- **6 个 Linux pin 全解析**：`getArtifactPins(def, 'linux-x64'/'linux-arm64')` 对三连接器全返回有效 integrity（不再抛 "no pinned artifact"）。
-- **端到端真实 prepare**：live 7788 触发 `POST /api/connectors/feishu/prepare`→下载 14MB linux-amd64 归档→sha256 归档+二进制双校验→版本探针→`installed=True ver=1.0.95 status=needs-auth`；`/home/zeaxion/cc-haha-dev/connectors/runtime/feishu/1.0.95-linux-x64/lark-cli --version` 实际可执行（`lark-cli version 1.0.95`）。
-- **测试**：`bun test src/services/connectors/` 416 pass / **0 fail**——加 linux 平台后**连修了 8 条既有平台耦合失败**（HEAD 为 408/8，这 8 条假设 darwin 宿主、在 linux 上先被 platforms 门控挡下而 fail；加 linux-x64 后进入 pin 校验路径且通过）。tsc exit 0；全量前端 vitest 与基线一致（零回归）。
-- **live 7788 移动端**：市场卡片「当前平台不支持」→「待连接账号」（supported=true 生效）。
-- **18 链全验证**：同十五章（worktree@2f8d819d 顺序 apply 18 patch 全干净，8 文件逐字节=工作树）。
+> 将100K及以内上下文，设定剩下13%开始压缩上下文，或剩下小于13K开始强制执行压缩上下文
+> 将200K及以内上下文，设定剩下17%开始压缩上下文，或剩下小于32K开始强制执行压缩上下文
+> 将300K及以内上下文，设定剩下21%开始压缩上下文，或剩下小于36K开始强制执行压缩上下文
+> 将500K及以上上下文，设定剩下15%开始压缩上下文，或剩下小于65K开始强制执行压缩上下文
 
-**patch**：`modify/patches/computer-use/computer-use-connector-linux-patch1.patch`（4 文件 105 行，链位 18，基线 cc88daa5）。
+#### 0.6.6 现状核对
 
-## 十七、H5/移动端 技能市场页 header 布局适配（✅ 2026-09-26）
+实现位置：`src/services/compact/autoCompact.ts`
 
-> 用户反馈（verbatim）：「主要是技能市场，该页面内大标题下面的文字排成了9行，这相当不合理。」
+| 锚点 | 行 | 现状 |
+|---|---|---|
+| `getAutoCompactThreshold(model)` | :97 | = `getEffectiveContextWindowSize(model)` − `autoCompactBuffer` |
+| `AUTOCOMPACT_BUFFER_TOKENS` | :87 | **= 13_000，固定值，与窗口大小无关**（仅 `cap` 到 `window/3`，:103-106） |
+| `CLAUDE_AUTOCOMPACT_PCT_OVERRIDE` | :110-119 | 已有百分比旁路，但取 `min(window×pct, 固定阈值)`，属**测试用**覆盖，非分档 |
+| `getEffectiveContextWindowSize(model)` | :44 | = 标称窗口 − 摘要预留（预留 = `min(模型maxOutput, 20_000, window×0.25)`，:36-41、:67-73） |
+| `WARNING/ERROR_THRESHOLD_BUFFER_TOKENS` | :88-89 | 均 = 20_000 |
+| `MANUAL_COMPACT_BUFFER_TOKENS` | :90 | = 3_000 |
+| `calculateTokenWarningState()` | :124 | 出口：`percentLeft` / `isAboveWarningThreshold` / `isAboveErrorThreshold` / `isAboveAutoCompactThreshold` / `isAtBlockingLimit` |
 
-### 现状核对
-- 移动端（390px）打开「技能」tab（`MarketHome`）实测：header 是 `flex flex-wrap`，三子项=图标 56px（`flex-shrink-0`）+ 标题/副标题列（`min-w-0 flex-1`）+ 右侧集群（`SourceStatusBar` 228px + 「已安装技能」按钮 146px）。390px 减 padding 后可用 342px，被图标+右侧集群 min-content 挤死，**标题列只剩 16px**：副标题「浏览、预览并安装来自 ClawHub 与 SkillHub 的技能。」折 **15 行**（用户设备更宽折 9 行），标题「技能市场」一字一行，header 总高 **508px ≈ 屏幕 60%**。
-- 桌面（≥1024px）同布局无此问题（空间充足，右侧集群同行右对齐）。
+消费点：`src/query.ts:649`（`isAtBlockingLimit` → 强制路径）、`src/components/TokenWarning.tsx`（UI 百分比与文案）、`src/components/PromptInput/Notifications.tsx:93`。
 
-### 实施方案（1 文件 1 行，纯响应式 CSS）
-- `desktop/src/components/market/MarketHome.tsx:121` 右侧集群容器加 `max-lg:items-start max-lg:basis-full`：窄屏（<1024px）换行独占一行（`basis-full` 强制 100% 宽），标题列拿满剩余宽度；桌面端 `max-lg:` 不生效，布局零变化。
-- 无新 i18n 键、无组件结构改动、无逻辑改动。
+**现状问题（与本优化诉求一致）**：固定 13K 缓冲**不随窗口伸缩**——512K 窗口下仅剩 ~2.5% 才触发（太晚），32K 小窗口下 13K=41%（靠 `cap` 到 `window/3` 兜底，语义含糊）。
 
-### 验证
-- **live 7788 移动端 390×844**：副标题 15 行→**2 行**（宽 262px），标题 1 行，header 508px→**158px**；右侧集群（来源状态 + 已安装技能按钮）落到标题行下方，信息全保留。
-- **桌面 1280px**：header 74px，按钮与标题同行（`sameRow=true`），副标题 1 行 594px——桌面布局零变化。
-- **tsc exit 0**；市场+页面 vitest 872/872；**全量前端 vitest 12300 pass / 12 skip / 0 fail**（=基线零回归）。
-- **19 链全验证**（worktree@2f8d819d 顺序 apply 19 patch：18 既有 + `h5-mobile-market-layout`）全干净；`MarketHome.tsx` 与工作树逐字节一致（全树 diff 仅 4 个已知非章 delta：bun.lock、TerminalSettings.tsx、providerModels.ts、MessagePayloadRetention.test.tsx）。
----
+#### 规格（定稿，2026-09-26 二次修订）
 
-## 十八、Computer Use 解锁 Linux（X11）平台（✅ 2026-09-26）
+| 上下文窗口 | 软触发（剩余百分比） | 硬触发（剩余绝对量） |
+|---|---|---|
+| ≤100K | 13% | <13K |
+| ≤200K | 17% | <32K |
+| ≤300K | 21% | <36K |
+| ≤500K | **17%**（用户 22:5x 定稿，取代早前插值方案） | **<53K** |
+| ≥500K | 15% | <65K |
 
-### 需求背景
+**三个实施口径（已定，代码落地为准）**
 
-Computer Use（电脑操作）功能此前仅对 macOS（`darwin`）与 Windows（`win32`）开放：Linux 上设置页/会话侧看不到入口、MCP 工具不暴露、模型不知道会用。目标：让 **Linux（X11 桌面）** 走 Windows 同款的「像素面」兼容路线（screenshot/点击/键入/滚动 等 legacy pixel 工具 + Python helper），把 Computer Use 在 H5/服务端 Linux 场景解锁。
+1. **分档键 = 声明窗口**（`getResolvedContextWindow`，即 provider 预设/内置表/`[1m]`/`CLAUDE_CODE_AUTO_COMPACT_WINDOW` 的结果，**不扣**摘要预留）——因为「100K/200K/…」说的是窗口本身；
+2. **阈值算在有效窗口**（`getEffectiveContextWindowSize`，已扣摘要预留）——因为比较对象是真实 token 用量；
+3. **硬触发算在声明窗口**（`declared − floor`），与分档同基准；并以 `max(..., 软阈值)` 钳制，保证**永不早于软触发**。
 
-### 0.6.6 现状核对（调研结论）
+**小窗口安全钳制（新增，必要）**：软阈值取 `min(档位阈值, window − min(13K, window/3))`。12K 有效窗口下「剩 13%」只有 1.5K token，压缩来不及会先 `prompt_too_long`；保留原 `window/3` 兜底后**小窗口阈值与旧实现逐字节一致**（8K/16K/16.5K/35K/47K），零回归。
 
-- 平台判定是**分散内联**的，没有单一共享 platform 类型；`'darwin' | 'win32'` 联合类型在 **9 处生产代码** + 若干测试里内联出现（`common.ts`、`gates.ts`、`skillGate.ts`、`executor.ts`、`helperBridge.ts`、`pythonBridge.ts`、`mcpServer.ts`、`tools.ts`、`keyBlocklist.ts`、`computer-use.ts`、`computerUse.ts`(skills) 等）。
-- **核心路由缝**在 `src/utils/computerUse/helperBridge.ts`：darwin→原生 `cu-helper` Swift daemon（AF_UNIX）；**else 分支（现仅 win32）→ `callPythonHelper`**。Linux 天然落入 else→Python 路线，无需新通道。
-- **工具面选择**在 `src/vendor/computer-use-mcp/mcpServer.ts`：`caps.platform === 'win32'` → `buildLegacyComputerUseTools`（像素工具集）；darwin → 语义工具过滤到 `js`/`js_reset`。Linux 应路由到**像素面**，故 `mcpServer.ts:113` 与 `:190`（`legacyPixelFace`）需加 `|| platform === 'linux'`。
-- **服务端能力映射** `resolveComputerUseCapability`（`computer-use.ts:247-314`）：win32→`windows-compat`、darwin→版本门控 `macos-native`、其余（含 linux）→`{supported:false, engine:'unsupported'}`。Linux 需新 engine 值（如 `linux-x11`）。
-- **Python helper 目录** `runtime/`：现有 `win_helper.py` + `requirements-win.txt`，**无 linux helper**。Linux 需新增 `linux_helper.py`（mss 截图 + pyautogui 输入 + **python-xlib** 窗口枚举/前台/open_app）+ `requirements-linux.txt`（mss/Pillow/pyautogui/python-xlib；无 pywin32）。
-- **UI** 不自己判平台，全靠服务端 `status.engine`/`status.platform` 分支（`ComputerUseSettings.tsx`）：`engine==='unsupported'`→不支持页；`'macos-native'`→原生页；否则→Windows 兼容 Python 安装流。Linux 走 else 的 Python 流即可，仅需 `PYTHON_DOWNLOAD_URLS` 与 `ComputerUseEnableDialog` 的 platform prop 补 linux 分支。
-- 已有先例：`growthbook.ts:36`、`platform.ts:7`、`env.ts:11`、`openTargetService.ts` 的 platform 联合类型**已含 linux**——只是 computer-use 子系统自己没跟上。
-- 测试现状：`common.test.ts`、`gates.test.ts`、`computer-use-api.test.ts` 等多处**断言 linux 当前 unsupported**，加分支后需同步更新（不是回归，是预期行为变更）。
+**换算表（有效窗口实测值）**
 
-### 实施方案（分两批，先门控/状态，后 helper）
+| 模型 | 声明 | 有效 | 档位 | 软阈值（已用≥） | 硬阈值（已用≥） |
+|---|---|---|---|---|---|
+| deepseek-v4-pro / GLM-5.2 | 1M | 980K | ≥500K 15% | 833,000 | 935,000 |
+| k3 / kimi-k2.6 | 262,144 | 242,144 | ≤300K 21% | 191,293 | 226,144 |
+| MiniMax-M2.7 | 204,800 | 184,800 | ≤300K 21% | 145,992 | 168,800 |
+| glm-5.1 | 200,000 | 180,000 | ≤200K 17% | 149,400 | 168,000 |
+| glm-4.5-air | 128,000 | 108,000 | ≤200K 17% | 89,640 | 96,000 |
+| gpt-5.6-terra | 353,400 | 333,400 | ≤500K 17% | 276,722 | 300,400 |
+| 368,640（老外的API 预设） | 368,640 | 348,640 | ≤500K 17% | 289,371 | 315,640 |
+| custom-16k/32k/64k/80k | — | — | ≤100K 13% | 8,000 / 16,000 / 35,000 / 47,000（同旧值） | 同软 |
 
-**批次 A——门控放宽 + 状态页（让 Linux 可见、可进设置流）**
-- `common.ts`：`isComputerUseSupportedPlatform` 返回 `platform is 'darwin'|'win32'|'linux'`；`getCliComputerUseCapabilities` 加 linux 分支（`screenshotFiltering:'none'`, `platform:'linux'`）。
-- `gates.ts`：`shouldExposeComputerUseMcp` 加 `|| platform === 'linux'`（Linux 无原生二进制门控，直通）。
-- `skillGate.ts:55`：`!== 'darwin' && !== 'win32'` 判定补 linux。
-- `computer-use.ts`：`resolveComputerUseCapability` 加 linux→`{supported:true, engine:'linux-x11'}`；`checkStatus`/`openComputerUseSettings`/`supportedPlatform` 等处补 linux 分支（open-settings 可返回 null=无系统设置面板，或 xsettingsd 等）。
-- `desktop/src/api/computerUse.ts`：`engine` 联合类型加 `'linux-x11'`。
-- `ComputerUseSettings.tsx`：`PYTHON_DOWNLOAD_URLS` 补 linux URL；`ComputerUseEnableDialog` 的 `platform` prop 补 linux。
-- 9 处内联 `'darwin'|'win32'` 联合类型逐一补 `'linux'`（mcpServer/tools/keyBlocklist/toolCalls/executor/windowsLegacyTools/skills）。
-- **工具面**：`mcpServer.ts` 像素面选择改 `platform === 'win32' || platform === 'linux'`。
+> 注：100K 档软硬重合（13%×100K=13K）；`≤500K` 档内侧 300K–312K 区间 `floor(53K) > window×17%`，被 `max(..., 软)` 钳制成「硬=软」，无倒挂。
 
-**批次 B——Linux 像素 helper（真正能操作桌面）**
-- 新增 `runtime/linux_helper.py`：复用 win_helper 的 mss（截图）/pyautogui（鼠标键盘）骨架，窗口枚举/前台化/`open_application` 用 **python-xlib**（X11），`open_settings`/权限用 xrandr/xprop 探测；输入走 XTEST。
-- 新增 `runtime/requirements-linux.txt`：`mss>=9.0.2,<10` / `Pillow>=11.3.0,<12` / `pyautogui>=0.9.54` / `python-xlib>=0.33`。
-- `pythonBridge.ts`：helper 文件名/requirements 按平台选择（linux→linux_helper.py + requirements-linux.txt）；venv 用 `bin/python3`（unix 分支已有）。
-- `computer-use.ts`：embedded runtime 常量导入补 linux 两份文件；`ensureRuntimeFiles` 按平台写。
-- 系统依赖（文档记录，非代码）：X11 桌面 + `xdotool`/`xclip`（剪贴板）可选；XWayland 下部分 pyautogui 能力受限，需在状态页给提示。
+#### 实施记录（2026-09-26 已完成）
 
-### 验证（实施时逐批跑）
+**改动**：`src/services/compact/autoCompact.ts`（+125 行）、`src/services/compact/autoCompact.test.ts`。
 
-- 单测：computer-use 全族（`src/utils/computerUse/*.test.ts` + `src/vendor/computer-use-mcp/*.test.ts` + `src/server/__tests__/computer-use-*.test.ts`）；新增 linux 分支用例（linux→supported/像素面/linux-x11）。
-- 前端：`ComputerUseSettings`/`computerUse` vitest + 全量前端（基线 12300 pass/12 skip/0 fail）。
-- **live 7788 Linux 服务端**：`GET /api/computer-use/status` 应回 `{platform:'linux', supported:true, engine:'linux-x11'}`；设置页进入 Python 安装流而非「不支持」页。
-- X11 实机冒烟（如有）：screenshot 能回图、left_click/type 生效。
+| 落点 | 内容 |
+|---|---|
+| `getResolvedContextWindow(model)` | **新增**：拆出「扣预留前」的声明窗口（原 `getEffectiveContextWindowSize` 的窗口解析部分），供分档使用 |
+| `AUTOCOMPACT_TIERS` | **新增**：单一常量表（5 档，含 `≤500K 17%/53K`） |
+| `getAutoCompactTier(window)` | **新增**：落档查表 |
+| `getAutoCompactThreshold(model)` | **改写**：档位百分比阈值 + legacy `min(13K, window/3)` 安全钳制 + 保留 `CLAUDE_AUTOCOMPACT_PCT_OVERRIDE` |
+| `getForcedCompactThreshold(model)` | **新增**：硬触发（声明窗口 − floor），以 `max(…, 软)` 钳制防倒挂 |
+| `calculateTokenWarningState()` | **扩展**：新增 `isAtForcedCompactLimit` 出口；`percentLeft` **分母由 threshold 改为有效窗口**（原实现到压缩点显示 0%，与「剩 13%」语义相悖） |
+| `shouldAutoCompact()` | 触发条件改为 `软 ∥ 硬`（硬为兜底：软按构造总是先到）；调试日志加 `forcedThreshold` |
 
-### 实施记录（2026-09-26，批次 A+B 全部完成）
+**验证**
 
-**批次 A 落地（24 文件，1231 ins / 75 del）**：按调研清单全量实施，另有 3 处调研时未预见、实施中发现的修：
-- `src/server/api/computer-use.ts ensureRuntimeFiles`：原无条件写 win_helper+cursor badge→按平台选 `LINUX_HELPER_CONTENT`/`WIN_HELPER_CONTENT`，linux 跳过 badge。
-- `src/utils/computerUse/executor.ts readClipboard/writeClipboard`：原 `platform==='win32'?callHelper:pbpaste/pbcopy` 会把 linux 误送 macOS `pb` 命令→改 `platform!=='darwin'?callHelper:pb`。
-- `src/vendor/computer-use-mcp/windowsLegacyToolCalls.ts`：viaClipboard 非 ASCII 条件与单进程 type 优化 `platform==='win32'`→`platform!=='darwin'`（linux 同 Python 面走剪贴板/单进程整批 type）。
+- `bun test src/services/compact/` → **17/17 通过**（含 12 个 autoCompact 用例）；
+- `analyzeContext` + `inProcessRunner` → 25/25 通过；
+- 类型检查（`tsc --noEmit`，仓库根 tsconfig 为既有噪声基线）→ **本次改动文件 0 错误**；
+- 既有 3 个「硬编码旧固定 13K 预期」的用例已按新分档更新（`k3[1m]`/`deepseek-v4-pro`/`gpt-5.6-terra` 边界），并**新增分档专项用例**（含 300K–500K 档取值 + 硬≥软断言）；
+- 小窗口 5 个用例（16K/32K/33K/64K/80K）**未改动即通过** → 证明安全钳制保住了原行为。
 
-**批次 B 落地（2 新文件）**：
-- `runtime/linux_helper.py`（986 行）：镜像 win_helper 全 26 命令面（JSON 单行 `{ok:true,result}`/`error_output(code)`，退出码 0/1/2=bad_command）。mss 截图 JPEG q75 LANCZOS（输出形状与 win 逐字段一致）；pyautogui 输入；python-xlib X11 窗口枚举/前台化；XDG `.desktop` 枚举 installed_apps（112 条实测）；psutil running_apps；pyperclip 剪贴板（需系统 xclip/xsel，无则 write 报错/read 空串——文档记录的系统依赖）；`KEY_MAP cmd/command/meta/super/win→'command'`（pyautogui Super）。简化=ForegroundLease 无物理输入监控（保留 user_interference/target_window_offscreen/point_outside_display 错误码语义），MUTATING/COORDINATE_COMMANDS 集合与 win 完全一致。
-- `runtime/requirements-linux.txt`：mss>=9.0.2,<10 / Pillow>=11.3.0,<12 / pyautogui>=0.9.54 / python-xlib>=0.33 / psutil>=5.9.0 / pyperclip>=1.8.2。
+#### 状态
 
-**python-xlib API 踩坑（X11 实机冒烟暴露，3 处全修+实测通过）**：
-1. `Drawable.get_property` 是 **4 参** `(property, property_type, offset, length)`——0 参/3 参调用全抛 TypeError 被 try/except 吞掉→pid 永远 None（症状=running_apps 0 条、frontmost null）。统一抽 `_read_property_value`（`Xatom.CARDINAL`/`Xatom.WINDOW` 作 property_type）。
-2. `drawable.display` 是 `_BaseDisplay` 代理**无 `intern_atom`**→atom 解析改走 `disp.get_atom(name)`（`d.intern_atom` 只在完整 `Display` 对象上）。
-3. `get_input_focus()` 返回 event 对象，焦点窗在 `.data['focus']` 且常为 None/PointerRoot→frontmost 优先 EWMH `_NET_ACTIVE_WINDOW`（root 属性，compositor 可靠维护，实测 gnome-terminal 解析成功），input-focus 兜底。
-4. GTK 系窗（Nautilus 等 50/76 个）不发布 `_NET_WM_PID`→`_app_info_for_window` 加 WM_CLASS 兜底（`_app_info_from_wm_class`，instance/class 对当 bundleId+displayName）。
-5. `pyautogui.moveTo(x, y, duration=...)` 非 `_duration=`（0.9.54 签名）。
-
-**验证结果**：
-- computer-use 全族 bun test（`src/utils/computerUse/*.test.ts` + `computer-use-api.test.ts`）：**24 fail = 干净基线 24 fail（git worktree@HEAD 对照法），零新增回归**（基线 24=helperBridge/cu-helper 快照族，mac 专属 daemon 路径，与本任务无关）。测试文件新增 linux 用例：common（linux→true+freebsd false+linux capabilities）、gates（linux→true）、api（linux→{supported:true,engine:'linux-x11',cuHelper unsupported_platform}+getUnsupportedComputerUsePlatformStep→null）、setup（linux→mcpConfig 含 computer-use+allowedTools 含 screenshot；unsupported 用例改 freebsd）、skillGate（linux 启用用例）。
-- 前端：ComputerUseSettings(24)+EnableDialog(2)=26/26 绿；desktop tsc --noEmit exit 0；全量 desktop vitest **12454 pass / 4 fail（4=scripts/image-processor-packaging .js/.ts 孪生同一用例 `spawn bun ENOENT`，环境 PATH 问题非本任务引入）零新增回归**。
-- **live 7788（dev sidecar 源码直跑）**：`GET /api/computer-use/status` 回 `{"platform":"linux","supported":true,"engine":"linux-x11","cuHelper":{"available":false,"reason":"unsupported_platform"},"python":{"installed":true,"version":"3.13.12"},"venv":{"created":false},"permissions":{"accessibility":null,"screenRecording":null}}`——venv 未建时 permissions null 符合预期（建 venv+装依赖后 helper check_permissions 回 {accessibility:true,screenRecording:true}）。
-- **X11 实机冒烟（GNOME 桌面，/tmp/lh-test venv 装全 6 依赖）**：全 26 命令面过——check_permissions/{accessibility:true,screenRecording:true}、list_displays（1920x1080）、screenshot（resize 后 base64 回图）、zoom（targetWidth/Height 放大 200x150→400x300）、cursor_position、move/click/scroll/mouse_down/mouse_up/key/hold_key/type（全部 ok:true 且光标位置实测移动生效）、frontmost_app（_NET_ACTIVE_WINDOW→gnome-terminal-server）、app_under_point、list_running_apps（20 条）、list_installed_apps（112 条）、find_window_displays（displayIds:[0]）、read/write_clipboard（read 可用；write 需系统 xclip/xsel）、bad_command 退出码 2。
-
-**系统依赖（部署文档口径）**：X11 桌面必须；XWayland 部分受限（窗口状态查询不可靠，guards fail open）；剪贴板 write 需 `xclip` 或 `xsel` 之一；XWayland 下建议状态页提示。
-
-> 状态：✅已完成（2026-09-26，两批全部落地+实机冒烟通过）。
-
-**patch**：`modify/patches/computer-use/computer-use-linux-patch1.patch`（24 文件 1758 行含 2 新文件 new file mode，20 链末位，基线=068b3ebd 起 19 链终态；20 链 worktree 顺序 `git apply --allow-empty` 全干净，24 文件与工作树逐字节一致）。
-
-### 子优化① 平台化组件选择（2026-09-27，patch `patches/computer-use/computer-use-linux-patch1.patch` #34）
-
-**用户指示**：「应该自动根据 windows/macos/linux 平台不同，所需组件不同」。
-
-**核查结论：依赖清单本身早已分档且正确**——`runtime/requirements-{win,linux}.txt` 两份，与各自 helper 的 import **逐项对得上**：
-
-| 平台 | helper | 独有依赖 | 对应 import |
-|---|---|---|---|
-| Windows | `win_helper.py` | `pywin32`、`screeninfo` | `win32con/win32gui/win32process/winreg`、`screeninfo` |
-| Linux | `linux_helper.py` | `python-xlib` | `Xlib` |
-
-服务端 `api/computer-use.ts` 也已按 `engine`（`macos-native`/`windows-compat`/`linux-x11`/`unsupported`）分派，前端设置页亦按 engine 分流（mac 走原生页并**明确拒绝**进入 Python 安装流）。**故不是「缺分档」，而是选择方式有洞。**
-
-**缺陷**：`pythonBridge.ts` 用**二元三目**选清单——`isLinux ? 'requirements-linux.txt' : 'requirements-win.txt'`。macOS（或任何未知平台）**会落到 Windows 那份**（把 `pywin32` 装给 mac）。虽然正常路径被 engine 守卫挡住，但这是「靠上游拦截」而非「自身正确」。
-
-**修复**：抽出显式平台表
-```ts
-export function pythonRuntimeFor(platform: NodeJS.Platform): PythonRuntimeComponents | null
-//  win32 → { helper: 'win_helper.py',   requirements: 'requirements-win.txt' }
-//  linux → { helper: 'linux_helper.py', requirements: 'requirements-linux.txt' }
-//  其余（含 darwin）→ null：无 Python 组件
-```
-`ensureRuntimeFiles` 走该表（`null` 时不再同步任何 requirements）；`ensureBootstrapped` 在无组件集时**响亮拒绝**（而非装错平台的包）；`bootstrapPipIntoVenv` 的补救提示也按平台给（Windows 提示用官方安装器勾选 pip / `python -m ensurepip`，其余提示装系统 venv 包），不再对着 Windows 用户喊 `apt install python3-venv`。
-
-**验证**：`pipInstall.test.ts` 新增 `pythonRuntimeFor` 两用例（各平台映射 + darwin/未知 → null）与 Windows 补救用例；linux 补救既有用例改为**显式传 `platform`**（原先依赖运行平台，在 Windows CI 会假失败）。合并跑 **15/15 通过**，改动文件 tsc 0 报错。
-
-### 子优化② 无原生文件选择器时回退填入已探测路径（2026-09-27，patch `patches/computer-use/computer-use-linux-patch1.patch` #35）
-
-**问题**：解释器路径输入框点「浏览」在两种情形下拿不到选择器——**H5/浏览器**下原生文件选择器选的是**浏览器所在机器**的文件（而解释器在跑 sidecar 的机器上，永远选不中）；**Linux 无 portal** 时原生对话框也可能直接失败。原本两种情形都只留下一个空输入框让用户手抄路径。
-
-**修复**：失败即回退——把服务端**已经探测到的解释器路径**填入草稿并提示确认保存（`fallbackToDetectedPythonPath()`，`ComputerUseSettings.tsx`）。新增 i18n 键 `settings.computerUse.pythonPathDialogDetected`（en/zh/jp/kr/zh-TW 五语言各 +1）。
-
-**验证**：`ComputerUseSettings` 族测试（含新增用例）；五语言键对齐。
-
-## 十九、bc 压缩后 context usage 不收敛（✅ 2026-09-26 已实施）
-
-### 需求背景（用户 2026-09-26 verbatim）
-
-「因为有bc中间件在前端助手和后端引擎中间，现在context usage只有持续增长到100%，没有随bc压缩收敛后显示真实usage和百分比，这个作为新优化项，先推进调研。」
-
-### 调研结论：根因已坐实（live 实证）
-
-**架构**：桌面 sidecar（cc-haha）→ bc/bili 中间件（:8878，无状态全量拼历史 + salvage 压缩）→ vLLM 引擎。sidecar 的 context 百分比**不读 bc 的任何信号**，完全本地计算：
-
-**计算链**（`src/server/services/sessionService.ts`）：
-1. `buildTranscriptContextEstimate`（:2938-3031）= 唯一显示源（inspection.contextEstimate → 前端 ContextUsageIndicator.tsx:391 直接取 `percentage`）。
-2. `accumulateTranscriptContext`（:462-524）扫**追加式 transcript JSONL**：每条 user/assistant/attachment 用 `roughTokenCountEstimationForMessage`（≈字符/4）累加进 `estimatedTokensFromMessages`；遇 `system/compact_boundary`（:466-471）才清零累加器+latestUsage。
-3. `totalTokens = min(max(contextBudget.usedTokens, providerTokens + estimatedTokensAfterUsage), rawMaxTokens)`（:2971-2980），`percentage = round(totalTokens/rawMaxTokens*100)`（:2981）。
-
-**三条不收敛机理（全部 live 实证，本会话即实验对象）**：
-1. **本地累加器远超真实窗口**：自上一个 `compact_boundary` 后，本会话 2869 条消息的本地 rough 累加=**~787K token=340% 的 231248 窗口**；而引擎真实 usage（input 2565+cache_read 84672+output 5608=**~92K=40%**）。显示取 max → 本地项钉死 100%。
-2. **bc 压缩不写 compact_boundary**：bc 的 salvage/压缩发生在中间件层，回传的 assistant 消息照常追加进 transcript；sidecar 侧 376 个 compact_boundary 全来自 **sidecar 自己的 auto-compact**（`autoCompactIfNeeded`→`compactConversation`，`src/utils/messages.ts:4767` 写 boundary）。bc 压缩本身对 sidecar 零信号（bc bundle grep 无 compact_boundary 输出）。
-3. **窗口口径错配**：ZXSV-AI provider 配 `modelContextWindows={'zxsv-ai':231248}`+`autoCompactWindow=231248`（226K），但 bc 实际管理的是引擎 ~1M+ 窗口+自己的收敛门控（bc §1.35/§1.36 growth36000/N=12）。denominator 是 sidecar 自设值，与 bc 真实预算无关。
-
-**关键对照**（为何 auto-compact 自身行为正常但显示不收敛）：`shouldAutoCompact`（autoCompact.ts:212）用 `tokenCountWithEstimation`（tokens.ts:299）锚定**内存中最后一条真实 usage**（usage 锚 + 其后 rough 累加，锚含 cache_read → ~92K < 阈值 218K → 不误触发）；而显示路径用 `estimatedTokensFromMessages`=**全量自 boundary 累加（无 usage 锚）**。同一份数据、两个口径 → auto-compact 正常、显示钉 100%。
-
-**live 交叉验证**：dev 7788 短会话 inspection 回 `percentage=19 totalTokens=43053/231248 apiUsage={input 1482, cache_read 41472}`=引擎真实值，口径正确；长会话（本会话）必被本地累加项顶到 100%。
-
-### 方案（实施时定夺，倾向 A+B）
-
-- **A（治本，推荐）**：显示口径对齐 auto-compact——`buildTranscriptContextEstimate` 的 `estimatedTokens` 改用 usage 锚口径（最后一条真实 usage 的 prompt 总量 + 其后 rough 累加），而非全量 `estimatedTokensFromMessages`。单点改 sessionService（复用 tokens.ts 已有 `tokenCountWithEstimation` 思路），bc 压缩后 usage 回落 → 百分比收敛。风险=低（显示只读路径，不碰压缩触发）。
-- **B（兜底）**：bc 压缩/salvage 时让 sidecar 感知——两路：①bc 在流里发 compaction 标记（需 bc 协议扩展，改动大）；②sidecar 检测到「latestUsage 总量较前值骤降 > 阈值」时视为压缩事件，清零 `estimatedTokensFromMessages`（本地启发式，无 bc 改动）。
-- **C（口径修正，可选）**：ZXSV-AI 窗口 231248 → 与 bc 真实管理窗口对齐（或留 231248 当「sidecar 自主 compact 预算」语义，文档说明）。
-
-### 实施（commit 94c8f0f7，4 文件 74 行，方案 A 治本 + 伴随加固）
-
-- **核心（方案 A）**：`src/server/services/sessionService.ts:2970` `buildTranscriptContextEstimate` 的 `totalTokens` 从 `min(max(contextBudget.usedTokens, providerTokens+estimatedTokensAfterUsage), rawMaxTokens)` 改为 `min(providerTokens+estimatedTokensAfterUsage, rawMaxTokens)`——显示总量走 **usage 锚口径**（最后一条真实 usage 总量 + 其后 rough 累加），与 auto-compact 的 `tokenCountWithEstimation`（tokens.ts:299）同口径。bc 中间件压缩后 usage 回落 → 显示百分比收敛，不再被自 boundary 的全量 rough 累加（本会话 ~787K=340% 窗口）钉死 100%。`estimatedTokens` 仍保留全量 rough 口径供 `calculateContextBudget` 的媒体信任启发式使用；低信任+媒体的可疑 usage 尖峰仍走 `ignoredUsageReason` 分支（行为不变）。
-- **伴随加固**：`src/server/services/localIndex/sessionProjector.ts`——malformed transcript 会把 thinking 文本误解析进 tool_use name，原单字符串 metadata 上限 4KB 过紧（实测 12KB 异常值致 `LOCAL_INDEX_SOURCE_LIMIT`），放宽为 `MAX_PROJECTION_METADATA_VALUE_BYTES=16KB`（且由 `value.length` 字符判定改为 `Buffer.byteLength` 字节判定，多字节字符更准）；metadata 总量上限 `MAX_PROJECTION_METADATA_BYTES` 16MB→32MB。
-- **回归测试**：`src/server/__tests__/conversations.test.ts` 新增「全量 rough 累加(150k)≫真实 usage(1200) 时显示锚定 usage」用例（600000 字符 assistant 消息 + usage 1200，断言 totalTokens=1200/percentage=1/rawMaxTokens=200000）——stash 旧码验证该用例 fail，正确钉住本改动。`sessionProjector.test.ts` 适配新上限常量。
-
-### 验证
-
-- src/server 相关 4 测试家族（conversations/sessions/contextBudget/sessionProjector 等）共 **488/488 绿**（加新回归测试后）；新用例在新码 pass、stash 旧码 fail。
-- typecheck 干净（scoped，仅既有 TS5102 baseUrl 无关告警）。
-- **22 链全验证**：068b3ebd 基线顺序 apply 22 patch（含新 `patches/usage/usage-context-usage-anchor-patch1.patch`）FAIL=0，章十九 4 文件逐字节=工作树。
-
-### 状态
-
-✅ 已实施（2026-09-26，方案 A + projector 加固，patch `patches/usage/usage-context-usage-anchor-patch1.patch` 入库）。
-
+✅ 已实施（2026-09-26）；patch `patches/vcc/vcc-autocompact-window-tiers-patch1.patch`（第 24 位入库，已往返校验）。
+**待重启 sidecar 生效**（server 侧 TS 由 bun 直跑；前端 bundle 不含该常量，无需 vite build）。
 
 ---
 
-## 二十、H5 远端 API 响应 gzip 压缩传输（非本机默认开启）（✅ 2026-09-26）
+### 原二十四·补（2026-10-06 修订）：双百分比分档 + 压缩后保留预算
 
-### 需求背景（用户 2026-09-26 verbatim）
+> 用户 2026-10-06 指示（verbatim）：
+> 「小于等于120k 小于等于10%开始压缩 小于8%强制压缩；小于等于210k 小于等于13%开始压缩 小于10%强制压缩；小于等于320k 小于等于15%开始压缩 小于13%强制压缩；小于等于520k 小于等于13%开始压缩 小于10%强制压缩；大于520k 小于等于10%开始压缩 小于7%强制压缩。然后vcc执行压缩后保留内容，应该等于上面小于多少百分比强制压缩的最大可用上下文长度。」
 
-「通过H5访问，似乎会发送全量消息记录，那么通过发送压缩解压全量消息记录的方式似乎更佳，轮询判定访问来源ip非本机持有的时候，默认开启压缩传输机制。既能节省带宽，又能提速。先做仔细严格的调研分析可行性。」
+#### 一、分档表改为「软/强制双百分比」
 
-### 调研结论（live 实测，全部硬数据）
+原表（§二十四）用**绝对 token 下限**做硬触发（13K/32K/36K/53K/65K）；新表两项都是**窗口占比**，故 `AUTOCOMPACT_TIERS` 的 `floorTokens` 改为 `forcedPctLeft`，`pctLeft` 更名为 `softPctLeft`。
 
-- **前提坐实**：H5 打开会话 = 客户端 `getFullHistory`（`desktop/src/api/sessions.ts:446`）先 `mode=full` 后逐页 cursor 循环拉**全量**历史。生产 37206 条会话（jsonl 193MB）实测 wire=**139MB / 701 页 / 25.9s（loopback）**。
-- **无现成压缩**：`Bun.serve` 无 compression 选项，全仓无 content-encoding 中间件（proxy/ 除外）。
-- **压缩比**：同 payload 实测 gzip ≈3.0x、brotli(q4) ≈6.0x（Bun 1.3.14 走 node:zlib，无 Bun.Gzip 全局 API）。选 gzip（兼容性优先，浏览器 fetch 原生透明解压）。
-- **客户端零改动**：浏览器 `fetch` 按 HTTP 规范透明解压 gzip，`res.text()`/`res.json()` 拿到明文 JSON；`readJsonBody` 的 `MAX_JSON_RESPONSE_BYTES=530MB` 门槛按解压后明文算（136MB 不过）。
-- **IP 判定**：复用 `server.requestIP(req)?.address`（`index.ts:309`）+ `isLoopbackHost`（h5AccessPolicy.ts:41）——非 loopback 默认压缩，本机桌面路径零影响（用户要「轮询判定」，实际每请求实时判定，更强）。
+| 声明窗口 | 软触发（剩余） | 强制触发（剩余） |
+|---|---|---|
+| ≤120K | 10% | 8% |
+| ≤210K | 13% | 10% |
+| ≤320K | 15% | 13% |
+| ≤520K | 13% | 10% |
+| >520K | 10% | 7% |
 
-### 实施（commit 26375d8f，3 文件 246 行）
+**口径（定稿，用户确认）**：分档键 = **声明窗口**；**软、强制阈值都算在有效窗口**（`getEffectiveContextWindowSize`）——与 §二十四口径 2 一致，且**取代口径 3**。理由：两者都是「窗口占比 vs 真实用量」的比较，放不同基准会让两者间距随摘要预留漂移。故 `getForcedCompactThreshold` 由 `declared − floor` 改为 `floor(effective × (1 − forcedPctLeft))`，并保留 `max(…, 软阈值)` 钳制（五档 soft > forced，故恒成立，钳制只作兜底）。
+**小窗口安全钳制保留**（`min(档位阈值, window − min(13K, window/3))`）：8K/16K/32K/33K/64K/80K 五档阈值**与旧实现逐字节一致**（实测未改用例即通过），零回归。
 
-- `src/server/responseCompression.ts`（新）：`shouldGzipResponse`（门控）+ `withGzipIfEligible`（压缩）。门控=仅 GET 200 + `Accept-Encoding` 含 gzip + **非 loopback** + content-type json + >128KB（`MIN_COMPRESS_BYTES`；Response.json 不保证 content-length，权威判定在 arrayBuffer 读取后）。`gzipSync level 6`。env 开关 `CC_HAHA_TRANSPORT_GZIP=0` 关 / `=1` 强制 loopback 也压（测试用）。前 5 次压缩打一条日志（MB→MB + 倍数）。
-- `src/server/index.ts`：`/api` 分支一行接线 `withCors(await withGzipIfEligible(req, response, clientAddress), cors)`。
-- 单测 `responseCompression.test.ts`：10 例（门控/透明性/loopback/小 payload/env 开关）。
+#### 二、压缩后保留预算（vcc）
 
-### 验证（dev 7788 E2E，LAN IP 192.168.10.43 触发压缩 vs 127.0.0.1 基线，同一大会话）
+新增 `getVccRetentionBudget(model)` → `{preferredTokens, ceilingTokens}`，即**压缩后上下文该占多少**：
+- `preferredTokens = floor(effective × forcedPctLeft)` —— **目标**：压到强制触发预留的那一份，这样「下次压缩不是马上又到期」；
+- `ceilingTokens = floor(effective × softPctLeft)` —— **上限**：最新一轮装不下目标时最多可留到这里，再超就等于「压了跟没压一样安全」。
 
-- wire **136.19MB → 43.09MB（-68%）**；解压后**逐字节一致**（27984 条 / 705 页全对齐）。
-- 705 页中 485 页压缩，<128KB 小页正确透传；loopback `gz_pages=0` 桌面零影响。
-- 耗时 loopback 口径仅 -7%（本机瓶颈=服务端分页读盘+JSON 序列化，非传输；移动网络弱网收益=带宽为主）。
-- typecheck 干净；server 全量 **3442 pass / 0 fail**（178 文件，#83 基线标准）。
+用户对「装不下」的三段规则（原话：*不超按最小8%，超则按10%，如果10%仍然兜不住则在尽力保留最近一轮的情况下严格不超预算*）落为：
 
-### 踩坑记录
+| 情形 | 行为 |
+|---|---|
+| 整尾 ≤ 目标 | **把目标用满**（多保轮次），而非停在固定 MIN |
+| 超目标但 ≤ 上限 | 保留最近一轮（`buildVccCut` 不裁） |
+| 超上限 | 从末尾向前取**能装下的最长后缀**；起始落在 toolResult 上则前移到下一个合法边界 |
+| 连最新一条都超上限 | **compact-all**（`keptCcStart = messages.length`）——严格不超，摘要承载全部 |
 
-1. **arrayBuffer 耗 body 后回退返回原 Response → 空 200**：`response.arrayBuffer()` 消耗 body 后，「太小不压/压不小」两条回退路径若仍 `return response`，客户端收到 200+空 body（705 页 walk 在第 18 页抓出，3 次复现全中）。修=回退一律 `new Response(raw, {status, headers})` 重建。
-2. **Bun 的 `Response.text()` 不像浏览器透明解压**：单测若直接 `out.text()` 拿 gzip 字节 JSON.parse 失败（Bun 忠实于"body 原始字节"）；真实浏览器 fetch 按规范解压→生产无碍，单测须手动 `gunzipSync` 模拟客户端视角。
-3. **Bun 1.3.x 无 `Bun.Gzip`/`Bun.BrotliCompressStream` 全局 API**（typeof undefined）；`node:zlib` 的 gzipSync/gunzipSync/brotliCompressSync 全部可用，流式 `createGzip` 管道也通。
+**实现要点**
+- `engine.ts`：新增 `TailAllowance {preferredTokens, ceilingTokens}`；`resolveSmartKeepUserTurns(…, allowance?)` 有预算时按目标**填满**、无预算时保留 pi-vcc 原 MIN/MAX 规则（slice/局部压缩与 parity 调用者不传，行为不变）；`buildVccCut(…, {tailAllowance})` 新增严格后缀计算 `largestSuffixWithin`，仅在有预算时启用；**旧的无预算分支（`MAX × OVERSIZED_TAIL_FACTOR`）原样保留**。
+- `vccCompact.ts`：`VccCompactionInput.retentionBudget`；⭐**摘要本身也吃预算，且其大小不受 brief 预算约束**（结构段 Session Goal / Files And Changes / Commits 另行计费）——所以先按「对全量消息编译的草稿摘要」预留算出 allowance，裁剪后再用**实际摘要**复算，超上限则收紧一次（`buildVccCut` 只会把尾裁得更小，故收敛，最多 2 轮）。
+- `compact.ts`：`maybeVccCompact` 传入 `getVccRetentionBudget(getMainLoopModel())`。
+- **局部（片段）压缩不接预算**：其 `messagesToKeep` 恒为 `[]`（边界由 pivot 决定，另一侧由调用方逐字保留），不存在「保留尾」可裁。
 
-### 状态
+#### 三、本机实测数值（代码实调，非手算）
 
-✅ 已完成并提交（2026-09-26，commit 26375d8f）；patch `patches/session/session-gzip-transport-patch1.patch`（3 文件 277 行，基线 d6767a02）。
+| provider | 声明 | 有效 | 软触发（已用≥） | 强制（已用≥） | 保留目标/上限 |
+|---|---|---|---|---|---|
+| DeepSeek / Zhipu GLM | 512,000 | 492,000 | **428,040** | 442,800 | 49,200 / 63,960 |
+| 老外的API | 368,640 | 348,640 | 303,316 | 313,776 | 34,864 / 45,323 |
+| 未央170hx | 233,000 | 213,000 | 181,050 | 185,310 | 27,690 / 31,950 |
+| ZXSV-AI | 231,248 | 211,248 | 179,560 | 183,785 | 27,462 / 31,687 |
+| 1M 档 | 1,000,000 | 980,000 | 882,000 | 911,399 | 68,600 / 98,000 |
+
+> 对比旧表（512K 档软触发 418,200）：新表**更晚触发**（428,040），但**压缩后目标更高**（49,200 vs 旧的 brief≈1.1–2.5K + 尾≤25K）——即「晚压、但压完留得更多且不再顶着上限」。
+
+#### 四、踩坑记录
+
+1. **首次实现的「超上限回切」并不严格**：沿旧逻辑「从末尾累加、停在跨过阈值的那条」，于是**跨过上限的那条消息被整条保留**（实测 `keptTokens=3000 > ceiling=1500`）。改为计算**能装下的最长后缀**；并明确「连最新一条都超上限 ⇒ compact-all」。**教训：要「不超某预算」，就不能用「累加至跨过阈值」这类近似，必须解出满足约束的最大可行集合。**
+2. **`1 - 0.07` 的浮点误差**：`floor(980000 × 0.93) = 911,399`（而非 911,400），因 `1-0.07 = 0.9299999999999999`。测试期望须用实调值，别用纸面乘积。
+3. **`deepseek-v4-pro` 在本机被 provider 预设压到 512,000**（注入 `CLAUDE_CODE_AUTO_COMPACT_WINDOW`），故它是 ≤520K 档而非 >520K 档；**测试用例的期望值是「测试环境」的（删除该环境变量）**，两者不同，别用本机实测值去改测试。
+4. 单测里「5 轮全保留」不成立：cut 前必须有内容，**最老一轮进不了保留尾**，固定规则下 5 轮最多保 4 轮。
+
+#### 五、验证
+
+- `bun test src/services/compact` **45 pass / 0 fail**（新增 `vcc/retentionBudget.test.ts` 6 条：填满目标 / 目标内保最近一轮 / 无预算保留固定规则 / 超上限回切 / 单条超上限 compact-all / 端到端「压缩后总占用 ≤ 上限」且无预算时确实超出）；
+- `bun run check:server` **555 文件 / 6633 pass / 0 fail**；
+- 本次改动文件 `tsc --noEmit` **0 错**。
+- **尚未重启 sidecar**：server 侧 TS 由 bun 直跑，重启后生效；前端 bundle 不含这些常量，无需 vite build。
+
+**patch（已固化 2026-10-11）**：新增 `patches/vcc/vcc-compaction-retention-budget-patch1.patch`（**链位 38**，767 行 / 6 文件：4 源码 + 2 测试）。基座 = `align-latest` 的 `3a51ef84`（0.6.7 血缘），与链位 37 同组**独立应用**——链位 24 编码的是旧分档表与旧硬触发口径，重放会覆盖新表，故**不改写链位 24 而另起链位**。已登记 `ORDER.md` / `README.md`；往返校验：干净 `3a51ef84` 上 `git apply` ⇒ 6 文件**逐字节一致**。
 
 ---
 
-## 二十一、思考计时与工具计时综合优化：思考 token 用量/耗时 + 收纳栏总计时 + 收纳栏 token 用量（✅ 2026-09-26）
+### 原四十一、压缩摘要身份锚点：旗标贯通取代英文前缀匹配（✅ 2026-10-14，`patches/compact/compact-summary-anchor-patch1.patch`，⚠️ 基座 `54ae13c69` 独立应用）
 
-### 需求背景（用户 2026-09-26 verbatim，多次递进）
+**问题**：摘要头部句中文化后，WS 桥/历史装载/desktop 折叠的英文前缀匹配失效——中文摘要在实时视图被静默丢弃、历史重放时以全文用户气泡暴露（设计契约：摘要注入引擎上下文但不在用户消息流出现）。
+
+**修复**：`isCompactSummary` 旗标贯通 SDK 帧（`toSDKMessages`，protobuf catchall）→ SDK schema（`coreSchemas`）→ JSONL 顶层（`sessionService` entryToMessage）→ MessageEntry → WS 桥（`cliMessageParsing` 旗标优先 + 中英前缀兜底、`extractReplayUserText` 过滤）→ desktop（chatStore 提取/去重 + MessageEntry 折叠）；`looksLikeCompactSummaryContent` 锚定 section 标题（语言无关）。dev 端到端实测：/compact 中文摘要折叠卡正确、replay 不泄漏、`promptLanguage=en` 时思考回英文（联动链闭合）。
+
+**patch**：9 文件（7 src/ + 2 desktop/）+1 新测试。干净 `54ae13c69` 上 apply ⇒ 9 文件逐字节一致 ✅ 2026-10-14 已实测。
+
+
+## 六、思考计时与子代理
+
+> 本章收纳原第 二十一、二十五、二十六、三十六 章（2026-10-14 按功能域重组；各原章降为小节，内容原样）。
+
+### 原二十一、思考计时与工具计时综合优化：思考 token 用量/耗时 + 收纳栏总计时 + 收纳栏 token 用量（✅ 2026-09-26）
+
+#### 需求背景（用户 2026-09-26 verbatim，多次递进）
 
 1. 「新增一项优化项，作为待办事项，暂不推进。记录每次思考耗时，并在对话记录里体现，类似工具执行耗时在横条右端末尾记录耗时。」
 2. 「新增的第二十一项优化项，更改为记录思考消耗 token 用量和耗时，think 横条右侧末尾显示 xx.xk 小数点两位多少 k 的 token 消耗，xs/xmxs/xhxm 多少秒/几分几秒/几小时几分不带秒。」
@@ -1622,7 +2511,7 @@ export function pythonRuntimeFor(platform: NodeJS.Platform): PythonRuntimeCompon
 
 → 本章范围综合为三块：**①单条思考 badge（token+耗时，实时 3s 刷新）②收纳栏总计时（分段求和）③收纳栏 token 用量（思考+工具）**。
 
-### 展示规格（定稿）
+#### 展示规格（定稿）
 
 - **单条思考 badge**=思考横条（ThinkingBlock）右侧末尾，与工具执行耗时同款 mono tabular-nums 样式；
   - **token 用量格式**=`xx.xk`，保留两位小数（例 `1.23k`、`12.50k`）；
@@ -1632,7 +2521,7 @@ export function pythonRuntimeFor(platform: NodeJS.Platform): PythonRuntimeCompon
   - **总计时**=分段求和（Σ思考耗时 + Σ工具执行耗时），替代原墙钟跨度；
   - **token 用量**=思考内容估算 + 工具结果内容估算；估算口径显示 `思考Xk + 工具Yk`（思考在前、`+` 分隔），真实回传口径显示合并总数。
 
-### 实施（2026-09-26，19 文件，526 增/51 删）
+#### 实施（2026-09-26，19 文件，526 增/51 删）
 
 **① 计时数据链路（SDK→WS→客户端）**
 
@@ -1655,12 +2544,12 @@ export function pythonRuntimeFor(platform: NodeJS.Platform): PythonRuntimeCompon
 - chatStore `settleThinkingDurations` 4 例（盖值、不覆盖已 settle、负跨度 clamp 0、无变化返回同引用）；
 - server 侧 golden/ws-memory/agentRunMessage 适配 `serverStart` 透传。
 
-### 验证
+#### 验证
 
 - tsc 0 错；前端相关家族 444/444 绿（ThinkingBlock 22 + ActivityGroup 16 + chatBlocks 44 + chatStore 354 + tpsMeter 8）；server 3 测试家族 65/65 绿。
 - **H5 实测坑**：H5 服务 `desktop/dist`（`CLAUDE_H5_DIST_DIR`），服务端改动 bun sidecar 直跑源码即生效，但前端渲染必须重新 `vite build`——15:49 旧 dist 无 badge 代码，H5 思考行 token 消失即此因；重构建后 `data-thinking-usage` 入新 App chunk，H5 handler 每请求读盘无需重启。
 
-### 踩坑记录
+#### 踩坑记录
 
 1. **H5 与桌面共用 `desktop/dist`**：服务端（bun 跑源码）改了立即生效、前端（静态 bundle）必须重建，两者节奏不同步会让 H5 看起来"改了没生效"。
 2. **无耗时记录的旧会话**：`thinkingDurationMs === undefined` 时原实现直接返回空 badge——历史会话整条消失；修为单显 token。
@@ -1668,7 +2557,7 @@ export function pythonRuntimeFor(platform: NodeJS.Platform): PythonRuntimeCompon
 4. **`serverStart` 锚点选 `content_block_start` 而非首个 delta**：更早（比 delta 早 <100ms）且必然存在；每 delta 重复携带保证幂等（delta 可能丢/重放）。
 5. **settle 点必须覆盖全部 `activeThinkingId` 清空路径**：text/tool_use 的 block_start、message_complete、api_retry 三处，漏一处该思考块永远停在实时 tick。
 
-### 子优化① （2026-09-27）：收纳栏顺序 + `+` 间隔 + 零耗时按未测处理
+#### 子优化① （2026-09-27）：收纳栏顺序 + `+` 间隔 + 零耗时按未测处理
 
 **用户指示（verbatim）**
 
@@ -1709,7 +2598,7 @@ export function pythonRuntimeFor(platform: NodeJS.Platform): PythonRuntimeCompon
 
 **验证**：`ThinkingBlock` 23/23、`ActivityGroup` 16/16、前端 chat 家族 **1246/1246**（47 文件）、服务端 api **244/244**、desktop `tsc --noEmit` **EXIT=0**、eslint **EXIT=0**。
 
-### 子优化② （2026-09-27）：轮次用量（每轮总消耗 token）
+#### 子优化② （2026-09-27）：轮次用量（每轮总消耗 token）
 
 **用户指示（verbatim）**
 
@@ -1766,11 +2655,11 @@ export function pythonRuntimeFor(platform: NodeJS.Platform): PythonRuntimeCompon
 9. **回退盖上用量必须设界，否则会抹掉另一次调用的数字**：初版 `stampResponseUsage` 的兜底是「新行一个都没盖到就往前找最近一行盖上」。但「一行都没产出」还有一种成因——本次调用**自己的行被并进了上一行**，而上一行可能是**另一次调用**的行（它自带 `usage`/`usageKey`）。此时无条件覆盖会把那次调用的用量抹掉，比丢掉本次更糟（脏数据 vs 少算）。修法：`stamp` 内**拒绝覆盖已带 `usage` 的行**；回退循环**遇到最近一行助手内容就停**（不继续往前找），并在**用户消息**处硬停，不跨轮次。两条边界各有一条测试（`never back-fills a row that already belongs to another call` / `does not back-fill across the turn boundary`）。
 10. **TS 联合收窄不能拆成返回布尔的辅助函数**：把 `message.type === 'assistant_text' || ...` 抽成 `isAssistantRow(index): boolean` 后，TS 无法把 `UIMessage` 联合收窄到「可赋值 `usage` 的那三个变体」，报 TS2322/TS2339。收窄必须**内联在赋值处**（用提前 return 的卫语句），与初版 `stamp` 闭包写法一致。
 
-### 状态
+#### 状态
 
 ✅ 已实施（2026-09-26，子优化① 2026-09-27，子优化② 2026-09-27）；patch `patches/thinking-subagent/thinking-subagent-thinking-tool-timing-patch1.patch`（第 23 位）+ `patches/thinking-subagent/thinking-subagent-thinking-tool-timing-patch1.patch`（第 30 位）+ `patches/thinking-subagent/thinking-subagent-thinking-tool-timing-patch1.patch`（第 31 位）。
 
-### 子优化③ 补录 golden 夹具（2026-09-27，修既有回归）
+#### 子优化③ 补录 golden 夹具（2026-09-27，修既有回归）
 
 - **现象**：`desktop/src/stores/chatStore.golden.test.ts` **2 条失败**（`thinking-then-text` 与「is independent of session id and replay order」），断言为思考消息多出 `thinkingDurationMs`。**在干净 HEAD `4fbaaad6` 上同样失败** → 自 #91（`ef8801e3`）引入该字段起就坏了，与同日其它工作无关。
 - **根因**：golden 夹具 `__fixtures__/chat-store.golden.json` **没有跟着重录**。该测试的设计口径本来就是「锁定时钟后重录」（见测试头部注释：`FIXED_NOW` 把非确定性从源头掐掉，字段计算方式一变就应在 diff 里显形），所以新字段必须重录进夹具，而不是在比较时把它 normalize 掉。
@@ -1780,7 +2669,7 @@ export function pythonRuntimeFor(platform: NodeJS.Platform): PythonRuntimeCompon
   2. **重录值必须验确定性**：时序字段若取自未被固定的时钟（如 `performance.now()`），重录会得到随机值、下次仍红。本次为 `Date.now()`+固定时钟，故 51 是常量；验法=连录两次比对无差异。
   3. **夹具文件此前不在任何 patch 覆盖内** → 重放 patch 链得到的是**红树**。本次把夹具 section 并入引入该字段的 `patches/thinking-subagent/thinking-subagent-thinking-tool-timing-patch1.patch`（链位 23，**1052 → 1086 行**），使链终态 golden 转绿（已在链终态实测 14/14）。
 
-### 子优化④ 子代理耗时 + 后台任务耗时并入本章（2026-09-27）
+#### 子优化④ 子代理耗时 + 后台任务耗时并入本章（2026-09-27）
 
 **需求（用户 verbatim）**：「给所有子代理也加上执行时间耗时，子代理收纳栏也加上总耗时统计。所有后台执行任务也加上执行时间耗时信息。子代理耗时+后台任务耗时一起并入 think 耗时优化项。」
 
@@ -1891,7 +2780,7 @@ export function pythonRuntimeFor(platform: NodeJS.Platform): PythonRuntimeCompon
 
 **验证（链位 43）**：`tsc --noEmit` **0 错**；`chatStore.test` **369**（+3）、`SessionActivityPanel.test` **26**（+1 断言更新）、`MessageList.test` **202**（+1）；桌面全量 **6315 通过 / 0 失败**；干净的 `068b3ebd` worktree 重跑 **43 链失败 0**，本轮 **6 文件逐字节等于工作树**。
 
-### 子优化⑤ 子代理运行中用量/耗时真正爬升 + 移动端紧凑 + **TPS 汇聚子代理读数修复**（2026-09-28/29）
+#### 子优化⑤ 子代理运行中用量/耗时真正爬升 + 移动端紧凑 + **TPS 汇聚子代理读数修复**（2026-09-28/29）
 
 **Patch**：`modify/patches/thinking-subagent/thinking-subagent-thinking-tool-timing-patch1.patch`（5 文件，**链位 61，独立新增**）。
 
@@ -1901,7 +2790,7 @@ export function pythonRuntimeFor(platform: NodeJS.Platform): PythonRuntimeCompon
 
 ---
 
-#### ⑤-1 TPS 汇聚子代理读数只有真值 1/3（核心 bug）
+##### ⑤-1 TPS 汇聚子代理读数只有真值 1/3（核心 bug）
 
 **现象**：4 个子代理并发时，主会话 TPS 指示器稳定在 **80–140 t/s**，而引擎实测 **240–450 t/s** —— 恰好约 **1/3**。单流（仅主会话）时 UI 与引擎 **1:1 吻合**。
 
@@ -1935,13 +2824,13 @@ if (gapMs > 0 && tokens / (gapMs / 1000) <= MAX_INSTANT_TPS) { /* 计入 */ }   
 
 **回归测试**：`tpsMeter.test.ts` 新增 2 例（三流交织 / 单流不回归）。**旧逻辑下新用例失败**（读到 `49.3`，期望 `>120`）——证明用例真的钉住了该 bug，而非「永远绿的装饰」。
 
-#### ⑤-2 移动端用量/耗时更紧凑
+##### ⑤-2 移动端用量/耗时更紧凑
 
 - 收纳栏汇总行 compact 态：`gap-[2px] text-[11px] tracking-tight` → **`gap-px text-[11px] tracking-tighter`**。
 - **内层 `data-agent-group-usage` 的 `gap-[3px]` 原本是硬编码的**，不随 compact 收紧——「20.39k + 6.37k」内部一直是松的。改为 compact 时 `gap-px`（与 `≈`/`+` 分隔符同步）。
 - 轮次页脚（`TurnCompletionStamp`）：`gap-1.5 tracking-tight` → **`gap-1 tracking-tighter`**。
 
-#### ⑤-3 移动端「用量不涨、只有耗时涨」排查（**保留未结**）
+##### ⑤-3 移动端「用量不涨、只有耗时涨」排查（**保留未结**）
 
 - **两处 UI 共用同一条渲染路径**（`ToolCallGroup.tsx` 的 `data-agent-group-usage`），**无移动端专用组件** ⇒ 不是样式/组件分支问题。
 - **耗时是本地时钟**（不依赖服务器），**用量必须由服务器推新数据** ⇒ 「耗时涨、用量不涨」= **客户端没收到新数据**。
@@ -1961,413 +2850,13 @@ if (gapMs > 0 && tokens / (gapMs / 1000) <= MAX_INSTANT_TPS) { /* 计入 */ }   
 
 **验证**：`tsc --noEmit` **0 错**；`tpsMeter.test` **29 通过**（+2，且新用例在旧逻辑下必红）；端到端 UI 与引擎逐秒对齐。
 
-## 二十二、历史记录膨胀（`toolUseResult.originalFile`）致大体积会话打不开（✅ 主要实施：A+B+E+G+H+F；C 证伪，2026-09-26）
+### 原二十五、H5 打不开子代理运行记录（移动端 tab 白名单遗漏 run 记录页）（✅ 2026-09-27）
 
-> **完整调研报告另立**：`modify/reports/历史记录膨胀致大体积会话打不开-调研报告.md`
-> 本节仅登记结论与去向，实施细节以报告为准。
-
-### 需求背景
-
-- 远端 H5 打开会话「优化小批量 GEMM 推理吞吐」（`db39b34d-420a-4151-a3a1-77e5d48635e4`）**一片空白、无任何历史消息**；本地桌面同样长时间无内容。
-- 用户初步判断为「升级 0.6.6 后会话记录丢失」。
-
-### 结论摘要
-
-1. **数据未丢失**：文件 114.3 MB / 6891 行 / 坏行 **0**，索引在册，端点 `summary`/`messages`/`mode=full` 全 200——与「升级丢数据」无关。
-2. **膨胀源**=`toolUseResult.originalFile`（Edit/Write 落盘的**改前整文件**）：本会话 20 条 >1MB 记录共 78.6 MB（占 66%），其中 `originalFile` 独占 **76.1 MB**；全局 518 个 transcript 共 **3.0 GB**。**且与 file-history 备份内容重复**（本会话 86 MB / 全局 550 MB，已有 `readBackupFileSafely` 可安全取回）。
-3. **白屏真因（v2 修正）**：客户端首个 `mode=full` 请求撞 **120 s 超时**（诊断日志 `timed out after 120s` × **12**，含仅 13.6 MB 的 `4e1f6c0c`）→ 阻塞式 `await getFullHistory`（`chatStore.ts:2318`）永不 resolve → 不 apply → 白屏。**v1 的「翻完才渲染置空 messages」判断已证伪**（置空的是派生状态；时间线用 `uiMessages`）。体积是放大器：超预算记录独占一页 → 实测 152 页未完成。
-
-### 优化方向（详见报告第七节）
-
-| 序 | 层 | 做法 | 数据变更 |
-|---|---|---|---|
-| **A** | 读取层 | 主历史路径套有界 preview（`displayPreview` 同款） | 无 |
-| **B** | 客户端层 | 首屏渐进渲染 + `projectContext:false` 绕开 context lane（cap=1 全文件重建）+ 超时兜底 | 无 |
-| **C** | 写入层（根治） | 落盘收口（`cleanMessagesForLogging`）裁 `originalFile` 为有界预览 + 新增 `originalFileTruncated/Bytes/Ref` 键，**保留 `structuredPatch`** | 无（只影响新写入） |
-| **D** | 读取层 | 新增按需端点：`file-history/content` → `readBackupFileSafely` 取回原文 | 无 |
-| **E** | 存储层 | file-history `-completed-*` 去重/变动才建/版本上限（550 MB 冗余） | 无 |
-| **F** | 写入层 | 落盘时对 `originalFile` 做 16KB 有界裁剪（+ 标记键） | ✅ 已实施（patch #33，2026-09-27） |
-| **G** | 传输层 | gzip 改流式/异步；活跃会话历史缓存窗口化 | 无 |
-| **H** | 读取预算 | `HISTORY_FULL_BYTES` **32 MB → 8 MB**（`boundedSessionHistory.ts:20`） | 无 |
-
-### H 项说明（参数调参，本次仅入设计未改代码）
-
-- **收益**：`mode=full` 单响应上限 32 MB → 8 MB，压掉内存尖峰与远端同步 `gzipSync` 阻塞；
-- **⚠️ 三个连带影响**：①不减少总字节只重新分配（首屏外的量改由 page 请求承担）；②**单独改会让页数变多**（瓶颈是「超预算记录独占一页」，降低预算不缩小记录）→ **须与 A/C 同批落地**；③`historyComplete:false` 更频繁 → 触发 `historyWindowed` 横幅 + 更多 recovery（lane cap=1）；
-- **⚠️ 关键**：真正的耗时上界是 `HISTORY_FULL_SCAN_BYTES`=**64 MB**（扫描预算），不是输出预算。只降输出等于允许「读 64 MB 吐 8 MB」，**延迟上界没变** → 建议**配对**降到 24 MB（待裁决）；
-- **回归已核对**：测试断言为宽松区间（`>0 && <40`），8 MB 下仍过；无 `.js` 孪生；无硬编码断言；
-- **生效方式**：server 侧 TS 由 bun 直跑，**仅需重启 sidecar**，无需 `vite build`。
-
-### 硬约束（方案可行性前提，详见报告第六节）
-
-- **`originalFile` 是 schema 必填 `z.string()`** + `FileEditTool/UI.tsx:90` 无保护 `.split` ⇒ **只能裁成字符串预览，不能删字段**（删则 `safeParse` 失败、结果完全不渲染）；
-- **`toolUseResult` 对象不可整体删除**（被 `isHumanTurn` 等当「非人类消息」判别位）；
-- **新增键只能进 `toolUseResult` 内部**（顶层键序被 transcript 解析优化依赖）；
-- ⚠️ **展示层裁剪切忌置 `bodyTruncated`**——会翻转 `historyComplete=false` → 触发 recovery 循环 + `historyWindowed` 横幅误显（最易踩的坑）；
-- recovery / 语义归约路径必须保留原文。
-
-### 实施进度（2026-09-26）
-
-**已落地 A + H**（patch `patches/session/session-history-transport-patch1.patch`，3 文件 +108/−17，已往返校验）
-
-| 项 | 落点 | 内容 |
-|---|---|---|
-| **A** | `boundedSessionHistory.ts` 新增 `boundToolUseResultPreview()` + `sessionService.entryToMessage` 接入 | 传输层对 `toolUseResult` 做有界投影：**只截超长字符串（>16KB）**，键与容器类型全保留；**不置 `bodyTruncated`**（避免翻转 `historyComplete` 触发 recovery 循环）。仅作用于展示/传输路径，**recovery 与语义归约路径仍取原始记录** |
-| **H** | `boundedSessionHistory.ts:10/20` | `HISTORY_FULL_BYTES` 32MB→**8MB**；**配对** `HISTORY_FULL_SCAN_BYTES` 64MB→**24MB**（=3× 输出，扫描预算才是延迟上界） |
-
-**实测收益（真实会话 `db39b34d`，1844 条 toolUseResult）**
-
-| 指标 | 前 | 后 |
-|---|---|---|
-| toolUseResult 合计 | 106.6 MB | **6.6 MB（−93.8%）** |
-| 单条最大 | 3.93 MB | **48 KB** |
-| `mode=full` 单响应上限 | 33.2 MB（预算 32MB） | **≤8 MB** |
-
-**保留性验证**（关键字段未被破坏）：`filePath` 原样；`structuredPatch` 未被截（hunk 完整，turn diff 依赖）；`originalFile` 仍为**字符串**（满足 `FileEdit` schema 必填 `z.string()` 与 UI 无保护 `.split`）；全部键保留。
-
-**验证**：`boundedSessionHistory` 21/21；会话相关服务端测试 342/342；改动文件 tsc 0 错误；新增 3 个专项用例（截断保键、小结果字节不变、不置 `bodyTruncated`）。
-
-### 追加落地 E + G（patch `patches/session/session-history-transport-patch1.patch` / `patches/session/session-gzip-transport-patch1.patch`）
-
-**E｜file-history 重复消除（`fileHistory.ts`）**——`fileHistoryCompleteSnapshot` 原来是**每轮对每个被追踪文件无条件 `copyFile`**，且追踪集只增不减 ⇒ O(文件数 × 轮数) 份拷贝、绝大多数逐字节相同。实测该目录 **1512 MB / 15494 文件，却只有 2057 种内容（87% 是重复）**，估算可回收 **1171 MB（77%）**。
-
-修复：套用 `fileHistoryMakeSnapshot` 既有惯用法 `checkOriginFileChanged()`——内容未变则**复用上一轮的 `-completed-` 备份**，仅在真变化时才建新拷贝；沿用 `-completed-` 命名，**不动 rewind 的 after-boundary 语义**。
-
-**G｜gzip 异步化（`responseCompression.ts`）**——`gzipSync` 在事件循环上完成整个 deflate，而远端历史正是「多页顺序拉取」，每页都会把其他请求连同翻页循环一起卡住。改为 `node:zlib` 的异步 `gzip`（libuv 线程池）。
-
-### ⚠️ C 方案被证伪（重要）
-
-原计划 C「裁掉 `originalFile` 并指向 file-history 备份」**不可行**——实测**反证**：
-
-| 检查（本会话） | 结果 |
-|---|---|
-| transcript 中 20 个巨型 `originalFile` | 20 个内容互不相同 |
-| 能在 file-history 里找到 | **仅 5 个** |
-| **备份里没有（裁了即永久丢失）** | **15 个（75%）** |
-
-原因：一轮内多次编辑**不会被逐次备份**，`trackedFileBackups` 只保轮次边界。故 C 不可按原设计实施；如需根治磁盘新增，只能走「有界预览 + 自行落一份内容寻址副本」（磁盘基本持平）或接受**有损裁剪**（需用户明确同意）。**当前以 A（传输层）+ E（存量去重）替代 C**。
-
-### gzip 会话大小门控（G2，用户 2026-09-26 指示，已实施）
-
-**用户指令**：gzip 压缩传输，只有**整个会话大于 10M** 才开启。
-
-> **打包说明**：G（异步化）与 G2（会话门控）同改 `responseCompression.ts`，分两个 patch 会互相包含（后者基于前者生成）→ 顺序应用冲突，故**合并为单个 `patches/session/session-gzip-transport-patch1.patch`**。
-
-**实现**（patch `patches/session/session-gzip-transport-patch1.patch`，含 G+G2，共 3 文件 +175/−5）
-
-| 落点 | 内容 |
-|---|---|
-| `responseCompression.ts` | 新增 `MIN_COMPRESSIBLE_SESSION_BYTES = 10 MB`、`sessionIdFromPath()`；`withGzipIfEligible` 增第 4 参 `resolveSessionSize?` |
-| `server/index.ts` | 新增 `resolveSessionSizeBytes()`（`findSessionFile` + `stat`，**10s TTL 缓存**），注入中间件 |
-
-**设计要点**
-
-- **门控放在异步路径、且排在最后**：先过全部便宜检查（GET/200/json/gzip 协商/非 loopback），再查会话大小 → **loopback、小响应、非会话路由都不付查询成本**；
-- **`shouldGzipResponse` 签名不变**（既有 3 参测试不受影响）；
-- **查不到大小（`null`）→ 回落为压缩**，避免 stat 抖动把大会话误判为不压；
-- 每响应 128KB 底线（`MIN_COMPRESS_BYTES`）**保留**，与会话 10MB 底线**同时生效**；
-- 10s TTL 缓存让 H5 翻页（数百次请求）只查一次。
-
-**评估备注（与先前分析的关系）**：本项为**用户明确决策**，优先于此前「按响应即可」的建议。实测压缩收益仍成立（裁剪后比率 4.4–6.0x，128 KB 档 2.4 ms 换 ~99 KB），故 10MB 门控属**保守选择**：小会话放弃压缩、换取零 CPU；大会话行为不变。
-
-**实测数据（裁剪后真实会话，18.9 MB JSON）**
-
-| 原始 | gzip 后 | 比率 | 中位耗时 |
-|---|---|---|---|
-| 32 KB | 9 KB | 3.5x | 0.9 ms |
-| 128 KB | 29 KB | 4.4x | 2.4 ms |
-| 256 KB | 57 KB | 4.5x | 4.3 ms |
-| 1 MB | 217 KB | 4.7x | 16 ms |
-| 8 MB | 1.36 MB | 6.0x | 102 ms |
-
-**附带发现（不修，但已用测试钉住）**：Bun 的 `Response.json()` **不设 `content-length`**，故 `responseCompression.ts` 的「按声明长度快速跳过」**从不触发**——小响应会先被 `arrayBuffer()` 缓冲、再由 body 长度判定，因此**小响应也会触发一次会话大小查询**（有 10s 缓存，成本可忽略）。已加用例 `a small response still compresses nothing, though the size is consulted` 固定该顺序，使未来改动成为显式决策。
-
-### B｜首屏翻页上限（已实施）
-
-**问题**：`getFullHistory` 从 `mode=full` 起按 `nextCursor` **无上限**拼接，且**结束时把 `nextCursor` 置 null**。两个后果：①时间线在整个拼接完成前不渲染 → 深会话表现为「打不开」；②`MessageList` 的「加载更早」入口条件是 `historyWindowed && historyPage.nextCursor`，而 `nextCursor` 恒为 null ⇒ **既有分页链路永远不可达**。
-
-**修复**（`desktop/src/api/sessions.ts`，+2 常量）：拼接循环加 `HISTORY_STITCH_MAX_PAGES = 40` 与 `HISTORY_STITCH_DEADLINE_MS = 12_000` 两个上界，越界即 `break`；返回时改为 `nextCursor: cursor`、`hasMore: !exhausted`，`historyComplete` 仅在真正走完（`cursor === null`）时才可能为 true。
-
-**关键性质**：`cursor === null`（走完）时各字段与旧的「无条件 null」行为**完全一致**——**提前返回是唯一新增路径**，故既有测试 23 个一字未改即通过。
-
-**效果**：首屏**不再阻塞**；剩余历史由**既有**「加载更早」按钮接管（每点一次 prepend 一页），无需新建渐进渲染系统。
-
-**未做的另一半（`projectContext: false`）——有意不做**
-
-调研发现 `getSessionHistoryPage` 在 `projectContext !== false` 时会调 `projectHistoryPageEntries` **从文件头重建 ownership 索引**（源码注释明确：「this is what stalls the shared server while a model pages backward」），这很可能是 13.6 MB 会话也超时的元凶；而 `/messages` 端点**从不传** `projectContext:false`（`conversationService.ts:425` 与 `sessionCollaborationHost.ts:80` 都传了）。
-
-但该索引产出的是**父子 tool-activity 归属**，而渲染层**依赖**它把子代理活动并入主时间线——关掉即**丢功能**。故**不擅自实施**，列为待你裁决的候选优化（若要尝试，建议做成「首屏 `projectContext:false` + 后台补索引」两步，而非整体关闭）。
-
-### F｜存量瘦身（已实施，2026-09-27）
-
-**用户指示**：先全量备份，然后直接开始瘦身。
-
-**① 全量备份（前置条件，已核实）**
-
-| 项 | 值 |
-|---|---|
-| 备份位置 | `/mnt/data1/claude-backup-20260927-023315/` |
-| 内容 | `projects/`（3.2 GB，519 个 jsonl，与备份时源目录同数）+ `file-history/` + `tasks/` |
-| 抽查比对 | `3e0bcac3` 343 MB、`07e8b34d` 284 MB、`40e72cd0` 179 MB —— 均为**瘦身前**体积 |
-
-**② 瘦身口径：写入侧收口（非改写存量语义）**
-
-`sessionStorage.ts` 新增 `boundOriginalFileForStorage()`，在 `cleanMessagesForLogging()` 落盘路径上对 `toolUseResult.originalFile` 施加 **16KB** 上限，并写 `originalFileTruncated: true` / `originalFileBytes: <原长>` 让记录自证被裁。
-
-- **为什么裁它**：`originalFile` 是编辑前的整文件，**模型看不到**（走 API 的是 `mapToolResultToToolResultBlockParam`），编辑卡片的 diff 实际读 `structuredPatch`。实测该字段占 transcript 的 ~2/3（3.1 GB 中 2.1 GB）。
-- **为何只裁这一个字段**：其它 `toolUseResult` 字段会被 recovery / 语义归约路径读回，必须保留原样。
-- **与既有传输层一致**：上限取 `TOOL_USE_RESULT_STRING_LIMIT`（16KB，`boundedSessionHistory.ts`）**同一个数**——客户端历来的预览就是这个界，故**源侧裁剪不改变任何人可见的内容**。
-
-**③ 实测收益**
-
-| 指标 | 前 | 后 |
-|---|---|---|
-| `~/.claude/projects` 总量 | 3.1 GB | **1.2 GB（−61%）** |
-| `3e0bcac3` | 359 MB | **61 MB** |
-| `07e8b34d` | 297 MB | **7.5 MB** |
-| `6877e7d2` | 261 MB | **13 MB** |
-| `40e72cd0` | 186 MB | **17 MB** |
-| `db39b34d` | 119 MB | **19 MB** |
-
-**④ 验证**：`sessionStorage.originalFileBound.test.ts` 专项用例（小结果不动、超限裁剪且标记正确、非字符串/非对象透传）与 `pipInstall` 合并跑 **15/15 通过**；改动文件 tsc 0 报错。
-
-### 状态
-
-🔍 调研完成 + 方案定稿（报告 v2）；**A+B+H+E+G+G2 已实施**（patch 第 25–28 位），**C 已证伪**，D 需重估，**F 已实施**（patch 第 33 位，2026-09-27，备份已核实）。
-
-**本轮 patch（5 个，改文件互不重叠）**
-
-| patch | 位置 | 内容 | 生效方式 |
-|---|---|---|---|
-| `patches/session/session-history-transport-patch1.patch` | #25 | A 有界投影 + H 预算收紧（8MB/24MB） | 重启 sidecar |
-| `patches/session/session-history-transport-patch1.patch` | #26 | E `-completed-*` 重复消除 | 重启 sidecar |
-| `patches/session/session-gzip-transport-patch1.patch` | #27 | G 异步化 + G2 会话 10MB 门控（同文件故合并） | 重启 sidecar |
-| `patches/session/session-history-transport-patch1.patch` | #28 | B 首屏翻页上限 | **前端须 `vite build`** |
-| `patches/session/session-history-transport-patch1.patch` | #33 | F 写入侧 `originalFile` 16KB 有界裁剪 | 重启 sidecar（**仅影响新写入**） |
-
-**全量验证（2026-09-26）**：服务端 `bun test src/server/` **3452 pass / 0 fail**（178 文件）；`desktop/src/api/sessions` **24/24**、`chatStore` **354/354**；四 patch 链式应用后与工作树 diff **逐字节一致**；改动文件 tsc **0 新增错误**（`index.ts` TS2502 经暂存法核验为**既有基线**：HEAD 在 281 行、加 36 行后位移至 317）。
-
-**F 的生效边界（重要）**：写入侧裁剪**只约束此后的新写入**；存量瘦身是**已执行的一次性数据操作**（备份即其回滚点），不属于 patch 的可重复效果——重放 patch 不会、也不应再次改写历史文件。
-
-**补记二（2026-09-27）：收纳栏加总 token 用量**
-
-用户 verbatim：「"派遣了X个代理...耗时"这个改为"派遣了N个代理...用量xk（token用量）· 耗时"，仅这个总收纳栏上体现总用量，各子代理所属对应行内不体现 token 用量 即保持现状只体现耗时即可。」
-
-- **汇总栏** `派遣了 N 个子代理 · 用量 30.00k · 总耗时 8m19s · 已完成`——**用量在耗时之前**（与本章「token 在前、耗时在后」同一顺序约定；各子代理行**不加** token，保持只显耗时）。
-- **为什么用量求和、耗时取跨度**：同一句里两个数**拓扑不同**。耗时是**时间**，并发派发只能取并集跨度；token 是**工作量**，三个并发各 10k 就是 30k，不存在"重叠共享"。故 `agentGroupTokens` **求和**，与 `agentGroupSpanMs` **取跨度**并列存在——同一行里两个不同的聚合规则，各有各的理由。
-- **数据来源（一处新解析）**：后台子代理的 token 在 `agentTaskNotifications[id].usage.totalTokens`；**同步**子代理的 token 只存在于 Agent 工具结果文本里的 `<usage>total_tokens: N …</usage>` 块（`AgentTool.tssx` 生成、客户端此前只用于**剥掉**它 `stripAgentResultMetadata`）。新增 `agentRunTokens()`：上报值优先 → 否则从结果文本正则解析。**注意**：这与耗时不同，token **无法从区间推算**，两边都没有就不显示（不猜）。
-- 落点：`activityGroupModel.ts` 新增 `agentRunTokens` / `agentGroupTokens`；`ToolCallGroup.tsx` 汇总栏插用量 span（`data-agent-group-usage`）；5 语言新增 `toolGroup.agentTotalUsage`。
-- **验证**：`ToolCallGroup.test` 新增 3 条（30.00k = 两个并发 10k+20k **相加**；无数据时**不显示 0**；**逐行不含 token**）；`ActivityGroup.test` 22 条不变；桌面全量 0 失败、tsc 0 错。
-
-**补记三（2026-09-27）：设置新增「会话扩展信息」总开关**
-
-用户 verbatim：「将所有我们后添加的 用量信息、耗时信息，除轮次完成后 "9月27日 20:10 · 用量 37.91k · 耗时 31 分 11 秒" 也就是"日期 时间 用量 耗时"这个里面的用量保持现状，其它后添加内容，需要在设置内新增一项开关 "会话扩展信息"。用类似"配色主题"一样的开关，位置就放到"上下文压缩"下面。」
-
-- **字段**：`sessionExtendedInfo`，**默认 true**（关键：这些读数在开关出现**之前**就已存在，若默认关掉等于凭空改变所有人的界面）。
-- **位置**：设置 → 通用 → **「上下文压缩」正下方**，样式仿「配色主题」（`SettingsSection` + `Switch`，同款圆角卡片）。
-- **描述文案（用户要求必须解释关联范围与联动）**：明确列出关联的七处读数（思考栏右侧 token 用量与耗时、收纳栏总用量与总耗时、子代理行耗时、后台任务耗时、TPS 速度表），并写明**与「思考回传」的联动**——**回传** → 收纳栏显示整轮**总** token 用量与总耗时（口径为 API 真实计数）；**不回传** → 思考用量只能估算，故拆为「**思考用量 + 工具用量**」两段显示，耗时口径不变。
-- **唯一例外**：轮次页脚 `日期 时间 · 用量 · 耗时` 里的**用量**不受开关控制、**始终显示**（用户明确保留），只有其**耗时**受控。代码里该例外带注释说明，避免后人"统一"掉。
-- **落点（gating，9 处）**：`ToolCallGroup`（汇总栏用量、汇总栏耗时、逐行耗时）、`ThinkingBlock`（思考徽章，**保留正文与实时计时**）、`ActivityGroup`（token 与耗时两处）、`TpsIndicator`（**整组件返回 null**，两处渲染点由一次提前返回覆盖）、`SessionActivityPanel`（行耗时、详情卡耗时，**卡片其余字段照常**）、`TurnCompletionStamp`（仅耗时，用量例外）。
-- **踩坑**：**H5 端必须同步白名单**，否则手机端改这个开关会 **PUT 400 + 开关回弹**——`remoteBrowserPolicy.ts` 的 `READ_SETTINGS` / `WRITE_SETTINGS` / 校验三处都要加（loopback 直连不暴露该问题，故容易漏）。另需同步服务端 zod schema 与 `ConfigTool/supportedSettings.ts`。
-- **实现注意**：`SessionActivityPanel` 的读设置必须放在 `groupProgress` **提前返回之前**，否则构成条件式 Hook 调用。
-- **验证**：新增 4 条测试（思考徽章、子代理汇总栏、TPS 整个消失、页脚用量留/耗时去）；桌面全量 6312 通过 0 失败；desktop 与服务端 `tsc` 均 0 错。
-
----
-
-## 二十三、子代理内容实时反馈（opencode 式，替代当前间隔刷新）（⬜ 待办，仅登记，2026-09-26）
-
-### 需求背景（用户 2026-09-26 verbatim）
-
-「子会话的子代理think、思考的内容改为实时反馈（类似 opencode 的样式），而不是间隔刷新。此作为新增优化项，仅做记录，暂时不做处理。」
-
-### 现状
-
-- 主会话流式 thinking/正文逐 delta 实时渲染（`content_delta`/`thinking` WS 事件 → chatStore 即时 append）；
-- 子代理（Agent 工具派生的 run）内容经 `agent_run_event` 路由到子会话，**展示为间隔刷新**（子会话事件批量落地/整块落盘后统一映射，非逐 delta 跟随）；
-- 参照物=opencode：子代理输出与主会话同级逐 token 流式呈现。
-
-### 方案要点（实施时细化）
-
-- 子会话流事件（thinking/content_delta）逐条透传渲染，复用主会话既有 merge 路径（`findStreamMergeTargetIndex`/`joinThinkingContent`）；
-- 需核对 `agent_run_event` 批量缓冲（`pendingAgentRunEvents`/`bufferAgentRunEvent`）是否在实时路径上造成合并粒度变粗；
-- 子代理卡片（Agent 工具行）内嵌实时预览 vs 子会话页实时，二选一或双通道（实施时定）；
-- 与章二十一 badge 机制正交（badge 读 `thinkingDurationMs`，实时反馈只改渲染粒度）。
-
-### 状态
-
-⬜ 待办（2026-09-26 登记，**仅记录暂不推进**）；无 patch。
-
----
-
-## 二十四、上下文压缩阈值按窗口分档（软触发百分比 + 硬触发绝对下限）（✅ 已实施，patch #24，2026-09-26）
-
-> 用户 2026-09-26 指示：**先做记录**，暂不推进。
-
-### 需求背景（用户 verbatim）
-
-> 将100K及以内上下文，设定剩下13%开始压缩上下文，或剩下小于13K开始强制执行压缩上下文
-> 将200K及以内上下文，设定剩下17%开始压缩上下文，或剩下小于32K开始强制执行压缩上下文
-> 将300K及以内上下文，设定剩下21%开始压缩上下文，或剩下小于36K开始强制执行压缩上下文
-> 将500K及以上上下文，设定剩下15%开始压缩上下文，或剩下小于65K开始强制执行压缩上下文
-
-### 0.6.6 现状核对
-
-实现位置：`src/services/compact/autoCompact.ts`
-
-| 锚点 | 行 | 现状 |
-|---|---|---|
-| `getAutoCompactThreshold(model)` | :97 | = `getEffectiveContextWindowSize(model)` − `autoCompactBuffer` |
-| `AUTOCOMPACT_BUFFER_TOKENS` | :87 | **= 13_000，固定值，与窗口大小无关**（仅 `cap` 到 `window/3`，:103-106） |
-| `CLAUDE_AUTOCOMPACT_PCT_OVERRIDE` | :110-119 | 已有百分比旁路，但取 `min(window×pct, 固定阈值)`，属**测试用**覆盖，非分档 |
-| `getEffectiveContextWindowSize(model)` | :44 | = 标称窗口 − 摘要预留（预留 = `min(模型maxOutput, 20_000, window×0.25)`，:36-41、:67-73） |
-| `WARNING/ERROR_THRESHOLD_BUFFER_TOKENS` | :88-89 | 均 = 20_000 |
-| `MANUAL_COMPACT_BUFFER_TOKENS` | :90 | = 3_000 |
-| `calculateTokenWarningState()` | :124 | 出口：`percentLeft` / `isAboveWarningThreshold` / `isAboveErrorThreshold` / `isAboveAutoCompactThreshold` / `isAtBlockingLimit` |
-
-消费点：`src/query.ts:649`（`isAtBlockingLimit` → 强制路径）、`src/components/TokenWarning.tsx`（UI 百分比与文案）、`src/components/PromptInput/Notifications.tsx:93`。
-
-**现状问题（与本优化诉求一致）**：固定 13K 缓冲**不随窗口伸缩**——512K 窗口下仅剩 ~2.5% 才触发（太晚），32K 小窗口下 13K=41%（靠 `cap` 到 `window/3` 兜底，语义含糊）。
-
-### 规格（定稿，2026-09-26 二次修订）
-
-| 上下文窗口 | 软触发（剩余百分比） | 硬触发（剩余绝对量） |
-|---|---|---|
-| ≤100K | 13% | <13K |
-| ≤200K | 17% | <32K |
-| ≤300K | 21% | <36K |
-| ≤500K | **17%**（用户 22:5x 定稿，取代早前插值方案） | **<53K** |
-| ≥500K | 15% | <65K |
-
-**三个实施口径（已定，代码落地为准）**
-
-1. **分档键 = 声明窗口**（`getResolvedContextWindow`，即 provider 预设/内置表/`[1m]`/`CLAUDE_CODE_AUTO_COMPACT_WINDOW` 的结果，**不扣**摘要预留）——因为「100K/200K/…」说的是窗口本身；
-2. **阈值算在有效窗口**（`getEffectiveContextWindowSize`，已扣摘要预留）——因为比较对象是真实 token 用量；
-3. **硬触发算在声明窗口**（`declared − floor`），与分档同基准；并以 `max(..., 软阈值)` 钳制，保证**永不早于软触发**。
-
-**小窗口安全钳制（新增，必要）**：软阈值取 `min(档位阈值, window − min(13K, window/3))`。12K 有效窗口下「剩 13%」只有 1.5K token，压缩来不及会先 `prompt_too_long`；保留原 `window/3` 兜底后**小窗口阈值与旧实现逐字节一致**（8K/16K/16.5K/35K/47K），零回归。
-
-**换算表（有效窗口实测值）**
-
-| 模型 | 声明 | 有效 | 档位 | 软阈值（已用≥） | 硬阈值（已用≥） |
-|---|---|---|---|---|---|
-| deepseek-v4-pro / GLM-5.2 | 1M | 980K | ≥500K 15% | 833,000 | 935,000 |
-| k3 / kimi-k2.6 | 262,144 | 242,144 | ≤300K 21% | 191,293 | 226,144 |
-| MiniMax-M2.7 | 204,800 | 184,800 | ≤300K 21% | 145,992 | 168,800 |
-| glm-5.1 | 200,000 | 180,000 | ≤200K 17% | 149,400 | 168,000 |
-| glm-4.5-air | 128,000 | 108,000 | ≤200K 17% | 89,640 | 96,000 |
-| gpt-5.6-terra | 353,400 | 333,400 | ≤500K 17% | 276,722 | 300,400 |
-| 368,640（老外的API 预设） | 368,640 | 348,640 | ≤500K 17% | 289,371 | 315,640 |
-| custom-16k/32k/64k/80k | — | — | ≤100K 13% | 8,000 / 16,000 / 35,000 / 47,000（同旧值） | 同软 |
-
-> 注：100K 档软硬重合（13%×100K=13K）；`≤500K` 档内侧 300K–312K 区间 `floor(53K) > window×17%`，被 `max(..., 软)` 钳制成「硬=软」，无倒挂。
-
-### 实施记录（2026-09-26 已完成）
-
-**改动**：`src/services/compact/autoCompact.ts`（+125 行）、`src/services/compact/autoCompact.test.ts`。
-
-| 落点 | 内容 |
-|---|---|
-| `getResolvedContextWindow(model)` | **新增**：拆出「扣预留前」的声明窗口（原 `getEffectiveContextWindowSize` 的窗口解析部分），供分档使用 |
-| `AUTOCOMPACT_TIERS` | **新增**：单一常量表（5 档，含 `≤500K 17%/53K`） |
-| `getAutoCompactTier(window)` | **新增**：落档查表 |
-| `getAutoCompactThreshold(model)` | **改写**：档位百分比阈值 + legacy `min(13K, window/3)` 安全钳制 + 保留 `CLAUDE_AUTOCOMPACT_PCT_OVERRIDE` |
-| `getForcedCompactThreshold(model)` | **新增**：硬触发（声明窗口 − floor），以 `max(…, 软)` 钳制防倒挂 |
-| `calculateTokenWarningState()` | **扩展**：新增 `isAtForcedCompactLimit` 出口；`percentLeft` **分母由 threshold 改为有效窗口**（原实现到压缩点显示 0%，与「剩 13%」语义相悖） |
-| `shouldAutoCompact()` | 触发条件改为 `软 ∥ 硬`（硬为兜底：软按构造总是先到）；调试日志加 `forcedThreshold` |
-
-**验证**
-
-- `bun test src/services/compact/` → **17/17 通过**（含 12 个 autoCompact 用例）；
-- `analyzeContext` + `inProcessRunner` → 25/25 通过；
-- 类型检查（`tsc --noEmit`，仓库根 tsconfig 为既有噪声基线）→ **本次改动文件 0 错误**；
-- 既有 3 个「硬编码旧固定 13K 预期」的用例已按新分档更新（`k3[1m]`/`deepseek-v4-pro`/`gpt-5.6-terra` 边界），并**新增分档专项用例**（含 300K–500K 档取值 + 硬≥软断言）；
-- 小窗口 5 个用例（16K/32K/33K/64K/80K）**未改动即通过** → 证明安全钳制保住了原行为。
-
-### 状态
-
-✅ 已实施（2026-09-26）；patch `patches/vcc/vcc-autocompact-window-tiers-patch1.patch`（第 24 位入库，已往返校验）。
-**待重启 sidecar 生效**（server 侧 TS 由 bun 直跑；前端 bundle 不含该常量，无需 vite build）。
-
----
-
-## 二十四·补（2026-10-06 修订）：双百分比分档 + 压缩后保留预算
-
-> 用户 2026-10-06 指示（verbatim）：
-> 「小于等于120k 小于等于10%开始压缩 小于8%强制压缩；小于等于210k 小于等于13%开始压缩 小于10%强制压缩；小于等于320k 小于等于15%开始压缩 小于13%强制压缩；小于等于520k 小于等于13%开始压缩 小于10%强制压缩；大于520k 小于等于10%开始压缩 小于7%强制压缩。然后vcc执行压缩后保留内容，应该等于上面小于多少百分比强制压缩的最大可用上下文长度。」
-
-### 一、分档表改为「软/强制双百分比」
-
-原表（§二十四）用**绝对 token 下限**做硬触发（13K/32K/36K/53K/65K）；新表两项都是**窗口占比**，故 `AUTOCOMPACT_TIERS` 的 `floorTokens` 改为 `forcedPctLeft`，`pctLeft` 更名为 `softPctLeft`。
-
-| 声明窗口 | 软触发（剩余） | 强制触发（剩余） |
-|---|---|---|
-| ≤120K | 10% | 8% |
-| ≤210K | 13% | 10% |
-| ≤320K | 15% | 13% |
-| ≤520K | 13% | 10% |
-| >520K | 10% | 7% |
-
-**口径（定稿，用户确认）**：分档键 = **声明窗口**；**软、强制阈值都算在有效窗口**（`getEffectiveContextWindowSize`）——与 §二十四口径 2 一致，且**取代口径 3**。理由：两者都是「窗口占比 vs 真实用量」的比较，放不同基准会让两者间距随摘要预留漂移。故 `getForcedCompactThreshold` 由 `declared − floor` 改为 `floor(effective × (1 − forcedPctLeft))`，并保留 `max(…, 软阈值)` 钳制（五档 soft > forced，故恒成立，钳制只作兜底）。
-**小窗口安全钳制保留**（`min(档位阈值, window − min(13K, window/3))`）：8K/16K/32K/33K/64K/80K 五档阈值**与旧实现逐字节一致**（实测未改用例即通过），零回归。
-
-### 二、压缩后保留预算（vcc）
-
-新增 `getVccRetentionBudget(model)` → `{preferredTokens, ceilingTokens}`，即**压缩后上下文该占多少**：
-- `preferredTokens = floor(effective × forcedPctLeft)` —— **目标**：压到强制触发预留的那一份，这样「下次压缩不是马上又到期」；
-- `ceilingTokens = floor(effective × softPctLeft)` —— **上限**：最新一轮装不下目标时最多可留到这里，再超就等于「压了跟没压一样安全」。
-
-用户对「装不下」的三段规则（原话：*不超按最小8%，超则按10%，如果10%仍然兜不住则在尽力保留最近一轮的情况下严格不超预算*）落为：
-
-| 情形 | 行为 |
-|---|---|
-| 整尾 ≤ 目标 | **把目标用满**（多保轮次），而非停在固定 MIN |
-| 超目标但 ≤ 上限 | 保留最近一轮（`buildVccCut` 不裁） |
-| 超上限 | 从末尾向前取**能装下的最长后缀**；起始落在 toolResult 上则前移到下一个合法边界 |
-| 连最新一条都超上限 | **compact-all**（`keptCcStart = messages.length`）——严格不超，摘要承载全部 |
-
-**实现要点**
-- `engine.ts`：新增 `TailAllowance {preferredTokens, ceilingTokens}`；`resolveSmartKeepUserTurns(…, allowance?)` 有预算时按目标**填满**、无预算时保留 pi-vcc 原 MIN/MAX 规则（slice/局部压缩与 parity 调用者不传，行为不变）；`buildVccCut(…, {tailAllowance})` 新增严格后缀计算 `largestSuffixWithin`，仅在有预算时启用；**旧的无预算分支（`MAX × OVERSIZED_TAIL_FACTOR`）原样保留**。
-- `vccCompact.ts`：`VccCompactionInput.retentionBudget`；⭐**摘要本身也吃预算，且其大小不受 brief 预算约束**（结构段 Session Goal / Files And Changes / Commits 另行计费）——所以先按「对全量消息编译的草稿摘要」预留算出 allowance，裁剪后再用**实际摘要**复算，超上限则收紧一次（`buildVccCut` 只会把尾裁得更小，故收敛，最多 2 轮）。
-- `compact.ts`：`maybeVccCompact` 传入 `getVccRetentionBudget(getMainLoopModel())`。
-- **局部（片段）压缩不接预算**：其 `messagesToKeep` 恒为 `[]`（边界由 pivot 决定，另一侧由调用方逐字保留），不存在「保留尾」可裁。
-
-### 三、本机实测数值（代码实调，非手算）
-
-| provider | 声明 | 有效 | 软触发（已用≥） | 强制（已用≥） | 保留目标/上限 |
-|---|---|---|---|---|---|
-| DeepSeek / Zhipu GLM | 512,000 | 492,000 | **428,040** | 442,800 | 49,200 / 63,960 |
-| 老外的API | 368,640 | 348,640 | 303,316 | 313,776 | 34,864 / 45,323 |
-| 未央170hx | 233,000 | 213,000 | 181,050 | 185,310 | 27,690 / 31,950 |
-| ZXSV-AI | 231,248 | 211,248 | 179,560 | 183,785 | 27,462 / 31,687 |
-| 1M 档 | 1,000,000 | 980,000 | 882,000 | 911,399 | 68,600 / 98,000 |
-
-> 对比旧表（512K 档软触发 418,200）：新表**更晚触发**（428,040），但**压缩后目标更高**（49,200 vs 旧的 brief≈1.1–2.5K + 尾≤25K）——即「晚压、但压完留得更多且不再顶着上限」。
-
-### 四、踩坑记录
-
-1. **首次实现的「超上限回切」并不严格**：沿旧逻辑「从末尾累加、停在跨过阈值的那条」，于是**跨过上限的那条消息被整条保留**（实测 `keptTokens=3000 > ceiling=1500`）。改为计算**能装下的最长后缀**；并明确「连最新一条都超上限 ⇒ compact-all」。**教训：要「不超某预算」，就不能用「累加至跨过阈值」这类近似，必须解出满足约束的最大可行集合。**
-2. **`1 - 0.07` 的浮点误差**：`floor(980000 × 0.93) = 911,399`（而非 911,400），因 `1-0.07 = 0.9299999999999999`。测试期望须用实调值，别用纸面乘积。
-3. **`deepseek-v4-pro` 在本机被 provider 预设压到 512,000**（注入 `CLAUDE_CODE_AUTO_COMPACT_WINDOW`），故它是 ≤520K 档而非 >520K 档；**测试用例的期望值是「测试环境」的（删除该环境变量）**，两者不同，别用本机实测值去改测试。
-4. 单测里「5 轮全保留」不成立：cut 前必须有内容，**最老一轮进不了保留尾**，固定规则下 5 轮最多保 4 轮。
-
-### 五、验证
-
-- `bun test src/services/compact` **45 pass / 0 fail**（新增 `vcc/retentionBudget.test.ts` 6 条：填满目标 / 目标内保最近一轮 / 无预算保留固定规则 / 超上限回切 / 单条超上限 compact-all / 端到端「压缩后总占用 ≤ 上限」且无预算时确实超出）；
-- `bun run check:server` **555 文件 / 6633 pass / 0 fail**；
-- 本次改动文件 `tsc --noEmit` **0 错**。
-- **尚未重启 sidecar**：server 侧 TS 由 bun 直跑，重启后生效；前端 bundle 不含这些常量，无需 vite build。
-
-**patch（已固化 2026-10-11）**：新增 `patches/vcc/vcc-compaction-retention-budget-patch1.patch`（**链位 38**，767 行 / 6 文件：4 源码 + 2 测试）。基座 = `align-latest` 的 `3a51ef84`（0.6.7 血缘），与链位 37 同组**独立应用**——链位 24 编码的是旧分档表与旧硬触发口径，重放会覆盖新表，故**不改写链位 24 而另起链位**。已登记 `ORDER.md` / `README.md`；往返校验：干净 `3a51ef84` 上 `git apply` ⇒ 6 文件**逐字节一致**。
-
----
-
-## 二十五、H5 打不开子代理运行记录（移动端 tab 白名单遗漏 run 记录页）（✅ 2026-09-27）
-
-### 问题（用户 verbatim）
+#### 问题（用户 verbatim）
 
 > H5访问的打不开子代理运行记录。无法查看子代理在运行中的情况。
 
-### 根因
+#### 根因
 
 `desktop/src/components/layout/AppShell.tsx` 有一个**仅移动端**（`isMobileShell`）的守卫 effect：activeTab 若不属于 `session`/`settings`/`market`/`scheduled` 就**强制切回聊天 tab**（没有聊天 tab 时把 `activeTabId` 置 null）。
 
@@ -2375,41 +2864,41 @@ if (gapMs > 0 && tokens / (gapMs / 1000) <= MAX_INSTANT_TPS) { /* 计入 */ }   
 
 该白名单是**随移动端逐页支持而扩展**的（`market` 与 `scheduled` 都是各自章节补进去的），run 记录页漏了。
 
-### 实现（2 文件）
+#### 实现（2 文件）
 
 - **`AppShell.tsx`**：守卫白名单补 `subagent` / `team-member`，并加注释说明「run 记录页本就是移动端可达目的地（`ContentRouter` 渲染它们，两页都有移动端布局）」。
 - **`AppShell.test.tsx`**：新增 2 用例——
   1. 移动端 `activeTab` = subagent 时**不得**调用 `setActiveTab`（修复前会被弹回聊天 tab）；
   2. **反向守卫**：`activeTab` = terminal（手机无法渲染的 tab）仍必须回落到聊天 tab，防止白名单被过度放宽。
 
-### 踩坑记录（本项）
+#### 踩坑记录（本项）
 
 1. **「只有 H5 坏、桌面正常」优先找 `isMobileShell` 分支**：桌面不走该 effect，因此桌面复现不出来，最容易误判成服务端/接口问题（本次我先查了 H5 访问门禁、`remoteBrowserPolicy`、`/api/.../subagents/by-tool` 路由与静态 dist 解析，均为正常，最后才回到 AppShell）。
 2. **白名单是一张隐性登记表**：移动端每新增一个「可打开页面」，都必须同时登记进这个守卫，否则页面**点开即被弹回**且**没有任何报错**，只能表现为「打不开」。此后新增移动端页面应把「守卫白名单」列为固定核对项。（本次一并核对了 `connectors`：它会被迁移成 `market`，因此无此问题。）
 3. **放宽白名单要同时钉住边界**：白名单只会被放宽、很难被收窄，故补一条反向用例（terminal 仍回落）把「什么才算移动端可达」固定下来。
 
-### 验证
+#### 验证
 
 - `AppShell.test.tsx` **24/24**（新增 2 条）；`tsc --noEmit` 0 错。
 - `npm run build:renderer`（vite build，2.67s）后 grep 产物 bundle，确认最小化守卫已含 `"subagent"===` 与 `"team-member"===` 两个分支 → 前端确实带上了修复。
 - H5 实测路径：7788 dev sidecar（`CLAUDE_H5_DIST_DIR=<仓库>/desktop/dist`）重启后服务的就是重建后的 dist。
 
-### Patch
+#### Patch
 
 `patches/h5/h5-mobile-run-records-patch1.patch`（链位 **36**，2 文件 75 行）。全链 **35 → 36** 个 patch，在干净 `068b3ebd` 上按表序 `git apply --allow-empty` **失败 0**；`AppShell.tsx` / `AppShell.test.tsx` 终态与工作树**逐字节一致**。
 
 ---
 
-## 二十六、子代理「think / 非think」拆分显示 + 组栏运行中实时跟进（✅ 2026-09-28）
+### 原二十六、子代理「think / 非think」拆分显示 + 组栏运行中实时跟进（✅ 2026-09-28）
 
-### 需求背景（用户 verbatim）
+#### 需求背景（用户 verbatim）
 
 > 「开发服务里面，还是只能看到2个会话…（另）子代理总收纳栏还是显示着150K总用量」
 > 「我认为应该彻底解决…正确来说，**think 不回传就应该显示成 think用量+非think用量**。而现在我看到的还是只有在 think回传 情况下才会显示的一条 总用量。」
 > 「对派发子代理这个总收纳栏上面显示的 **用量和耗时，做实时跟进**，比如每隔5秒刷新进度，而不是必须等所有子代理完成，当然所有子代理完成后可以做**二次校验修正显示**。」
 > 「把心跳5s跟think的 3s tick 对齐也行，让整体数据变化步骤尽量一致性也比较好。」
 
-### 根因（三段，均已实测取证）
+#### 根因（三段，均已实测取证）
 
 **(1) 历史转录里根本没有拆分。** 契约本身早已实现——`AgentTool.tsx:1420-1424` 会把 `output_tokens`/`think_tokens` 写进 Agent 工具结果的 `<usage>`，但**仅在** `data.reasoningTokens != null && !shouldSendThinkingToAPI()` 时。pilot 会话 `f1be2b52` 实测：**58/58** 个 `<usage>` 块只有 `total_tokens/tool_uses/duration_ms`，且其中 `total_tokens` 是**旧口径**——子代理最后一次调用的**上下文窗口**（描述它读了什么，不是它产出了什么）。
 
@@ -2417,7 +2906,7 @@ if (gapMs > 0 && tokens / (gapMs / 1000) <= MAX_INSTANT_TPS) { /* 计入 */ }   
 
 **(3) 还原路径拿不到 usage，组栏读错了地方。** `SessionTaskNotification`（`sessionService.ts:279`）**无 `usage` 字段** ⇒ 还原会话只能正则抓结果文本里的 `total_tokens`。而运行中：子代理**每轮**都发 `task_progress`（前台 `AgentTool.tsx:1107`、后台 `982` / `agentToolUtils.ts:706`）并落到 `session.backgroundAgentTasks`，**组栏却读的是「已完成通知」`agentTaskNotifications`** ⇒ 整组跑完才有数字。
 
-### 实施
+#### 实施
 
 **服务端推导（链位 51）**：新增 `src/server/services/sessionUsageRollup.ts`——按 `toolUseId` 关联子代理转录（走 `subagents/*.meta.json` 的 `toolUseId`），逐轮累加 output，思考取「引擎真值，否则按 thinking 块估算」，与实时路径 `finalizeAgentTool` **同口径**；结果作为 `usage` 随 `taskNotifications` 下发。缓存按既有 `getSessionMessagesSignature` 失效（已含每个 `agent-*.jsonl` 的 mtime）。
 
@@ -2425,13 +2914,13 @@ if (gapMs > 0 && tokens / (gapMs / 1000) <= MAX_INSTANT_TPS) { /* 计入 */ }   
 
 **契约保持**：`think` 回传时不下发 `thinkTokens` ⇒ 界面回到单一总量（探针实测：开启后 thinkTokens 条数 = 0，Σtotal 不变）。
 
-### 验证
+#### 验证
 
 - **数字对账**（pilot `f1be2b52`）：API 返回 **60** 条带 usage，Σtotal = **727,879**、Σthink = **457,330**，与独立手工核算（727,879 / 457,285）一致；单次请求 **≈0.18s**。
 - `bun run check:server` **files=493 passed-tests=5947 failed-tests=0**（EXIT=0）；前端全量 **6341 passed / 0 failed**；`tsc -b` 0 错。
 - 8 个新链位（44-51）在 `d89c1405` worktree 按序 apply **FAIL=0**，并集与工作树**逐字节一致**。
 
-### 补记（2026-09-28）：拆分的「真实用量 0」——一轮响应拆两条记录，估算与真值双计（链位 54）
+#### 补记（2026-09-28）：拆分的「真实用量 0」——一轮响应拆两条记录，估算与真值双计（链位 54）
 
 - **触发（用户 verbatim）**：「派发子代理的总收纳栏上面显示的**用量和耗时**…（改动后）你**未思考的用量是0**，思考的用量是真实用量，这个要修正一下。」
 - **取证实录**（用户当轮派发的 6 个文案子代理，`agent-a47f5e65272e0bd40.jsonl`）：
@@ -2451,7 +2940,7 @@ if (gapMs > 0 && tokens / (gapMs / 1000) <= MAX_INSTANT_TPS) { /* 计入 */ }   
 - **入库**：链位 **54** `patches/thinking-subagent/thinking-subagent-split-no-double-count-patch1.patch`（4 文件 166 增 / 14 删）。
 - **同类风险（留给后人）**：凡「估算 + 真值」两条源累加到同一个数的地方，都要先确认**两者描述的是不是同一批 token**。本仓库的流式解析本就会把一轮响应拆成多条记录 —— `utils/tokens.ts` 的 `getAssistantMessageId` 正是为识别「同源拆分记录」而存在，排数字异常时应先看**同一 `message.id` 下有几条记录、各自带哪些字段**。
 
-### 踩坑记录
+#### 踩坑记录
 
 1. **修好「发现」不等于修好「列表」**：给索引加了额外根后 `discovered=84/indexed=84/ready`，但列表仍只有 2 条。原因是**第二层**——`validateIndexedTranscriptPath` 的调用方只传「本配置目录的根」，额外根来的行被判越界，而且是在 `catch` 里**静默丢弃**。所以 `total` 报得对、行数却少，**极易误判为已修好**。教训：改完「发现/索引」必须验**返回条数**，不能只看 status 的 discovered/indexed。
 2. **测试文件里的类型错误会被 vitest 放行、被 `tsc -b` 拦住**：`sessionUsageRestore.test.ts` 从 `types/chat` 导入了并不存在的 `MessageEntry`（实为 `types/session`），vitest 不做类型检查所以本地全绿，而 deb 构建第一步 `tsc -b` 直接失败、整个打包中断。教训：**涉及 desktop 的改动必跑 `tsc -b`**，别把 vitest 绿当类型安全。
@@ -2463,13 +2952,13 @@ if (gapMs > 0 && tokens / (gapMs / 1000) <= MAX_INSTANT_TPS) { /* 计入 */ }   
 8. **别用 `pkill -f` 重启本地服务**：`pkill -f "port 7788"` 会**匹配到承载该命令的 shell 自身**（命令行里含同一字符串），把自己的会话打断（本次多次 exit 144）。正确做法是用 `ss -ltnpH 'sport = :7788'` 取端口持有者 PID 再 `kill`；且 `kill` 父进程不会带走 `bun run` 的子进程，需按端口持有者清。
 9. **心跳不一定要加**：原以为要给服务端加 5s 定时器，核过才发现 `task_progress` **每轮都发**、桌面早就收得到 ⇒ 整个「运行中用量」是**纯客户端**改动。教训：加新机制前先确认既有链路的实际行为（`grep` 调用点 + 看落到哪个 store），否则会造出第二套数据源。
 
-### Patch
+#### Patch
 
 `patches/thinking-subagent/thinking-subagent-thinking-tool-timing-patch1.patch`（链位 **51**，13 文件 781 增）+ 关联 `patches/tps/tps-indicator-patch1.patch`(44) / `patches/thinking-subagent/thinking-subagent-thinking-tool-timing-patch1.patch`(45) / `patches/tps/tps-indicator-patch1.patch`(46) / `patches/session/session-file-download-patch1.patch`(47) / `patches/h5/h5-local-index-multi-root-patch1.patch`(48) / `patches/test/test-server-test-baseline-patch1.patch`(49) / `patches/h5/h5-local-index-multi-root-patch1.patch`(50)。全链 **43 → 51**。
 
 ---
 
-### 二十六·补（2026-09-28 收官）：运行中**用量与耗时真正爬升** + 移动端紧凑
+#### 二十六·补（2026-09-28 收官）：运行中**用量与耗时真正爬升** + 移动端紧凑
 
 **交付**：`modify/patches/thinking-subagent/thinking-subagent-thinking-tool-timing-patch1.patch`（5 文件，+126/−12，**纯 `desktop/`**，未与旧补丁融合）
 
@@ -2494,686 +2983,34 @@ if (gapMs > 0 && tokens / (gapMs / 1000) <= MAX_INSTANT_TPS) { /* 计入 */ }   
 
 **踩坑（本轮最大的教训）**：先在**服务端/CLI/传输**查了四轮（sink、outbound 队列、transport、服务端转发），全部实测实时 —— **真问题在客户端取数口径**。**「UI 不更新」应优先怀疑 UI 拿到什么、而不是数据通道。**
 
-## 二十七、未纳入章节链的既有改动（✅ 2026-09-28 已补为链位 58–60）
+### 原三十六、思考语言探针：系统提示词英文主体锚定英文思考（✅ 2026-10-11，lead 已加思考指令）
 
-> **本章已补齐 patch**：链位 **58–60**。此前本章只「登记」不产补丁，导致「基线 + 全链」无法 100% 复现工作树；现已把全部可入库改动提取成三个补丁。
-> **补丁后复现度**：干净 worktree@`068b3ebd` 按链序 apply **60/60 成功**，终态与工作树差异**仅剩 2 个有意排除项**（`bun.lock`、`desktop/src-tauri/resources/preview-agent.js`，理由见 27.4）。
->
-> **背景**：`custom-066` 相对上游基线 `068b3ebd` 共有 **99 个提交**，而章节链只形式化了其中 **57 个** patch。因此「基线 + 全链」**无法 100% 复现工作树**——差额即本章所列。
->
-> **实测口径（2026-09-28 复核）**：干净 worktree@`068b3ebd` 按链序 `git apply --index` **57/57 失败 0**；终态 vs 工作树差额 **23 个文件 / +36 −1728 行**。
->
-> ⚠️ **比对必须用 `git apply --index`**：不加 `--index` 时补丁新建的文件在 worktree 里是**未跟踪**状态，`git diff <commit>` 看不见它们，会把 `vcc/**`、`tpsMeter.ts` 等一大批新增文件**误报成删除**（一度得出「94 文件 / −11432 行」的假缺口）。
->
-> ⚠️ 早前文档写的「仅 4 个非章 delta（bun.lock、TerminalSettings.tsx、providerModels.ts、preview-agent.js）」**已过时**，以本章为准。
+**用户观察**：cchaha 思考过程英文优先/中英混杂；1cat-studio 聊天模式多次测试都是纯中文思考。
 
-### 27.1 测试环境隔离与遗留失败清零（`ca4fc6c1` / `2d007b1a` / `1df6bf70`，13 文件）
+**探针实验**（部署引擎 `zxsv-ai`，`/v1/chat/completions` + thinking，同题「列出 1–100 质数并说明思路」）：
 
-**问题**：`bun run check:server` 的官方 runner 逐文件独立进程 + env 白名单，而**桌面 dev env 会导出一批 `CLAUDE_CODE_*` 环境变量**（如 `CLAUDE_CODE_MODEL_CONTEXT_WINDOWS`、`CLAUDE_CODE_ATTRIBUTION_HEADER=0`）。于是同一批用例**单跑失败、官方 runner 全绿**——是环境泄漏，不是真缺陷。
-
-**做法**：
-- 新增 `src/testUtils/modelEnv.ts`：导出 `isolateModelDefaultsEnv()`（保存/剥离/还原模型相关 env），供各用例 `beforeEach` 调用。
-- 接入处：`src/utils/model/{agent,fable,opus5,opus55}.test.ts`、`src/utils/effort.agent.test.ts`、`src/utils/__tests__/thinking.test.ts`、`src/tools/AgentTool/builtInAgentOverrides.test.ts`、`src/cli/print.sessionMessage.test.ts`、`src/services/api/client.test.ts`、`src/skills/bundled/computerUse.test.ts`、`src/constants/system.test.ts`。
-- `2d007b1a` 另清掉「1 真回归 + 3 环境泄漏 + 1 flaky 兜底」，`src/entrypoints/sdk/coreSchemas.modelInfo.test.ts` 亦在其列。
-- `1df6bf70`：`desktop/src/lib/providerModels.ts` 的排序显式固定 `localeCompare(..., 'en', ...)`（不传 locale 时按宿主区域，中文环境下 CJK 会排到拉丁之前，把「其他」兜底组顶到真实 provider 名之上）。
-- `desktop/package.json`：移除 `build:renderer`、`typecheck` 两个脚本（前者与 `build` 重复、后者与本仓 `tsc -b` 口径不一致）。
-
-⚠️ **注意**：`src/testUtils/modelEnv.ts` 及其接入**不在链 12/49 的补丁里**（补丁只含了其中一部分）。补链前请以本章为准。
-
-### 27.2 vcc 片段模式的校准脚本与报告（`ec9f43ef` / `b92404b3` / `d89c1405` / `fd5e7bf6`，2 脚本 + 3 项）
-
-**内容**：
-- `scripts/vcc-slice-calibration.ts`（1076 行）、`scripts/vcc-slice-judge.ts`（439 行）——vcc **片段模式**的语料校准与判分脚本，随 `ec9f43ef`「局部压缩接入 vcc 片段模式 + 语料校准」引入。
-- `.gitignore`：排除**机器生成的报告**（`fd5e7bf6`「报告改手写版，机器输出不再入库」、`d89c1405`「报告与样本去掉本机路径」）。
-- `bun.lock`：`dcbab433` 依赖锁的少量变动。
-
-**为什么不在链里**：报告/样本含本机路径与真实会话原文，**明确不入库**（见记忆 `project_cc_haha_vcc_slice_mode`）；脚本本体属**测量工具**而非产品代码，未纳入章节。
-
-### 27.3 章节提交里未被补丁捕获的 hunk（残余 delta）
-
-| 文件 | 内容 | 来源 |
-|---|---|---|
-| `src/services/api/claude.ts` | `modelUsesBoundThinking(options.model)` —— **bound-thinking 模型（Fable 5.1）需在请求里回放思考块**，让 API 按前缀丢弃旧的绑定块；剥离会破坏系统变更后的重放 | `39bd52b5` / `ef8801e3` / `6d4fd126` / `4e25e022` |
-| `src/utils/__tests__/thinking.test.ts` | 同上功能的用例 | `6d4fd126` |
-| `desktop/src/pages/TerminalSettings.tsx` | `createTerminalRequestId()`：`crypto.randomUUID` **仅安全上下文可用**，H5 经 LAN IP（`http://192.168.x.x`）访问是非安全上下文会抛错 ⇒ 回退到时间戳+随机串（镜像 `McpSettings` 的做法） | `71ac3073` |
-| `desktop/src-tauri/resources/preview-agent.js` | **构建产物**（每次 `bun run build` 重新生成），不应进入补丁 | `966ca8f1` |
-
-⚠️ `api/claude.ts` 那条是**待办性质**：章八/二十一的补丁重生成时未包含它（早前记录写作「bound-thinking WIP delta」）。若要让链完整，应把它并回对应章的补丁。
-
-### 27.4 链复现度：已达成（2026-09-28）
-
-已按上文分三组生成补丁（链位 58–60），**两项有意不纳入**：
-1. `desktop/src-tauri/resources/preview-agent.js` —— 构建产物，纳入补丁会在每次构建后失效；
-2. `bun.lock` —— 锁文件，随依赖解析变化。
-
-其余 21 个文件**已全部补成补丁**：
-
-| 链位 | patch | 组 | 文件数 | 内容 |
-|---|---|---|---|---|
-| 58 | `patches/test/test-chapter-27-tests-patch1.patch` | 27.1 | 13 | `modelEnv.ts` + 12 个用例接入（`CLAUDE_CODE_ATTRIBUTION_HEADER` / `CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS` 等继承 env 污染） |
-| 59 | `patches/vcc/vcc-calibration-scripts-patch1.patch` | 27.2 | 3 | vcc 片段模式校准/判分脚本 + `.gitignore` 排除机生成报告 |
-| 60 | `patches/test/test-chapter-27-tests-patch1.patch` | 27.3 | 5 | `api/claude.ts` bound-thinking、`providerModels` 排序固定 `'en'`、`TerminalSettings` 非安全上下文回退、`package.json` 脚本清理、`PermissionUpdate` require 环 Proxy 化 |
-
-> **口径**：补丁 58–60 与链 1–57 相互独立（无人共享文件），可**在任何位置**应用；实测按「链序 + 58,59,60」得到终态与工作树仅差上述 2 个排除项。
-
-**产物核验（2026-09-28 19:06 deb）**：重建后逐项验证改动**真的进了包**（注意打包器用**反引号**表示字符串，用 `"`/`'` grep 会全部漏掉——我因此一度误判）：
-
-| 改动 | 产物内证据 |
-|---|---|
-| `providerModels` 固定 `'en'` | `localeCompare(t.group,\`en\`,{sensitivity:\`base\`})`（旧形态 `localeCompare(t.group,void 0` **已消失**） |
-| `TerminalSettings` 非安全上下文回退 | ``typeof crypto<\`u\`&&\`randomUUID\`in crypto?crypto.randomUUID():\`t-${Date.now()}-...`` |
-| sidecar 由近期树构建 | 链位 55 新增字面量 `history-context-v1` 命中；`query_message_normalization_end`（与 bound-thinking 同文件的 checkpoint）命中 |
-
-⚠️ **sidecar 侧无法用 grep 逐行证明**：函数名被**压缩改名**（既有标识符 `shouldSendThinkingToAPI` 也 0 命中），而 `api/claude.ts` 的 bound-thinking、`PermissionUpdate` 的 Proxy 化**都不新增字符串字面量**⇒无锚可查。其新鲜度由**流程证据**保证：构建脚本先 `rm -rf` 旧 sidecar 再 `bun run build:sidecars`，且构建时工作树干净、处于含本章的 `43a36c50`。
-
-## 二十八、TPS 速率引擎重写（125ms 分桶）+ 子代理跨客户端用量一致性（✅ 2026-09-29）
-
-> **本章两个 patch**：链位 **62**（TPS 速率引擎重写，`e4b737dc`，19 文件）、链位 **63**（子代理跨客户端用量一致性，`18061170` + 工作区，11 文件）。
-> **链复现度**：干净 worktree@`068b3ebd` 按链序 apply **63/63 失败 0**，终态与工作树差异**仅剩 2 个有意排除项**（`bun.lock`、`desktop/src-tauri/resources/preview-agent.js`，理由见 27.4）。
-
-### 28.1 TPS 速率引擎重写为 125ms 分桶（链位 62）
-
-**需求（用户 verbatim，5 条规格）**
-
-> 1、每125ms，收到多少token，除以时间，每秒可显示8次，再将每个第8个也就是到整个1s的数据时求这8个平均。
-> 2、初始起步可能速度会异常高，所以一开始的125ms的数据不能直接迸发，而是等到第二个125ms才开始均衡显示。
-> 3、每次流式传输结束的时候，尾巴上可能速度也会异常，所以尾巴上的125ms数据与倒数第二个125ms进行均衡显示。
-> 4、流式传输结束后，要让速度信息残留显示5分钟，所以流式结束后要根据跨度最大到最近1500ms的数据求平均。
-> 5、如果引擎发来的数据带ids，则优先采用精准ids进行取数处理后显示；若拿不到ids则走推断估算。
-
-**做法：推倒旧连续滑窗，整块重做。** 旧实现（`sliceRate` + `WINDOW_MS` / `SETTLE_MS` / `BURST_FLOOR_MS` / `MAX_INSTANT_TPS` / `preWindowAt` / `computeFallbackTps` / `sampleTokens`）**全部删除**，换成固定网格分桶：
-
-| 规格 | 实现 |
-|---|---|
-| 每 125ms 一桶、显示=最近 8 桶平均（1s，每秒 8 次） | `BUCKET_MS=125` / `READ_BUCKETS=8`；**只读「已完成」的桶**；不足 8 桶时除以**已过桶数**而非 8 |
-| 起步：首桶不单独显示 | `MIN_BUCKETS_FOR_READ=2`，不足时返回**保持值** |
-| 尾部：末桶与倒数第二桶 **50/50 均衡** | `settle()` 把两者都置为均值（⚠️ 均值守恒：只改分布不改读数，用户明确要求按字面实现） |
-| 结束后保持 5 分钟 | `heldValue` 冻结；**引擎真值优先**（`endCall` 的 `realTokens/decodeSpan`），无真值则用 ≤1500ms 的桶平均（`HOLD_BUCKETS=12`）；5 分钟隐藏仍由指示器 `HIDE_AFTER_IDLE_MS` 管 |
-| 优先生成钟、到达钟兜底 | `TpsClock='generation'\|'arrival'`，模块级 `setTpsClock/getTpsClock`，默认 **generation** |
-
-其他决策：空桶**计 0**（暂停如实显示为凹陷）；静默 **>1.5s 清空窗口**并重新计时（否则恢复后那 1 秒会被残留的 0 拉低）。
-
-#### 踩坑记录（28.1）
-
-1. **⚠️⚠️ 两个时钟绝不可混算（本设计的硬约束）**：`serverTs` 是 **epoch ms**，`performance.now()` 是**自页面加载的单调钟**，相减得 ~1.7e12。规则：桶间距只用**所选时钟**；「静默多久 / 是否还活着 / 5 分钟隐藏」只用**到达钟**（`lastDataTime()` 语义不变，回收器与隐藏逻辑依赖它）。且**时钟选择对每个米表是粘性的**：生成钟米表一旦收到无戳帧就**永久降级**到到达钟并重建网格（`degradeToArrival`）。
-2. **只读「已完成」的桶**：把「进行中的桶」计入，会把部分桶当成空桶、并悄悄把最旧的桶挤出窗口——实测**稳定 104 t/s 被读成 91**。到达钟下 `readIndex = floor(T/125) - 1`。
-3. **环必须远宽于读数窗**（`RING_SIZE=64`＝8s）：积压摊平（`depileBucket`，上限 `MAX_BUCKET_TPS=5000`）靠把 token **推出窗口之外**才有效——在窗口内摊平是均值守恒、等于没做。实测 1200 的单桶从 9600 t/s 降到 ~1210。
-4. **`endCall` 不能标记「已结束」**：一轮里有多次 API 调用（工具循环），冻结会截断轮中读数。终态靠 `endStream()`（run 的 `task.status !== 'running'` 分支）+ **静默隐含结束**（run 的终态是 task 事件而非帧，「帧 + 节流」那道守卫可能永不触发）。
-5. **`settle()` 必须用 `lastIndex` 而非 `readIndex(now)`**：静默之后 `now` 已越过末尾，否则会给两个**空桶**做均衡、把保持值归 0。
-6. **`touch()`（ids 模式下的文本帧）不得参与降级判定**，否则生成钟会被无故降级。
-7. **指示器的 30/70 指数平滑已移除**：桶平均本身即平滑，再叠一层只是增加延迟；保留「接近 0 时保持上一值」的防闪 0。
-
-**时钟纪律 A/B（永久用例 `TpsMeter clock discipline`）**：同一组真实时序（40 帧、生成 125ms/帧、到达 25ms/帧＝5× 排空压缩）下，**生成钟读 104 t/s（真值），到达钟读 >300**。与此前实测的移动端 1000+ 同因 ⇒ **默认 generation**。
-
-**验证**：`tpsMeter.test.ts` 重写为 **27 例**（规则 1–8 + 校准 + 聚合）；`tpsMeter` / `tpsCalibration` / `TpsIndicator` **46/46**；相关 8 文件 495 测试全绿；`tsc` / lint 绿；构建后 7788 入口 hash ＝ 仓库 dist。
-⚠️ **真机观感验证当时未做**（无 playwright；headless dump-dom 在 H5 的 SPA + 长连接上会挂住），后由用户实测确认（见 28.2 收官）。
-
-### 28.2 子代理跨客户端用量一致性（链位 63）
-
-**需求（用户 verbatim，两轮）**
-
-> 轮一：A 客户端发起的会话能看到实时准确的用量在跑，而 B 客户端打开同一会话，**有很长一段时间看不到用量爬升**。
-> 轮二：B 能接近及时看到用量在跑了，但 B 看到的用量是**从 0 开始爬升**的，**没有跟 A 看到的数据保持一致**。
-
-**两个根因，都修完才对得上。**
-
-#### 根因一：`runAgentId` 与「派发它的 Agent 工具调用 id」被当成同一个 id
-
-两个 id **不是一回事**，且**都各自被当作键用**：
-
-| id | 含义 | 形态 | 出现处 |
+| 场景 | 思考汉字 | 思考英文字母 | 开头 |
 |---|---|---|---|
-| `runAgentId` | run 自己的 id（＝`task_id`＝`agentId`） | 6 位十六进制（`a74ce8`） | `agent_run_event.runAgentId`、实时帧的寻址键 |
-| `tool_use_id` | **派发它的 Agent 工具调用** id | `call_00_…` | `task_started` / `task_progress` 的 `tool_use_id` |
+| studio 聊天模式（无 system） | 143 | **0** | 「用户要求写出1到100之间的质数…」纯中文 |
+| cchaza 中文 lead 版（5,000+ tok 英文系统提示词） | **0** | 579 | 「The user is asking to write out all the primes…」纯英文 |
 
-- **UI 按 tool-call id 读**：`MessageList.tsx` 把 `backgroundAgentTasks` 折成 `usage[task.toolUseId]`（注释：只键 running，避免陈旧快照盖住终值）；`ToolCallGroup.tsx` 用 `agentTaskLiveUsage?.[toolCall.toolUseId]` 取数。
-- **实时写入方却在编造 `toolUseId`**：`ingestSubagentLiveUsage` 在无既有行时建 `{taskId: agentId, toolUseId: agentId}` ⇒ **`toolUseId` ＝ runAgentId** ⇒ **UI 永远查不到**。
-- **A 为何没事**：A 收到了派发时的 `task_started`，`normalizeBackgroundAgentTaskEvent` 把它规范成 `taskId=task_id`、`toolUseId=tool_use_id` ⇒ A 的行**键是 runAgentId、但 `toolUseId` 是对的**，写入按 `candidate === agentId` 命中该行，UI 按键取得到。
-- **B 为何看不到**：B 在 `task_started` 之后才连上，而**没有任何路径重放该帧**（历史重建只从**终态**通知建行：`backgroundTaskRecordFromNotifications` 只认终态，`reconstructBackgroundShellTasks` 只管 Bash/PowerShell）⇒ B 建的行带假 `toolUseId` ⇒ 不显示。等某个子代理跨过**工具轮次边界**，`task_progress` 带来真 `tool_use_id`，`upsertBackgroundAgentTask` 改写该行 ⇒ **数字突然出现**。这正是「几分钟不显示、然后突然出现」。
+**根因**：不是「开头两句英文」，而是**系统提示词英文主体**——它是思考语言的锚，模型跟着指令流主语言走。studio 聊天模式默认**空 `system_prompt`**（`1cat-studio/studio/frontend/src/onecat/chat-page.tsx:111` 默认 `""`、:376 非空才 unshift system 消息），无英文指令流 → 纯中文思考。
 
-**修法**：
-- 服务端 `activeSubagentIds` → **`activeSubagentRuns`**，返回 `{taskId, toolUseId}[]`（`activeAgentTasks` 里两个 id 本来都有）；`runningAgentUsage` 每项带**两个 id**。
-- **身份「没有总量也要发」**：总量只在跨过边界后才有（rollup 读子转录、按 API 响应写入），而**最需要身份的时刻恰恰是开头那段没有边界的长生成**——只发「有总量」的 run，B 就仍然没东西可挂。故 `totalTokens` 可选，`taskId`/`toolUseId` 必需。
-- 客户端种子行**按 run 的 id 作键、携带 tool-call id**（与 A 经 `task_started` 得到的形状一致）⇒ **一行同时满足写入方（按 runAgentId 找）与 UI（按 toolUseId 读）**，不需要任何映射表、不编造 id。
-- `ingestSubagentLiveUsage` 建行时**不填 `toolUseId`**。
+**已落地**：`src/prompts/i18n/index.ts` 的 `PROMPT_LANGUAGE_LEAD_ZH` 增加显式思考语言指令（「思考（reasoning）、解释与对用户的回复一律优先使用中文，不要切换成英文」），并把「一律使用英文原文」的强化措辞改为「保留英文原文，以保持参数约定精确」。+5 tok/请求（5,384→5,389）。i18n 测试新增断言（13/0）。
+**但探针证明 lead 指令压不住英文主体**——这是**方向性确认**：要让思考变中文，必须**中文化系统提示词主体散文**（收益清单「可压缩分支」：compact 散文、actions、doingTasks、outputEfficiency 等），而非只靠 lead。提示词中文化从「省 token」升级为「中文思考的必要手段」。
 
-#### 根因二：基线只有「分界粒度」，后加入者从 0 起
+**第二版优先级变更**：原建议「G/H → A/B/D」按 token 收益排序；现按**思考语言影响力**重排——凡**每请求注入**的主体散文（① 收尾节、② compact、doingTasks/actions）应最先中文化。
 
-身份修好之后 B 能爬了，但**从 0 起**：B 的种子来自**转录 rollup**，而 rollup **只在越过分界后有值**；B 若在开头那段长生成里接入 ⇒ 种子为空 ⇒ 从 0 累加，直到某个边界才被权威值校正。A 从 run 开始就在计数，所以有基数。
 
-**修法：服务端在飞外推器**（新增 `src/server/services/agentRunUsageProjection.ts`）
-- **计数点＝`conversationService` 的 `notifyOutputCallbacks` 之前**（该文件里 CLI stdout 泵，**每会话每条消息恰好一次**）。
-- **规则刻意镜像客户端**（`ingestSubagentLiveUsage`）：`text_delta` / `input_json_delta` → text，`thinking_delta` → thinking，`/4` 估 token；`tool_use_id` 由 `task_started` / `task_progress` 关联。
-- **必须同时镜像「哪些不计」**（否则种子会**高于**在看的客户端，反而更不一致）：
-  - `assistant` 整条消息里的 text 块，**只在同 message id 未被流式发送时才计**——服务端靠 `stream_event` 的 `message_start` 学 id（与 `streamState.streamedAssistantMessageIds` 同源）；
-  - **整条消息里的 thinking 块从不计**（客户端只计 `complete !== true` 的 thinking 片段）。
-- **种子取值 `max(rollup, projection)`**：rollup 是**真值但只在分界时更新**，projection **实时但按字符估**。取大者 ⇒ 过了分界就是真值、飞行途中是估计。**完成时该 run 的终态通知仍是权威**（渲染侧 `settledFinal` 阴影守卫优先它）⇒ **估计绝不会盖过终局真值**。
-- **生命周期**：4 处 `this.sessions.delete(sessionId)` 收尾都调 `clearAgentRunUsage`（正常 stop ×2 + 启动失败 + CLI 异常退出）；每会话上限 64 个 run，超出按插入序淘汰。
+## 七、提示词中文化与语言开关
 
-#### 顺带修掉的真缺陷：基准被采用后不计账 ⇒ 永远爬不起来
+> 本章收纳原第 三十四、三十七 章（2026-10-14 按功能域重组；各原章降为小节，内容原样）。
 
-种入绝对用量后，数字**永远不动**。机制：rebase 之后 `totalTokens` 恰好等于行里已有的值 ⇒ 那次写入被「无变化就 return」**跳过** ⇒ `lastWritten` 停在 0 ⇒ **下一帧把基准重算一遍、把刚累加的字符清零**（无限循环）。
-修法：**rebase 时就 `acc.lastWritten = reported`**（采用基准即记账），不要只在写入成功时才记。
-
-#### 踩坑记录（28.2）
-
-1. ⭐ **「A 好 B 坏」不等于数据没到，往往只是身份没对齐。** 我先假设「B 收不到实时帧」，**被推翻**：H5/移动端与桌面端**是同一份 `desktop/dist`**（`staticH5.ts`），`sendToSession` 遍历 Set、`conversationService.onOutput` 是 `outputCallbacks[]` **多监听者**，唯一按客户端裁剪的是 pet token。**必须先用代码证明「通道通不通」，再谈是不是通道问题。**（沿用上一轮的教训：UI 不更新优先怀疑**取数口径**，而非数据通道。）
-2. ⭐ **一个实体有「两个都被当键用的 id」时，症状是「数据明明在、UI 就是空」，且只在缺少那个把两者绑起来的帧时发作**（这里＝后加入的客户端）。本地客户端因为收到了绑定帧而完全正常。
-3. **假的 id 不是「无用」而是「不可查」**：把 `toolUseId` 填成 runAgentId 后，行**看起来完全健康**（有 status、有 usage），却**永远读不到**。宁可不填，等边界帧补齐。
-4. **服务端外推的计数点绝不能放在 `translateAgentRunMessage`**：那是**每个客户端各调一次**，N 个客户端会把同一个 run 的产出算成 **N 倍**（这坑先前在别处踩过，此处刻意避开）。
-5. **镜像速率要连「不计的部分」一起镜像**：我的测试当场抓出漏了 `message_start` ⇒ 整条消息与增量**双计**（10→20）。
-6. ⚠️ **测试必须每个用例独立 run id**：累加器是**模块级全局**且**按 run id 限流**，复用同一 id 会让后一个用例静默丢帧（继承前例的写节流）——本轮又踩一次，现象是「上一例跑完，下一例首帧不生效」。
-7. **`git diff <commit>` 看不见未跟踪文件**：链位 63 第一版漏掉了两个**新增**文件（`agentRunUsageProjection.ts` 及其测试），而复现度比对当场把它暴露出来（`A src/server/services/agentRunUsageProjection.ts`）。生成补丁前先 `git add`，或用 `git diff --cached <commit>`。
-
-#### 验证（28.2）
-
-| 项 | 结果 |
-|---|---|
-| 身份对齐核心回归 | 种一行 `{taskId:'a74ce8', toolUseId:'call_00_x'}` + 喂 `runAgentId:'a74ce8'` 的帧 ⇒ 写入落**同一行**、爬过种子值、`toolUseId` 不变、**只有一行** |
-| 服务端 | `activeSubagentRuns` 5 例；路由 11 例；投影 10 例（含「已流式则不重复计」「整条 thinking 不计」两条镜像回归） |
-| 客户端 | `chatStore` **380/380**；`chatStore`+`MessageList`+`ToolCallGroup` **597/597** / **584/584** |
-| `check:server` | **496 文件 / 5975 条 / 0 失败**（基线 495 / 5963） |
-| 链复现度 | 63/63 apply 0 失败；终态 vs 工作树仅差 2 个排除项 |
-| **真机** | 用户确认：「能接近及时看到用量在跑」，且 B 与 A 数值一致 —— **本轮达标** |
-
-### 28.3 补充参考：服务端推送 + 客户端轮询（**未实施**，留作后续可选）
-
-28.2 已让 B **直接落在 A 附近的数**上，无需额外通道。以下两点是**已设计但按用户决定暂缓**的加码项，登记备查（用途：把「≈一致」升级为「逐位一致」，并覆盖不跑该段客户端代码的适配器，如 IM/pet）：
-
-1. **WS 主动推送**：在 `ServerMessage` 联合（服务端 `ws/events.ts` + 客户端 `types/chat.ts`）加一种「在飞用量快照」帧，服务端按 ~250ms 用 `sendToSession` 广播给该会话全部客户端；客户端在 `handleServerMessage` 的 `switch` 加分支，按**绝对快照**写入（复用既有 `reported > acc.lastWritten` 的 rebase 语义）。相当于把 `ingestSubagentLiveUsage` 的计数搬到服务端后回灌。
-2. **REST 轮询兜底**：新增**轻端点** `GET /api/sessions/:id/agent-usage`（挂在 `handleSessionsApi` 的子资源分发旁），返回与 `runningAgentUsage` 同一份 payload。⚠️ **轮询绝不能打 `/messages`**——那是整个转录。客户端仅在「有在飞的子代理行」且「推送已陈旧」时启动 ~1s 轮询；照抄 `ContextUsageIndicator` 的写法（`inFlight` 防叠、`isDocumentVisible()` 跳过隐藏页、`clearInterval` 清理）。
-
-**已知局限（现状即如此，非缺陷）**：外推器只计**它自己看到过的帧** ⇒ 服务端若在 run 中途重启，早先那段会丢、种子偏低；`max(rollup, …)` 只能在跨过分界后补上。
-
-### 28.4 后台标签页切回后 TPS 飙高 / 卡着不动（链位 64）
-
-**需求（用户 verbatim）**
-
-> 如果客户端浏览器缩小切出去一段时间，再切回浏览器，会导致 TPS 显示速率异常（要么飙高、要么一直卡着不动。）
-
-**根因（离线实测复现，真值 104 t/s、冻结 60s）**
-
-浏览器把后台/最小化的标签页节流：定时器停摆、帧不再被处理，而**引擎那头照常产出**。切回时**整段积压在同一瞬间交付**，于是几百帧落进**同一个到达 125ms 桶**。而 `depileBucket` 的「摊平」只在**环内能找到更早的、有内容的桶**时才做（`previous >= 0`）且要求 `spread >= 2`；长静默必然清空环 ⇒ `previous === -1` 被读成「run 从这里开始」⇒ **不摊平**，整段积压按**一个 125ms** 计费。
-
-实测读数序列（到达钟）：
-
-| 时刻 | 读数 | 说明 |
-|---|---|---|
-| drain 完成 | **0** | `elapsed < 2` 走 `held()`，而 `heldValue` 从未被设置过 ⇒ 0 |
-| +2 桶 | **25,012** | 巨桶进窗（6240 token / 0.25s；单桶计费 6240/0.125 ≈ 50k t/s） |
-| +3…+8 桶 | 16,709 → 12,558 → 10,067 → 8,406 → 7,220 → **6,331** | 巨桶逐拍被挤出窗 |
-| +9 桶 | **104** | 恢复真值 |
-
-⇒ **「飙高」与「一直卡着不动」是同一个机制的两端**：先读出 0，而指示器有「近零则保持上一值」的防闪规则，把那个 0 变成**无限期冻结**；紧接着巨桶进窗就是那个 9999 级的尖峰。
-
-**修法（四处，全部客户端）**
-
-1. **无可归属区间的积压桶 → 丢弃，而不是摊平**（`depileBucket`，`previous < 0`）：环内没有任何已测区间可归属它 —— 要么长静默刚清了环，要么内容比环还旧（那里摊平会把几分钟的 token 除以 8 秒而**高读**）。两种情况都不可测，故不计入速率。
-2. **丢弃是粘性的**（`Bucket.dropped`）：否则后续 token 会把该桶几单位几单位地重建，把积压一点点漏回读数。
-3. **丢弃桶不进分母**（`averageOver`）：它是**没测到**，不是「空的 125ms」。未写入的桶**仍然计 0** —— 那才是真的没产出，暂停要如实读成凹陷。
-4. **跨静默保留最后读数**：`readGrid()` 在重锚前把它记入 `heldValue`，且 `settle()` 不再用 0 覆盖已有的真读数（`avg > 0` 才写）。否则「答案在后台期间写完」会显示 0。
-5. **指示器防闪保持改为有界**（`HOLD_UNCHANGED_MAX_MS = 1500`）：原意是跨过 text↔thinking↔tool 边界的瞬时低谷；**无界**保持意味着任何**持续**低于 0.5 t/s 的真实慢速都会把数字冻结在旧值上 —— 正是用户报的「一直卡着不动」。超窗后按真实读数显示。
-
-**踩坑记录（28.5）**
-
-1. ⭐ **「飙高」与「卡住」同源，别分头查**：序列是「先 0、后巨桶」。只看到其中一个，就会以为有两个独立缺陷。
-2. ⭐ **「空桶」与「丢弃桶」语义不同，混起来必错**：空桶＝真的没产出（计 0）；丢弃桶＝没测到（不进分母）。我第一版把丢弃桶当空桶算，真值 104 被读成 **52**（丢弃桶占了分母的一半）；改成不进分母后立即回到 104。
-3. **生成钟（`serverTs`）本来就挺得住**：同一冻结在生成钟下**全程 104**（每帧带服务端接收时刻，积压按真实生成时间落桶）。⇒ 到达钟是**降级路径**（只有无戳帧才走），但它是**受支持**的回退，照样必须正确。这条同时给了判据：**若读数在生成钟上仍异常，那另有原因，别往这里归因**。
-4. ⭐ **必须证明用例在修复前会失败**：两条新用例（到达钟飙升、held 归 0）在还原源码后分别以 **6331** 与 **0** 失败，与预测数字一致；另两条（生成钟、**环内**积压仍需摊平）**两种情况下都通过**，用来锁住「不该变的行为」。**只写会绿的用例等于没测。**
-5. **fake timers 会接管 `performance.now`**：指示器用例里 `beforeEach` 装好的 spy 会被 `vi.useFakeTimers()` 顶掉，必须在启用假定时器**之后**重新 spy，且推进定时器时要**同步推进时钟**，否则「保持窗口」的时间判据根本不动。
-6. **别用 `{ ...meterInstance }` 造桩**：类实例的方法在原型上，展开后全丢（`hasLiveSamples` / `hasStreamed` 直接消失，汇总逻辑随之走偏）。要替某个方法就用 `vi.spyOn(instance, 'value')`。
-
-**验证（28.5）**：`tpsMeter.test.ts` 27 → **31**（+4）；`TpsIndicator.test.tsx` 11 → **12**（+1）；相关 6 套件（tpsMeter / TpsIndicator / tpsCalibration / chatStore / MessageList / ActiveSession）**669/669**；`tsc --noEmit` 与 `npm run lint` 绿；`src/` **零改动**（故服务端 `check:server` 不受影响）；链复现度 **64/64 apply 0 失败**，终态与工作树仅差 2 个既定排除项。
-
-### 28.5 Anthropic 协议（`/v1/messages`）token ids 采集端（链位 65，2026-10-02）
-
-**需求（用户 verbatim）**：「修bc中间件anthropic协议透传token ids」。
-
-**关键发现（推翻了「改 bc 中间件」的预设）**
-
-- **bc 不是缺口**：`billion-context` bundle 里 `token_ids` / `reasoning_tokens` 各 **0 处引用**；bc 按协议路由但**不做协议转换、不改路径**（`/v1/messages` → 上游 `/v1/messages`），纯转发（`resolveUpstream` / `buildForwardTarget`；日志自称 "forwarding unchanged"）。
-- **引擎侧原来没有字段可放**：`entrypoints/anthropic/protocol.py` 的响应模型里 `token_ids` **0 处**、`serving.py` 也不产出 ⇒ 即便算了也无处承载。（对比同引擎 OpenAI 协议 `chat_completion/protocol.py` 明确有 `choices[].token_ids` 与顶层 `prompt_token_ids`。）→ **引擎侧**按 vLLM 范式补齐：`1cat-vllm-v130/patches/opt21-anthropic-token-ids-v1.patch`（输出 ids **常开**、`prompt_token_ids` 走请求 opt-in，因后者体积大）。
-- **决定性事实**：真实客户端（dev 7787）`settings.json` 的 `ANTHROPIC_BASE_URL = http://192.168.10.43:8878/bili/http://192.168.10.43:8000` ⇒ **CLI 直连 bc，cc-haha 服务端不在 HTTP 链路上**。cc-haha 的 ids 采集通道（`tpsTokenSink` → `tps_tokens` WS → TPS 表）**只在请求经 cc-haha 代理时才有数据**；而链位 35 的 `providerRuntimeEnv` 对 anthropic provider 一律「直连、不过代理」。这正是「cc-haha 当初设计 ids 时假设请求会经它代理」的缺口。
-
-**做法（6 文件，均 `src/server/**`）**
-
-1. **私网 anthropic provider 自动经代理**（`services/providerRuntimeEnv.ts` 的 `buildProviderManagedEnv` + `activeProviderNeedsProxy` 两处）：新增分支 `apiFormat === 'anthropic' && isPrivateNetworkUrl(baseUrl)` ⇒ `ANTHROPIC_BASE_URL` 指向 cc-haha `/proxy`；公网 anthropic provider（deepseek/zhipu/minimax）不受影响。
-2. **共享判定模块** `services/api/localEngineHost.ts`（新增）：把 `handler.ts` 私有的 `isLocalEngineHost` 提出，另加 `isPrivateNetworkHost/Url`。
-3. **退守放宽**（`proxy/handler.ts` 的 anthropic 400 守卫）：原「anthropic + `supportsNestedToolResultMedia=true` ⇒ 400 `proxy not needed`」改为**仅当上游非本机/私网时才 400**。
-4. **SSE 采集 tap** `proxy/streaming/anthropicTokenTap.ts`（新增）：仿 `captureTraceStream` 的 tee —— `pipeThrough` 里**先转发原始字节**再旁路解析 SSE，取每个 `content_block_delta` 顶层的 `token_ids`，按 `delta.type` 映射 kind（thinking/content/tool），喂既有 `createTpsTokenRelay`（200ms 合批 + 负缓存）。压缩体（`content-encoding` 非 identity）原样转发、不解析。
-5. **`count_tokens` 端点透传**（`handler.ts` 新增 `forwardAnthropicCountTokens`）：`/proxy/v1/messages/count_tokens` 原样转发（无事件流、无 ids 可采）。
-6. **测试**：`anthropicTokenTap.test.ts`（5 例：字节不变 + 按 kind 计数 + 跨 chunk 边界重组 + 无 ids/空数组/坏 JSON 忽略 + 压缩体不解析）、`provider-presets.test.ts`（+3 例：私网→走代理、公网→直连、**loopback→仍直连**）。
-
-#### 踩坑记录（28.5）
-
-1. **⚠️⚠️「修 bc」是错的落点**：最初预设改 bc 中间件，实测 bundle 里 `token_ids`/`reasoning_tokens` **零引用**且 bc 只按协议路由、不改路径 ⇒ 缺的是**引擎协议字段**，不是中间件。**看到「中间件在链路上」不等于「缺口在中间件」**。
-2. **⚠️⚠️「引擎改造已生效」与「UI 拿到值」是两件事**：客户端 base URL 直指 bc ⇒ cc-haha 服务端**不在链路上**，引擎发了 ids 也没人读。必须先确认流量确实过 cc-haha（本项即靠「私网自动经代理」把 anthropic 流引回代理）。
-3. **loopback 必须排除出路由门控**：`127.0.0.1` 更可能是 cc-haha 自己的 `/proxy`（`http://127.0.0.1:3456/proxy`）或测试替身；把它也路由进代理会**自环**并改掉其 auth 与非 Messages 路径。故**路由用 `isPrivateNetworkUrl`（RFC1918，不含 loopback）**，而「是否发 `return_token_ids`」仍用 `isLocalEngineHost`（含 loopback）——两个判定**故意不同**。
-4. **tap 必须「先转发后解析」**：客户端字节不能等旁路解析（`controller.enqueue(chunk)` 在 `reader.push` 之前）；且用 `pipeThrough` 而非自建 reader，才能保持「可原样交给 Response」的流形态。
-5. **压缩体不解析**：本地引擎 SSE 不压缩；遇 `content-encoding` 非 identity 只原样转发并报 0 ids，避免把二进制当文本切行。
-
-**验证**
-
-- **引擎直连探针（阶段①）**：`curl /v1/messages`（流式 + 非流式）断言 `content_block_delta.token_ids` 与顶层 `token_ids` 存在，取值与同引擎 OpenAI 路径一致。
-- **经 bc（阶段②）**：`8878/bili/…:8000` 转发后**逐字段对比原始 SSE**，bc 原样透传 `token_ids`（bc 注入 kernel 标签后事件结构不变）。
-- **cc-haha**：目标 2 测试文件 `28 pass / 0 fail`；服务端基线 `check:server` 见 §28.6；`check:policy` 除**既有** `scripts/vcc-slice-judge.ts` 未用导入外无新增失败（该 2 条与本改动无关）。
-- **7787（align 树）**：本链位已同步移植到 `/tmp/align`，`git apply` 直落（仅 `providerRuntimeEnv.ts` 偏移 14 行）。
-
-**入库**：链位 **65** `patches/tps/tps-engine-rewrite-patch1.patch`（542 行，6 文件）。相对链终态 `a6276429` 生成 ⇒ **#1..#64 无需重生成、无级联**（改动不落在这 64 条的 hunk 上下文里；`handler.ts` 虽被链位 11/35/44 触及，但本项新增/放宽的均为独立区域）。
-
-### 28.6 链复现度：65/65（2026-10-02 实测）
-
-| 链位 | patch | 内容 | 文件数 |
-|---|---|---|---|
-| 62 | `patches/tps/tps-engine-rewrite-patch1.patch` | 28.1：TPS 速率引擎重写为 125ms 分桶（`e4b737dc`） | 19 |
-| 63 | `patches/thinking-subagent/thinking-subagent-subagent-usage-cross-client-patch1.patch` | 28.2：子代理跨客户端用量一致性（身份对齐 + 服务端在飞外推 + 基准记账修复 + 轮次页脚字号） | 11 |
-| 64 | `patches/tps/tps-engine-rewrite-patch1.patch` | 28.4：后台标签页切回后 TPS 飙高/卡住的根因修复（积压桶丢弃 + 丢弃桶不进分母 + 跨静默保留读数 + 指示器保持改为有界） | 4 |
-| 65 | `patches/tps/tps-engine-rewrite-patch1.patch` | 28.5：Anthropic 协议 token ids 采集端（私网 anthropic 走代理 + SSE tap + `count_tokens` 透传） | 6 |
-
-> ⚠️ **本表故意不写 `patches/` 前缀**（与 §27.4 同）：链位表用的是 `` `patches/xxx.patch` `` 形式，若此处也带前缀，任何「按 `| 链位 | `patches/…`` 抽取链序」的脚本都会把这两行**当成第二个同号条目**（重复命中）。表格写法保持与链位表可区分。
-
-**验证口径（2026-10-02 实测）**：干净 worktree@`068b3ebd` 按链序（链位 **1→65**）`git apply --allow-empty --index` ⇒ **65/65 失败 0**；终态与工作树比对，`src/server` **逐字节一致**，全树剩余差异**仅**构建产物与非源码目录（`node_modules` / `desktop/{dist,electron-dist,build-artifacts}` / `desktop/src-tauri/binaries` / `tsconfig.tsbuildinfo` / `runtime/__pycache__`）以及 `bun.lock`、`desktop/src-tauri/resources/preview-agent.js`、`modify/`、`pr-prepare/`、`.claude/`。
-
-⚠️ **两个易踩的操作坑**（本轮都踩了）：
-1. **顺序表末尾缺换行**：`printf ... >> order.txt` 会把新行**粘到上一行**，导致链位 61 被跳过、后续补丁因缺基底而失败（现象像是「补丁坏了」，其实是表坏了）。
-2. **比对要用 tree 对 tree**（`git write-tree` + `git diff-tree`），不要用 `git diff <commit>`：后者看不见未跟踪文件，会把新增文件**误报成缺失**（见 28.2 踩坑 7）。
-
-
-> ⚠️ **本表故意不写 `patches/` 前缀**（与 §27.4 同）：链位表用的是 `` `patches/xxx.patch` `` 形式，若此处也带前缀，任何「按 `| 链位 | `patches/…`` 抽取链序」的脚本都会把这两行**当成第二个同号条目**（重复命中）。表格写法保持与链位表可区分。
-
-**验证口径（2026-10-02 实测）**：干净 worktree@`068b3ebd` 按链序（链位 **1→67**）`git apply --allow-empty --index` ⇒ **67/67 失败 0**；终态与工作树比对，**`src/**` 与 `desktop/src/**` 逐字节一致**，全树剩余差异**仅**构建产物与非源码目录（`node_modules` / `desktop/{dist,electron-dist,build-artifacts}` / `desktop/src-tauri/binaries` / `tsconfig.tsbuildinfo` / `runtime/__pycache__`）以及 `bun.lock`、`desktop/src-tauri/resources/preview-agent.js`、`modify/`、`pr-prepare/`、`.claude/`。
-
-⚠️ **两个易踩的操作坑**（本轮都踩了）：
-1. **顺序表末尾缺换行**：`printf ... >> order.txt` 会把新行**粘到上一行**，导致链位 61 被跳过、后续补丁因缺基底而失败（现象像是「补丁坏了」，其实是表坏了）。
-2. **比对要用 tree 对 tree**（`git write-tree` + `git diff-tree`），不要用 `git diff <commit>`：后者看不见未跟踪文件，会把新增文件**误报成缺失**（见 28.2 踩坑 7）。
-
-### 28.7 TPS 读数节拍改 4 次/秒 + 静默阈值统一为 `LIVE_GAP_MS`（链位 67，2026-10-02）
-
-**用户报**：066 时读数每秒多次变化，067 却「每秒才变一次」。
-
-**真因＝不是轮询，是「1 秒均值把起伏抹平」**。轮询本来就是 4–8 Hz（`POLL_SLOW_MS=250` / `POLL_FAST_MS=125`，≥50 t/s 走快档），从来不是每秒一次。`READ_BUCKETS=8`（1 秒均值）下，每个新 125ms 桶只替换窗口的 1/8 ⇒ 稳态流下取整后的数字**几乎不动** ⇒ 观感「每秒才跳一次」甚至冻住。
-
-**改法**：`READ_BUCKETS` 8 → **2**（读数窗 250ms）；轮询双档 → 单一 **`POLL_MS=250`**（4 次/秒）。实测（抖动喂法）**4.0 次/秒**；对照 RB=8 + poll=250 仅 3.4/秒。
-
-**同时纠正一处我引入的重复常量**：缩窗口时我顺手把 live→held 换成 `LIVE_MS = 8 × BUCKET_MS`（1000ms）——**错**。设计里这个阈值本就是 `LIVE_GAP_MS = 1500`（§28.1「静默 **>1.5s 清空窗口**并重新计时」；其 docstring 原文即 *"the reading switches to its held value, and the bucket grid is dropped"*）。`LIVE_MS` 只是「窗口长度」的别名 ⇒ **缩窗口会静默地把交接阈值一起缩短**。**正解＝删 `LIVE_MS`，`value()` 直接用 `LIVE_GAP_MS`**：一个阈值、一个名字，`value()` 的 live→held 与 `placeFrame` 的清格同门。实测边界：静默 **1200ms → 读数 0**（如实凹陷，由指示器有界 1.5s 防闪保证显示不回弹）；**≥1490ms → 切 held**。
-
-**文件**：`desktop/src/lib/tpsMeter.ts`、`desktop/src/lib/tpsMeter.test.ts`、`desktop/src/components/chat/TpsIndicator.tsx`（3 文件）。
-
-#### 踩坑记录（28.7）
-1. ⭐ **「显示冻结」≠「读数频率低」**：先怀疑「窗口太长把起伏抹平」，别先怪轮询频率（轮询本就够快）。
-2. ⭐ **仿真必须用抖动喂法**：我第一版用**匀速**喂法，得出「改窗口几乎没用」的**错误结论**——匀速流在**任何**窗口下都是常量。真实流在 125ms 尺度上是起伏的（思考/正文/工具参数交替）。
-3. ⭐ **改一个由推导式定义的常量前，先看它推导自什么、被谁引用**：`READ_BUCKETS` 同时喂了「读数窗」与「静默阈值」两个语义，改一个动了两个——这正是 `LIVE_MS` 陷阱的成因。
-4. 短窗口的代价＝平滑变少、数字更跳（读的是最近 250ms 速率而非 1 秒均值）；2↔4 桶间可调。
-5. **本轮走「新增链位 67」而非改链位 62/64**：改老 patch 会级联（62 有 **16** 个、64 有 **9** 个 hunk 都落在 `tpsMeter.ts`），按文档「新增链位」规范零级联追加（先例＝链位 65/66）。
-
-
-## 二十九、TPS 双路径架构：A 引擎真值优先 → B 智能估算兜底（✅ 2026-10-02，链位 66）
-
-> **本章 1 个 patch**：链位 **66**（`patches/tps/tps-density-estimation-patch1.patch`，10 文件）。配合链位 65（Anthropic ids 采集）。
-
-### 29.1 TPS 估算方案重做（B 路径）+ 在飞用量 A 优先（链位 66）
-
-**需求（用户 verbatim 汇总）**
-
-1. **两条独立路径**：① 从引擎取 **token ids** 作第一优先级（准确 TPS）；② cc-haha **自身智能估算** 作次级兜底。**A 不可用 ⇒ 启用 B**。
-2. A 的取法要**启发式**（不要求前端声明）；先查清「行业标准里 ids 是否默认带」。
-3. B：先设**尽量靠近准确的初始比例**兜底 → 以**历史消息为范本自动学习**；**池 20 条轮换**；**达 10 条后以学习值优先**；池恒 20。
-4. 范本覆盖 **纯英 / 纯中 / 中英混合 / 单纯字符** 四类，「通杀几乎所有模型服务商」。
-5. **会话扩展信息里所有 token 用量**：未落盘前**按新方式爬升**（A 优先、B 兜底），**落盘由 `usage` 校正**（例：爬升收尾 12.3k → 落盘 11.7k，相差不大）。
-
-**调研结论：token ids 不是行业标准**（§0 判据的依据）
-
-| 来源 | 响应含 token ids？ |
-|---|---|
-| OpenAI 标准 API | ❌ 仅 `usage` 计数 |
-| Anthropic 标准 API | ❌ 无任何该字段 |
-| vLLM 系（本引擎 OpenAI 协议） | ✅ 扩展 `return_token_ids`（**默认 off**） |
-| vLLM 系（本引擎 Anthropic 协议） | ✅ 本项目新增（`opt21-anthropic-token-ids-v1`，**触发才发**） |
-
-⇒ **必须启发式**（探测 + 按 origin 记忆），不能假定「流式/非流式默认带」。
-
-**A 路径（第一优先级）**
-
-- **触发**：cc-haha 仅对**本机/私网 origin**（`shouldRequestTokenIds`/`isLocalEngineHost`）注入请求头 `x-return-token-ids: 1`（链位 65）；引擎认头出 ids。
-- **可用性状态机**（按 origin）：`unknown --发触发--> 有 ids ⇒ A-active`；**连续 2 次无 ids（10s 窗）⇒ A-unsupported**（停探测，只用 B）。复用既有 `tokenIdUnsupportedOrigins`/`tokenIdProbeMisses`。
-- **公网服务商**：非私网 ⇒ **永不注入** ⇒ 天然 A 不可用 ⇒ B。
-
-**B 路径（次级兜底）——核心：样本只存「计数」，不存文本**
-
-估算是**字符数的线性函数** ⇒ 学习只需计数：
-
-```ts
-type DensitySample = { cjk: number; latin: number; digit: number; sym: number; tokens: number }
-// 池 = 最近 20 条（每 model 一个环形缓冲，FIFO）
-```
-
-- **4 类互斥**（每个字符恰属一类）：CJK（表意/假名/谚文）≈1.003 tok/字、拉丁 a-zA-Z ≈0.286、数字 0-9、符号/标点/其它。「中英混合」是**样本形态**（由回归自然处理），**不是第 5 类**（否则矩阵共线）。
-- **免策展、不死锁**：真实会话本就混合 ⇒ 谁常出现谁学得准；**不需要「每类至少 N 条」**（离散门槛会让某类缺样本时**整条学习路径永不开启**，把已学好的类也拖死）。
-- **收缩（岭回归）**：`k_c = (n_c·k̂_c + λ·k_c⁰)/(n_c+λ)`，先验 `k_c⁰` 用**实测值**（非中性 1.0）⇒ 某类 0 样本退回先验（可用，不是垃圾）、1~2 样本不震荡、放宽总数也无害。
-- **门槛保留为全局成熟门**：样本数 ≥10 后以学习值优先（管「先验表 vs 学习值」），与逐维收缩不冲突。
-- **半持久化**：`localStorage['cc-haha.tpsDensity']`，样本池（20×5 整数）+ 版本号 + 按 model 分桶 + 节流写 + 坏数据回退先验表。
-
-**在飞用量：A 优先（用户明确）**
-
-三源成链：`在飞 A（真实 ids 累加）──不可用──> B（学习估计）──落盘──> usage（权威，覆盖）`。
-
-- **数据面统一**：A 通道 = **`tps_tokens`**（tap 产出的真实计数，带 `kind`）= 既是 **TPS 速率的分子**、也是 **所有在飞用量（轮次/子代理/收纳栏/后台任务）的分子** ⇒ 二者读**同一份**计数，天然自洽。
-- 服务端 `agentRunUsageProjection.ts` 与客户端 `subagentLiveChars` 的「单一 `/4` 常数」**全部移除**（见 29.1 踩坑 a）⇒ 改 A 优先、B 兜底。
-- 落盘由既有「完成通知/边界帧带权威 `usage` 二次校正」骨架（链位 49/63）覆盖，只升级分子。
-
-**验证**
-
-- 单测：`tokenDensity.test`、`tpsDensityStore.test`、`agentRunUsageProjection.test`、`StreamingIndicator.test`、`session-messages-http.test` 全绿；服务端全量 **498 文件 / 5994 通过 / 0 失败**。
-- **7788 端到端**：13 个 delta 带真实 ids、0 个 null、**3 条 `tps_tokens`**（thinking 36/6 + content 18）。
-- 桌面 `vitest`：`tpsDensityStore`+`StreamingIndicator` **14 通过**；`tsc` 无新错误（仅既有 `compact.test.ts` 损坏）。
-- **7787（align 树）同步后**：同款端到端 **3 条 `tps_tokens`** 复现。
-
-**踩坑记录（本项）**
-
-| # | 坑 | 一句话 |
-|---|---|---|
-| a | **`/4` 对中文低算约 4×** | 服务端 `agentRunUsageProjection` 与客户端 `subagentLiveChars` 都用常数 `CHARS_PER_TOKEN=4`（≈0.25 tok/char = **拉丁**密度）折 token，而**中文≈1.0** ⇒ 中文在飞用量被低算约 4 倍。**「两处一致」不等于「正确」**——一致地错也是一种错。 |
-| b | **离散门槛会饿死学习** | 若按「每类至少 2 条」才启用，某类（如纯英文）长期缺样本 ⇒ **整条学习路径永不开启**，已学好的类也停在中性值；放宽为「总数达标」又让稀疏类出垃圾系数。正解是**收缩**（先验兜底，有多少数据用多少），门槛只保留「全局成熟」一层。 |
-| c | **4 类必须互斥** | 「纯英/纯中/中英混合/纯字符」若当 4 个子池，**混合与前两者不互斥**（它=中+英同时出现）⇒ 回归矩阵共线。正解：4 个**互斥字符类** + 混合作为**样本形态**由回归处理。 |
-| d | **样本不必存文本** | 估算是字符数的线性函数 ⇒ 只需 `{4 类计数, tokens}` 五个整数；存文本既臃肿又有隐私问题。「范本」的精巧化 = **存计数不存文本**。 |
-| e | **「引擎改造已生效」≠「UI 拿到值」** | A 通道要求请求**经过 cc-haha 代理**；客户端 base URL 直连 bc 时，引擎发了 ids 也没人读 ⇒ 必须先做私网自动经代理（链位 65）。 |
-| f | **工作树在制品瑕疵会原样进补丁** | 首版 patch 里 `chatStore.ts` 会话复位块 4 行（`streamingText`…`statusVerb`）是 **14 空格缩进**（正确 12）——工作树当时就带着这瑕疵生成，patch 忠实复刻了它。修法=修工作树缩进后**重新生成**（1155→1149 行），并以 `git apply -R --check` 反向校验「工作树恰含补丁内容」闭环。跨树核对时 align 树同处缩进正常 ⇒ 差异纯属本树工作树，非逻辑分歧。 |
-### 29.2 deb 产物与核验（2026-10-02）
-
-含链位 **65 + 66** 的安装包：
-
-| 项 | 值 |
-|---|---|
-| 产物 | `desktop/build-artifacts/linux-x64/Claude-Code-Haha-0.6.6-linux-amd64.deb` |
-| 大小 / 时间 | **201,452,948 B** / **2026-10-02 21:09:53** |
-| 构建命令 | `LINUX_TARGETS=deb SKIP_INSTALL=1 bash desktop/scripts/build-linux.sh` |
-| package-smoke | **PASS**（12 项检查全过：deb / app.asar / app-update.yml / node-pty / ripgrep / 侧车二进制 …） |
-
-**制品新鲜度核验**（防「修法只在工作区、没进包」）：
-
-| 层 | 指纹 | 位置 |
-|---|---|---|
-| 侧车（服务端） | `x-return-token-ids` ✓、`tps_tokens` ✓ | `app.asar.unpacked/src-tauri/binaries/claude-sidecar-*` |
-| 前端（渲染） | `cc-haha.tpsDensity` ✓、`tps_tokens` ✓ | `app.asar.unpacked/dist/assets/PetRenderer-*.js` |
-
-> ⚠️ **前端 bundle 在 `app.asar.unpacked/dist/assets/`，不在 `app.asar` 里**（grep `app.asar` 会得 0，误判「改动没进包」）。
-
-> ⚠️ **package-smoke 在本环境会因 bun cwd 钉死而假失败**（`ENOENT …/gov-managerment-plan/desktop/package.json`）。绕过：`CCHAHA_CWD=<repo> bun --preload /tmp/bun-cwd-shim.js scripts/quality-gate/package-smoke/index.ts --platform linux --package-kind release --artifacts-dir desktop/build-artifacts/linux-x64` ⇒ **PASS**（不能 `bun run`，须直跑脚本文件）。
-
-### 29.3 补丁与文档状态（2026-10-02）
-
-- **链位 65 / 66 均为新鲜补丁**：重生成后与工作树**逐字节一致**（65 = 559 行 / 6 文件；66 = 1125 行 / 10 文件）⇒ **无需修正、无遗漏**。
-- 链清单 `patch-chain-manifest.md`：链位总数 **66**，65/66 行齐；交付包 `modify/patches/` 同步 **66** 个。
-- 优化文档三处（`cchaha-06scode` / `/home/zeaxion/myproject/cchaha-067scode` / 交付包）**md5 一致**。
-- 引擎侧增量补丁 `1cat-vllm-v130/patches/opt21-anthropic-token-ids-v1.patch` 已更新为**触发式**（300 行）。
-
-### 29.4 修正：`chatStore.ts` 四处「+2 缩进」污染（2026-10-02 晚）
-
-**现象**：`chatStore.ts` 有 **4 组共 20 行**被多缩进 2 格（14 应为 12、16 应为 14、18 应为 16），与同层兄弟不一致；且**补丁是从该坏状态生成的**（把原行删掉、以 +2 缩进重插），使补丁与「正确的原状」不符。
-
-**四处**（06scode 行号；align 对应处偏移 +28）：`5144-5150`（`streamingResponseChars/Counts + streamAttemptStart*`，16/18→14/16）、`5292-5295`（`msg.attemptStart` 三元对象，16→14 且闭括号 14→12）、`5486-5492`（同第一处、`session.*` 版）、`6302-6305`（`session_cleared` 重置对象的 `tokenUsage/streamingResponseChars/streamingResponseCounts/slashCommands`，14→12）。
-
-**根因**：新增 `streamingResponseCounts` / `streamAttemptStartResponseCounts` 字段时，**误把整组一起缩进了 2 格**（4 处各一次）；补丁随之捕获该状态。
-
-**修法**：两树各自把那 4 组缩进**回调 2 格**（脚本带内容断言），重生成链位 66 补丁 ⇒ 补丁由「删 3 行 + 插 4 行（+2）」变为**保留原行、仅新增 `...Counts` 行**的干净形态（1149 → 1125 行）。三处补丁 md5 一致（`2f699b5a`）；链复现 **66/66、`src/server`+`desktop/src` 逐字节一致**；desktop 测试 **388/388**、服务端相关 **146/146**。
-
-**踩坑**：
-
-| # | 坑 | 一句话 |
-|---|---|---|
-| a | **「行号 + 缩进」才是可复现的坏状态指纹** | 只看内容改没改会漏判；用「同层兄弟缩进对照」+「括号深度」才能定位（本次即靠「邻居 12、这 4 行 14 且无开括号」筛出） |
-| b | **纯缩进错误骗过所有常规门禁** | 编译/类型/单测**全绿**（JS 语义与空白无关），只有**逐行缩进审计**能发现；补丁评审时要专门看 `-N → +(N+2)` 的重缩进 hunk 是否有包裹层支撑 |
-| c | **补丁「删了又加同样的行」是危险信号** | 正常新增只在原行旁插 `+`；若出现「同内容 `-`/`+` 仅缩进不同」，说明生成时的源已漂移 |
-| d | **临时补丁文件是坏状态的温床** | `/tmp/new66.patch`（21:07 生成）残留了旧坏形态；已删。**以 `modify/patches/` 为准**，temp 不作为依据 |
-
-**遗留**：21:09 构建的 deb 来自修正前源码（**影响仅空白，不影响行为**）；已按修正后源码**重建**（见 §29.2 更新）。
-
-## 附录：交接备注（2026-09-27 更新）
-
-- #83 测试失败：前端全量 vitest 12456 pass/2 fail（2=MessageList 同一用例负载 flaky，已加 timeout:5000 缓解+孪生已同步）；server 侧 `bun run check:server` 本地坑=shell snapshot 把 `process.cwd()` 重置回 gov-managerment-plan（bun -e 实证），绕过法=/tmp/srv-exit.sh 逐文件 exit-code 判定（权威=CI 干净 checkout 无 .js 孪生双重收集）。
-- #84 deb：desktop/scripts/build-linux.sh LINUX_TARGETS=deb SKIP_INSTALL=1（先 tsc 孪生同步，TS5096 不阻断）。
-- **编译耗时实况（2026-09-27 实测）**：`bun run build` = preview-agent 0s + `tsc -b` **45s** + `vite build` **3s** ≈ **48s**；`tsc -b` 冷/热同价（删 `tsconfig.tsbuildinfo` 不额外花钱，实测冷 46s）；完整 deb 打包（热缓存）约 **2–3 分钟**。故「编译一次 >20 分钟拿不到结果」的成因是**调用姿势**而非编译本身：`timeout 1200 ... | tail -20` 的兜底超时 + 管道缓冲使输出到进程结束才可见，再叠加多个重活（build/vitest×2）抢 CPU。**规矩**：长命令走后台 + 日志文件轮询，禁止 `| tail -N` 阻塞；同一时刻只跑一个重活；纯前端迭代用新增的 `bun run build:renderer`（**实测 3.01s**，对比 `build` 的 48s）。
-- **同一工作树内的「目录级测试失败」多为并发污染**：`bun test src/utils/computerUse/` 整目录跑出 24 fail，而**逐个文件隔离跑全部 0 fail**（27/27 文件）。判定真回归前先隔离复跑。（**2026-09-28 细化根因**：① `mock.module` 泄漏——Bun 1.3.14 的 `mock.restore()` **不还** `mock.module`，且该调用被**提升**（连 mock 之前的 `await import` 也拿到 mock），故「先存真身再 mock 回去」不可行；整目录加 `--isolate` 可 33→6。② ambient env 泄漏——`CLAUDE_CODE_MODEL_CONTEXT_WINDOWS` 等致 **单跑也失败**，修法=接入 `isolateModelDefaultsEnv()`。权威口径仍是 `bun run check:server`：逐文件独立进程 + env 白名单继承，**天生免疫**。详见二十六章踩坑⑤。）
-- **重启本地 dev 服务禁用 `pkill -f`**（2026-09-28 踩坑）：`pkill -f "port 7788"` 会匹配到**承载该命令的 shell 自身**（命令行含同一字符串），把自己的会话打断（多次 exit 144）。正确：`ss -ltnpH 'sport = :7788'` 取端口持有者 PID 再 `kill`；且 `kill` 父进程**不带走** `bun run` 子进程，须按端口持有者清。启动脚本 `/tmp/start7788.sh`（含 `CLAUDE_CONFIG_DIR` + `CC_HAHA_EXTRA_PROJECT_ROOTS`）。
-- **desktop 改动必过 `tsc -b`；vitest 绿 ≠ 类型安全**（2026-09-28 踩坑）：测试文件里的类型错误被 vitest 放行，却让 deb 构建第一步 `tsc -b` 失败、**整包中断**。纯前端快验可用 `bun run build:renderer`（3s），但入库前必须跑一次 `tsc -b`（~45s）。
-
-### ⚠️ 坑：根 `tsc --noEmit` 的 3500+ 报错**不是缺陷**
-
-仓库**根目录没有声明 typescript/@types/node，也没有 typecheck 脚本**（`desktop/` 才有）。因此拿根 `tsconfig.json` 跑全量 `tsc --noEmit` 会得到约 **3526 条错误 / 1002 文件**，经逐一归因**全部是机制产物**，勿据此"修 bug"：
-
-| 成因 | 条数 | 说明 |
-|---|---|---|
-| `@/` 别名 | 793 | 该别名只在 `desktop/tsconfig.json` 的 `paths`（`@/* → src/*`）里，根 tsconfig 未定义；全在 `desktop/` |
-| MACRO 注入 | 144 | `MACRO` 由 bun 构建期注入，tsc 单跑必然 `Cannot find name` |
-| **桩模块** | ~640 | `src/` 下 **138 个自动生成桩**（文件头注明 `@generated stub from scan-missing-imports`，对应 ant-internal 的 `feature()` gated 模块，外部构建 DCE 后不执行）；导出被 Proxy 兜底 → 真模块的命名导出在桩里不存在 → TS2614，并**级联**出 `type 'never'` 等大量 TS2339 |
-| 外部构建死分支 | ~100 | `feature()` gated 分支在外部构建下为死代码，`'"external"' 与 '"ant"' 无 overlap`（TS2367） |
-| 未开 strictNullChecks | ~200+ | 根 tsconfig 未设 `strict`/`strictNullChecks`；**`strictNullChecks: false` 会破坏判别联合的真值收窄**（最小复现：`{ok:true}|{ok:false}` 上 `if(!r.ok) r.error` 报 TS2339，开 true 即通过）→ workflows/worktree 那批"属性不存在"全是此因 |
-
-**权威检查是各子项目的配置**：前端 `cd desktop && node ./node_modules/typescript/bin/tsc --noEmit`（`include: src`），它才是 CI/lint 用的（`desktop/lint` = eslint + 该 tsc）。
-
-**由此捞出的 2 处真缺陷**（已修，patch 第 29 位）：
-1. `src/server/index.ts` **TS2502**——`const serverFetch = (req, server: typeof server)`：参数名 `server` 遮蔽外层同名变量，类型注解里的 `typeof server` 解析成**它自己** → 循环自引用（最小复现：只改参数名即消失）。后果**不止一行报错**：该参数类型退化为循环引用，函数体内 4 处 `server.requestIP` / `server.upgrade` **全部丢失类型检查**。修法=提取具名 `type ServerHandle`。
-2. `src/vendor/computer-use-mcp/toolCalls.test.ts` → **4 条 TS2300** 重复导入（`bindSessionContext` ×2、`ComputerUseSessionContext` ×2）。
-
----
-
-## 三十 会话 TPS 读数 = 会话总量（去子代理重复计，2026-10-03）
-
-**症状**：4 子代理并发时主会话 TPS 显示远超引擎真实吞吐（实测峰值 2124 vs 引擎 324 ⇒ **6.5×**；主会话空闲、子代理活跃时约 **3.3×**）。
-
-**根因**：会话 meter（`own`）收到的是 `tps_tokens` —— 引擎按 **session id** 报的**总量**（子代理的调用复用父 sessionId，其 token 也计入该 id）。但旧聚合又在 `own` 之上 `+ Σ子代理meter`，于是同一批 token 被计两次。
-
-**修法（统一「own = 会话总量」）**：显示恒 = `own`，子代理 meter 只用于运行页与计数：
-- **ids 模式**：`own` ← `tps_tokens`（引擎总量，**已含**全部子代理）；
-- **非 ids 模式**：`own` ← 主会话正文 **+** 每个子代理正文（`ingestSubagentTps` 把子代理文本也喂入会话 meter；`external` 标记使其不进调用对账）；
-- `aggregateMeterReadings` **不再相加**子代理 meter（只统计 `activeSubs` 数量）。
-
-**验证**：`tpsMeter`/`TpsIndicator`/`chatStore` 单测 **472/472**（并修掉一条假绿：`picks up subagents…` 原用 `vi.useFakeTimers()` 连 `performance.now` 一起 mock，读数恒 0 ⇒ 断言空过；改为只 fake 定时器）；7787 实测 4 子代理写长文：**显示均值 141 vs 引擎 139.7 ⇒ 1.01×**（旧口径 6.5×）。
-
-**patch**：067 = `patches/tps/tps-session-total-patch1.patch`；06 = `patches/tps-session-total-fix.patch`。
-
----
-
-## 三十一 私网上游「会话 id 丢失」修复（✅ 2026-10-04，`patches/session/session-upstream-session-id-patch1.patch`）
-
-**症状**：cc-haha 把请求转发到**私网上游**（本机/LAN 上我们自己的引擎，如 bc / vLLM）时，引擎收不到 **CLI 会话 id**。而 bc/vLLM 正是以该 id 作为会话状态的键（引擎按 session id 上报 `tps_tokens`），于是 TPS 面板读数无法归属/串会话。
-
-**根因**：私网上游的请求头只有通用的 `upstreamHeaders`；代表调用者的内部头（会话 id）被透传过滤器当作「内部客户端头」拦掉，**没有一条「只对私网上游生效」的注入通道**。而公开网关不能收到这类内部头（`custom` 等预设公私共用），否则等于把会话标识泄给公网。
-
-**修法**：新增 `upstreamHeadersPrivate`（与 `upstreamHeaders` 同构，但**仅当上游落在私网**时合并进模板）——
-- `src/server/config/providerPresets.ts` / `.json`：schema 加 `upstreamHeadersPrivate` 字段 + 预设声明；
-- `src/server/proxy/handler.ts`：`isPrivateNetworkUrl(baseUrl)` 为真时 `{...upstreamHeaders, ...upstreamHeadersPrivate}`，否则只用 `upstreamHeaders`；
-- `src/server/services/providerRuntimeEnv.ts` / `providerService.ts`：运行时常量/映射透传；
-- `src/server/__tests__/proxy-anthropic-compat.test.ts`：+66 行回归（私网注入 / 公网不注入）。
-
-**验证**：`proxy-anthropic-compat.test.ts` 通过；全量 server 套件 **554 文件 / 6621 通过 / 0 失败**。
-
-**patch**：`patches/session/session-upstream-session-id-patch1.patch`（链尾追加，零级联；已在该链终态上 `git apply --check -p1` 通过）。
-
-### 踩坑记录
-- 该修复所在的移植提交（`726c219c`）**同时带进来一个测试文件合并事故**：`src/services/compact/compact.test.ts` 导入重复（同批符号 import 两次）+ `stripImagesFromMessages` 段少 `})`，`{`/`}` 各差 2 ⇒ TS1005 `'}' expected`。已修（合并重复导入 + 补闭合），修后 **15 pass**。
-- **该修复不并入链 patch**：它针对的是 HEAD 侧的新版文件（含上游 #1373 用例，335 行），而链终态里该文件是**旧版**（215 行、括号平衡、无此缺陷）——链基座比 HEAD 旧一截上游，故此项**随提交走**，不进 `patches/`。
-
-### 31.1 deb 产物与核验（2026-10-05）
-
-含本节修复（git `37aa7b56`）的安装包：
-
-| 项 | 值 |
-|---|---|
-| 产物 | `desktop/build-artifacts/linux-x64/Claude-Code-Haha-0.6.7-linux-amd64.deb` |
-| 大小 / 时间 | **203,846,284 B** / **2026-10-05 03:57:00** |
-| 构建命令 | `LINUX_TARGETS=deb SKIP_INSTALL=1 bash desktop/scripts/build-linux.sh` |
-| package-smoke | **PASS**（用 cwd 绕过法复核：`CCHAHA_CWD=<repo> bun --preload /tmp/bun-cwd-shim.js scripts/quality-gate/package-smoke/index.ts --platform linux --package-kind release --artifacts-dir desktop/build-artifacts/linux-x64`） |
-
-**制品新鲜度核验**：新串 `upstreamHeadersPrivate` 同时命中
-- 侧车（服务端）：`…/app.asar.unpacked/src-tauri/binaries/claude-sidecar-x86_64-unknown-linux-gnu` ✓
-- 前端（渲染）：`…/app.asar.unpacked/dist/assets/index-D-ROgf7v.js` ✓
-
-> ⚠️ 版本号已由 **0.6.6 → 0.6.7**（`package.json` 升级）；§29.2 记的 0.6.6 是上一版产物。
-> ⚠️ 构建脚本末步 package-smoke 会在本环境因 **bun cwd 钉死**报 `ENOENT …/gov-managerment-plan/desktop/package.json` 并以 exit 1 收尾——**deb 已在之前产出**，该失败是假红，须用上表绕过法复核。
-
----
-
-## 三十二 本地索引「元数据预算」失配修复（✅ 2026-10-05，`patches/session/session-local-index-budget-patch1.patch`）
-
-**症状**：长会话（本机实测 29.5 万字符 深度的 5de884c1 会话，jsonl **287 MB**）在诊断页显示**本地索引已降级**，`index` 状态 `state=degraded`、`lastErrorCode=LOCAL_INDEX_SOURCE_LIMIT`，唯一下降级源就是该会话自己的 transcript（其余 84/85 全部 `ready`）。
-
-**根因（两个预算口径失配）**：`sessionProjector.ts` 里
-```ts
-MAX_PROJECTION_RECORDS = 50_000        // 记录（行）数墙
-MAX_PROJECTION_METADATA_BYTES = 32 MiB // 元数据墙
-```
-但每条记录至少要按 **64 B/字段槽 × ~19 槽**（`uuid`/`timestamp`/`model`/`role`/`cwd`/`id`…）计费 ⇒ **50,000 条天然意味着 ~58 MiB 元数据**，于是 **32 MiB 的墙先到（≈47K 条处穿越）**，记录数墙（50,001 条）形同虚设。
-
-**实测取证**（按 reducer 记账口径跑一遍该 jsonl）：
-
-| 预算 | 用量 | 上限 | 结论 |
-|---|---|---|---|
-| `MAX_PROJECTION_RECORDS`（行数） | 48,739 | 50,000 | 未越 |
-| **`MAX_PROJECTION_METADATA_BYTES`** | **33.12 MiB** | **32 MiB** | ✗ 第 47,116 条处穿越 |
-| 超长值被 clamp | 0 | — | 非「异常值」所致，纯计数累积 |
-
-⇒ 每记录 ≈ 0.68 KiB（33.12 MiB ÷ 48,739），**是「记录太多」而非「某条异常」**。
-
-**修法**（`sessionProjector.ts`，两常量对齐）：
-```ts
-MAX_PROJECTION_RECORDS = 96_000          // 50_000 → 96_000
-MAX_PROJECTION_METADATA_BYTES = 64 MiB   // 32 → 64 MiB
-```
-按 0.68 KiB/条，96,000 条 ≈ **63.8 MiB ≈ 64 MiB** ⇒ 两墙**基本重合**，不再互相空转。本会话 48.7K 条 / 33.1 MiB，两墙皆不碰。
-
-**验证**：`sessionProjector.test.ts` + `coordinator.test.ts` **102 pass / 0 fail**。同时把 `enforces aggregate retained metadata across appended windows` 这条测试的样本量由**硬编码 8000+4000**（旧按 32 MiB 校准）改为**从 `MAX_PROJECTION_METADATA_BYTES` 推导**——否则常量一改它就假红（本项实测踩到：抬到 64 MiB 后原样本不再越界 ⇒ 1 fail）。
-
-**patch**：`patches/session/session-local-index-budget-patch1.patch`（链尾追加，零级联）。
-
-### 踩坑记录
-- **只抬 `MAX_PROJECTION_RECORDS` 不解决问题**：元数据墙在 ~47K 条先撞，记录数抬到多少都白搭——本项最初按「改 50000→160000」下单，实测才确认真正卡点是元数据预算。
-- **已降级源是「粘性」的**：`sessionProjector.ts:1024-1034` 对 `append`/`unchanged` 的已降级源**直接再抛错、根本不读文件**，只在文件被重写或 **parser 版本变更**时才重试 ⇒ 只抬预算 + 重启，该会话仍然是 degraded。要让它当场恢复须抬 `SESSION_SUMMARY_PARSER_VERSION`（会触发 85 个源全量重索引）或手工重置该源状态。**本次按用户要求不改索引状态**，留待新 deb 上手工处理重索引。
-- 公开状态里 `degradedSources:4` / `lastErrorCode=LOCAL_INDEX_SOURCE_CHANGED` 是**内存 `failedPaths`** 的运行时对账失败（文件正被写时被索引器读到，活跃会话正常 churn），会自动重试；与 DB 里那条持久的 `SOURCE_LIMIT` 是两回事。
-
-### 32.1 deb 产物与核验（2026-10-05）
-
-含本节修复（git `67ae4b54`）的安装包：
-
-| 项 | 值 |
-|---|---|
-| 产物 | `desktop/build-artifacts/linux-x64/Claude-Code-Haha-0.6.7-linux-amd64.deb` |
-| 大小 / 时间 | **203,844,272 B** / **2026-10-05 04:31:48** |
-| 构建命令 | `LINUX_TARGETS=deb SKIP_INSTALL=1 bash desktop/scripts/build-linux.sh` |
-| package-smoke | **PASS**（cwd 绕过法复核，同上节） |
-
-**制品新鲜度核验**（侧车 `…/binaries/claude-sidecar-x86_64-…` 内压缩形态）：
-
-```
-var R07=9,Ea5=8388608,tk1=96000,ek1=67108864,Ca5=4096,…  "LOCAL…
-        └parser=9   └8 MiB   └96_000 ✓新  └64 MiB ✓新      └4096
-```
-
-- `tk1=96000` / `ek1=67108864` = 本次两个新值 ✓
-- `R07=9` = `SESSION_SUMMARY_PARSER_VERSION` **仍为 9**（本次**未动** parser 版本，符合「不动索引」要求）
-
----
-
-## 三十三 H5 文件打开：轮次卡点击 / 非工作区文件 / 预览上限（✅ 2026-10-06，⚠️ `patches/h5/h5-file-open-patch1.patch` **基座另起**）
-
-> **本章 patch 的基座与前面 36 条不同**：= `cchaha-067scode` 的 `align-latest` HEAD（**0.6.7 血缘**），**不是**上游 `068b3ebd`。理由见 33.4。
-
-### 33.1 症状（用户三次反馈）
-
-H5（远端手机浏览器）打开会话里生成的文件，**点击无效**或**在服务端打开**（`xdg-open` 跑在服务器桌面上，用户看不到）。逐轮明确为三条需求：
-
-1. 轮次结束卡上「N 个文件已更改」列出的文件，点开要**在 H5 页面内**打开（可预览的预览；不可预览的给下载）；
-2. **非本工作区**的文件（workdir 之外）不应点开即死，应能预览或至少能下载；
-3. 预览上限：**文本 4 MiB**（超限先提示大小、再显示截断内容，不拒绝），**图像 16 MiB**（超限只提示 + 下载）。
-
-### 33.2 根因（四类，逐条对应）
-
-| # | 症状 | 根因 |
-|---|---|---|
-| ① | 点了**没反应** | `workspaceOpen.*` 只写 store 里的 `layout`，而移动端浮层的显隐另有一个**本地 state** `mobileWorkspaceOpen`，此前只由底部快捷按钮设置 ⇒ 移动端点轮次卡等于"改了布局但浮层不弹" |
-| ② | **在服务端打开** | `openLocalFileWithSystem` 在**无 shell 运行时**兜底调 `POST /api/open-targets/open` ⇒ 服务端执行 `xdg-open`。H5 是远端手机访问，这条路径语义上就是错的 |
-| ③ | 区外文件点开死 / **不能下载** | 工作区路由（`/api/sessions/:id/workspace/file`）对绝对路径要求落在**已注册根**内，越界 403；而客户端此前**不区分路径是否在工作区内**，一律走工作区路由 ⇒ 标签页打开一个 403 空页 |
-| ④ | 图像预览不设上限 | `readFile` 对**文本**按 `MAX_PREVIEW_BYTES`（原 1 MiB）截断，但**图像整体 base64 成 `dataUrl` 返回、无任何上限** ⇒ 大图把内存和等待都推到两端 |
-
-### 33.3 修法
-
-- **① 浮层与调用来源解耦**：新增 `requestedBy: 'user' | 'agent'`（**默认 `agent`**），从调用点透传到 `workspaceStore.lastUserOpen` 的 nonce；`ActiveSession` 监听 nonce 变化后弹浮层。**首值只记录、不动作**——否则切换标签会误弹。
-- **② 无 shell 不触达服务端**：`SystemOpenUnavailableError` + `canOpenWithSystem()`，在调用服务端**之前**抛出；统一入口 `openFileWithSystemOrOfferSave` → 弹 `FileUnavailableDialog`；`useSystemFileAction` 让「用系统程序打开」按钮在无 shell 时**变成「下载」**。「打开方式」菜单同步按 `systemOpenAvailable` 过滤掉系统/IDE/文件管理器行。
-- **③ 区外文件按「大小 + 可达性」判定**（新文件 `lib/openOutsideWorkspaceFile.ts`）：
-  1. `GET /local-file/<abs>?info=1` 取 `{name,size,mime}` —— **`stat` 级、不读字节**，经 `api.get` 走鉴权通道（H5 也带 Bearer）；
-  2. 取不到 ⇒ 服务端**根本不供**该路径：弹「不在本工作区」且 **`canDownload:false`**（下载同走服务端，同样不可能，不给假按钮）；
-  3. 超限图像 ⇒ 弹「过大 + 实际大小」+ 下载；
-  4. 小但无可预览类型（pptx/zip）⇒ 弹「无法在页面内打开」+ 下载；
-  5. 媒体跳过工作区路由检查（它走 `/local-file`，第 1 步已证明可达）；其余先问 `sessionsApi.getWorkspaceFile`，**不可服务就不开那个必然 403 的标签页**；
-  6. 否则 `workspaceOpen.file(abs, { requestedBy:'user' })`。
-  - 该判定**只在无 shell 运行时生效**，桌面端行为刻意保持不变。
-- **④ 预览上限（服务端 `workspaceService.ts`）**：
-  - `MAX_PREVIEW_BYTES` 1 MiB → **4 MiB**：超限**不拒绝**，返回文件头 + `truncated:true` + 真实 `size`；`WorkspaceFileTab` 在内容**上方**渲染 `role="status"` 提示条（含大小，附 `OpenInSystemButton`——无 shell 时即"下载"）。
-  - 新增 `MAX_IMAGE_PREVIEW_BYTES` = **16 MiB**（server/client 同名同值）：图像是唯一被**整份 base64 携带**的预览，故只对它按大小设门；超限**在读字节之前**返回 `state:'too_large'`（含 size），复用既有 `too_large` 分支 → `PanelMessage` + 下载按钮。
-- **音视频**：新增 `MediaSurface`（裸 `<audio>/<video src>`，走 `/local-file`）。⚠️ `/api/…/workspace/raw` **只服务 pdf/docx/xlsx 且不支持 Range**，媒体用它会坏。
-- 文案：`workspace.previewState.tooLargeSized`、`workspace.previewState.truncated`、`workspace.fileUnavailable.{tooLarge,outside,unreachable}Body`，5 语言同步。
-
-### 33.4 patch 与基座（⚠️ 本节是本章与其余 chapters 的关键差异）
-
-- patch：`patches/h5/h5-file-open-patch1.patch`（**66 文件 / +1680−192**，含 7 个新文件）。
-- **基座 = `cchaha-067scode` 的 `align-latest` HEAD（0.6.7 血缘）**。实测：干净 HEAD 上 `git apply` **apply --check OK**，应用后本轮 **66/66 文件逐字节等于工作树**。
-- **为什么不能接在前面 36 条之后**：那 36 条的基座是上游 `068b3ebd`（0.6.6 血缘），其链终态 = `cchaha-06scode` 树（实测 `desktop/src` 差异 **0**）。而本轮 66 个文件里 **56 个**在 0.6.6 基座中**不存在或布局不同**——`components/workspace/surfaces/document/`、`OpenInSystemButton.tsx`、`MediaSurface.tsx`、`WorkspaceChangesFallback.tsx` 等在那条血缘里没有对应路径。⇒ 只能**另起基座、单独应用**。
-- 反面对照（为何前两条能"链尾追加"）：`session-upstream-session-id` / `session-local-index-budget` 的目标文件在两个血缘里**逐字节相同**（实测两个 patch 对 06 血缘与 067 血缘双方 `git apply --check` 均 OK）。**判据是"文件级"的，不是"链级"的。**
-- 泄漏自检：patch 内 `MAX_PROJECTION_RECORDS` / `session-upstream` / `H5_REQUIRE_TOKEN` 等**链内既有改动标志串命中 0**。
-
-### 踩坑记录
-
-1. **「点了没反应」≠ store 没更新**：`workspaceOpen` 确实写进了 store，问题在于移动端浮层的显隐由**另一个本地 state** 决定。只查 store 会误判为"点击未生效"。以后遇到"H5 上布局变了但界面没动"，先找**浮层/抽屉自己的开关**，别只看 store。
-2. **`requestedBy` 必须以 `agent` 为默认**：第一版把默认设成"弹浮层"更直觉，但所有**非用户**的 `workspaceOpen` 调用（恢复标签、agent 自动打开）都会跟着弹一个浮层。默认 `agent`、只在真实点击处传 `user` 才安全；且 nonce **首值不动作**，否则切换会话/标签时误弹。
-3. **两套 gate 不是一套**：`/local-file` 的 gate 是 `isAllowedFilesystemPath`（`$HOME` / tmp / **已注册根**），而工作区路由对绝对路径要求 `isWithinRegisteredFilesystemRoot`。**"`/local-file` 能取"不等于"工作区标签能开"**，反之亦然。轮次改过的区外文件其目录会被 `registerChangedFileAccessRoot` 注册，所以多数情况两者都通——不同时现在会**明确告知**，而不是开个 403 空页。**教训：判断"能不能打开"必须问对应的那条路由，别用一条路的结果推断另一条。**
-4. **`?info=1` 是免下载拿大小的正解**：`GET /local-file/<abs>?info=1` 只 `stat`、不读字节，能在**传输任何内容之前**拿到 `{name,size,mime}`，且在越界时与内容路由**同样 403**——这让"能不能显示/能不能存"和"多大"都能在点击瞬间答出来。别为了拿大小先去下载。
-5. **「大小门」只该套在图像上**（本轮真实返工）：我曾把 16 MiB 门套在**所有**区外文件上，与"文本超限仍显示截断内容"直接矛盾——区外 64 MiB 的 `.log` 被错误拒绝。修法＝门只对 `isWorkspaceImageFile` 生效。**教训：限制的语义要跟着"代价"走——文本的代价是截断（服务端给头即可），图像的代价是必须整份携带（base64），二者不是一个规则。**
-6. **大日志别用"零字节空洞"造**：测截断时用 `truncate` 造稀疏文件，文本内容会被读成 NUL ⇒ 走 `state:'binary'` 分支，测不到目标。文本必须写**真实字节**（5 MiB 可接受）；图像可以用稀疏文件（不需要被读）。
-7. **`.deb` 的 `app.asar` 不可 grep**：前端产物其实在 `resources/app.asar.unpacked/dist/assets/`（未打包目录）。核验新鲜度要 grep 那里，不是 `app.asar`——否则会得到"全 0 命中"而误判为旧包。
-8. **服务端常量核验别只 grep 数字**：`1048576` 这类值在 sidecar 里遍地都是（大量无关代码用 1 MiB），单看数字命中无法证明新鲜度。有效锚点＝**结构化签名或比较式**，如 `state:"too_large",path:$.relativePath,previewType:"image"`（新分支独有，实测命中正好 1）与 `>4194304`（2 处）/`>16777216`（1 处）。
-9. **token 用量类的"提示色"要挑存在的 token**：提示条初版用了 `--color-surface-raised`（不存在），被 `tokenUsage.test.ts` 拦下。改为 `--color-surface-container-low`。
-
-### 33.5 验证
-
-| 项 | 结果 |
-|---|---|
-| 服务端 | `bun run check:server` ⇒ **files=554 / tests=6625 / failed 0** |
-| 桌面 | `bun run test -- --run` ⇒ **496 文件 / 8276 通过 / 6 skipped / 0 失败** |
-| 类型与 lint | `bun run lint`（eslint + `tsc --noEmit`）**绿** |
-| 前端构建 | `bun run build` 绿；`grep dist` 确认新 key 进包 |
-| patch 复现度 | 干净 `align-latest` HEAD + 本 patch ⇒ 本轮 **66/66 逐字节一致**；`apply --check` OK |
-| 新增测试 | 解析器决策表 9 条、弹窗理由 6 条、`WorkspaceFileTab` 截断/超限 3 条、轮次卡 H5 分支 1 条、服务端预览上限 4 条 |
-
-### 33.6 deb 产物与核验（2026-10-06）
-
-| 项 | 值 |
-|---|---|
-| 产物 | `desktop/build-artifacts/linux-x64/Claude-Code-Haha-0.6.7-linux-amd64.deb` |
-| 大小 / 时间 | **203,867,468 B** / **2026-10-06 20:19** |
-| 构建命令 | `LINUX_TARGETS=deb SKIP_INSTALL=1 bash desktop/scripts/build-linux.sh` |
-| package-smoke | **PASS** |
-
-**制品新鲜度核验**（改 `app.asar` 为 grep 前端 unpacked 目录，见踩坑⑦）：
-
-```
-resources/app.asar.unpacked/dist/assets/App-TVh-Qr3w.js      2412343 B  20:18
-resources/app.asar.unpacked/dist/assets/index-D7HY4RJw.js    1850679 B  20:18
-  └ workspace.previewState.truncated / .tooLargeSized        ✓ 命中（本轮新 key）
-  └ "Only the beginning of this" / "outside the workspace and the server"  ✓ 命中
-sidecar（claude-sidecar-x86_64-unknown-linux-gnu，111786112 B  20:18）
-  └ state:"too_large",path:$.relativePath,previewType:"image"  ✓ 命中 1（本新增分支）
-  └ >4194304（4 MiB 文本门）2 处 ／ >16777216（16 MiB 图像门）1 处  ✓
-```
-
-- deb 内 `dist` 两个 chunk 与本地 `desktop/dist` **同名同大小**（构建于 20:18），即本轮前端码确已进包。
-
----
-
-## 三十四 内置提示词中文化（基础设施 + 可压缩分支清单 + 思考语言优化）（✅ 第一版打样 + 第二版产前实验期，2026-10-11）
+### 原三十四、内置提示词中文化（基础设施 + 可压缩分支清单 + 思考语言优化）（✅ 第一版打样 + 第二版产前实验期，2026-10-11）
 
 需求：设置-通用 语言为中文时，可用中文的提示词切**纯中文**；非中文时用**原版英文**。定位为**基础设施优化**，先实现，完成后再并入合适的既有优化项。
 
-### 第一原则
+#### 第一原则
 
 **只压可压部分。工具类与技能类的引导描述会造成异常，暂且不动。** 理由（代码级，非推测）：
 - **工具描述**：模型靠它*选工具*、并从中读契约（参数名/取值恒英文）。改中文＝改变匹配键与行为契约，不是翻译；且它是**每请求 ≈25,139 tok**（占提示词负载 96%）。
@@ -3181,7 +3018,7 @@ sidecar（claude-sidecar-x86_64-unknown-linux-gnu，111786112 B  20:18）
 
 政策由测试守住：`src/prompts/i18n/i18n.test.ts` 断言中文表内不得有 `tool.`/`skill.` 前缀 id。
 
-### 基础设施
+#### 基础设施
 
 ```
 src/prompts/i18n/
@@ -3196,17 +3033,17 @@ src/prompts/i18n/
 - **⚠️ 只在叶子层本地化，不包复合节**：复合节的 `english` 参数由内层 `localizedPrompt` 拼出，内层在 zh 模式返回中文会污染外层 english。条件分支（ant-only / feature-gated）不进表。
 - **⚠️ 模块级 `const` 提示词在 import 时固化语言**，包了也不生效 ⇒ 必须先改成函数。
 
-### 第一版（已实施）：主系统提示词
+#### 第一版（已实施）：主系统提示词
 
 39 条 id + 5 个节标题，覆盖 `# System` / `# 执行任务` / `# 使用工具` / `# 会话特定指引` / actions / toneAndStyle / outputEfficiency / hooks / systemReminders。
 
 实测（组装 `getSystemPrompt`）：en 26,523 字符/0 汉字 ⇄ zh 19,213 字符/2,428 汉字；已译条目本身 **省 ≈591 tok/请求（20%）**。
 
-### 可压缩分支清单
+#### 可压缩分支清单
 
 见 **[`modify/提示词中文化-收益清单.md`](./提示词中文化-收益清单.md)**：剩余 Tier A **EN 44,262 tok → 33,628（省 ≈10,634，24%）**，其中每请求仅 286；工具/技能类与短标签倒亏项已明确列为**不动**。
 
-### v1 打样（2026-10-11）
+#### v1 打样（2026-10-11）
 
 **已落地**：主系统提示词全部可译节 + ①主系统收尾 + ②compact + ③autoDream + ⑤`review`/`team` + ⑥`generalPurpose`/`explore`/`plan`；**倒亏块已回退 9 个**（真回退：删 zh 条目 + 调用点还原原英文，保证 `PromptId` 类型仍准确）。
 
@@ -3223,24 +3060,24 @@ src/prompts/i18n/
 
 **剩余有风险项全量清单（A–I，约 25,200 tok 上限）**见 `modify/提示词中文化-收益清单.md` §五·补：`commit`/`commit-push-pr`/`init`（产物语言）、`security-review`（类别 token + 标题格式）、`insights`（facet JSON 机器校验）、`init-verifiers`（skill 名是发现键）、`statuslineSetup`/`claudeCodeGuideAgent`（JSON 键/数据）、`verificationAgent`（`PASS|FAIL|PARTIAL` 裁决词）。建议顺序：G/H → A/B/D → E/F/I。
 
-### 状态
+#### 状态
 
 ✅ v1 打样已实施（2026-10-11）；门禁 `check:server` 556/6647、`bun test src/prompts/i18n` 12/0；i18n 表 204 条、引用 202、**无悬空 id**。
 
-## 三十七 思考语言优化 v22：从「英文思考」到「100% 中文思考」（✅ 已验收定稿，2026-10-12）
+### 原三十七、思考语言优化 v22：从「英文思考」到「100% 中文思考」（✅ 已验收定稿，2026-10-12）
 
-### 定位
+#### 定位
 
 **属性：产前实验期**。不是稳定生产版，而是验证「中文思考是否可达成 + 代价多大」的实验。
 **目标**：让模型思考（reasoning）尽可能用中文。**方法**：迭代 lead-in 指令 + 修结构 bug + 实测对比。
 
-### 测量框架
+#### 测量框架
 
 并发测量（zxsv-ai 引擎 `/v1/chat/completions` + thinking budget 600）+ 固定 10 场景库（代码/调试/分析/决策/解释/规划/推理/记忆/工具）+ 多采样取均值。**指标**：思考块剔除 ```代码围栏/行内代码后，汉字字符占比。
 
 **单采样噪声极大**（同一场景 0%↔100% 漂移），必须多采样取均值。温度不是杠杆（用户确认，回到默认）。
 
-### 迭代历程（17 变体，320 次调用/变体）
+#### 迭代历程（17 变体，320 次调用/变体）
 
 | 变体 | 率 | 做法 |
 |---|---|---|
@@ -3255,18 +3092,18 @@ src/prompts/i18n/
 **决定性杠杆**：不是翻译大块英文，而是约束**思考首词** + 把禁句式提到 lead 第一行 + 挂替换规则。
 **温度不是杠杆**：V9 temp=0 略升但用户否决，不作杠杆。
 
-### 结构 bug 修复（比 lead 指令影响大）
+#### 结构 bug 修复（比 lead 指令影响大）
 
 **发现**：zh.ts 里记忆段 5 个 section 的翻译键**早已写好**（`## 何时访问记忆` 等），但组装出的系统提示里记忆段全英文。
 **根因**：`src/memdir/memoryTypes.ts` 的 5 个 section + drift caveat 是**模块顶层常量**，import 时就把 `localizedPrompt` 求值成英文 fallback，早于运行时 `setPromptLanguage('zh')`。改成 `export function buildXxxSection()`（调用时求值）后，记忆段 0→2392 汉字、零英文标题残留。
 
-### 补记（2026-10-11）：CLI 身份前缀漏译（同款模块常量固化 bug）
+#### 补记（2026-10-11）：CLI 身份前缀漏译（同款模块常量固化 bug）
 
 引擎反馈：非交互路径（H5/服务器）的身份前缀 `You are a Claude agent, built on Anthropic's Claude Agent SDK.` 在中文模式下仍英文。
 根因与 memdir 完全同型：`src/constants/system.ts` 的三个前缀常量是模块顶层 `const`，import 时固化；且 `CLI_SYSPROMPT_PREFIXES`（`splitSysPromptPrefix` 按内容识别前缀块以分配缓存作用域）也是顶层常量。只改 `getCLISyspromptPrefix` 而不改集合 ⇒ 中文前缀块认不出，缓存作用域分配错位。
 修法：三前缀改 `build` 函数（运行时 `localizedPrompt`）+ 集合改 `getCliSyspromptPrefixSet()` 运行时构建 + `api.ts` 三处 `.has()` 改局部常量 + zh.ts 新增 3 条 `system.cliPrefix.*` id（`默认` / `Agent SDK 预设` / `Agent SDK`）。
 补丁：三项增量已并入 `prompt-i18n-localization-patch1.patch`（合并版，基座 `cb7065b1e`），干净应用 ⇒ 28 个 src 文件与 `8572193e9` 逐字节一致（`a6131f029` 合并 commit）。
-### 补记二（2026-10-12）：v22 全量中文化 + 引擎实测验收
+#### 补记二（2026-10-12）：v22 全量中文化 + 引擎实测验收
 
 用户怀疑「头部还有英文系统提示词导致首字效应」。逐块 dump 审计（`getSystemPrompt` 12 块）确认并修复了残留英文块：
 
@@ -3292,7 +3129,7 @@ src/prompts/i18n/
 
 **门禁**：`check:server` 6649/0。
 
-### 补记三（2026-10-12）：正式服务仍英文思考的根因与修复
+#### 补记三（2026-10-12）：正式服务仍英文思考的根因与修复
 
 用户反馈正式服务（/opt deb）仍英文思考。逐层排查：
 - `/opt` sidecar 与新 deb **md5 一致**（确为新代码）；locale 端点可用、`desktop-ui.json.locale='zh'`。
@@ -3311,7 +3148,7 @@ src/prompts/i18n/
 
 **门禁**：i18n 14/14；`check:server` 6649/0。
 
-### 补记四（2026-10-12）：11 轮迭代定出「首词模板」尾规则
+#### 补记四（2026-10-12）：11 轮迭代定出「首词模板」尾规则
 
 补记三的尾 recency 有效但闲聊仍偶发英文。进一步用**真实 cli 请求**定位到真锚点：
 
@@ -3338,7 +3175,7 @@ src/prompts/i18n/
 
 **门禁**：i18n 16/16；`check:server` 6651/0。
 
-### 补记五（2026-10-12）：第 12–18 轮——最优注入位置
+#### 补记五（2026-10-12）：第 12–18 轮——最优注入位置
 
 补记四锁定「首词模板」后，继续 7 轮（累计 18 轮）专攻**注入位置**：
 
@@ -3355,7 +3192,7 @@ src/prompts/i18n/
 
 **门禁**：i18n 16/16；`check:server` 6651/0。
 
-### 补记六（2026-10-12）：引擎层预填种子（强制中文思考）+ 思考语言开关
+#### 补记六（2026-10-12）：引擎层预填种子（强制中文思考）+ 思考语言开关
 
 补记五提示词三层注入到 ~94% 后触顶——剩余 6% 是模型「引用用户原话」时的 `The user is asking…` 强惯性，提示词已无法触及。
 
@@ -3456,7 +3293,7 @@ src/prompts/i18n/
 
 记忆段主标题 `# auto memory` 仍是英文（zh.ts 该键未命中），只影响观感，不影响记忆读写。
 
-### Token 代价
+#### Token 代价
 
 用项目 `tokenDensity.estimateTokens`（cjk 1.003/字、latin 0.286/字、digit 0.5/字、sym 0.35/字）估算：
 
@@ -3467,15 +3304,15 @@ src/prompts/i18n/
 
 **zh 比 en 多 ~494 tokens（7.7%）**。100 轮对话多花 ~49,400 tokens。
 
-### 漏网分析
+#### 漏网分析
 
 97.8% 后剩余 7 条漏网 6 条都是 `The user wants me to X`——极顽固的英文习惯句式，提示词层面已到平台期（需引擎层干预）。
 
-### 门禁
+#### 门禁
 
 `bun test src/prompts/i18n` 14/14；`bun run check:server` 6649/0；dump 确认新 lead 注入真实系统提示。
 
-### 属性说明：产前实验期
+#### 属性说明：产前实验期
 
 **为什么不是生产版**：
 1. lead 加了 505 字符（比 v1 的 114 字符多 ~4.4 倍），token 代价 +494/请求
@@ -3489,11 +3326,11 @@ src/prompts/i18n/
 3. 完成全功能回归测试（工具/技能/记忆/斜杠命令全路径）
 4. 用户确认接受 7.7% token 增量换取 97.8% 中文思考
 
-### 补记七（2026-10-12）：验收定稿 — 成果汇总
+#### 补记七（2026-10-12）：验收定稿 — 成果汇总
 
 **目标**：界面语言=中文时，让模型思考（reasoning）尽可能用中文。**结论：已达 100%**（真实链路 `/v1/messages`，>110 轮实测）。
 
-#### 完整架构（三层提示词 + 一层引擎）
+##### 完整架构（三层提示词 + 一层引擎）
 
 | 层 | 位置 | 作用 |
 |---|---|---|
@@ -3506,14 +3343,14 @@ src/prompts/i18n/
 
 **开关**：设置-通用「思考语言」三态（跟随界面 / 中文 / 英文），存 `desktop-ui.json.thinkingLanguage`，与界面语言解耦，贯通全链（关闭中文时引擎预填也不触发）。
 
-#### 一路修掉的 4 类隐藏 bug
+##### 一路修掉的 4 类隐藏 bug
 
 1. **模块顶层 `const = localizedPrompt(...)` 固化英文**（10 处）——import 时求值，早于运行时 `setPromptLanguage`。排查法：`grep -rn "^const [A-Z_]* = localizedPrompt" src/`。含 memdir 5 section、frontmatter 示例、3 个 CLI 身份前缀、`CLI_SYSPROMPT_PREFIXES` 集合、shutdown/chrome/agent 常量。
 2. **「替换 system」的路径漏 lead**（3 处）——子代理 `enhanceSystemPromptWithEnvDetails`、coordinator 模式、主线程 agent 均**替换**而非追加 default prompt。子代理带工具实测 1/4 → 4/4。
 3. **预填被 parser 剥离导致标点残留**——预填 token 属 prompt，模型续写时加的「，」残留为思考首字符（裸词 30–43%）。修法：词表自带逗号（`'好的，'`）。
 4. **接线错误致误判**——`/v1/completions` 是 raw 端点不经 chat template；`prompt_text` 返回 null；改模板必须 `POST :8000/v1/internal/reload`。
 
-#### 验证矩阵（全真实链路）
+##### 验证矩阵（全真实链路）
 
 | 场景 | 规模 | 中文思考 |
 |---|---|---|
@@ -3525,7 +3362,7 @@ src/prompts/i18n/
 | 子代理带工具 | 10 工具 | **100%**（修复前 25%） |
 | **英文会话（回归）** | 4 场景 | 4/4 英文（**零影响**） |
 
-#### 产物
+##### 产物
 
 - **代码**：`src/prompts/i18n/`（zh 表 + 三个注入函数 + 思考语言解析）、`src/constants/{prompts,system}.ts`、`src/utils/{api,systemPrompt}.ts`、`src/memdir/*`、`src/server/*`、`desktop/src/*`。
 - **patch**：`modify/patches/prompt/prompt-i18n-localization-patch1.patch`（47 文件，基座 `cb7065b1e`）。
@@ -3533,145 +3370,259 @@ src/prompts/i18n/
 - **门禁**：`check:server` 6654/0；i18n 19/19；desktop 81/81；AgentTool+prompts 88/88。
 - **deb**：`Claude-Code-Haha-0.6.7-linux-amd64.deb`。
 
-#### 生效前提
+##### 生效前提
 
 界面语言=中文（或思考语言开关=中文）+ 引擎模板含预填种子（已热重载）。二者缺一不可：前者提供中文标记，后者据此预填。
 
-## 三十五 H5 模型配置补齐测试/获取按钮（✅ 2026-10-11）
 
-**问题**：H5 远程访问后，设置 → 模型配置里缺三个按钮：配置页无「获取模型」「测试连接」（仅桌面有）；供应商行内「设为默认」与「编辑」之间缺「测试」。
+## 八、Computer Use（Linux）
 
-**根因**：H5 复用桌面 `ProviderSettings`（`desktop/src/pages/settings/H5Settings.tsx:80` 传 `browserMode`），三处被 `!browserMode &&` 一刀切隐藏——来自 `8d7b5ea56`「加固远程凭据处理」的保守决策（同批禁的还有 cc-switch 导入）。非技术限制：H5 经同一隧道到同一服务端，`POST /api/providers/models`、`/api/providers/test`、`/api/providers/:id/test` 全部可达。
+> 本章收纳原第 十六、十八 章（2026-10-14 按功能域重组；各原章降为小节，内容原样）。
 
-**改动**（仅 1 文件 + 测试）：
-- `desktop/src/pages/settings/ProviderSettings.tsx`：删 3 处 `!browserMode &&` 门控（行内 Test 按钮、表单模态「获取模型」「测试连接」）。结果展示区本就存在，无需新布局。
-- `desktop/src/pages/settings/ProviderSettings.test.tsx`：新增 `browserMode exposes provider testing affordances` 用例——断言行内 Test 按钮数量 = 供应商数、模态内「Fetch models / Test Connection」可见。
-- `desktop/src/pages/settings/H5Settings.test.tsx`：旧用例锁定了「H5 下无这三个按钮」（8d7b5ea56 的行为），改为断言存在；Settings JSON 粘贴的缺席断言保留。
+### 原十六、连接器目录 Linux 平台支持（x64/arm64）（✅ 2026-09-26）
 
-**保持不动**：cc-switch 导入（:251）——读本地文件系统扫描，经隧道做无意义，仍禁。settings JSON 粘贴（:2122）——凭据加固的本意，仍禁。
+> 用户拍板（AskUserQuestion）：「加 Linux 平台支持」。起因=移动端 H5 市场页连接器卡片全显示「当前平台不支持」。
 
-**安全论证**：无新密钥暴露。apiKey 已持久化在本地服务端且每次聊天都在用；测试/获取只是把已填/已存的值走同一链路；行内「测试」甚至不经客户端传 key（服务端自读配置）。
+#### 现状核对
+- `supported` 由**服务端**算（`src/server/services/connectorService.ts:45` `def.platforms.includes(process.platform-process.arch)`）；H5 场景连接器运行时在服务端，判定对象正确。本机=linux-x64，旧目录只声明 darwin/win32→全部不支持（桌面 Linux 用户同样看到，语义一致）。
+- 关键=CLI 三连接器（feishu/dingtalk/wecom）走 `cliAdapter`→`managedRuntime.prepareManagedRuntime`，**按平台 pin 下载 URL + sha256/sha512 哈希**（`getArtifactPins` 缺 pin 即抛 "no pinned artifact"）；且 `:225` 原 `os = platform==='win32'?'windows':'darwin'` 把 Linux 误映射成 darwin URL。
+- 上游 Linux 产物确认（WebFetch）：飞书 @larksuite/cli=Go 原生（goreleaser linux amd64/arm64）；钉钉 dingtalk-workspace-cli=Go/CGO（glibc 2.17+，官方 macOS/Linux(x64/arm64)/Windows）；企微 @wecom/cli=Rust（npm 平台包，官方列 macOS/Linux/Windows，**无 win32-arm64**）。skill/remote 连接器平台无关（文件下载/MCP HTTP），仅需声明平台。
 
-**测试**：`bunx vitest run ProviderSettings.test.tsx` 23/23（原 22 + 新 1）。
+#### 实施方案（4 文件）
+1. `catalog.ts`：feishu/dingtalk/wecom `platforms` 加 `linux-x64`、`linux-arm64`（wecom 同）；`skillCatalog.ts`、`remoteCatalog.ts` 同加（保守统一）。
+2. `managedRuntime.ts`（核心）：
+   - `larkArchiveHashesV1_0_95` + linux-x64 `7da92d42…`/linux-arm64 `063012a6…`（sha256 归档）；
+   - `wecomArchiveHashesV1_2_1` + linux-x64 `rRWW/Z0…`/linux-arm64 `ndgR2jV…`（sha512 base64 归档）；
+   - `initialBinaryHashes` 三连接器各加 linux-x64/linux-arm64 二进制 sha256（feishu `44356a43…`/`8afae147…`；dingtalk `929ad4d0…`/`23c5e06b…`；wecom `a93389bd…`/`327faa17…`）；
+   - `os` 映射修 `:225`→`'win32'?'windows':'linux'==='linux'?'linux':'darwin'`（Linux 走 lark-cli-…-linux-amd64.tar.gz / dws-linux-*.tar.gz / @wecom/cli-linux-* 平台包，均已验证 URL 可达）；
+   - dingtalk 归档 sha512（`dingArchiveIntegrityV1_0_61`）复用同一 tgz 全平台共用，实测 base64 与既有 pin 逐字节一致；
+   - legacy 版本回退正则（`connectorService.ts:55`）本就通用 `[a-z]+-(?:arm64|x64)$`，linux 目录名可解析。
+3. 服务端 `.js` 孪生（untracked，bun 优先加载）同步 4 文件。
 
-## 三十六 思考语言探针：系统提示词英文主体锚定英文思考（✅ 2026-10-11，lead 已加思考指令）
+#### 验证
+- **6 个 Linux pin 全解析**：`getArtifactPins(def, 'linux-x64'/'linux-arm64')` 对三连接器全返回有效 integrity（不再抛 "no pinned artifact"）。
+- **端到端真实 prepare**：live 7788 触发 `POST /api/connectors/feishu/prepare`→下载 14MB linux-amd64 归档→sha256 归档+二进制双校验→版本探针→`installed=True ver=1.0.95 status=needs-auth`；`/home/zeaxion/cc-haha-dev/connectors/runtime/feishu/1.0.95-linux-x64/lark-cli --version` 实际可执行（`lark-cli version 1.0.95`）。
+- **测试**：`bun test src/services/connectors/` 416 pass / **0 fail**——加 linux 平台后**连修了 8 条既有平台耦合失败**（HEAD 为 408/8，这 8 条假设 darwin 宿主、在 linux 上先被 platforms 门控挡下而 fail；加 linux-x64 后进入 pin 校验路径且通过）。tsc exit 0；全量前端 vitest 与基线一致（零回归）。
+- **live 7788 移动端**：市场卡片「当前平台不支持」→「待连接账号」（supported=true 生效）。
+- **18 链全验证**：同十五章（worktree@2f8d819d 顺序 apply 18 patch 全干净，8 文件逐字节=工作树）。
 
-**用户观察**：cchaha 思考过程英文优先/中英混杂；1cat-studio 聊天模式多次测试都是纯中文思考。
+**patch**：`modify/patches/computer-use/computer-use-connector-linux-patch1.patch`（4 文件 105 行，链位 18，基线 cc88daa5）。
 
-**探针实验**（部署引擎 `zxsv-ai`，`/v1/chat/completions` + thinking，同题「列出 1–100 质数并说明思路」）：
+### 原十八、Computer Use 解锁 Linux（X11）平台（✅ 2026-09-26）
 
-| 场景 | 思考汉字 | 思考英文字母 | 开头 |
+#### 需求背景
+
+Computer Use（电脑操作）功能此前仅对 macOS（`darwin`）与 Windows（`win32`）开放：Linux 上设置页/会话侧看不到入口、MCP 工具不暴露、模型不知道会用。目标：让 **Linux（X11 桌面）** 走 Windows 同款的「像素面」兼容路线（screenshot/点击/键入/滚动 等 legacy pixel 工具 + Python helper），把 Computer Use 在 H5/服务端 Linux 场景解锁。
+
+#### 0.6.6 现状核对（调研结论）
+
+- 平台判定是**分散内联**的，没有单一共享 platform 类型；`'darwin' | 'win32'` 联合类型在 **9 处生产代码** + 若干测试里内联出现（`common.ts`、`gates.ts`、`skillGate.ts`、`executor.ts`、`helperBridge.ts`、`pythonBridge.ts`、`mcpServer.ts`、`tools.ts`、`keyBlocklist.ts`、`computer-use.ts`、`computerUse.ts`(skills) 等）。
+- **核心路由缝**在 `src/utils/computerUse/helperBridge.ts`：darwin→原生 `cu-helper` Swift daemon（AF_UNIX）；**else 分支（现仅 win32）→ `callPythonHelper`**。Linux 天然落入 else→Python 路线，无需新通道。
+- **工具面选择**在 `src/vendor/computer-use-mcp/mcpServer.ts`：`caps.platform === 'win32'` → `buildLegacyComputerUseTools`（像素工具集）；darwin → 语义工具过滤到 `js`/`js_reset`。Linux 应路由到**像素面**，故 `mcpServer.ts:113` 与 `:190`（`legacyPixelFace`）需加 `|| platform === 'linux'`。
+- **服务端能力映射** `resolveComputerUseCapability`（`computer-use.ts:247-314`）：win32→`windows-compat`、darwin→版本门控 `macos-native`、其余（含 linux）→`{supported:false, engine:'unsupported'}`。Linux 需新 engine 值（如 `linux-x11`）。
+- **Python helper 目录** `runtime/`：现有 `win_helper.py` + `requirements-win.txt`，**无 linux helper**。Linux 需新增 `linux_helper.py`（mss 截图 + pyautogui 输入 + **python-xlib** 窗口枚举/前台/open_app）+ `requirements-linux.txt`（mss/Pillow/pyautogui/python-xlib；无 pywin32）。
+- **UI** 不自己判平台，全靠服务端 `status.engine`/`status.platform` 分支（`ComputerUseSettings.tsx`）：`engine==='unsupported'`→不支持页；`'macos-native'`→原生页；否则→Windows 兼容 Python 安装流。Linux 走 else 的 Python 流即可，仅需 `PYTHON_DOWNLOAD_URLS` 与 `ComputerUseEnableDialog` 的 platform prop 补 linux 分支。
+- 已有先例：`growthbook.ts:36`、`platform.ts:7`、`env.ts:11`、`openTargetService.ts` 的 platform 联合类型**已含 linux**——只是 computer-use 子系统自己没跟上。
+- 测试现状：`common.test.ts`、`gates.test.ts`、`computer-use-api.test.ts` 等多处**断言 linux 当前 unsupported**，加分支后需同步更新（不是回归，是预期行为变更）。
+
+#### 实施方案（分两批，先门控/状态，后 helper）
+
+**批次 A——门控放宽 + 状态页（让 Linux 可见、可进设置流）**
+- `common.ts`：`isComputerUseSupportedPlatform` 返回 `platform is 'darwin'|'win32'|'linux'`；`getCliComputerUseCapabilities` 加 linux 分支（`screenshotFiltering:'none'`, `platform:'linux'`）。
+- `gates.ts`：`shouldExposeComputerUseMcp` 加 `|| platform === 'linux'`（Linux 无原生二进制门控，直通）。
+- `skillGate.ts:55`：`!== 'darwin' && !== 'win32'` 判定补 linux。
+- `computer-use.ts`：`resolveComputerUseCapability` 加 linux→`{supported:true, engine:'linux-x11'}`；`checkStatus`/`openComputerUseSettings`/`supportedPlatform` 等处补 linux 分支（open-settings 可返回 null=无系统设置面板，或 xsettingsd 等）。
+- `desktop/src/api/computerUse.ts`：`engine` 联合类型加 `'linux-x11'`。
+- `ComputerUseSettings.tsx`：`PYTHON_DOWNLOAD_URLS` 补 linux URL；`ComputerUseEnableDialog` 的 `platform` prop 补 linux。
+- 9 处内联 `'darwin'|'win32'` 联合类型逐一补 `'linux'`（mcpServer/tools/keyBlocklist/toolCalls/executor/windowsLegacyTools/skills）。
+- **工具面**：`mcpServer.ts` 像素面选择改 `platform === 'win32' || platform === 'linux'`。
+
+**批次 B——Linux 像素 helper（真正能操作桌面）**
+- 新增 `runtime/linux_helper.py`：复用 win_helper 的 mss（截图）/pyautogui（鼠标键盘）骨架，窗口枚举/前台化/`open_application` 用 **python-xlib**（X11），`open_settings`/权限用 xrandr/xprop 探测；输入走 XTEST。
+- 新增 `runtime/requirements-linux.txt`：`mss>=9.0.2,<10` / `Pillow>=11.3.0,<12` / `pyautogui>=0.9.54` / `python-xlib>=0.33`。
+- `pythonBridge.ts`：helper 文件名/requirements 按平台选择（linux→linux_helper.py + requirements-linux.txt）；venv 用 `bin/python3`（unix 分支已有）。
+- `computer-use.ts`：embedded runtime 常量导入补 linux 两份文件；`ensureRuntimeFiles` 按平台写。
+- 系统依赖（文档记录，非代码）：X11 桌面 + `xdotool`/`xclip`（剪贴板）可选；XWayland 下部分 pyautogui 能力受限，需在状态页给提示。
+
+#### 验证（实施时逐批跑）
+
+- 单测：computer-use 全族（`src/utils/computerUse/*.test.ts` + `src/vendor/computer-use-mcp/*.test.ts` + `src/server/__tests__/computer-use-*.test.ts`）；新增 linux 分支用例（linux→supported/像素面/linux-x11）。
+- 前端：`ComputerUseSettings`/`computerUse` vitest + 全量前端（基线 12300 pass/12 skip/0 fail）。
+- **live 7788 Linux 服务端**：`GET /api/computer-use/status` 应回 `{platform:'linux', supported:true, engine:'linux-x11'}`；设置页进入 Python 安装流而非「不支持」页。
+- X11 实机冒烟（如有）：screenshot 能回图、left_click/type 生效。
+
+#### 实施记录（2026-09-26，批次 A+B 全部完成）
+
+**批次 A 落地（24 文件，1231 ins / 75 del）**：按调研清单全量实施，另有 3 处调研时未预见、实施中发现的修：
+- `src/server/api/computer-use.ts ensureRuntimeFiles`：原无条件写 win_helper+cursor badge→按平台选 `LINUX_HELPER_CONTENT`/`WIN_HELPER_CONTENT`，linux 跳过 badge。
+- `src/utils/computerUse/executor.ts readClipboard/writeClipboard`：原 `platform==='win32'?callHelper:pbpaste/pbcopy` 会把 linux 误送 macOS `pb` 命令→改 `platform!=='darwin'?callHelper:pb`。
+- `src/vendor/computer-use-mcp/windowsLegacyToolCalls.ts`：viaClipboard 非 ASCII 条件与单进程 type 优化 `platform==='win32'`→`platform!=='darwin'`（linux 同 Python 面走剪贴板/单进程整批 type）。
+
+**批次 B 落地（2 新文件）**：
+- `runtime/linux_helper.py`（986 行）：镜像 win_helper 全 26 命令面（JSON 单行 `{ok:true,result}`/`error_output(code)`，退出码 0/1/2=bad_command）。mss 截图 JPEG q75 LANCZOS（输出形状与 win 逐字段一致）；pyautogui 输入；python-xlib X11 窗口枚举/前台化；XDG `.desktop` 枚举 installed_apps（112 条实测）；psutil running_apps；pyperclip 剪贴板（需系统 xclip/xsel，无则 write 报错/read 空串——文档记录的系统依赖）；`KEY_MAP cmd/command/meta/super/win→'command'`（pyautogui Super）。简化=ForegroundLease 无物理输入监控（保留 user_interference/target_window_offscreen/point_outside_display 错误码语义），MUTATING/COORDINATE_COMMANDS 集合与 win 完全一致。
+- `runtime/requirements-linux.txt`：mss>=9.0.2,<10 / Pillow>=11.3.0,<12 / pyautogui>=0.9.54 / python-xlib>=0.33 / psutil>=5.9.0 / pyperclip>=1.8.2。
+
+**python-xlib API 踩坑（X11 实机冒烟暴露，3 处全修+实测通过）**：
+1. `Drawable.get_property` 是 **4 参** `(property, property_type, offset, length)`——0 参/3 参调用全抛 TypeError 被 try/except 吞掉→pid 永远 None（症状=running_apps 0 条、frontmost null）。统一抽 `_read_property_value`（`Xatom.CARDINAL`/`Xatom.WINDOW` 作 property_type）。
+2. `drawable.display` 是 `_BaseDisplay` 代理**无 `intern_atom`**→atom 解析改走 `disp.get_atom(name)`（`d.intern_atom` 只在完整 `Display` 对象上）。
+3. `get_input_focus()` 返回 event 对象，焦点窗在 `.data['focus']` 且常为 None/PointerRoot→frontmost 优先 EWMH `_NET_ACTIVE_WINDOW`（root 属性，compositor 可靠维护，实测 gnome-terminal 解析成功），input-focus 兜底。
+4. GTK 系窗（Nautilus 等 50/76 个）不发布 `_NET_WM_PID`→`_app_info_for_window` 加 WM_CLASS 兜底（`_app_info_from_wm_class`，instance/class 对当 bundleId+displayName）。
+5. `pyautogui.moveTo(x, y, duration=...)` 非 `_duration=`（0.9.54 签名）。
+
+**验证结果**：
+- computer-use 全族 bun test（`src/utils/computerUse/*.test.ts` + `computer-use-api.test.ts`）：**24 fail = 干净基线 24 fail（git worktree@HEAD 对照法），零新增回归**（基线 24=helperBridge/cu-helper 快照族，mac 专属 daemon 路径，与本任务无关）。测试文件新增 linux 用例：common（linux→true+freebsd false+linux capabilities）、gates（linux→true）、api（linux→{supported:true,engine:'linux-x11',cuHelper unsupported_platform}+getUnsupportedComputerUsePlatformStep→null）、setup（linux→mcpConfig 含 computer-use+allowedTools 含 screenshot；unsupported 用例改 freebsd）、skillGate（linux 启用用例）。
+- 前端：ComputerUseSettings(24)+EnableDialog(2)=26/26 绿；desktop tsc --noEmit exit 0；全量 desktop vitest **12454 pass / 4 fail（4=scripts/image-processor-packaging .js/.ts 孪生同一用例 `spawn bun ENOENT`，环境 PATH 问题非本任务引入）零新增回归**。
+- **live 7788（dev sidecar 源码直跑）**：`GET /api/computer-use/status` 回 `{"platform":"linux","supported":true,"engine":"linux-x11","cuHelper":{"available":false,"reason":"unsupported_platform"},"python":{"installed":true,"version":"3.13.12"},"venv":{"created":false},"permissions":{"accessibility":null,"screenRecording":null}}`——venv 未建时 permissions null 符合预期（建 venv+装依赖后 helper check_permissions 回 {accessibility:true,screenRecording:true}）。
+- **X11 实机冒烟（GNOME 桌面，/tmp/lh-test venv 装全 6 依赖）**：全 26 命令面过——check_permissions/{accessibility:true,screenRecording:true}、list_displays（1920x1080）、screenshot（resize 后 base64 回图）、zoom（targetWidth/Height 放大 200x150→400x300）、cursor_position、move/click/scroll/mouse_down/mouse_up/key/hold_key/type（全部 ok:true 且光标位置实测移动生效）、frontmost_app（_NET_ACTIVE_WINDOW→gnome-terminal-server）、app_under_point、list_running_apps（20 条）、list_installed_apps（112 条）、find_window_displays（displayIds:[0]）、read/write_clipboard（read 可用；write 需系统 xclip/xsel）、bad_command 退出码 2。
+
+**系统依赖（部署文档口径）**：X11 桌面必须；XWayland 部分受限（窗口状态查询不可靠，guards fail open）；剪贴板 write 需 `xclip` 或 `xsel` 之一；XWayland 下建议状态页提示。
+
+> 状态：✅已完成（2026-09-26，两批全部落地+实机冒烟通过）。
+
+**patch**：`modify/patches/computer-use/computer-use-linux-patch1.patch`（24 文件 1758 行含 2 新文件 new file mode，20 链末位，基线=068b3ebd 起 19 链终态；20 链 worktree 顺序 `git apply --allow-empty` 全干净，24 文件与工作树逐字节一致）。
+
+#### 子优化① 平台化组件选择（2026-09-27，patch `patches/computer-use/computer-use-linux-patch1.patch` #34）
+
+**用户指示**：「应该自动根据 windows/macos/linux 平台不同，所需组件不同」。
+
+**核查结论：依赖清单本身早已分档且正确**——`runtime/requirements-{win,linux}.txt` 两份，与各自 helper 的 import **逐项对得上**：
+
+| 平台 | helper | 独有依赖 | 对应 import |
 |---|---|---|---|
-| studio 聊天模式（无 system） | 143 | **0** | 「用户要求写出1到100之间的质数…」纯中文 |
-| cchaza 中文 lead 版（5,000+ tok 英文系统提示词） | **0** | 579 | 「The user is asking to write out all the primes…」纯英文 |
+| Windows | `win_helper.py` | `pywin32`、`screeninfo` | `win32con/win32gui/win32process/winreg`、`screeninfo` |
+| Linux | `linux_helper.py` | `python-xlib` | `Xlib` |
 
-**根因**：不是「开头两句英文」，而是**系统提示词英文主体**——它是思考语言的锚，模型跟着指令流主语言走。studio 聊天模式默认**空 `system_prompt`**（`1cat-studio/studio/frontend/src/onecat/chat-page.tsx:111` 默认 `""`、:376 非空才 unshift system 消息），无英文指令流 → 纯中文思考。
+服务端 `api/computer-use.ts` 也已按 `engine`（`macos-native`/`windows-compat`/`linux-x11`/`unsupported`）分派，前端设置页亦按 engine 分流（mac 走原生页并**明确拒绝**进入 Python 安装流）。**故不是「缺分档」，而是选择方式有洞。**
 
-**已落地**：`src/prompts/i18n/index.ts` 的 `PROMPT_LANGUAGE_LEAD_ZH` 增加显式思考语言指令（「思考（reasoning）、解释与对用户的回复一律优先使用中文，不要切换成英文」），并把「一律使用英文原文」的强化措辞改为「保留英文原文，以保持参数约定精确」。+5 tok/请求（5,384→5,389）。i18n 测试新增断言（13/0）。
-**但探针证明 lead 指令压不住英文主体**——这是**方向性确认**：要让思考变中文，必须**中文化系统提示词主体散文**（收益清单「可压缩分支」：compact 散文、actions、doingTasks、outputEfficiency 等），而非只靠 lead。提示词中文化从「省 token」升级为「中文思考的必要手段」。
+**缺陷**：`pythonBridge.ts` 用**二元三目**选清单——`isLinux ? 'requirements-linux.txt' : 'requirements-win.txt'`。macOS（或任何未知平台）**会落到 Windows 那份**（把 `pywin32` 装给 mac）。虽然正常路径被 engine 守卫挡住，但这是「靠上游拦截」而非「自身正确」。
 
-**第二版优先级变更**：原建议「G/H → A/B/D」按 token 收益排序；现按**思考语言影响力**重排——凡**每请求注入**的主体散文（① 收尾节、② compact、doingTasks/actions）应最先中文化。
+**修复**：抽出显式平台表
+```ts
+export function pythonRuntimeFor(platform: NodeJS.Platform): PythonRuntimeComponents | null
+//  win32 → { helper: 'win_helper.py',   requirements: 'requirements-win.txt' }
+//  linux → { helper: 'linux_helper.py', requirements: 'requirements-linux.txt' }
+//  其余（含 darwin）→ null：无 Python 组件
+```
+`ensureRuntimeFiles` 走该表（`null` 时不再同步任何 requirements）；`ensureBootstrapped` 在无组件集时**响亮拒绝**（而非装错平台的包）；`bootstrapPipIntoVenv` 的补救提示也按平台给（Windows 提示用官方安装器勾选 pip / `python -m ensurepip`，其余提示装系统 venv 包），不再对着 Windows 用户喊 `apt install python3-venv`。
 
-## 三十八 H5 模型配置：测试/获取按钮真正接通 + 明文 key 下发（✅ 2026-10-12）
+**验证**：`pipInstall.test.ts` 新增 `pythonRuntimeFor` 两用例（各平台映射 + darwin/未知 → null）与 Windows 补救用例；linux 补救既有用例改为**显式传 `platform`**（原先依赖运行平台，在 Windows CI 会假失败）。合并跑 **15/15 通过**，改动文件 tsc 0 报错。
 
-**用户报告**：远端经 H5 访问，设置 → 模型配置里对已有供应商点「测试」报「① 连通失败: 请求失败」；点「获取模型」点不动没反应。桌面应用两者均正常。另要求 H5 与桌面一样能看到 API 密钥 key。
+#### 子优化② 无原生文件选择器时回退填入已探测路径（2026-09-27，patch `patches/computer-use/computer-use-linux-patch1.patch` #35）
 
-**根因（两层，第一层是「三十五」的半成品）**：
+**问题**：解释器路径输入框点「浏览」在两种情形下拿不到选择器——**H5/浏览器**下原生文件选择器选的是**浏览器所在机器**的文件（而解释器在跑 sidecar 的机器上，永远选不中）；**Linux 无 portal** 时原生对话框也可能直接失败。原本两种情形都只留下一个空输入框让用户手抄路径。
 
-1. **路由准入没跟着前端一起放开**。「三十五」只删了前端 `!browserMode &&` 门控（按钮可见了），服务端 `src/server/remoteBrowserPolicy.ts` 的 `remoteProviderRouteAllowed` 未动。`test` / `models` 之所以在 `RESERVED_PROVIDER_PATHS` 里，只是为了**路由消歧**（阻止 `GET /api/providers/test` 被解析成 id=test 的供应商），但没有像 `presets`/`official`/`reorder` 那样配一条**显式放行**分支 → 落进兜底规则 `!RESERVED_PROVIDER_PATHS.has(id) && ['GET','PUT','DELETE'].includes(method)` → 三个 POST 全被拒。该策略被 `publicAccess.ts:40`（公网配对隧道）与 `router.ts:63`（LAN/H5）共用，两处一起 403：
-   - `POST /api/providers/:id/test` → 403 → 前端 catch → 「连通失败: 请求失败」（行内「测试」走这条）
-   - `POST /api/providers/test`、`POST /api/providers/models` → 同样 403
-2. **凭据投影让按钮直接 disabled**。`projectRemoteProvider` 把 `apiKey` 置为 `''`（`8d7b5ea56`「加固远程凭据处理」）。H5 编辑已有供应商时 key 栏为空 → `canFetchModels = hasModelsBaseUrl && hasModelsApiKey` 为 false → 「获取模型」禁用（表现为「点不了」）；「测试」不依赖 key 故可点，但撞上第 1 层的 403。
+**修复**：失败即回退——把服务端**已经探测到的解释器路径**填入草稿并提示确认保存（`fallbackToDetectedPythonPath()`，`ComputerUseSettings.tsx`）。新增 i18n 键 `settings.computerUse.pythonPathDialogDetected`（en/zh/jp/kr/zh-TW 五语言各 +1）。
 
-**改动**（2 文件 + 4 组测试）：
+**验证**：`ComputerUseSettings` 族测试（含新增用例）；五语言键对齐。
 
-- `src/server/remoteBrowserPolicy.ts`：
-  - `remoteProviderRouteAllowed`：新增 `if (id === 'test' || id === 'models') return method === 'POST'`；4 段分支的 action 白名单由 `'activate'` 扩为 `activate | test`。**仅限 POST**——`GET/DELETE /api/providers/test`（防止当 id 用）与 `/:id/models`（官方 OAuth 模型别名）继续拒绝。
-  - `projectRemoteProvider`：`apiKey: ''` → `provider.apiKey ?? ''`，主 key 与 `imageGeneration.apiKey` 两处，**推翻** `8d7b5ea56` 的远端脱敏。
-- 测试：`remoteBrowserPolicy.test.ts` 新增路由边界断言；`router.remoteBrowser.test.ts`、`router.remoteCredentials.test.ts`、`__fixtures__/remoteBrowserSettingsSmoke.ts` 由「断言脱敏」翻转为「断言回显」（key 应到达客户端，白名单外字段仍不下发）。
 
-**保持不动**：cc-switch 扫描/导入（读宿主文件系统，过隧道无意义）、`/api/providers/settings`、`/:id/models` 官方别名、`PUT` 时 `apiKey === '' → delete`（空值=保留旧 key）、`remoteProviderNeedsCredentials`（换目的地必须显式给新 key）、投影白名单外的字段（`futureCredential`、`env`、隐藏 compatibility 字段）。
+## 九、测试基线与环境
 
-**安全论证（本次是确认后的有意放宽，非疏漏）**：H5 是扫码配对 + 30 天会话的受信设备，经 ngrok 公网隧道到达同一服务端。放开后 key 会明文经隧道抵达浏览器并留在页面内存——配对 cookie 一旦泄露即等于 key 泄露。已与用户确认选择「完全下发（与桌面一致）」，故 `hasApiKey` 标志之外再回传真实值；未列入白名单的字段继续不下发。
+> 本章收纳原第 十二、二十七 章（2026-10-14 按功能域重组；各原章降为小节，内容原样）。
 
-**验证**：`check:server` 全绿；desktop `ProviderSettings` + `H5Settings` 31/31；远端相关 5 个 server 测试文件 31/31。
+### 原十二、src/server 既有 22 条测试失败清零（✅ 2026-09-27）
 
-## 三十九 上下文估算口径统一：分类模型 + 图片按尺寸计价 + 触发取 max（✅ 2026-10-12）
+> 基线 2f8d819d 上 `bun test src/server` 存在 22 条既有失败（与本次优化无关、纯基线遗留）。本项将其**全部清零**（3396 pass / 0 fail / 0 error），达成「零失败」基线，后续任何回归都能被立刻发现。
 
-**用户报告**：会话（`html-test` 鹈鹕）已超过面板显示的自动压缩水平线，却始终不触发压缩，最终被引擎拒绝（vLLM 500：`ChatCompletionStreamResponse` 缺 `model`/`choices`）。用户怀疑是提示词中文化引起。
+**根因分类**（8 文件，4 修代码 + 4 修测试）：
 
-**排除中文化**：`git log` 逐提交核对，全部中文化/prompts 提交只改 `prompts/` 文本与 `compact/prompt.ts` 的字符串，**从未触及** `tokenEstimation`／`utils/tokens`／`utils/context`／`contextBudget`／`autoCompact`／`modelContextWindows`／`services/api/claude`。且该 provider `vccCompactBackend: "algorithm"`，算法压缩不读 `compact/prompt.ts`。**无代码因果**。
+| 簇 | 条数 | 根因 | 修法 |
+|---|---|---|---|
+| git locale（workspace×5 + sessions×2） | 7 | `getGitRepoInfo` 用英文 stderr 子串 `not a git repository` 判非 git 仓库；本机 git 中文 locale 输出 `不是 git 仓库` → 误判 `state:'error'` | **修代码** `workspaceService.ts`：移植 `reviewService.ts` 的退出码探针 `git rev-parse --is-inside-work-tree`（`isNotAGitRepository`），`runGit` 加 `failedToRun` 区分「git 没跑起来」vs「跑了但拒绝」；一处修复覆盖 7 条 |
+| ambient env 泄漏（conversation×4 + e2e×1） | 5 | 测试非 hermetic：本机 dev shell 导出的 `CLAUDE_CODE_EMIT_SESSION_STATE_EVENTS`/`CLAUDE_STREAM_FIRST_TOKEN_TIMEOUT_MS`/`CC_HAHA_*_ACCESS_TOKEN` 泄漏进 `buildChildEnv`/CORS 判定 | **修测试**：`conversation-service.test.ts` #1033 补清 `EMIT_SESSION_STATE_EVENTS`、#1307 补清 `FIRST_TOKEN_TIMEOUT_MS`；`full-flow.test.ts` 加 `TOKEN_ENV_KEYS` 保存/删除/恢复 |
+| findSessionFile 无界全文读（sessions×2 + recovery×1 + subagent×1） | 4 | `findSessionFilesFromFiles` 对每个候选文件 `readJsonlFile` 全文解析仅为排序优先级；mock throw 被吞 → 返回 null，破坏 inspection coalescing/launchInfo/subagent lookup | **修代码** `sessionService.ts`：文件系统回退路径改 mtime-only 排序；**仅当同 id 有 ≥2 个候选文件**（worktree transcript vs 占位符）才做 transcript 偏好读（`matches.length > 1`），单文件场景零读 |
+| 协作游标 depth 计数 | 1 | `sessionCollaborationService` 同物理页内 `end` 游标前进也 `depth+1`，8 页上限截断 130→80 条 | **修代码**：`depth` 仅在跨物理页（`page.page.nextCursor`）时递增，同页 `end` 游标保持 depth |
+| 缺依赖 500（h5-access-auth×2） | 2 | `@whiskeysockets/baileys` 仅声明于 `adapters/package.json` 未装根 node_modules；`adapters/whatsapp/session.ts` 顶层静态 import → `/api/adapters` 500 | **修代码** `adapters/whatsapp/session.ts`：改动态 `import()`（懒加载意图），顶层只留 `import type`；缺依赖只在真正 login 时失败 |
+| 平台耦合测试（connector×1 + workspaceWatch×1） | 2 | connector legacy 版本正则只认 `darwin\|win32`（本机 linux 夹具 `0.9.0-linux-x64` 失配 → 回落 1.0.0）；workspaceWatch 等 rename 后的**新名** `b.ts`（inotify 只报旧名 `a.ts`） | **修测试**：`connectorService.ts` 正则放宽平台 token 为 `[a-z]+`；`workspaceWatch.test.ts` 等待各平台都会产生的 `a.ts`（写操作触发） |
 
-**根因：同一时刻两把尺子**（不是阈值/预留/预算问题，这三样本次未动）：
+**验证**：
+- `bun test src/server` 全量 **3396 pass / 0 fail / 0 error**（基线 22 条全清，零新增）。
+- 逐簇回归：conversation-service 75/75、sessions 315/315、workspace-service 20/20、historyRecovery 8/8、subagent 44/44、collaboration 4/4、connectorService 24/24、workspaceWatch 10/10、h5-access-auth 53/53、adapters 41/41。
+- 重点语义改动（协作游标）额外跑通全部协作相关测试（api/sessionCollaboration、e2e/session-collaboration、CollaborationService 39/39、CollaborationHost、CollaborationAuth 等）。
+- `desktop tsc -b` exit 0。
 
-| 量 | 值 | 尺子 |
+**patch**：`modify/patches/test/test-server-test-baseline-patch1.patch`（8 文件 324 行，链位 13，基线 6d4fd126）。
+
+**13 链全验证**（`git worktree add --detach /tmp 2f8d819d` + 软链 node_modules，按序 `git apply` 全部 13 patch）：全干净；apply 后 vs 工作树仅 4 处已知非章 delta（`bun.lock`、`desktop/src/pages/TerminalSettings.tsx`、`desktop/src/lib/providerModels.ts`、`desktop/src/components/chat/MessagePayloadRetention.test.tsx`——均属独立 commit 的非章改动）。
+
+### 原二十七、未纳入章节链的既有改动（✅ 2026-09-28 已补为链位 58–60）
+
+> **本章已补齐 patch**：链位 **58–60**。此前本章只「登记」不产补丁，导致「基线 + 全链」无法 100% 复现工作树；现已把全部可入库改动提取成三个补丁。
+> **补丁后复现度**：干净 worktree@`068b3ebd` 按链序 apply **60/60 成功**，终态与工作树差异**仅剩 2 个有意排除项**（`bun.lock`、`desktop/src-tauri/resources/preview-agent.js`，理由见 27.4）。
+>
+> **背景**：`custom-066` 相对上游基线 `068b3ebd` 共有 **99 个提交**，而章节链只形式化了其中 **57 个** patch。因此「基线 + 全链」**无法 100% 复现工作树**——差额即本章所列。
+>
+> **实测口径（2026-09-28 复核）**：干净 worktree@`068b3ebd` 按链序 `git apply --index` **57/57 失败 0**；终态 vs 工作树差额 **23 个文件 / +36 −1728 行**。
+>
+> ⚠️ **比对必须用 `git apply --index`**：不加 `--index` 时补丁新建的文件在 worktree 里是**未跟踪**状态，`git diff <commit>` 看不见它们，会把 `vcc/**`、`tpsMeter.ts` 等一大批新增文件**误报成删除**（一度得出「94 文件 / −11432 行」的假缺口）。
+>
+> ⚠️ 早前文档写的「仅 4 个非章 delta（bun.lock、TerminalSettings.tsx、providerModels.ts、preview-agent.js）」**已过时**，以本章为准。
+
+#### 27.1 测试环境隔离与遗留失败清零（`ca4fc6c1` / `2d007b1a` / `1df6bf70`，13 文件）
+
+**问题**：`bun run check:server` 的官方 runner 逐文件独立进程 + env 白名单，而**桌面 dev env 会导出一批 `CLAUDE_CODE_*` 环境变量**（如 `CLAUDE_CODE_MODEL_CONTEXT_WINDOWS`、`CLAUDE_CODE_ATTRIBUTION_HEADER=0`）。于是同一批用例**单跑失败、官方 runner 全绿**——是环境泄漏，不是真缺陷。
+
+**做法**：
+- 新增 `src/testUtils/modelEnv.ts`：导出 `isolateModelDefaultsEnv()`（保存/剥离/还原模型相关 env），供各用例 `beforeEach` 调用。
+- 接入处：`src/utils/model/{agent,fable,opus5,opus55}.test.ts`、`src/utils/effort.agent.test.ts`、`src/utils/__tests__/thinking.test.ts`、`src/tools/AgentTool/builtInAgentOverrides.test.ts`、`src/cli/print.sessionMessage.test.ts`、`src/services/api/client.test.ts`、`src/skills/bundled/computerUse.test.ts`、`src/constants/system.test.ts`。
+- `2d007b1a` 另清掉「1 真回归 + 3 环境泄漏 + 1 flaky 兜底」，`src/entrypoints/sdk/coreSchemas.modelInfo.test.ts` 亦在其列。
+- `1df6bf70`：`desktop/src/lib/providerModels.ts` 的排序显式固定 `localeCompare(..., 'en', ...)`（不传 locale 时按宿主区域，中文环境下 CJK 会排到拉丁之前，把「其他」兜底组顶到真实 provider 名之上）。
+- `desktop/package.json`：移除 `build:renderer`、`typecheck` 两个脚本（前者与 `build` 重复、后者与本仓 `tsc -b` 口径不一致）。
+
+⚠️ **注意**：`src/testUtils/modelEnv.ts` 及其接入**不在链 12/49 的补丁里**（补丁只含了其中一部分）。补链前请以本章为准。
+
+#### 27.2 vcc 片段模式的校准脚本与报告（`ec9f43ef` / `b92404b3` / `d89c1405` / `fd5e7bf6`，2 脚本 + 3 项）
+
+**内容**：
+- `scripts/vcc-slice-calibration.ts`（1076 行）、`scripts/vcc-slice-judge.ts`（439 行）——vcc **片段模式**的语料校准与判分脚本，随 `ec9f43ef`「局部压缩接入 vcc 片段模式 + 语料校准」引入。
+- `.gitignore`：排除**机器生成的报告**（`fd5e7bf6`「报告改手写版，机器输出不再入库」、`d89c1405`「报告与样本去掉本机路径」）。
+- `bun.lock`：`dcbab433` 依赖锁的少量变动。
+
+**为什么不在链里**：报告/样本含本机路径与真实会话原文，**明确不入库**（见记忆 `project_cc_haha_vcc_slice_mode`）；脚本本体属**测量工具**而非产品代码，未纳入章节。
+
+#### 27.3 章节提交里未被补丁捕获的 hunk（残余 delta）
+
+| 文件 | 内容 | 来源 |
 |---|---|---|
-| 面板「已使用」 | **225,573** | `analyzeContext` 的 categories 本地累加 |
-| 触发判据 | **176,187** | `shouldAutoCompact` 的 `tokenCountWithEstimation`（引擎 usage 锚） |
-| soft 触发线（窗口 231,248） | 179,560 | — |
+| `src/services/api/claude.ts` | `modelUsesBoundThinking(options.model)` —— **bound-thinking 模型（Fable 5.1）需在请求里回放思考块**，让 API 按前缀丢弃旧的绑定块；剥离会破坏系统变更后的重放 | `39bd52b5` / `ef8801e3` / `6d4fd126` / `4e25e022` |
+| `src/utils/__tests__/thinking.test.ts` | 同上功能的用例 | `6d4fd126` |
+| `desktop/src/pages/TerminalSettings.tsx` | `createTerminalRequestId()`：`crypto.randomUUID` **仅安全上下文可用**，H5 经 LAN IP（`http://192.168.x.x`）访问是非安全上下文会抛错 ⇒ 回退到时间戳+随机串（镜像 `McpSettings` 的做法） | `71ac3073` |
+| `desktop/src-tauri/resources/preview-agent.js` | **构建产物**（每次 `bun run build` 重新生成），不应进入补丁 | `966ca8f1` |
 
-面板说超线、触发说没超 → 用户观感「机制坏了」，实际是**两个数**。live 实证（服务端 `:8877` inspection）：`totalTokens=225573 / maxTokens=231248 / percentage=98`，而同一会话 `autoCompactThreshold=198248`（服务端自算）与触发判据不同源。
+⚠️ `api/claude.ts` 那条是**待办性质**：章八/二十一的补丁重生成时未包含它（早前记录写作「bound-thinking WIP delta」）。若要让链完整，应把它并回对应章的补丁。
 
-**实测定位偏差**（对本地 `zxsv-ai` 引擎的 `count_tokens` 实测）：
+#### 27.4 链复现度：已达成（2026-09-28）
 
-1. **图片是主因**：本地常量 `2000`/张，引擎实价 **721**（1280×577 截图）——**高估 2.77×**。该会话 96 张图 → 虚增约 12 万。
-2. **文本固定 `chars/4` 也是错的**，字符类差异巨大：纯英文 4.50、**中文 1.50**、JSON 1.83、ASCII 数字 1.00、标点 1.20、空白 0。工具调用 input 全是 JSON → 系统性低估。
-3. **纯启发式无法达 5–15%**：同一套字符构成，真实内容实测在 **1.5–4.5 字符/token 之间浮动**（BPE 对重复的压缩效应主导，字符分类建模不了）。
+已按上文分三组生成补丁（链位 58–60），**两项有意不纳入**：
+1. `desktop/src-tauri/resources/preview-agent.js` —— 构建产物，纳入补丁会在每次构建后失效；
+2. `bun.lock` —— 锁文件，随依赖解析变化。
 
-**引擎图片公式推导**（生成 7 种尺寸实测）：引擎按 32px 补丁计费，`tokens ≈ ceil(w×h/1024)`，误差 ≤2.2%（1280×577→721、800×600→476、1920×1080→2041、512×512→257、256×256→65）。对照：Anthropic 官方文档为 `(w×h)/750`。
+其余 21 个文件**已全部补成补丁**：
 
-**改动**（10 文件）：
+| 链位 | patch | 组 | 文件数 | 内容 |
+|---|---|---|---|---|
+| 58 | `patches/test/test-chapter-27-tests-patch1.patch` | 27.1 | 13 | `modelEnv.ts` + 12 个用例接入（`CLAUDE_CODE_ATTRIBUTION_HEADER` / `CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS` 等继承 env 污染） |
+| 59 | `patches/vcc/vcc-calibration-scripts-patch1.patch` | 27.2 | 3 | vcc 片段模式校准/判分脚本 + `.gitignore` 排除机生成报告 |
+| 60 | `patches/test/test-chapter-27-tests-patch1.patch` | 27.3 | 5 | `api/claude.ts` bound-thinking、`providerModels` 排序固定 `'en'`、`TerminalSettings` 非安全上下文回退、`package.json` 脚本清理、`PermissionUpdate` require 环 Proxy 化 |
 
-- `src/services/tokenEstimation.ts`：
-  - 新增 `estimateTokensByCharClass`（单遍 charCode 循环，无正则无分配）：CJK 1/1.5、字母词 `max(1, len/4.5)`、数字 1.0/字符、标点 1/1.2、空白 0。`roughTokenCountEstimation` 在多参 `bytesPerToken` 省略时走它；显式传参者（文件类型启发式）保持旧行为。
-  - 新增 `pngDimensionsFromBase64`（只解码前 32 个 base64 字符取 IHDR）+ `estimateImageTokens`：按 `w×h` 计价，**分 provider** 取除式——`isFirstPartyAnthropicBaseUrl()` 用 750，否则 1024；上限/回退仍为 `IMAGE_MAX_TOKEN_SIZE=2000`，`document` 保持 2000。
-- `src/services/compact/autoCompact.ts`：
-  - 触发判据由「仅引擎锚口径」改为 `max(tokenCountWithEstimation(messages), roughTokenCountEstimationForMessages(messages) + fallbackFixedContextTokens)`：**任一超线即触发**。引擎完全不报 usage 时本地项是唯一依据；引擎少报时本地项是最后一道防线。
-  - 新增 `EXACT_CONFIRM_BAND = 0.1`：估算落在阈值 ±10% 内时，调 `countMessagesTokensWithAPI`（引擎 `count_tokens`）取精确值。`shouldAutoCompact` 增可选 `exactCount` thunk，由 `autoCompactIfNeeded` 注入 `measureExactPromptTokens`（`normalizeMessagesForAPI` 懒加载避免循环引用）。
-- `src/services/SessionMemory/prompts.ts`：`truncateSessionMemoryForCompact` 由「字符数 ≈ token×4」改为**按 token 截断**（`estimateTokensByCharClass`）。旧字符口径下中文段会超限约 3 倍。
-- `src/utils/context.ts`：`calculateCurrentContextTokenTotal` 的 `max(budget.usedTokens, canonicalTokens)` 语义**保持**，仅补注释说明为何取 max（两个测量都不可靠，低估是危险方向）。
+> **口径**：补丁 58–60 与链 1–57 相互独立（无人共享文件），可**在任何位置**应用；实测按「链序 + 58,59,60」得到终态与工作树仅差上述 2 个排除项。
 
-**刻意未做**：用引擎 usage 对本地估算做 EMA 校准（`local × engine/local`）。实现后测试发现它与「引擎少报」场景**直接冲突**——引擎报 5K 而实际 200K 时，校准比率 0.025 会把本地估算拉低到 140K，反而**掩盖**该触发的情况。校准无法区分「本地比率算错」与「引擎在少报」，而后者正是第二意见存在的意义。代码中留注释记录该决策，两个测量保持独立。
+**产物核验（2026-09-28 19:06 deb）**：重建后逐项验证改动**真的进了包**（注意打包器用**反引号**表示字符串，用 `"`/`'` grep 会全部漏掉——我因此一度误判）：
 
-**回归修复**：分类模型改变了若干数值，4 处既有断言按新值更新（新值均更准）：`sessionUsageRollup.test.ts` 汉字 thinking 10→27、`LocalAgentTask.test.ts` 4000 字符 1000→889、`tokens.test.ts` 3110→3098、`autoCompact.test.ts` fixed 下界 2000→1500。新增回归：分类模型 6 组受控样本 ±15%、图片尺寸计价（两种 provider）、精算确认三态（近线偏高/偏低/远离不询问）、触发双场景（引擎高、引擎少报）。
+| 改动 | 产物内证据 |
+|---|---|
+| `providerModels` 固定 `'en'` | `localeCompare(t.group,\`en\`,{sensitivity:\`base\`})`（旧形态 `localeCompare(t.group,void 0` **已消失**） |
+| `TerminalSettings` 非安全上下文回退 | ``typeof crypto<\`u\`&&\`randomUUID\`in crypto?crypto.randomUUID():\`t-${Date.now()}-...`` |
+| sidecar 由近期树构建 | 链位 55 新增字面量 `history-context-v1` 命中；`query_message_normalization_end`（与 bound-thinking 同文件的 checkpoint）命中 |
 
-**性能**：`roughTokenCountEstimationForMessages` 现在每轮全量跑一次（原来有 usage 时跳过）。最大会话实测（9,586 条消息 / 23MB）**96.7ms**，可接受。
-
-**验证**：`check:server` 556 files / 6675 passed / 0 failed。图片估算 ±2.2%（原 +177%），文本分类样本平均 8%，临近线由引擎精算兜底（~2%）。
-
-**窗口口径**：provider `autoCompactWindow` 231,248 → **233,000**（对齐引擎 `max_model_len`，运行时配置不进 patch）。触发线 181,050（用户确认「180K 左右压缩也可以」）。注：tier 百分比作用于 effectiveWindow 而非 declaredWindow（上游设计，见 `autoCompact.ts` 注释），故比「按 declared 算」的 198,050 早约 17K。
+⚠️ **sidecar 侧无法用 grep 逐行证明**：函数名被**压缩改名**（既有标识符 `shouldSendThinkingToAPI` 也 0 命中），而 `api/claude.ts` 的 bound-thinking、`PermissionUpdate` 的 Proxy 化**都不新增字符串字面量**⇒无锚可查。其新鲜度由**流程证据**保证：构建脚本先 `rm -rf` 旧 sidecar 再 `bun run build:sidecars`，且构建时工作树干净、处于含本章的 `43a36c50`。
 
 
-**patch 固化（2026-10-14）**：`patches/usage/usage-context-estimation-patch1.patch`（**链位 41**，⚠️ 基座 = `c71ce319d`，0.6.7 血缘，**独立应用**）。4 源码 + 6 测试（10 文件）。干净 `c71ce319d` 上 apply ⇒ 10 文件逐字节一致 ✅ 已实测。
+## 十、工作区面板与文件操作
 
-## 四十 H5 模型配置：测试/获取/测试连接按钮贯通（✅ 2026-10-11 初版 + 10-12 补齐，`patches/h5/h5-provider-test-buttons-patch1.patch`，⚠️ 基座 `53199e3f7` 独立应用）
+> 本章收纳原第 四十三 章（2026-10-14 按功能域重组；各原章降为小节，内容原样）。
 
-**内容**：删 ProviderSettings 3 处 `!browserMode` 门控，H5 端恢复行内 **Test / 获取模型 / 测试连接** 三个按钮 + 测试；2026-10-12 补齐服务端路由放行（`remoteProviderRouteAllowed` 的 `test/models` POST、`:id/test`）与远端回传已存 apiKey，H5 页面与桌面端行为对齐。
-
-**patch**：8 文件（3 desktop/ + 5 src/）。干净 `53199e3f7` 上 apply ⇒ 8 文件逐字节一致。
-
-## 四十一 压缩摘要身份锚点：旗标贯通取代英文前缀匹配（✅ 2026-10-14，`patches/compact/compact-summary-anchor-patch1.patch`，⚠️ 基座 `54ae13c69` 独立应用）
-
-**问题**：摘要头部句中文化后，WS 桥/历史装载/desktop 折叠的英文前缀匹配失效——中文摘要在实时视图被静默丢弃、历史重放时以全文用户气泡暴露（设计契约：摘要注入引擎上下文但不在用户消息流出现）。
-
-**修复**：`isCompactSummary` 旗标贯通 SDK 帧（`toSDKMessages`，protobuf catchall）→ SDK schema（`coreSchemas`）→ JSONL 顶层（`sessionService` entryToMessage）→ MessageEntry → WS 桥（`cliMessageParsing` 旗标优先 + 中英前缀兜底、`extractReplayUserText` 过滤）→ desktop（chatStore 提取/去重 + MessageEntry 折叠）；`looksLikeCompactSummaryContent` 锚定 section 标题（语言无关）。dev 端到端实测：/compact 中文摘要折叠卡正确、replay 不泄漏、`promptLanguage=en` 时思考回英文（联动链闭合）。
-
-**patch**：9 文件（7 src/ + 2 desktop/）+1 新测试。干净 `54ae13c69` 上 apply ⇒ 9 文件逐字节一致 ✅ 2026-10-14 已实测。
-
-## 四十二 TPS 与估算口径统一到引擎真值/密度池（✅ 2026-10-14，`patches/tps/tps-estimation-unified-patch1.patch`，⚠️ 基座 `d240afe84` 独立应用）
-
-> 本章 patch 由原 43+44+45 三个独立 patch **合并**而来（主题一脉、文件高度重叠，合一降管理成本；干净 `d240afe84` 上 apply ⇒ 7 文件逐字节一致）。
-
-**① 流式指示器吃真值**：`tps_tokens` 已喂 TPS 米表与思考徽章，但 StreamingIndicator 的「本轮 N tokens」仍走四类字符估算。新增会话态 `streamingResponseExactTokens`（`tps_tokens` 逐批累加），`estimateStreamingTokens` 真值优先、ids 通路不可用时回落估算（行为不变）。attempt 边界镜像：失败且无副作用的流尝试回滚时，精确计数与字符计数同规回滚，避免重试后数字虚高。依赖 ids 通路（onecat 侧 token_ids 剥离问题见 WORK-HANDOFF，交 studio 工作区修复）。
-
-**② 估算统一吃密度池**：两条估算路径各自学习同一件事——米表二类校准（kCjk/kAscii）与四类密度池；且米表跑引擎真值后不再拟合自身系数（endCall 跳过学习），徽章/摘要估算冻结在旧值。修复：`estimateTokens`（desktop）优先吃密度池 density（池在两种模式下都持续从 usage 学习，与 live 流式估算器同源），回落二类校准（无池时行为不变）；`setEstimationDensity` 在 meter 初始化、模型切换、每次 usage 采样后即时刷新。密度池拟合加指数新近权重（`learnDensity` `options.halfLife`，`currentTpsDensity` 传池一半）：新样本权满、每回退 halfLife 个样本减半，分词器/引擎更新时拟合跟随漂移而非跨缝平均，旧样本仍锚定稀疏类；`halfLife: 0` = 旧等权拟合。
-
-**③ 工具期静默读数修复 + ids 断供回落**（用户报告：Write/Edit 执行期间 TPS 定格不动）：
-- 米表冻结：工具期无 token 产出 → 静默超 `LIVE_GAP_MS=1.5s` 后 `value()` 判「流已停」返回 `held()`。静默隐式判停区分不了「回合已结束」（保持末速合理）与「引擎在执行工具」（空桶即真实读数）。修复：`value()` 仅在 `callOpen=false`（call 已对账 / `endStream`）时冻结；回合中途静默回落零桶平均——读数诚实落 0，指示器近零 hold（1.5s）挡边界抖动，下一帧 `clearGrid` 重新计量（恢复后不被暂停期零污染）。run meter 用 external push 从不开 call 窗，行为不变。
-- ids 模式饿死：`tps_tokens` 一旦说过话即粘性锁死 ids 模式，此后流帧只 `touch()` 丢弃；ids 断供（探针两轮落空拉黑 origin / 中继重启 / onecat 剥 ids）后米表饿死。修复：`lastTpsTokensAtBySession` 记录真值通路最近发言时刻，流帧持续到达而 counts 静默超 10s（中继批间隔仅 200ms）→ 自动降回字符采样并 `meter.reset()`；工具执行期流帧也不来 → 不误降级。`resetTpsWindow` 同步清表。
-
-**验证**：tokenDensity 11/11、meter 35/35、chatStore 404/404（新增中途静默落 0+恢复计量、endCall 保持末速、ids 断供回落三条）、desktop 全量 8292/0、server 全量 6686/0。
-## 四十三 超预算会话的工作区降级：git-info 兜底 workDir + 文件卡直开预览（✅ 2026-10-14，`patches/workspace/workspace-history-budget-degrade-patch1.patch`，⚠️ 基座 `dfbfe9dc5` 独立应用）
+### 原四十三、超预算会话的工作区降级：git-info 兜底 workDir + 文件卡直开预览（✅ 2026-10-14，`patches/workspace/workspace-history-budget-degrade-patch1.patch`，⚠️ 基座 `dfbfe9dc5` 独立应用）
 
 **问题**（用户报告两症，实为同根）：① 轮次结束的文件引用卡点击打不开文件，tab 只见报错；② 文件树右键菜单部分会话只有「添加到对话」一项（正常 5 项），H5 手机与桌面浏览器均现。
 
@@ -3684,20 +3635,32 @@ src/prompts/i18n/
 
 **验证**：workspaceContentStore 38/38（新增 413 兜底落 workDir + 非预算会话标志为否两条）、CurrentTurnChangeCard 52/52（新增超预算点行直开文件预览一条）、desktop 全量 8295/0、server 全量 6686/0。干净 `dfbfe9dc5` 上 apply ⇒ 4 文件逐字节一致 ✅。
 
-## 四十四 TPS ids 探测与校准学习修复：长 prefill 不再拉黑本地引擎、估算虚高 3-5 倍归零（✅ 2026-10-14，`patches/tps/tps-ids-probe-calibration-patch1.patch`，⚠️ 基座 `782661ba7` 独立应用）
 
-**问题**（用户报告，双症同链）：① 本地引擎明明带 token ids，却"老是跳到次级估算路线"；② 次级估算读数与实际速度差 3-5 倍（单请求已异常，并发更甚），而最不受待见的兜底固定估算实测偏差反而 ≤30%。
+## 附录：交接备注（2026-09-27 更新）
 
-**根因**（实测定位，两处独立缺陷互相喂招）：
-- **probe 从请求发起计时**：`createTpsTokenRelay` 建 relay 即启动 10s 探测定时器，超时无 ids 记一次 miss，两次即拉黑整个 origin（进程内永不恢复）。致命点：计时起点是请求发起而非首 chunk——实测 ~1M token 上下文的 prefill 首 chunk **23.09s** 才到，超窗一倍多，而 ids 随后正常滚滚而来（引擎实测每 chunk 带 token_ids、单 chunk ≤8 个、并发两流各自 ~66 t/s）。大会话 prefill 越长越必中——恰好是用户主场景。拉黑后客户端帧到达而 counts 静默 10s（`IDS_FALLBACK_SILENCE_MS`）→ 降回字符采样。
-- **整块工具输入是学习盲区**：流式路径 `input_json_delta` 有喂 meter，但整块兜底路径（attempt 重放、非流式答案）只发 `tool_use_complete`，处理处只清 pending 不喂 `msg.input`。学习时 `usage.output_tokens`（轮累计，含工具 JSON）>> call 窗口字符单元 → 最小二乘把 kCjk/kAscii 拉向 **K_MAX=6** 并随 `saveTpsCalibration` 持久化 → 之后每个新会话 `loadTpsCalibration` 带回毒 k → 字符测量读数持续虚高 3-6 倍（"五倍"即上限的影子；并发子代理 JSON 占比更高偏差更大）。且 ids 模式下 endCall 跳过学习（`callIds>0` 提前 return），毒值永不自愈；TPS 速度桶算的是 `cjk×kCjk + ascii×kAscii`，不走密度池——密度池再准也救不了速度读数。
+- #83 测试失败：前端全量 vitest 12456 pass/2 fail（2=MessageList 同一用例负载 flaky，已加 timeout:5000 缓解+孪生已同步）；server 侧 `bun run check:server` 本地坑=shell snapshot 把 `process.cwd()` 重置回 gov-managerment-plan（bun -e 实证），绕过法=/tmp/srv-exit.sh 逐文件 exit-code 判定（权威=CI 干净 checkout 无 .js 孪生双重收集）。
+- #84 deb：desktop/scripts/build-linux.sh LINUX_TARGETS=deb SKIP_INSTALL=1（先 tsc 孪生同步，TS5096 不阻断）。
+- **编译耗时实况（2026-09-27 实测）**：`bun run build` = preview-agent 0s + `tsc -b` **45s** + `vite build` **3s** ≈ **48s**；`tsc -b` 冷/热同价（删 `tsconfig.tsbuildinfo` 不额外花钱，实测冷 46s）；完整 deb 打包（热缓存）约 **2–3 分钟**。故「编译一次 >20 分钟拿不到结果」的成因是**调用姿势**而非编译本身：`timeout 1200 ... | tail -20` 的兜底超时 + 管道缓冲使输出到进程结束才可见，再叠加多个重活（build/vitest×2）抢 CPU。**规矩**：长命令走后台 + 日志文件轮询，禁止 `| tail -N` 阻塞；同一时刻只跑一个重活；纯前端迭代用新增的 `bun run build:renderer`（**实测 3.01s**，对比 `build` 的 48s）。
+- **同一工作树内的「目录级测试失败」多为并发污染**：`bun test src/utils/computerUse/` 整目录跑出 24 fail，而**逐个文件隔离跑全部 0 fail**（27/27 文件）。判定真回归前先隔离复跑。（**2026-09-28 细化根因**：① `mock.module` 泄漏——Bun 1.3.14 的 `mock.restore()` **不还** `mock.module`，且该调用被**提升**（连 mock 之前的 `await import` 也拿到 mock），故「先存真身再 mock 回去」不可行；整目录加 `--isolate` 可 33→6。② ambient env 泄漏——`CLAUDE_CODE_MODEL_CONTEXT_WINDOWS` 等致 **单跑也失败**，修法=接入 `isolateModelDefaultsEnv()`。权威口径仍是 `bun run check:server`：逐文件独立进程 + env 白名单继承，**天生免疫**。详见二十六章踩坑⑤。）
+- **重启本地 dev 服务禁用 `pkill -f`**（2026-09-28 踩坑）：`pkill -f "port 7788"` 会匹配到**承载该命令的 shell 自身**（命令行含同一字符串），把自己的会话打断（多次 exit 144）。正确：`ss -ltnpH 'sport = :7788'` 取端口持有者 PID 再 `kill`；且 `kill` 父进程**不带走** `bun run` 子进程，须按端口持有者清。启动脚本 `/tmp/start7788.sh`（含 `CLAUDE_CONFIG_DIR` + `CC_HAHA_EXTRA_PROJECT_ROOTS`）。
+- **desktop 改动必过 `tsc -b`；vitest 绿 ≠ 类型安全**（2026-09-28 踩坑）：测试文件里的类型错误被 vitest 放行，却让 deb 构建第一步 `tsc -b` 失败、**整包中断**。纯前端快验可用 `bun run build:renderer`（3s），但入库前必须跑一次 `tsc -b`（~45s）。
 
-**改动**（11 文件 = 5 desktop/ + 6 src/）：
-- `src/server/proxy/streaming/openaiChatStreamToAnthropic.ts` / `anthropicTokenTap.ts`：各加 `onStreamEnd` 钩子（正常/错误/取消三路径恰好一次）。
-- `src/server/proxy/handler.ts`：miss 改在**流结束时**判定（`noteMiss`）；origin 一旦真正收到 ids 即入 `tokenIdSupportedOrigins`，此后**永不拉黑**（后续沉默请求 = 传输失败/早夭重试，不是引擎变了，下一次照问）；miss 记录 10 分钟 TTL 衰减。
-- `tool_use_complete` 帧打 `serverTs`（`src/server/ws/handler.ts` stampServerTs 扩面 + `src/server/ws/events.ts` 类型 + desktop `types/chat.ts` 同步）——整块补喂据此留在 generation 时钟，避免把 meter 永久降级到 arrival。
-- `desktop/src/stores/chatStore.ts`：`toolInputStreamedCharsBySession` 跟踪当前工具块的流式字符数；`tool_use_complete` 时为 0 则整块补喂（`feedWholeBlockToolInput`，防双计）；子代理 `ingestSubagentTps` 对整块 `tool_use_complete` 同样补喂 run meter；reconnect/retry/stop/clearMessages/teardown 全边界清 tracker。
-- `desktop/src/lib/tpsMeter.ts`：学习护栏——real > **4×units**（帧可解释上限）的样本直接丢弃，缺口的轮不再把系数拉上天。
-- `desktop/src/lib/tpsCalibration.ts`：**v5→v6**，存量毒条目整体丢弃重学（`LEARN_FORGET` 衰减负责收敛，但存量必须清）。
+### ⚠️ 坑：根 `tsc --noEmit` 的 3500+ 报错**不是缺陷**
 
-**验证**：meter 21+13 全绿（ballooned call 第三段改写为护栏语义 + 新增 v6 丢弃测试）、desktop 全量 8296/0、server 全量 6686/0；sidecar 二进制 `strings` 验含 `onStreamEnd`；干净 `782661ba7` 上 apply ⇒ 11 文件逐字节一致 ✅。装新 deb 后预期：大会话持续走 ids 真值不再跳次级；即便回落字符采样，校准从零重学且带护栏，偏差回到先验水平（实测中文 est/real ≈ 0.6-0.75——顺带发现该引擎真实密度中文 1.33-2.63 tokens/char，远高于 PRIOR 的 1.003，密度池路线会自行学习修正）。
+仓库**根目录没有声明 typescript/@types/node，也没有 typecheck 脚本**（`desktop/` 才有）。因此拿根 `tsconfig.json` 跑全量 `tsc --noEmit` 会得到约 **3526 条错误 / 1002 文件**，经逐一归因**全部是机制产物**，勿据此"修 bug"：
+
+| 成因 | 条数 | 说明 |
+|---|---|---|
+| `@/` 别名 | 793 | 该别名只在 `desktop/tsconfig.json` 的 `paths`（`@/* → src/*`）里，根 tsconfig 未定义；全在 `desktop/` |
+| MACRO 注入 | 144 | `MACRO` 由 bun 构建期注入，tsc 单跑必然 `Cannot find name` |
+| **桩模块** | ~640 | `src/` 下 **138 个自动生成桩**（文件头注明 `@generated stub from scan-missing-imports`，对应 ant-internal 的 `feature()` gated 模块，外部构建 DCE 后不执行）；导出被 Proxy 兜底 → 真模块的命名导出在桩里不存在 → TS2614，并**级联**出 `type 'never'` 等大量 TS2339 |
+| 外部构建死分支 | ~100 | `feature()` gated 分支在外部构建下为死代码，`'"external"' 与 '"ant"' 无 overlap`（TS2367） |
+| 未开 strictNullChecks | ~200+ | 根 tsconfig 未设 `strict`/`strictNullChecks`；**`strictNullChecks: false` 会破坏判别联合的真值收窄**（最小复现：`{ok:true}|{ok:false}` 上 `if(!r.ok) r.error` 报 TS2339，开 true 即通过）→ workflows/worktree 那批"属性不存在"全是此因 |
+
+**权威检查是各子项目的配置**：前端 `cd desktop && node ./node_modules/typescript/bin/tsc --noEmit`（`include: src`），它才是 CI/lint 用的（`desktop/lint` = eslint + 该 tsc）。
+
+**由此捞出的 2 处真缺陷**（已修，patch 第 29 位）：
+1. `src/server/index.ts` **TS2502**——`const serverFetch = (req, server: typeof server)`：参数名 `server` 遮蔽外层同名变量，类型注解里的 `typeof server` 解析成**它自己** → 循环自引用（最小复现：只改参数名即消失）。后果**不止一行报错**：该参数类型退化为循环引用，函数体内 4 处 `server.requestIP` / `server.upgrade` **全部丢失类型检查**。修法=提取具名 `type ServerHandle`。
+2. `src/vendor/computer-use-mcp/toolCalls.test.ts` → **4 条 TS2300** 重复导入（`bindSessionContext` ×2、`ComputerUseSessionContext` ×2）。
+
+---

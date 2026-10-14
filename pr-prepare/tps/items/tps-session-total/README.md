@@ -1,7 +1,7 @@
 # tps-session-total — 会话读数 = 会话总量（去子代理重复计）（原链位 新增）
 
 > 功能主题：`tps` — TPS 实时解码速度指示器（`pr-prepare/tps/`）｜ PR 分支 `tps-indicator`
-> **单一真相源 patch**：`modify/patches/tps/tps-session-total-patch1.patch`（5 文件 +118−70）—— 本目录只存说明，**不复制 patch**
+> **单一真相源 patch**：`modify/archive/patches-merged-20261014/tps/tps-session-total-patch1.patch`（5 文件 +118−70）—— 本目录只存说明，**不复制 patch**
 
 ## 明细
 

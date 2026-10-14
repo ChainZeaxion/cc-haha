@@ -1,7 +1,7 @@
 # tps-engine-rewrite — 125ms 分桶引擎重写 + 后台冻结 + 引擎 token ids + 4Hz 读数（原链位 62,64,65,67）
 
 > 功能主题：`tps` — TPS 实时解码速度指示器（`pr-prepare/tps/`）｜ PR 分支 `tps-indicator`
-> **单一真相源 patch**：`modify/patches/tps/tps-engine-rewrite-patch1.patch`（25 文件 +2269−1002）—— 本目录只存说明，**不复制 patch**
+> **单一真相源 patch**：`modify/archive/patches-merged-20261014/tps/tps-engine-rewrite-patch1.patch`（25 文件 +2269−1002）—— 本目录只存说明，**不复制 patch**
 
 ## 含链位
 

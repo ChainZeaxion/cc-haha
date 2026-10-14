@@ -1,118 +1,51 @@
-# modify/patches —— 按 PR 主题两层分组
+# modify/patches —— 两段式 15 patch 体系
 
-结构：`patches/<主题>/<主题>-<优化项>-patch<N>.patch`（一个优化项一个 patch；拆不开才 patch2/3）。
+结构：`patches/<主题>/<主题>-bundle-patch1.patch`（段一，一域一文件）+ `patches/<主题>/<优化项>-patch1.patch`（段二，独立项）。
 
-**应用顺序 = `ORDER.md` 自上而下**（45 个 patch；项按最小链位排序，见下）。
+**应用顺序 = `ORDER.md` 自上而下**（15 个 patch，两段）。
 
 ```bash
 while read -r p; do git apply -p1 "$p"; done < modify/patches/ORDER.md
 ```
 
-> ⚠️ **两个基座，不要混用**（2026-10-06 记录）
-> - **第 1–36 个**：基座 = 上游 `068b3ebd`（**0.6.6 血缘**），链终态 = `cchaha-06scode` 树（实测 `desktop/src` 差异 0）。这 36 条是 **PR 提交层**（`pr-prepare/`）的来源，目标 `NanmiCoder/cc-haha`。
-> - **第 37 个**（`h5/h5-file-open-patch1.patch`）与**第 38 个**（`vcc/vcc-compaction-retention-budget-patch1.patch`，压缩双百分比分档 + vcc 保留预算）与**第 39 个**（`prompt/prompt-i18n-localization-patch1.patch`，提示词中文化 v1 打样）：基座 = `cchaha-067scode` 的 **`align-latest` HEAD（0.6.7 血缘）**。37 触及的 66 个文件里 56 个在 0.6.6 基座中**不存在或布局不同**（`components/workspace/surfaces/document/`、`OpenInSystemButton.tsx`、`MediaSurface.tsx` …），**无法**链尾追加，故两者均**单独应用**。
-> - **第 40 / 41 个**同样落在 0.6.7 血缘，**各以自己的基座单独应用**：40 = `53199e3f7`（H5 模型配置测试/获取按钮），41 = `c71ce319d`（上下文估算口径统一）。
-> - 判据：前 36 条中 `session-upstream-session-id` / `session-local-index-budget` 之所以能"链尾追加"，是因为其目标文件在两个血缘里**逐字节相同**（实测双方 `git apply --check` 均 OK）。
+> ⚠️ **两个基座，两段平行，不要混用**（2026-10-14 重排后口径）
+> - **段一（前 8 条）**：基座 = 上游 `068b3ebd`（**0.6.6 血缘**），链终态 = `cchaha-06scode` 树。这 8 个域 bundle 是 **PR 提交层**（`pr-prepare/`）的来源，目标 `NanmiCoder/cc-haha`。
+> - **段二（后 7 条）**：基座 = `cchaha-067scode` 的 **`3a51ef84`（0.6.7 血缘）**，连续 apply 终态 = HEAD。**不可**接在段一终态之后（h5-file-open 的 66 文件中 56 个在 0.6.6 基座不存在或布局不同）。
+> - 权威校验（2026-10-14）：段一终态树 = 原 36 条链终态树（`42905e42f`，diff 零字节）；段二终态树 = 原 9 条（旧 37-45）重放终态树（diff 零字节）。
 
-## h5/ — H5 远程访问与移动端支持（pr-1）
+## 2026-10-14 重排：45 → 15
 
-| 优化项 patch | 原链位 |
+原 45 个单优化项 patch（36 链式 + 9 独立）按关联度合并：36 条链式并为 8 个域 bundle，独立层 38+41（同改压缩触发判据）、43+45（TPS 一脉）各并为一。被合并的原文件与合并映射见 `modify/archive/patches-merged-20261014/`。
+
+## 段一 —— 域 bundle（基座 068b3ebd，PR 层）
+
+| 域 bundle | 收纳原 patch（旧链位） |
 |---|---|
-| `h5-access-token-patch1.patch` | 1,1,2,5 |
-| `h5-settings-parity-patch1.patch` | 4,4 |
-| `h5-mobile-quick-actions-patch1.patch` | 13,13 |
-| `h5-mobile-scheduled-patch1.patch` | 15,15 |
-| `h5-mobile-market-layout-patch1.patch` | 17,17 |
-| `h5-mobile-run-records-patch1.patch` | 34,34 |
-| `h5-local-index-multi-root-patch1.patch` | 46,46,48 |
-| `h5-file-open-patch1.patch` | 2026-10-06 新增（⚠️ 基座 = 067 `align-latest` HEAD，非 068b3ebd；H5 文件打开三轮修复，66 文件 / +1680−192） |
-| `h5-provider-test-buttons-patch1.patch` | 2026-10-11 新增、2026-10-12 补齐（⚠️ 基座 = 067 `53199e3f7`，独立应用；H5 模型配置补「获取模型/测试连接/行内测试」+ 服务端路由放行（test/models POST、`:id/test`）与已存 apiKey 回传，8 文件） |
+| `h5/h5-bundle-patch1.patch` | h5-access-token(1), h5-settings-parity(3), h5-mobile-quick-actions(11), h5-mobile-scheduled(13), h5-mobile-market-layout(15), h5-mobile-run-records(23), h5-local-index-multi-root(26) |
+| `session/session-bundle-patch1.patch` | session-export(2), session-refresh(4), session-file-download(6), session-disable-updates(7), session-thinking-switch(9), session-gzip-transport(18), session-history-transport(21), session-baseline-typecheck(22), session-open-speed(28), session-upstream-session-id(35), session-local-index-budget(36) |
+| `tps/tps-bundle-patch1.patch` | tps-indicator(5), tps-engine-rewrite(31), tps-density-estimation(33), tps-session-total(34) |
+| `usage/usage-bundle-patch1.patch` | usage-cache-billing(8), usage-context-usage-anchor(17), usage-session-speed-usage-pairing(25) |
+| `test/test-bundle-patch1.patch` | test-server-test-baseline(10), test-chapter-27-tests(29) |
+| `vcc/vcc-bundle-patch1.patch` | vcc-compactor(12), vcc-autocompact-window-tiers(20), vcc-compact-dead-import(24), vcc-calibration-scripts(30) |
+| `computer-use/computer-use-bundle-patch1.patch` | computer-use-connector-linux(14), computer-use-linux(16) |
+| `thinking-subagent/thinking-subagent-bundle-patch1.patch` | thinking-subagent-thinking-tool-timing(19), thinking-subagent-split-no-double-count(27), thinking-subagent-subagent-usage-cross-client(32) |
 
-## session/ — 会话及相关优化（pr-2，含文件下载/大会话性能）
+> 域 bundle 的生成是**链序全量 apply 后按域文件并集切分**（非独立 diff）：28 个跨域共享文件（`chatStore.ts`/`sessionService.ts`/五 locale 等）归属最先应用域，故**应用顺序不可调换**（h5→session→tps→usage→test→vcc→computer-use→thinking-subagent，即域首链位序）。
 
-| 优化项 patch | 原链位 |
-|---|---|
-| `session-export-patch1.patch` | 3,3 |
-| `session-refresh-patch1.patch` | 6,6 |
-| `session-file-download-patch1.patch` | 8,8,45,51,53 |
-| `session-disable-updates-patch1.patch` | 9,9 |
-| `session-thinking-switch-patch1.patch` | 11,11 |
-| `session-gzip-transport-patch1.patch` | 20,20,25 |
-| `session-history-transport-patch1.patch` | 23,23,24,26,31 |
-| `session-baseline-typecheck-patch1.patch` | 27,27 |
-| `session-open-speed-patch1.patch` | 55,55,56,57 |
-| `session-upstream-session-id-patch1.patch` | 2026-10-05 新增（私网上游补回会话 id） |
-| `session-local-index-budget-patch1.patch` | 2026-10-05 新增（本地索引元数据预算 32→64 MiB，记录数 50k→96k） |
+## 段二 —— 独立优化项（基座 3a51ef84，0.6.7 血缘）
 
-## tps/ — TPS 实时解码速度指示器（pr-3）
+| 优化项 patch | 收纳 | 说明 |
+|---|---|---|
+| `h5/h5-file-open-patch1.patch` | 原 37 | H5 文件打开四轮（66 文件） |
+| `usage/usage-context-estimation-patch1.patch` | **原 38+41** | 压缩双百分比分档+保留预算、上下文估算口径统一（14 文件，同改 `autoCompact{,.test}.ts`） |
+| `prompt/prompt-i18n-localization-patch1.patch` | 原 39 | 提示词中文化 + 中文思考 + 语言开关（48 文件） |
+| `h5/h5-provider-test-buttons-patch1.patch` | 原 40 | H5 模型配置测试/获取按钮（8 文件） |
+| `compact/compact-summary-anchor-patch1.patch` | 原 42 | 摘要身份锚点 isCompactSummary 贯通（9 文件） |
+| `tps/tps-estimation-unified-patch1.patch` | **原 43+45** | TPS 估算统一 + ids 探测/校准修复（15 文件，同改 tpsMeter/chatStore） |
+| `workspace/workspace-history-budget-degrade-patch1.patch` | 原 44 | 超预算会话工作区降级（4 文件） |
 
-| 优化项 patch | 原链位 |
-|---|---|
-| `tps-indicator-patch1.patch` | 7,7,30,35,38,42,44,50,54 |
-| `tps-engine-rewrite-patch1.patch` | 62,62,64,65,67 |
-| `tps-density-estimation-patch1.patch` | 66,66 |
-| `tps-session-total-patch1.patch` | 2026-10-03 新增（会话读数=会话总量，去子代理重复计） |
-| `tps-estimation-unified-patch1.patch` | 2026-10-14 新增（⚠️ 基座 = 067 `d240afe84`，独立应用；**合并原 43+44+45**——主题一脉、文件重叠，合一降管理成本：① 流式指示器吃 `tps_tokens` 真值 + attempt 边界镜像；② 估算统一吃密度池 + 拟合 EWMA 新近权重；③ 工具期静默读数落 0 不再冻结 + ids 断供 10s 回落字符采样；7 文件） |
-| `tps-ids-probe-calibration-patch1.patch` | 2026-10-14 新增（⚠️ 基座 = 067 `782661ba7`，独立应用；ids 探测与校准学习修复——① probe 改流结束时判定 miss + 曾支持永不拉黑 + miss 10 分钟衰减（长 prefill 23s 实测不再拉黑本地引擎）；② 整块工具输入补喂 meter + 子代理同路径 + 学习样本 4×units 护栏 + 校准 v5→v6 清毒值（修"估算虚高 3-5 倍"）；11 文件） |
-
-## usage/ — 上下文缓存计费与用量聚合显示（pr-5）
-
-| 优化项 patch | 原链位 |
-|---|---|
-| `usage-cache-billing-patch1.patch` | 10,10 |
-| `usage-context-usage-anchor-patch1.patch` | 19,19 |
-| `usage-session-speed-usage-pairing-patch1.patch` | 37,37 |
-| `usage-context-estimation-patch1.patch` | 2026-10-12 新增（⚠️ 基座 = 067 `c71ce319d`，独立应用；上下文估算口径统一——字符分类模型 + 图片按尺寸计价（读 PNG IHDR，`w*h/1024` 第三方 / `/750` first-party）+ 触发取 `max(引擎usage, 本地估算)` + 临近阈值 ±10% 调引擎 `count_tokens` 精算 + SessionMemory 改按 token 截断，10 文件） |
-
-## test/ — 测试环境隔离与基线修复（pr-6）
-
-| 优化项 patch | 原链位 |
-|---|---|
-| `test-server-test-baseline-patch1.patch` | 12,12,47 |
-| `test-chapter-27-tests-patch1.patch` | 58,58,60 |
-
-## vcc/ — vcc 算法压缩（pr-7）
-
-| 优化项 patch | 原链位 |
-|---|---|
-| `vcc-compactor-patch1.patch` | 14,14,40 |
-| `vcc-autocompact-window-tiers-patch1.patch` | 22,22 |
-| `vcc-compact-dead-import-patch1.patch` | 36,36 |
-| `vcc-calibration-scripts-patch1.patch` | 59,59 |
-
-## computer-use/ — Computer Use 解锁 Linux + 连接器平台（pr-8）
-
-| 优化项 patch | 原链位 |
-|---|---|
-| `computer-use-connector-linux-patch1.patch` | 16,16 |
-| `computer-use-linux-patch1.patch` | 18,18,32,33 |
-
-## thinking-subagent/ — 思考计时与子代理用量（pr-10）
-
-| 优化项 patch | 原链位 |
-|---|---|
-| `thinking-subagent-thinking-tool-timing-patch1.patch` | 21,21,28,29,39,41,43,49,61 |
-| `thinking-subagent-split-no-double-count-patch1.patch` | 52,52 |
-| `thinking-subagent-subagent-usage-cross-client-patch1.patch` | 63,63 |
-
-## prompt/ — 内置提示词中文化与语言开关
-
-| 优化项 patch | 原链位 |
-|---|---|
-| `prompt-i18n-localization-patch1.patch` | 2026-10-12 起累计（⚠️ 基座 = 067 `cb7065b1e`，独立应用；提示词全量中文化 + 中文思考三层注入 + thinkingLanguage/promptLanguage 双开关 + 引擎预填标记联动 + ExitPlanMode transcriptHint，48 文件；2026-10-14 重生成修复上轮漏掉的 3 个 untracked 新文件段） |
-
-## compact/ — 压缩链路与摘要呈现
-
-| 优化项 patch | 原链位 |
-|---|---|
-| `compact-summary-anchor-patch1.patch` | 2026-10-14 新增（⚠️ 基座 = 067 `54ae13c69`，独立应用；摘要身份锚点改 `isCompactSummary` 旗标贯通 SDK 帧/JSONL/desktop——修中文摘要头部句中文化后穿透英文前缀过滤、以全文气泡泄漏进消息流；旗标优先 + 中英前缀兜底 + section 标题锚，9 文件） |
-
-## workspace/ — 工作区面板与文件操作
-
-| 优化项 patch | 原链位 |
-|---|---|
-| `workspace-history-budget-degrade-patch1.patch` | 2026-10-14 新增（⚠️ 基座 = 067 `dfbfe9dc5`，独立应用；超预算会话（transcript 413）的工作区降级——loadStatus 回落 git-info 保住 workDir（文件树菜单/预览链路恢复），轮次文件卡点行改开文件预览而非必炸的 turn-diff，4 文件） |
+> 段二各 patch 的基座原来各自独立（37/38=`3a51ef84`、39=`cb7065b1e`、40=`53199e3f7`、41=`c71ce319d`、42=`54ae13c69`、43=`d240afe84`、44=`dfbfe9dc5`、45=`782661ba7`，全在同一直线上）。合并后 10（38+41）统一基座 `3a51ef84`、14（43+45）统一基座 `d240afe84`，其余沿用原文件（基座即 `3a51ef84`，逐条 apply 已实测通过）。
 
 > 主题 = 上游 PR 的 8 个功能域（h5 / session / tps / usage / test / vcc / computer-use / thinking-subagent）。
-> 优化项与链位的对应依据 `pr-prepare/00-overview.md` 的「链位→PR 组」表。
-> 原 67 个平铺补丁见 `modify/archive/patches-flat-20261003/`；上一版按章分组见 `modify/archive/patches-by-chapter-20261003/`。
+> 优化项与旧链位的对应依据 `pr-prepare/00-overview.md` 的「链位→PR 组」表。
+> 历史归档：原 45 个平铺（合并前）见 `modify/archive/patches-merged-20261014/`；更早的 67 平铺见 `modify/archive/patches-flat-20261003/`；按章分组版见 `modify/archive/patches-by-chapter-20261003/`。

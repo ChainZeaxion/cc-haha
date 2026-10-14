@@ -1,7 +1,7 @@
 # vcc-autocompact-window-tiers — 自动压缩窗口分档（原链位 22）
 
 > 功能主题：`vcc` — vcc 算法压缩（`pr-prepare/vcc/`）｜ PR 分支 `vcc-compaction`
-> **单一真相源 patch**：`modify/patches/vcc/vcc-autocompact-window-tiers-patch1.patch`（2 文件 +144−26）—— 本目录只存说明，**不复制 patch**
+> **单一真相源 patch**：`modify/archive/patches-merged-20261014/vcc/vcc-autocompact-window-tiers-patch1.patch`（2 文件 +144−26）—— 本目录只存说明，**不复制 patch**
 
 ## 含链位
 

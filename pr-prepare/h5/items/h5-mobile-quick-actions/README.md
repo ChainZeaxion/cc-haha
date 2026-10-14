@@ -1,7 +1,7 @@
 # h5-mobile-quick-actions — H5 移动端快捷操作（原链位 13）
 
 > 功能主题：`h5` — H5 远程访问与移动端支持（`pr-prepare/h5/`）｜ PR 分支 `h5-remote-access`
-> **单一真相源 patch**：`modify/patches/h5/h5-mobile-quick-actions-patch1.patch`（3 文件 +251−0）—— 本目录只存说明，**不复制 patch**
+> **单一真相源 patch**：`modify/archive/patches-merged-20261014/h5/h5-mobile-quick-actions-patch1.patch`（3 文件 +251−0）—— 本目录只存说明，**不复制 patch**
 
 ## 含链位
 

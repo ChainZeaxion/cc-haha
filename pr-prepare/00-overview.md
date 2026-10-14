@@ -3,7 +3,8 @@
 - 基座：`068b3ebd`（上游 main 的祖先）
 - 上游 main 现状：`6b9d2aec`（自基座改动 **820** 文件）
 - 结构：`pr-prepare/<主题>/`（= `modify/patches/<主题>/` 的 **PR 提交层**，多出 `00-group.patch` + `README.md` + `manifest.md`）
-- 全链：**34 个优化项 patch**（`modify/patches/<主题>/<主题>-<优化项>-patch<N>.patch`），按 `modify/patches/ORDER.md` 顺序 apply ⇒ 链终态 tree **`56923871`**
+- 全链：原 **34 个优化项 patch**；**2026-10-14 起 `modify/patches/` 已合并为 15 个**（段一 8 个域 bundle 对应本文 8 主题，见下表「现 bundle」列），本表保留旧「优化项→链位」映射供追溯。段二 7 个独立项（0.6.7 血缘）**不属于本 PR 层**，见 `modify/patches/ORDER.md`。
+- 链终态 tree **`56923871`**（34 项时代口径；bundle 合并后终态不变，实测与原 36 条链逐字节一致）
 - 提 PR 粒度：**整主题组补丁** `pr-prepare/<主题>/00-group.patch`（基座 `068b3ebd` → 该主题终态；**8 组并集 == 链终态**）
 - PR 目标：`NanmiCoder/cc-haha`，head = `ChainZeaxion/cc-haha` 分支 `pr/<slug>`（**2026-10-03 已按本轮链终态原地更新**）
 - 原「pr-N 目录 + 链位命名（64 项）」已归档：`pr-prepare/archive/pr-by-chain-20261003/`
@@ -12,18 +13,20 @@
 
 ## 一、主题 → PR → 规模
 
-| 主题 | PR | 分支 | 功能域 | 项数 | 组行数 | 组文件 | 净新 | 上游也改过 | 组补丁 |
-|---|---|---|---|---|---|---|---|---|---|
-| `h5` | #1415 | `h5-remote-access` | H5 远程访问与移动端支持 | 7 | +8401−639 | 83 | 16 | 27 | `h5/00-group.patch` |
-| `session` | #1411 | `session-related-optimizations` | 会话及相关优化（会话基础 + 文件下载 + 大会话加载/传输性能 + 打开提速） | 9 | +7725−333 | 78 | 18 | 27 | `session/00-group.patch` |
-| `tps` | #1414 | `tps-indicator` | TPS 实时解码速度指示器 | 4 | +9052−212 | 74 | 24 | 26 | `tps/00-group.patch` |
-| `usage` | #1412 | `usage-billing` | 上下文缓存计费与用量聚合显示 | 3 | +1250−152 | 26 | 2 | 10 | `usage/00-group.patch` |
-| `test` | #1409 | `test-baseline` | 测试环境隔离与基线修复 | 2 | +461−45 | 31 | 1 | 9 | `test/00-group.patch` |
-| `vcc` | #1410 | `vcc-compaction` | vcc 算法压缩 | 4 | +7650−61 | 58 | 47 | 3 | `vcc/00-group.patch` |
-| `computer-use` | #1416 | `computer-use-linux` | Computer Use 解锁 Linux(X11) + 连接器平台 | 2 | +2113−110 | 40 | 3 | 7 | `computer-use/00-group.patch` |
-| `thinking-subagent` | #1417 | `thinking-subagent` | 思考计时与子代理用量 | 3 | +7850−255 | 72 | 12 | 21 | `thinking-subagent/00-group.patch` |
+| 主题 | PR | 分支 | 功能域 | 项数 | 组行数 | 组文件 | 净新 | 上游也改过 | 组补丁 | 现 bundle（2026-10-14） |
+|---|---|---|---|---|---|---|---|---|---|---|
+| `h5` | #1415 | `h5-remote-access` | H5 远程访问与移动端支持 | 7 | +8401−639 | 83 | 16 | 27 | `h5/00-group.patch` | `h5/h5-bundle-patch1.patch` |
+| `session` | #1411 | `session-related-optimizations` | 会话及相关优化（会话基础 + 文件下载 + 大会话加载/传输性能 + 打开提速） | 9 | +7725−333 | 78 | 18 | 27 | `session/00-group.patch` | `session/session-bundle-patch1.patch` |
+| `tps` | #1414 | `tps-indicator` | TPS 实时解码速度指示器 | 4 | +9052−212 | 74 | 24 | 26 | `tps/00-group.patch` | `tps/tps-bundle-patch1.patch` |
+| `usage` | #1412 | `usage-billing` | 上下文缓存计费与用量聚合显示 | 3 | +1250−152 | 26 | 2 | 10 | `usage/00-group.patch` | `usage/usage-bundle-patch1.patch` |
+| `test` | #1409 | `test-baseline` | 测试环境隔离与基线修复 | 2 | +461−45 | 31 | 1 | 9 | `test/00-group.patch` | `test/test-bundle-patch1.patch` |
+| `vcc` | #1410 | `vcc-compaction` | vcc 算法压缩 | 4 | +7650−61 | 58 | 47 | 3 | `vcc/00-group.patch` | `vcc/vcc-bundle-patch1.patch` |
+| `computer-use` | #1416 | `computer-use-linux` | Computer Use 解锁 Linux(X11) + 连接器平台 | 2 | +2113−110 | 40 | 3 | 7 | `computer-use/00-group.patch` | `computer-use/computer-use-bundle-patch1.patch` |
+| `thinking-subagent` | #1417 | `thinking-subagent` | 思考计时与子代理用量 | 3 | +7850−255 | 72 | 12 | 21 | `thinking-subagent/00-group.patch` | `thinking-subagent/thinking-subagent-bundle-patch1.patch` |
 
-## 二、链位 → 主题 / 优化项（权威映射，34 项）
+## 二、链位 → 主题 / 优化项（权威映射，34 项历史口径）
+
+> ⚠️ 下列单项 patch 文件已于 2026-10-14 归档至 `modify/archive/patches-merged-20261014/`，各主题原项合并为「现 bundle」（见上表末列）。本表保留历史映射。
 
 | 主题 | 优化项 patch | 原链位 | 行数 | 文件数 |
 |---|---|---|---|---|
@@ -64,7 +67,7 @@
 
 ## 三、组装规则（重要）
 
-- **单项 patch**（`modify/patches/`）= 链内顺序产物；**必须按 `ORDER.md` 顺序 apply**（项按最小链位交错排序），单独抽一项按序 apply 不保证成功。
+- **域 bundle**（`modify/patches/<主题>/<主题>-bundle-patch1.patch`，2026-10-14 合并后形态）= 链内顺序产物；**必须按 `ORDER.md` 顺序 apply**（域按最小链位排序，28 个跨域共享文件归属最先应用域，顺序不可调换）。原 34 个单项 patch 归档于 `modify/archive/patches-merged-20261014/`，单独抽一项 apply 不保证成功。
 - **组补丁**（`pr-prepare/<主题>/00-group.patch`）的文件集 = 本主题优化项**直接改动**的文件 ∪ 跨主题**共享文件**（按「本主题是该文件在链内**最后归属主题**」判定），共享文件内容取**链终态**。
   → 组内自洽（typecheck 不缺符号）；**8 组的文件集并集 == 链终态的改动文件集**，且共享文件在各组中标为同一链终态内容（内容一致）。
 - ⚠️ **每个组补丁只在干净基座 `068b3ebd` 上单独 apply**（已验证：8/8 干净，且各自精确复现对应分支树）。**不要把 8 个组补丁在本机顺序叠加**——共享文件会被重复改写而报「补丁未应用」。上游侧逐 PR 合入时由 git 三方合并处理共享文件（内容相同 ⇒ 无冲突）。

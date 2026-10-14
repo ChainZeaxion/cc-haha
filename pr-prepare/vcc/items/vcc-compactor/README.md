@@ -1,7 +1,7 @@
 # vcc-compactor — pi-vcc 算法压缩 + vcc_recall 工具（原链位 14,40）
 
 > 功能主题：`vcc` — vcc 算法压缩（`pr-prepare/vcc/`）｜ PR 分支 `vcc-compaction`
-> **单一真相源 patch**：`modify/patches/vcc/vcc-compactor-patch1.patch`（48 文件 +5794−35）—— 本目录只存说明，**不复制 patch**
+> **单一真相源 patch**：`modify/archive/patches-merged-20261014/vcc/vcc-compactor-patch1.patch`（48 文件 +5794−35）—— 本目录只存说明，**不复制 patch**
 
 ## 含链位
 

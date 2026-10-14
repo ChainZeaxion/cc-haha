@@ -1,7 +1,7 @@
 # session-refresh — 会话刷新（原链位 6）
 
 > 功能主题：`session` — 会话及相关优化（会话基础 + 文件下载 + 大会话加载/传输性能 + 打开提速）（`pr-prepare/session/`）｜ PR 分支 `session-related-optimizations`
-> **单一真相源 patch**：`modify/patches/session/session-refresh-patch1.patch`（2 文件 +183−7）—— 本目录只存说明，**不复制 patch**
+> **单一真相源 patch**：`modify/archive/patches-merged-20261014/session/session-refresh-patch1.patch`（2 文件 +183−7）—— 本目录只存说明，**不复制 patch**
 
 ## 含链位
 

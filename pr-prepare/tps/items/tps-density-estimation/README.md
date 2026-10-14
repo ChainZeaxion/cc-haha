@@ -1,7 +1,7 @@
 # tps-density-estimation — TPS 密度估算（4 类字符 + 岭回归收缩）（原链位 66）
 
 > 功能主题：`tps` — TPS 实时解码速度指示器（`pr-prepare/tps/`）｜ PR 分支 `tps-indicator`
-> **单一真相源 patch**：`modify/patches/tps/tps-density-estimation-patch1.patch`（10 文件 +728−43）—— 本目录只存说明，**不复制 patch**
+> **单一真相源 patch**：`modify/archive/patches-merged-20261014/tps/tps-density-estimation-patch1.patch`（10 文件 +728−43）—— 本目录只存说明，**不复制 patch**
 
 ## 含链位
 

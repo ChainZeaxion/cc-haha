@@ -1,7 +1,7 @@
 # session-open-speed — 大会话打开提速（原链位 55,56,57）
 
 > 功能主题：`session` — 会话及相关优化（会话基础 + 文件下载 + 大会话加载/传输性能 + 打开提速）（`pr-prepare/session/`）｜ PR 分支 `session-related-optimizations`
-> **单一真相源 patch**：`modify/patches/session/session-open-speed-patch1.patch`（6 文件 +526−22）—— 本目录只存说明，**不复制 patch**
+> **单一真相源 patch**：`modify/archive/patches-merged-20261014/session/session-open-speed-patch1.patch`（6 文件 +526−22）—— 本目录只存说明，**不复制 patch**
 
 ## 含链位
 

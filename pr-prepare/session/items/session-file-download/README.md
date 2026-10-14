@@ -1,7 +1,7 @@
 # session-file-download — 文件下载桥接（anchor 导航）（原链位 8,45,51,53）
 
 > 功能主题：`session` — 会话及相关优化（会话基础 + 文件下载 + 大会话加载/传输性能 + 打开提速）（`pr-prepare/session/`）｜ PR 分支 `session-related-optimizations`
-> **单一真相源 patch**：`modify/patches/session/session-file-download-patch1.patch`（15 文件 +644−44）—— 本目录只存说明，**不复制 patch**
+> **单一真相源 patch**：`modify/archive/patches-merged-20261014/session/session-file-download-patch1.patch`（15 文件 +644−44）—— 本目录只存说明，**不复制 patch**
 
 ## 含链位
 

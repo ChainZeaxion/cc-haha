@@ -1,7 +1,7 @@
 # thinking-subagent-subagent-usage-cross-client — 子代理用量跨客户端一致（原链位 63）
 
 > 功能主题：`thinking-subagent` — 思考计时与子代理用量（`pr-prepare/thinking-subagent/`）｜ PR 分支 `thinking-subagent`
-> **单一真相源 patch**：`modify/patches/thinking-subagent/thinking-subagent-subagent-usage-cross-client-patch1.patch`（11 文件 +1067−39）—— 本目录只存说明，**不复制 patch**
+> **单一真相源 patch**：`modify/archive/patches-merged-20261014/thinking-subagent/thinking-subagent-subagent-usage-cross-client-patch1.patch`（11 文件 +1067−39）—— 本目录只存说明，**不复制 patch**
 
 ## 含链位
 

@@ -1,7 +1,7 @@
 # computer-use-connector-linux — 连接器 Linux 平台支持（原链位 16）
 
 > 功能主题：`computer-use` — Computer Use 解锁 Linux(X11) + 连接器平台（`pr-prepare/computer-use/`）｜ PR 分支 `computer-use-linux`
-> **单一真相源 patch**：`modify/patches/computer-use/computer-use-connector-linux-patch1.patch`（4 文件 +21−11）—— 本目录只存说明，**不复制 patch**
+> **单一真相源 patch**：`modify/archive/patches-merged-20261014/computer-use/computer-use-connector-linux-patch1.patch`（4 文件 +21−11）—— 本目录只存说明，**不复制 patch**
 
 ## 含链位
 

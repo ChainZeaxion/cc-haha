@@ -1,7 +1,7 @@
 # test-chapter-27-tests — 章二十七测试隔离与残余 hunk（原链位 58,60）
 
 > 功能主题：`test` — 测试环境隔离与基线修复（`pr-prepare/test/`）｜ PR 分支 `test-baseline`
-> **单一真相源 patch**：`modify/patches/test/test-chapter-27-tests-patch1.patch`（18 文件 +180−28）—— 本目录只存说明，**不复制 patch**
+> **单一真相源 patch**：`modify/archive/patches-merged-20261014/test/test-chapter-27-tests-patch1.patch`（18 文件 +180−28）—— 本目录只存说明，**不复制 patch**
 
 ## 含链位
 

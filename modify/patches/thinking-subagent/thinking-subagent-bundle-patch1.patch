@@ -1,0 +1,3838 @@
+diff --git a/desktop/src/api/subagents.ts b/desktop/src/api/subagents.ts
+index c2b0fd93f..53c106461 100644
+--- a/desktop/src/api/subagents.ts
++++ b/desktop/src/api/subagents.ts
+@@ -9,6 +9,8 @@ export type SubagentRunUsage = {
+   inputTokens?: number
+   outputTokens?: number
+   totalTokens?: number
++  /** Thinking share of the output. Absent when the engine reported no split. */
++  thinkTokens?: number
+ }
+ 
+ export type SubagentRunResponse = {
+diff --git a/desktop/src/components/activity/SessionActivityPanel.test.tsx b/desktop/src/components/activity/SessionActivityPanel.test.tsx
+index ec84458bb..bc68a0862 100644
+--- a/desktop/src/components/activity/SessionActivityPanel.test.tsx
++++ b/desktop/src/components/activity/SessionActivityPanel.test.tsx
+@@ -399,7 +399,15 @@ describe('SessionActivityPanel', () => {
+     expect(screen.getByText('Summary')).toBeInTheDocument()
+     expect(screen.getByText('Task completed with a long markdown report')).toBeInTheDocument()
+     expect(screen.getByText('Usage')).toBeInTheDocument()
+-    expect(screen.getByText('94.3k tokens · 1m 7s')).toBeInTheDocument()
++    expect(screen.getByText('94.3k tokens')).toBeInTheDocument()
++    // The duration is its own right-aligned slot on the detail card's *header*,
++    // not a details field: shell tasks report no usage, so a slot on the usage
++    // row disappeared on exactly the tasks worth timing. It is shown twice on
++    // purpose: once on the collapsed row and once in the expanded detail. Both
++    // read in the panel's fixed digits-and-letters form, not a localized one.
++    expect(screen.getAllByText('1m7s')).toHaveLength(2)
++    expect(document.querySelector('[data-activity-detail-duration="true"]')).not.toBeNull()
++    expect(document.querySelector('[data-activity-duration="true"]')).not.toBeNull()
+ 
+     fireEvent.click(screen.getByRole('button', { name: /clear finished/i }))
+ 
+@@ -991,6 +999,49 @@ describe('SessionActivityPanel', () => {
+     expect(screen.getByRole('button', { name: /open run a · cached/i })).toBeInTheDocument()
+   })
+ 
++  it('times a shell task that reports no usage at all, from its event clock', () => {
++    // The case that made the old slot useless: a shell background task carries
++    // no `usage`, so the duration had nothing to attach to and the reader saw
++    // no execution time on the rows they most want timed.
++    render(
++      <SessionActivityPanel
++        model={model({
++          sections: {
++            ...model().sections,
++            backgroundTasks: {
++              id: 'backgroundTasks',
++              title: 'Background Tasks',
++              emptyLabel: 'No background tasks',
++              rows: [{
++                id: 'bash-no-usage',
++                section: 'backgroundTasks',
++                label: 'Rebuild renderer dist',
++                status: 'completed',
++                description: 'bun run build:renderer',
++                taskId: 'bash-task-2',
++                taskType: 'local_bash',
++                startedAt: 1_000_000,
++                updatedAt: 1_000_000 + 125_000,
++                openable: false,
++              }],
++            },
++          },
++        })}
++        open
++        onClose={vi.fn()}
++        onOpenSubagent={vi.fn()}
++      />,
++    )
++
++    // 125 s of wall clock, rendered by the panel's own duration convention:
++    // a fixed `2m5s`, not a spelled-out per-language form.
++    expect(screen.getByText('2m5s')).toBeInTheDocument()
++    fireEvent.click(screen.getByRole('button', { name: /open background task/i }))
++    expect(document.querySelector('[data-activity-detail-duration="true"]')).not.toBeNull()
++    // Nothing invented: no token row was conjured for a task that reported none.
++    expect(screen.queryByText('Usage')).not.toBeInTheDocument()
++  })
++
+   it('does not render when closed', () => {
+     render(<SessionActivityPanel model={model()} open={false} onClose={vi.fn()} onOpenSubagent={vi.fn()} />)
+ 
+diff --git a/desktop/src/components/activity/SessionActivityPanel.tsx b/desktop/src/components/activity/SessionActivityPanel.tsx
+index 8287ea411..ff862e4c9 100644
+--- a/desktop/src/components/activity/SessionActivityPanel.tsx
++++ b/desktop/src/components/activity/SessionActivityPanel.tsx
+@@ -8,6 +8,7 @@ import { useDismissable } from '@/hooks/useDismissable'
+ import { AgentMascot } from './AgentMascot'
+ import { getVisibleActivitySections, type ActivityRow, type ActivitySectionId, type SessionActivityModel } from './sessionActivityModel'
+ import { useTranslation } from '../../i18n'
++import { useSettingsStore } from '../../stores/settingsStore'
+ import type { BackgroundAgentTask } from '../../types/chat'
+ import type { TeamMember } from '../../types/team'
+ import { formatTokenCount } from '../../lib/formatTokenCount'
+@@ -117,13 +118,48 @@ function getTaskTypeLabel(taskType: BackgroundAgentTask['taskType'] | undefined,
+   return t('chat.backgroundTasks.type.task')
+ }
+ 
+-function formatBackgroundDuration(ms: number | undefined, t: TranslationFn): string | undefined {
++/**
++ * How long a background task ran, in a compact fixed shape: `43s`, `4m1s`,
++ * `1h2m`.
++ *
++ * Deliberately not localized *here*, unlike the duration readings elsewhere in
++ * the app: this column sits beside a truncated task label and reports machine
++ * work, so a digits-and-letters form keeps it narrow and lets the values line
++ * up down the rail instead of changing width with the language. Past an hour
++ * the seconds stop earning their width. Floored at one second — a sub-second
++ * span still happened, and `0s` reads as "not measured"; a row with no span at
++ * all stays blank instead (see `backgroundTaskDurationMs`).
++ */
++function formatBackgroundDuration(ms: number | undefined): string | undefined {
+   if (typeof ms !== 'number' || !Number.isFinite(ms) || ms < 0) return undefined
+   const totalSeconds = Math.max(1, Math.round(ms / 1000))
+-  if (totalSeconds < 60) return t('chat.duration.seconds', { seconds: totalSeconds })
+-  const minutes = Math.floor(totalSeconds / 60)
+-  const seconds = totalSeconds % 60
+-  return t('chat.duration.minutesSeconds', { minutes, seconds })
++  if (totalSeconds < 60) return `${totalSeconds}s`
++  const totalMinutes = Math.floor(totalSeconds / 60)
++  if (totalMinutes < 60) return `${totalMinutes}m${totalSeconds % 60}s`
++  return `${Math.floor(totalMinutes / 60)}h${totalMinutes % 60}m`
++}
++
++/**
++ * How long a background task ran, for a row that may carry either measure.
++ *
++ * The CLI reports `usage.durationMs` for agent-backed tasks and nothing at all
++ * for shell tasks, so a reported value is preferred but is absent on exactly
++ * the rows a reader most often wants timed. The client's own event clock
++ * (`startedAt` → `updatedAt`) then supplies the span. A zero span stays
++ * unmeasured rather than rendering as "1s": an instant is not an observation.
++ */
++function backgroundTaskDurationMs(row: ActivityRow): number | undefined {
++  const reported = row.usage?.durationMs
++  if (typeof reported === 'number' && Number.isFinite(reported) && reported > 0) return reported
++  const { startedAt, updatedAt } = row
++  if (
++    typeof startedAt === 'number' && Number.isFinite(startedAt) &&
++    typeof updatedAt === 'number' && Number.isFinite(updatedAt) &&
++    updatedAt > startedAt
++  ) {
++    return updatedAt - startedAt
++  }
++  return undefined
+ }
+ 
+ function hasBackgroundTaskDetails(row: ActivityRow): boolean {
+@@ -134,7 +170,7 @@ function hasBackgroundTaskDetails(row: ActivityRow): boolean {
+       row.taskType ||
+       row.workflowName ||
+       row.usage?.totalTokens ||
+-      row.usage?.durationMs,
++      backgroundTaskDurationMs(row),
+   )
+ }
+ 
+@@ -401,6 +437,9 @@ function ActivityRowView({
+   selected?: boolean
+ }) {
+   const t = useTranslation()
++  // 关闭会话扩展信息时隐藏本 fork 新增的行耗时；缺省视为开启。
++  // 必须在下方 groupProgress 提前返回之前读取，避免条件式调用 Hook。
++  const sessionExtendedInfo = useSettingsStore((state) => state.sessionExtendedInfo)
+   // A workflow phase is a heading over its agents, not a row you can open.
+   // Rendering it as one made a fan-out read as a flat list where the stage
+   // boundaries were invisible.
+@@ -440,6 +479,12 @@ function ActivityRowView({
+       : isTask && row.summary && row.summary !== row.label
+         ? row.summary
+         : undefined
++  // Execution time on the right of the row. Deliberately not for subagents:
++  // clicking one opens its run detail, and the floating card is too narrow to
++  // carry another field on every agent line (the row would truncate the label).
++  const rowDuration = row.section === 'tasks' || row.section === 'backgroundTasks'
++    ? formatBackgroundDuration(backgroundTaskDurationMs(row))
++    : undefined
+   const content = (
+     <>
+       {isTask ? (
+@@ -463,6 +508,14 @@ function ActivityRowView({
+           </span>
+         ) : null}
+       </span>
++      {sessionExtendedInfo !== false && rowDuration ? (
++        <span
++          data-activity-duration="true"
++          className="shrink-0 whitespace-nowrap font-mono text-[11px] tabular-nums text-[var(--color-text-tertiary)]"
++        >
++          {rowDuration}
++        </span>
++      ) : null}
+       {isTask ? null : (
+         <ActivityStatusIndicator
+           status={displayStatus}
+@@ -573,13 +626,18 @@ function ActivityRowView({
+ 
+ function BackgroundTaskDetail({ row }: { row: ActivityRow }) {
+   const t = useTranslation()
+-  const duration = formatBackgroundDuration(row.usage?.durationMs, t)
+-  const usageParts = [
+-    typeof row.usage?.totalTokens === 'number'
+-      ? t('chat.backgroundAgents.tokens', { count: formatTokenCount(row.usage.totalTokens) })
+-      : '',
+-    duration,
+-  ].filter(Boolean)
++  const sessionExtendedInfo = useSettingsStore((state) => state.sessionExtendedInfo)
++  // The card's own header carries the execution time, not a details field: it
++  // belongs to the task as a whole, and putting it on the usage row tied it to
++  // a row that shell tasks never have (they report no usage at all), so the
++  // time silently vanished on exactly the tasks worth timing.
++  // 关闭扩展信息只令该耗时字段消失，卡片其余字段照常渲染（见下方 return）。
++  const duration = sessionExtendedInfo === false
++    ? undefined
++    : formatBackgroundDuration(backgroundTaskDurationMs(row))
++  const usageTokens = typeof row.usage?.totalTokens === 'number'
++    ? t('chat.backgroundAgents.tokens', { count: formatTokenCount(row.usage.totalTokens) })
++    : ''
+   const details = [
+     row.taskType || row.workflowName
+       ? { label: t('session.activity.details.type'), value: getTaskTypeLabel(row.taskType, t) }
+@@ -593,17 +651,27 @@ function BackgroundTaskDetail({ row }: { row: ActivityRow }) {
+     row.outputFile
+       ? { label: t('session.activity.details.outputFile'), value: row.outputFile }
+       : null,
+-    usageParts.length > 0
+-      ? { label: t('session.activity.details.usage'), value: usageParts.join(' · ') }
++    usageTokens
++      ? { label: t('session.activity.details.usage'), value: usageTokens }
+       : null,
+   ].filter((item): item is { label: string; value: string } => Boolean(item?.value))
+ 
+-  if (details.length === 0) return null
++  if (details.length === 0 && !duration) return null
+ 
+   return (
+     <div className="mx-2 mb-1.5 rounded-[var(--radius-lg)] border border-[var(--color-border)] bg-[var(--color-surface-container-low)] p-3">
+-      <div className="mb-2 text-[11px] font-semibold text-[var(--color-text-tertiary)]">
+-        {t('session.activity.details.title')}
++      <div className="mb-2 flex items-baseline justify-between gap-2">
++        <span className="text-[11px] font-semibold text-[var(--color-text-tertiary)]">
++          {t('session.activity.details.title')}
++        </span>
++        {duration ? (
++          <span
++            data-activity-detail-duration="true"
++            className="shrink-0 whitespace-nowrap font-mono text-[11px] tabular-nums text-[var(--color-text-tertiary)]"
++          >
++            {duration}
++          </span>
++        ) : null}
+       </div>
+       <dl className="space-y-2">
+         {details.map((detail) => (
+diff --git a/desktop/src/components/activity/sessionActivityModel.ts b/desktop/src/components/activity/sessionActivityModel.ts
+index 2c616e6df..aece933f6 100644
+--- a/desktop/src/components/activity/sessionActivityModel.ts
++++ b/desktop/src/components/activity/sessionActivityModel.ts
+@@ -48,6 +48,12 @@ export type ActivityRow = {
+   dismissKey?: string
+   outputFile?: string
+   usage?: BackgroundAgentTaskUsage
++  /**
++   * First event that started the task. Together with `updatedAt` this is the
++   * fallback span for tasks that never report `usage.durationMs` — which is
++   * every shell background task, since the CLI sends no usage for them.
++   */
++  startedAt?: number
+   updatedAt?: number | string
+   member?: TeamMember
+   taskHistory?: {
+@@ -546,6 +552,7 @@ function buildBackgroundRow(task: BackgroundAgentTask, section: ActivitySectionI
+     dismissKey: createBackgroundTaskDismissKey(task),
+     outputFile: task.outputFile,
+     usage: task.usage,
++    startedAt: task.startedAt,
+     updatedAt: task.updatedAt,
+     openable: Boolean(task.toolUseId),
+   }
+diff --git a/desktop/src/components/chat/ActivityGroup.test.tsx b/desktop/src/components/chat/ActivityGroup.test.tsx
+index 7e595980d..b509ab7e9 100644
+--- a/desktop/src/components/chat/ActivityGroup.test.tsx
++++ b/desktop/src/components/chat/ActivityGroup.test.tsx
+@@ -1,7 +1,7 @@
+ import { beforeEach, describe, expect, it } from 'vitest'
+ import { fireEvent, render, screen, within } from '@testing-library/react'
+ import { ActivityGroup } from './ActivityGroup'
+-import { buildActivitySegments, type ActivityStep } from './activityGroupModel'
++import { agentGroupSpanMs, agentRunDurationMs, agentRunInterval, buildActivitySegments, type ActivityStep } from './activityGroupModel'
+ import { useSettingsStore } from '../../stores/settingsStore'
+ import { translate } from '../../i18n'
+ import type { UIMessage } from '../../types/chat'
+@@ -28,8 +28,8 @@ function toolResult(overrides: Partial<ToolResult> & Pick<ToolResult, 'id' | 'to
+   }
+ }
+ 
+-function thinkingStep(id: string, content: string, timestamp = 0): ActivityStep {
+-  return { kind: 'thinking', message: { id, type: 'thinking', content, timestamp } }
++function thinkingStep(id: string, content: string, timestamp = 0, thinkingDurationMs?: number): ActivityStep {
++  return { kind: 'thinking', message: { id, type: 'thinking', content, timestamp, ...(thinkingDurationMs !== undefined ? { thinkingDurationMs } : {}) } }
+ }
+ 
+ function resultsOf(results: ToolResult[]): Map<string, ToolResult> {
+@@ -221,7 +221,72 @@ describe('ActivityGroup', () => {
+     expect(screen.getByText(t('toolGroup.failedCount', { count: 1 }))).toBeTruthy()
+   })
+ 
+-  it('reports the run as running while any step is still unresolved', () => {
++  it('times a settled run as thinking + tool work, not the wall-clock span', () => {
++    // Thinking 1.2s, Read 400ms, Bash 700ms → 2.3s of work, even though the
++    // wall-clock span from the first thought (t=500) to the last result
++    // (t=2000) is 1.5s with idle gaps in between.
++    const steps: ActivityStep[] = [
++      thinkingStep('think-1', 'Check the call sites first.', 500, 1200),
++      { kind: 'tool', toolCall: readCall },
++      { kind: 'tool', toolCall: bashCall },
++    ]
++    render(
++      <ActivityGroup
++        steps={steps}
++        resultMap={resultsOf([
++          toolResult({ id: 'res-read', toolUseId: 'read-1', timestamp: 1_400 }),
++          toolResult({ id: 'res-bash', toolUseId: 'bash-1', timestamp: 2_700 }),
++        ])}
++        childToolCallsByParent={new Map()}
++      />,
++    )
++    expect(screen.getByText('2.3s')).toBeTruthy()
++  })
++
++  it('times a run that ends in thought by including the final thinking span', () => {
++    // The old span metric had no "end" for a trailing thought and printed nothing.
++    // Read 1400ms + trailing thought 2500ms → 3.9s of work.
++    const steps: ActivityStep[] = [
++      { kind: 'tool', toolCall: readCall },
++      thinkingStep('think-1', 'Now I understand the layout.', 3_000, 2500),
++    ]
++    render(
++      <ActivityGroup
++        steps={steps}
++        resultMap={resultsOf([toolResult({ id: 'res-read', toolUseId: 'read-1', timestamp: 2_400 })])}
++        childToolCallsByParent={new Map()}
++      />,
++    )
++    expect(screen.getByText('3.9s')).toBeTruthy()
++  })
++
++  it('shows a settled run\'s token usage as thought + tool estimates', () => {
++    // 400 CJK thought chars → 0.40k; "ok" result → 0.00k. Estimated thought,
++    // so the label keeps the two sides joined by `+` rather than a combined
++    // total of two different measurement methods.
++    const steps: ActivityStep[] = [
++      thinkingStep('think-1', '思考'.repeat(200), 500, 1000),
++      { kind: 'tool', toolCall: readCall },
++    ]
++    render(
++      <ActivityGroup
++        steps={steps}
++        resultMap={resultsOf([toolResult({ id: 'res-read', toolUseId: 'read-1', content: 'ok', timestamp: 2_400 })])}
++        childToolCallsByParent={new Map()}
++      />,
++    )
++    // The two estimates are separate nodes joined by a CSS gap (a literal space
++    // in a monospace font cannot be tightened), so they are no longer one
++    // contiguous text node — assert on the container, not getByText.
++    const tokens = document.querySelector('[data-activity-tokens="true"]')
++    expect(tokens?.textContent).toBe('0.40k+0.00k')
++
++    // Token usage sits before the elapsed time on the right-hand side: the
++    // container that holds the label starts with it.
++    expect(tokens?.parentElement?.textContent).toMatch(/^0\.40k\+0\.00k/)
++  })
++
++  it('shows the run as running while any step is still unresolved', () => {
+     render(
+       <ActivityGroup
+         steps={[
+@@ -311,3 +376,73 @@ describe('buildActivitySegments', () => {
+     expect(segments.map((segment) => segment.label)).toEqual(['TaskUpdate', 'SendMessage (2)'])
+   })
+ })
++
++describe('subagent run duration', () => {
++  it('prefers the runtime report, which is the only length a background run has', () => {
++    // A background agent returns from its launch immediately, so the transcript
++    // delta is ~0 while the run itself took three minutes. The report wins, and
++    // it is placed from the call's own start.
++    const interval = agentRunInterval({ timestamp: 1_000 }, { timestamp: 1_050 }, 180_000)
++    expect(interval).toEqual({ startMs: 1_000, endMs: 181_000 })
++    expect(agentRunDurationMs(interval)).toBe(180_000)
++  })
++
++  it('falls back to the tool_use → result delta for a synchronous run', () => {
++    // No report at all (older transcript, or an Explore/Plan agent that emits no
++    // usage block): the blocking call's own span is the run's wall clock.
++    expect(agentRunDurationMs(agentRunInterval({ timestamp: 1_000 }, { timestamp: 121_000 }, undefined))).toBe(120_000)
++    // A zero report is not a measurement — fall through rather than print 0s.
++    expect(agentRunDurationMs(agentRunInterval({ timestamp: 1_000 }, { timestamp: 121_000 }, 0))).toBe(120_000)
++  })
++
++  it('measures nothing until a synchronous run settles', () => {
++    expect(agentRunInterval({ timestamp: 1_000 }, undefined, undefined)).toBeUndefined()
++    // An end before the start is not a span — refuse it rather than print a
++    // negative duration.
++    expect(agentRunInterval({ timestamp: 5_000 }, { timestamp: 1_000 }, undefined)).toBeUndefined()
++  })
++
++  it('closes a run still in flight at the supplied wall clock', () => {
++    // The dispatch's clock has to move while agents run; without this the span
++    // stops at the last member that finished and the bar looks hung.
++    expect(agentRunInterval({ timestamp: 1_000 }, undefined, undefined, 46_000))
++      .toEqual({ startMs: 1_000, endMs: 46_000 })
++  })
++
++  it('ignores the live clock once a run has settled', () => {
++    // A settled run's own numbers are the truth; the ticking clock must not
++    // stretch it into "still running".
++    expect(agentRunInterval({ timestamp: 1_000 }, { timestamp: 121_000 }, undefined, 999_000))
++      .toEqual({ startMs: 1_000, endMs: 121_000 })
++    expect(agentRunInterval({ timestamp: 1_000 }, { timestamp: 1_050 }, 180_000, 999_000))
++      .toEqual({ startMs: 1_000, endMs: 181_000 })
++  })
++
++  it('refuses a live clock that predates the run', () => {
++    expect(agentRunInterval({ timestamp: 10_000 }, undefined, undefined, 4_000)).toBeUndefined()
++  })
++
++  it('spans the group instead of summing it, because a dispatch runs in parallel', () => {
++    // Three agents dispatched together, each taking two minutes. Serial logic
++    // would say 6m; wall clock is 2m.
++    const concurrent = [
++      { startMs: 0, endMs: 120_000 },
++      { startMs: 500, endMs: 120_500 },
++      { startMs: 1_000, endMs: 121_000 },
++    ]
++    expect(agentGroupSpanMs(concurrent)).toBe(121_000)
++    // Summing is the wrong answer for a parallel dispatch; assert the difference
++    // explicitly so a regression to `+=` cannot pass quietly.
++    expect(agentGroupSpanMs(concurrent)).not.toBe(361_500)
++  })
++
++  it('spans from the earliest start to the latest end when runs overlap only partly', () => {
++    expect(agentGroupSpanMs([{ startMs: 0, endMs: 60_000 }, { startMs: 30_000, endMs: 90_000 }])).toBe(90_000)
++  })
++
++  it('ignores unmeasurable members and stays undefined when none were measured', () => {
++    expect(agentGroupSpanMs([{ startMs: 0, endMs: 30_000 }, undefined, { startMs: 10_000, endMs: 60_000 }])).toBe(60_000)
++    expect(agentGroupSpanMs([undefined, undefined])).toBeUndefined()
++    expect(agentGroupSpanMs([])).toBeUndefined()
++  })
++})
+diff --git a/desktop/src/components/chat/ActivityGroup.tsx b/desktop/src/components/chat/ActivityGroup.tsx
+index 2d84ac1b5..676851b36 100644
+--- a/desktop/src/components/chat/ActivityGroup.tsx
++++ b/desktop/src/components/chat/ActivityGroup.tsx
+@@ -1,4 +1,4 @@
+-import { memo, useMemo, useState } from 'react'
++import { Fragment, memo, useMemo, useState } from 'react'
+ import { getDisclosure, setDisclosure } from '../../lib/disclosureMemory'
+ import { CircleX } from 'lucide-react'
+ import { ToolCallBlock, formatDuration } from './ToolCallBlock'
+@@ -6,13 +6,17 @@ import { ThinkingBlock } from './ThinkingBlock'
+ import {
+   activityDurationMs,
+   activityStepToolCalls,
++  activityTokenParts,
++  activityTokenUsage,
+   buildActivitySegments,
+   countFailedToolCalls,
+   hasUnresolvedToolCalls,
+   toolCallDurationMs,
+   type ActivityStep,
+ } from './activityGroupModel'
++
+ import { useTranslation } from '../../i18n'
++import { useSettingsStore } from '../../stores/settingsStore'
+ import type { UIMessage } from '../../types/chat'
+ 
+ type ToolCall = Extract<UIMessage, { type: 'tool_use' }>
+@@ -62,6 +66,8 @@ export const ActivityGroup = memo(function ActivityGroup({
+   disclosureKey,
+ }: Props) {
+   const t = useTranslation()
++  // 关闭会话扩展信息时隐藏本 fork 新增的 token/耗时读数；缺省视为开启。
++  const sessionExtendedInfo = useSettingsStore((state) => state.sessionExtendedInfo)
+   /** null = follow the run's own state; set = the reader decided. */
+   const [pinnedCollapsedLocal, setPinnedCollapsedLocal] = useState<boolean | null>(null)
+   const pinnedCollapsed = disclosureKey
+@@ -108,6 +114,7 @@ export const ActivityGroup = memo(function ActivityGroup({
+   const segments = buildActivitySegments(steps, t)
+   const elapsed = activityDurationMs(steps, resultMap)
+   const durationLabel = !isRunning && typeof elapsed === 'number' ? formatDuration(elapsed) : ''
++  const tokenParts = !isRunning ? activityTokenParts(activityTokenUsage(steps, resultMap)) : []
+   const summaryText = segments.map((segment) => segment.label).join(', ')
+ 
+   return (
+@@ -140,11 +147,23 @@ export const ActivityGroup = memo(function ActivityGroup({
+                 {t('toolGroup.failedCount', { count: failedCount })}
+               </span>
+             )}
+-            {durationLabel && (
++            {sessionExtendedInfo !== false && tokenParts.length > 0 && (
++              <span
++                data-activity-tokens="true"
++                className="flex items-center gap-[3px] whitespace-nowrap font-mono tabular-nums text-[var(--color-text-tertiary)]"
++              >
++                {tokenParts.map((part, index) => (
++                  <Fragment key={index}>
++                    {index > 0 ? <span className="opacity-60">+</span> : null}
++                    <span>{part}</span>
++                  </Fragment>
++                ))}
++              </span>
++            )}
++            {sessionExtendedInfo !== false && durationLabel && (
+               <span className="whitespace-nowrap font-mono tabular-nums">{durationLabel}</span>
+             )}
+-            <span aria-hidden="true" className={`w-3 text-center text-[8px] ${collapsed ? '' : 'rotate-90'}`}>▸</span>
+-          </span>
++            <span aria-hidden="true" className={`w-3 text-center text-[8px] ${collapsed ? '' : 'rotate-90'}`}>▸</span>          </span>
+         </button>
+ 
+         {/* Rows hang off the summary that names them, so they take the guide
+@@ -157,8 +176,9 @@ export const ActivityGroup = memo(function ActivityGroup({
+                 key={step.message.id}
+                 content={step.message.content}
+                 isActive={step.message.id === activeThinkingId}
+-              />
+-            ) : (
++                thinkingDurationMs={step.message.thinkingDurationMs}
++                liveStartAt={step.message.timestamp}
++              />            ) : (
+               <ActivityToolRow
+                 key={step.toolCall.id}
+                 toolCall={step.toolCall}
+diff --git a/desktop/src/components/chat/MessageActionBar.tsx b/desktop/src/components/chat/MessageActionBar.tsx
+index 9a2966ebc..327bf0cf3 100644
+--- a/desktop/src/components/chat/MessageActionBar.tsx
++++ b/desktop/src/components/chat/MessageActionBar.tsx
+@@ -113,7 +113,12 @@ export function MessageActionBar({
+           />
+         ) : null}
+         {metadata ? (
+-          <span className={hasCopy || branchAction ? 'ml-3 min-w-0' : 'min-w-0'}>
++          // 11px, matching the hover time beside it. The footer this slot was
++          // built for used to be its own row with `text-[11px]` on the container
++          // (see the completed-turn stamp's history); folding it in here dropped
++          // that class, so it inherited the message body's reading size and the
++          // timestamp/usage/duration read as large as the reply above them.
++          <span className={`text-[11px] ${hasCopy || branchAction ? 'ml-3 min-w-0' : 'min-w-0'}`}>
+             {metadata}
+           </span>
+         ) : null}
+diff --git a/desktop/src/components/chat/MessageList.test.tsx b/desktop/src/components/chat/MessageList.test.tsx
+index c2e75c1c4..5052376ff 100644
+--- a/desktop/src/components/chat/MessageList.test.tsx
++++ b/desktop/src/components/chat/MessageList.test.tsx
+@@ -317,7 +317,9 @@ describe('MessageList nested tool calls', () => {
+     vi.restoreAllMocks()
+     vi.unstubAllGlobals()
+     resetSessionScrollSnapshotsForTests()
+-    useSettingsStore.setState({ locale: 'en' })
++    // Both are store state a test can flip; reset them together so a test that
++    // turns one off cannot silently change what the next one renders.
++    useSettingsStore.setState({ locale: 'en', sessionExtendedInfo: true })
+     useUIStore.setState({ pendingSettingsTab: null })
+     useTabStore.setState({ activeTabId: ACTIVE_TAB, tabs: [{ sessionId: ACTIVE_TAB, title: 'Test', type: 'session' as const, status: 'idle' }] })
+     useSessionStore.setState({ sessions: [], activeSessionId: null, isLoading: false, error: null })
+@@ -1681,6 +1683,39 @@ describe('MessageList nested tool calls', () => {
+     expect(screen.getByTestId('background-task-event-card').textContent).toContain('1 分 5 秒')
+   })
+ 
++  it('hides the background task duration when session detail readouts are off', () => {
++    // This inline card was the one background-task duration the switch missed,
++    // so turning it off still left times on the conversation timeline.
++    useSettingsStore.setState({ locale: 'zh', sessionExtendedInfo: false })
++    useChatStore.setState({
++      sessions: {
++        [ACTIVE_TAB]: makeSessionState({
++          messages: [
++            {
++              id: 'background-task-shell-off',
++              type: 'background_task',
++              timestamp: 2,
++              task: {
++                taskId: 'shell-task-off',
++                toolUseId: 'shell-tool-off',
++                status: 'stopped',
++                taskType: 'local_bash',
++                summary: 'Running Playwright checks',
++                usage: { totalTokens: 1200, toolUses: 4, durationMs: 65000 },
++                startedAt: 2,
++                updatedAt: 2,
++              },
++            },
++          ],
++        }),
++      },
++    })
++
++    render(<MessageList />)
++
++    expect(screen.getByTestId('background-task-event-card').textContent).not.toContain('1 分 5 秒')
++  })
++
+   it('leaves a completed background task to the activity panel, but keeps a failure', () => {
+     const task = (id: string, status: 'completed' | 'failed') => ({
+       id: `background-task-${id}`,
+@@ -6359,9 +6394,14 @@ describe('MessageList nested tool calls', () => {
+     await waitFor(() => expect(container.querySelector('[data-chat-render-item-key="assistant-virtual-file"]')).toBeNull())
+     act(() => useWorkspaceStore.getState().setLayout(ACTIVE_TAB, 'hidden'))
+ 
+-    const remountedOpener = await screen.findByRole('button', { name: 'Open src/virtual.ts in workspace' })
++    // Restore runs on an rAF retry loop (up to 7 frames); give it real headroom
++    // under full-suite load where frames stretch past the 1s findByRole default.
++    const remountedOpener = await waitFor(
++      async () => screen.findByRole('button', { name: 'Open src/virtual.ts in workspace' }),
++      { timeout: 5000 },
++    )
+     expect(remountedOpener).not.toBe(opener)
+-    await waitFor(() => expect(document.activeElement).toBe(remountedOpener))
++    await waitFor(() => expect(document.activeElement).toBe(remountedOpener), { timeout: 5000 })
+     expect(screen.getByRole('button', { name: 'Hide changed files' }).getAttribute('aria-expanded')).toBe('true')
+     expect(useWorkspaceStore.getState().getSession(ACTIVE_TAB).origin).toBeNull()
+   })
+@@ -9128,7 +9168,9 @@ describe('MessageList agent card activity', () => {
+     vi.unstubAllGlobals()
+     resetAgentRunActivityCache()
+     resetSessionScrollSnapshotsForTests()
+-    useSettingsStore.setState({ locale: 'en' })
++    // Both are store state a test can flip; reset them together so a test that
++    // turns one off cannot silently change what the next one renders.
++    useSettingsStore.setState({ locale: 'en', sessionExtendedInfo: true })
+     useUIStore.setState({ pendingSettingsTab: null })
+     useTabStore.setState({
+       activeTabId: ACTIVE_TAB,
+diff --git a/desktop/src/components/chat/MessageList.tsx b/desktop/src/components/chat/MessageList.tsx
+index a76ed46c1..ffb190e6d 100644
+--- a/desktop/src/components/chat/MessageList.tsx
++++ b/desktop/src/components/chat/MessageList.tsx
+@@ -5,6 +5,7 @@ import { ApiError } from '../../api/client'
+ import { sessionsApi, type SessionRewindMode, type SessionTurnCheckpoint } from '../../api/sessions'
+ import { listPendingPermissions, useChatStore } from '../../stores/chatStore'
+ import { useSessionStore } from '../../stores/sessionStore'
++import { useSettingsStore } from '../../stores/settingsStore'
+ import { useWorkspaceChatContextStore } from '../../stores/workspaceChatContextStore'
+ import { useWorkspaceStore, type WorkspaceOrigin } from '../../stores/workspaceStore'
+ import { SETTINGS_TAB_ID, useTabStore } from '../../stores/tabStore'
+@@ -402,11 +403,15 @@ function GoalContinuationDivider({ message }: { message: GoalEvent }) {
+ 
+ function BackgroundTaskEventCard({ message }: { message: BackgroundTaskEvent }) {
+   const t = useTranslation()
++  // The switch is documented as covering background-task durations, and this
++  // inline card is such a duration — it was the one readout left ungated, so
++  // turning the switch off still left times on the conversation timeline.
++  const sessionExtendedInfo = useSettingsStore((state) => state.sessionExtendedInfo)
+   const { task } = message
+   const isRunning = task.status === 'running'
+   const isFailed = task.status === 'failed'
+   const isStopped = task.status === 'stopped'
+-  const duration = formatDurationMs(task.usage?.durationMs, t)
++  const duration = sessionExtendedInfo === false ? null : formatDurationMs(task.usage?.durationMs, t)
+   const detail = task.summary || task.lastToolName || task.description || task.outputFile || task.taskId
+   const label = getBackgroundTaskLabel(task.taskType, t)
+ 
+@@ -2326,6 +2331,29 @@ export function MessageList({
+     }
+     return statuses
+   }, [backgroundAgentTasks])
++  // What the runs still in flight have produced so far. A running dispatch
++  // reports progress on every turn, and a reader waiting on a group of agents
++  // wants the number to move rather than appear only once the last one lands.
++  // Only running tasks are keyed: a settled run's notification already carries
++  // its final numbers, and this must not shadow them with a stale snapshot.
++  const agentTaskLiveUsage = useMemo<Record<string, { totalTokens?: number; thinkTokens?: number }>>(() => {
++    const usage: Record<string, { totalTokens?: number; thinkTokens?: number }> = {}
++    for (const task of Object.values(backgroundAgentTasks ?? {})) {
++      if (!task.toolUseId || !task.usage) continue
++      // A settled run whose notification carried numbers is authoritative and
++      // must not be shadowed. But a run the user stopped (or one that died)
++      // closes with no usage at all — there `task.usage` holds the last figure
++      // reported while it was alive, and dropping it would blank the readout at
++      // the very moment it becomes the only record of what the run did.
++      const settledFinal = agentTaskNotifications[task.toolUseId]?.usage?.totalTokens
++      if (task.status !== 'running' && settledFinal !== undefined) continue
++      usage[task.toolUseId] = {
++        ...(task.usage.totalTokens !== undefined ? { totalTokens: task.usage.totalTokens } : {}),
++        ...(task.usage.thinkTokens !== undefined ? { thinkTokens: task.usage.thinkTokens } : {}),
++      }
++    }
++    return usage
++  }, [backgroundAgentTasks, agentTaskNotifications])
+   const hasRunningBackgroundTasks = hasAnyRunningBackgroundTasks(backgroundAgentTasks)
+   const pendingPermissions = listPendingPermissions(sessionState)
+   const activeAskUserQuestionToolUseId =
+@@ -3557,6 +3585,7 @@ export function MessageList({
+             childToolCallsByParent={childToolCallsByParent}
+             agentTaskNotifications={agentTaskNotifications}
+             agentTaskStatuses={agentTaskStatuses}
++            agentTaskLiveUsage={agentTaskLiveUsage}
+             activeThinkingId={activeThinkingId}
+             isStreaming={
+               chatState === 'tool_executing' &&
+@@ -3910,7 +3939,7 @@ export const MessageBlock = memo(function MessageBlock({
+     case 'thinking':
+       // No wrapper padding: the row's own `-mx-2 … px-2` already lands its text
+       // on the column's left edge, the same as one inside a run.
+-      return <ThinkingBlock content={message.content} isActive={message.id === activeThinkingId} disclosureKey={message.id} />
++      return <ThinkingBlock content={message.content} isActive={message.id === activeThinkingId} disclosureKey={message.id} thinkingDurationMs={message.thinkingDurationMs} thinkingTokens={message.thinkingTokens} liveStartAt={message.timestamp} />
+     case 'tool_use':
+       if (message.toolName === 'AskUserQuestion' && !message.isPending) {
+         return (
+diff --git a/desktop/src/components/chat/ThinkingBlock.test.tsx b/desktop/src/components/chat/ThinkingBlock.test.tsx
+index 1f3d6d467..adb8fb584 100644
+--- a/desktop/src/components/chat/ThinkingBlock.test.tsx
++++ b/desktop/src/components/chat/ThinkingBlock.test.tsx
+@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+ import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+ import '@testing-library/jest-dom'
+ 
+-import { ThinkingBlock, thinkingPreview } from './ThinkingBlock'
++import { ThinkingBlock, thinkingPreview, formatThinkingDuration, formatThinkingTokens, thinkingBadgeLabel } from './ThinkingBlock'
+ import { useSettingsStore } from '../../stores/settingsStore'
+ import { clearDisclosureMemory } from '../../lib/disclosureMemory'
+ 
+@@ -34,6 +34,63 @@ describe('thinkingPreview', () => {
+   })
+ })
+ 
++describe('formatThinkingDuration', () => {
++  it('shows one-decimal seconds under a minute', () => {
++    expect(formatThinkingDuration(12300)).toBe('12.3s')
++    expect(formatThinkingDuration(59400)).toBe('59.4s')
++  })
++
++  it('switches to whole minutes with zero-padded seconds at one minute', () => {
++    expect(formatThinkingDuration(60000)).toBe('1m00s')
++    expect(formatThinkingDuration(185000)).toBe('3m05s')
++  })
++
++  it('drops the seconds once the span reaches an hour', () => {
++    expect(formatThinkingDuration(3600000)).toBe('1h00m')
++    expect(formatThinkingDuration(7500000)).toBe('2h05m')
++  })
++})
++
++describe('thinkingBadgeLabel', () => {
++  it('joins the token count and duration for a settled block', () => {
++    expect(thinkingBadgeLabel('思考'.repeat(400), 12340, 0, false, undefined)).toBe('0.80k · 12.3s')
++  })
++
++  it('shows nothing for empty content', () => {
++    expect(thinkingBadgeLabel('   ', 12340, 0, false, undefined)).toBe('')
++  })
++
++  it('uses the live elapsed while active and anchored', () => {
++    expect(thinkingBadgeLabel('reasoning', undefined, 20000, true, 1700000000000)).toBe(
++      `${formatThinkingTokens('reasoning')} · 20.0s`,
++    )
++  })
++
++  it('shows nothing for an active block with no start anchor', () => {
++    expect(thinkingBadgeLabel('reasoning', undefined, 0, true, undefined)).toBe('')
++  })
++
++  it('shows the token count alone for a settled block with no recorded duration', () => {
++    // Pre-feature transcripts never measured the wait — keep the token side of
++    // the badge instead of dropping the whole thing.
++    expect(thinkingBadgeLabel('reasoning', undefined, 0, false, undefined)).toBe(
++      formatThinkingTokens('reasoning'),
++    )
++  })
++
++  it('treats a zero duration as unmeasured rather than printing 0.0s', () => {
++    // An unanchored block records no span; a literal `0.0s` would claim a
++    // measurement that never happened.
++    expect(thinkingBadgeLabel('reasoning', 0, 0, false, undefined)).toBe(
++      formatThinkingTokens('reasoning'),
++    )
++    // A real (if short) span still renders with its duration.
++    expect(thinkingBadgeLabel('reasoning', 1200, 0, false, undefined)).toBe(
++      `${formatThinkingTokens('reasoning')} · 1.2s`,
++    )
++  })
++})
++
+ describe('ThinkingBlock', () => {
+   beforeEach(() => {
+     useSettingsStore.setState({ locale: 'zh' })
+@@ -41,7 +98,7 @@ describe('ThinkingBlock', () => {
+ 
+   afterEach(() => {
+     cleanup()
+-    useSettingsStore.setState({ locale: 'zh' })
++    useSettingsStore.setState({ locale: 'zh', sessionExtendedInfo: true })
+   })
+ 
+   it('shows the in-progress label while thinking is active', () => {
+@@ -69,6 +126,43 @@ describe('ThinkingBlock', () => {
+     expect(screen.getByRole('button')).toHaveTextContent('Thought')
+   })
+ 
++  it('shows the token + duration badge once thinking has settled', () => {
++    // 800 CJK chars → estimateTokens ≈ 800 → "0.80k"; 12340ms → "12.3s".
++    const content = '思考'.repeat(400)
++    render(<ThinkingBlock content={content} thinkingDurationMs={12340} />)
++    const badge = screen.getByText(/\d\.\d{2}k · \d+\.\ds/)
++    expect(badge).toHaveTextContent('0.80k')
++    expect(badge).toHaveTextContent('12.3s')
++  })
++
++  it('shows the token-only badge for a block with no recorded duration', () => {
++    // No measured wait → the badge keeps its token side only (pre-feature
++    // transcripts would otherwise render no badge at all).
++    render(<ThinkingBlock content="reasoning..." isActive={false} />)
++    expect(screen.getByText(formatThinkingTokens('reasoning...'))).toBeInTheDocument()
++    expect(screen.queryByText(/\d\.\d{2}k · /)).toBeNull()
++  })
++
++  it('treats a still-active block without a start anchor as not yet showing a badge', () => {
++    render(<ThinkingBlock content="reasoning..." isActive />)
++    expect(screen.queryByText(/\d\.\d{2}k · /)).toBeNull()
++  })
++
++  it('hides the token + duration badge when session extended info is off', () => {
++    useSettingsStore.setState({ sessionExtendedInfo: false })
++    const { container } = render(<ThinkingBlock content={'思考'.repeat(400)} thinkingDurationMs={12340} />)
++    // 徽标整体消失，思考正文与行标签照常渲染。
++    expect(container.querySelector('[data-thinking-usage="true"]')).toBeNull()
++    expect(screen.getByRole('button')).toHaveTextContent('已思考')
++  })
++
++  it('shows a live badge for an active block anchored to a start time', () => {
++    // Active + a start anchor in the past → a non-zero live elapsed renders.
++    render(<ThinkingBlock content="reasoning..." isActive liveStartAt={Date.now() - 20000} />)
++    const badge = screen.getByText(/\d\.\d{2}k · /)
++    expect(badge).toBeInTheDocument()
++  })
++
+   it('keeps the expanded state across a virtualized row unmount and remount', () => {
+     // Virtualization unmounts rows outside the window. Losing the reader's
+     // disclosure choice changes the row height on the way back, which is the
+@@ -86,3 +180,30 @@ describe('ThinkingBlock', () => {
+     expect(second.container.querySelector('[data-thinking-content="expanded"]')).not.toBeNull()
+   })
+ })
++
++describe('exact thinking tokens', () => {
++  // The badge used to read only content, so it reported a character estimate.
++  // Across one session's turns that estimate missed by ~60% at the median,
++  // because a turn's real output also carries reasoning scaffolding and
++  // tool-call framing no character count can see. When the engine's id side
++  // channel supplied a count, that count is what the number should be.
++  it('prefers the engine count over the character estimate', () => {
++    const content = 'x'.repeat(3500) // ~1000 tokens by the heuristic
++    expect(formatThinkingTokens(content)).toBe('1.00k')
++    expect(formatThinkingTokens(content, 4210)).toBe('4.21k')
++  })
++
++  it('falls back to the estimate when no count was reported', () => {
++    const content = '你好世界'
++    expect(formatThinkingTokens(content, undefined)).toBe(
++      formatThinkingTokens(content),
++    )
++    // A zero is "not measured", not "nothing was generated".
++    expect(formatThinkingTokens(content, 0)).toBe(formatThinkingTokens(content))
++  })
++
++  it('shows the engine count in the badge label', () => {
++    const label = thinkingBadgeLabel('some thinking text', 12_000, 0, false, undefined, 3300)
++    expect(label).toContain('3.30k')
++  })
++})
+diff --git a/desktop/src/components/chat/ThinkingBlock.tsx b/desktop/src/components/chat/ThinkingBlock.tsx
+index e18d2884d..c319a2101 100644
+--- a/desktop/src/components/chat/ThinkingBlock.tsx
++++ b/desktop/src/components/chat/ThinkingBlock.tsx
+@@ -2,7 +2,9 @@ import { useState, useEffect, useMemo, useRef } from 'react'
+ import { getDisclosure, setDisclosure } from '../../lib/disclosureMemory'
+ import { Brain } from 'lucide-react'
+ import { useTranslation } from '../../i18n'
++import { estimateTokens } from '../../lib/tpsMeter'
+ import { MarkdownRenderer } from '../markdown/MarkdownRenderer'
++import { useSettingsStore } from '../../stores/settingsStore'
+ 
+ /**
+  * One line: the label, a preview of the reasoning, and the full text on demand.
+@@ -20,15 +22,58 @@ export function ThinkingBlock({
+   content,
+   isActive = false,
+   disclosureKey,
++  thinkingDurationMs,
++  thinkingTokens,
++  liveStartAt,
+ }: {
+   content: string
+   isActive?: boolean
+   /** Stable key that survives virtualized row unmount/remount. */
+   disclosureKey?: string
++  /** Wall-clock ms this block spent generating, once finished (live settle or
++   * transcript replay). */
++  thinkingDurationMs?: number
++  /** Exact tokens the engine generated for this block, when the id side channel
++   * reported them. Preferred over the character estimate below. */
++  thinkingTokens?: number
++  /** Wall-clock epoch the block started generating (the message `timestamp`,
++   * anchored to the server's first sight of the block). While the block is
++   * still active the badge ticks against this, refreshed every 3s. */
++  liveStartAt?: number
+ }) {
+   const t = useTranslation()
++  // 关闭会话扩展信息时隐藏本 fork 新增的思考徽标；思考正文与实时计时不受影响。
++  const sessionExtendedInfo = useSettingsStore((state) => state.sessionExtendedInfo)
+   const [localExpanded, setLocalExpanded] = useState(false)
++  const [liveElapsedMs, setLiveElapsedMs] = useState(0)
+   const expanded = disclosureKey ? (getDisclosure(disclosureKey) ?? localExpanded) : localExpanded
++
++  // The badge's clock anchor. A live block's `timestamp` is already the
++  // server's first sight of it; a history-replayed block's `timestamp` is the
++  // block's *end* (the transcript line time), so back off by its recorded
++  // duration to recover the true start — otherwise a replayed still-active
++  // block would tick up from near zero.
++  const liveAnchorMs = liveStartAt === undefined
++    ? undefined
++    : thinkingDurationMs !== undefined
++      ? Math.max(0, liveStartAt - thinkingDurationMs)
++      : liveStartAt
++
++  // Thinking, unlike a tool, runs for a long time, so its elapsed time is shown
++  // from the very first moment and refreshed on a 3s cadence while it is still
++  // generating (not frozen until the block ends, which would read as "not
++  // doing anything"). The clock is anchored to `liveAnchorMs` — the server's
++  // first sight of the block — not the client's render time.
++  useEffect(() => {
++    if (!isActive || liveAnchorMs === undefined) return
++    const refresh = () => {
++      const elapsed = Date.now() - liveAnchorMs
++      setLiveElapsedMs(Number.isFinite(elapsed) && elapsed >= 0 ? elapsed : 0)
++    }
++    refresh()
++    const timer = setInterval(refresh, LIVE_ELAPSED_REFRESH_MS)
++    return () => clearInterval(timer)
++  }, [isActive, liveAnchorMs])
+   const contentRef = useRef<HTMLDivElement>(null)
+   const displayContent = useMemo(() => content.replace(/\r\n?/g, '\n').trimEnd(), [content])
+   const hasDisplayContent = displayContent.trim().length > 0
+@@ -81,6 +126,14 @@ export function ThinkingBlock({
+         ) : (
+           <span className="flex-1" />
+         )}
++        {sessionExtendedInfo !== false && thinkingBadgeLabel(content, thinkingDurationMs, liveElapsedMs, isActive, liveAnchorMs, thinkingTokens) && (
++          <span
++            data-thinking-usage="true"
++            className="shrink-0 whitespace-nowrap font-mono text-[10px] tabular-nums text-[var(--color-text-tertiary)]"
++          >
++            {thinkingBadgeLabel(content, thinkingDurationMs, liveElapsedMs, isActive, liveAnchorMs, thinkingTokens)}
++          </span>
++        )}
+         <span aria-hidden="true" className="shrink-0 text-[8px] text-[var(--color-text-tertiary)]">
+           {expanded ? '▾' : '▸'}
+         </span>
+@@ -105,6 +158,77 @@ export function ThinkingBlock({
+   )
+ }
+ 
++/** Cadence for the live thinking-elapsed refresh while a block is generating. */
++export const LIVE_ELAPSED_REFRESH_MS = 3000
++
++/**
++ * Right-end badge of the thinking row: `1.23k · 12.3s` — estimated tokens of
++ * the block plus how long the reader waited for it. Same "deliberately a
++ * whisper" register as the activity digest: mono, tabular, tertiary.
++ *
++ * While the block is still generating the duration is the live elapsed time
++ * (ticking, from `liveElapsedMs`); once settled it is the fixed
++ * `thinkingDurationMs`. A block that is active but has no start anchor shows
++ * nothing yet, so an empty first frame never prints `0.0s`. A settled block
++ * without a recorded duration (pre-feature transcripts) keeps its token count
++ * on its own, so the badge never disappears just because the wait time was
++ * never measured.
++ */
++export function thinkingBadgeLabel(
++  content: string,
++  thinkingDurationMs: number | undefined,
++  liveElapsedMs: number,
++  isActive: boolean,
++  liveStartAt: number | undefined,
++  thinkingTokens?: number,
++): string {
++  if (content.trim().length === 0) return ''
++  if (isActive) {
++    if (liveStartAt === undefined) return ''
++    return `${formatThinkingTokens(content, thinkingTokens)} · ${formatThinkingDuration(liveElapsedMs)}`
++  }
++  // Missing or non-positive both mean "never measured": older transcripts, and
++  // blocks whose start anchor was never seen (a length of exactly 0 is not a
++  // real generation span). Either way the token count stands alone rather than
++  // pairing with a confident `0.0s`.
++  if (thinkingDurationMs === undefined || thinkingDurationMs <= 0) {
++    return formatThinkingTokens(content, thinkingTokens)
++  }
++  return `${formatThinkingTokens(content, thinkingTokens)} · ${formatThinkingDuration(thinkingDurationMs)}`
++}
++
++/**
++ * Thinking token count as `xx.xk`, two decimals (`1.23k`, `12.50k`).
++ *
++ * An exact count wins when the engine reported one. The fallback is a
++ * character heuristic (CJK one each, others 1/3.5, scaled by the model's
++ * learned coefficients), and it is measurably wrong: across one session's turns
++ * it missed by ~60% at the median, because a turn's real output also carries
++ * reasoning scaffolding and tool-call framing that no character count can see.
++ */
++export function formatThinkingTokens(text: string, thinkingTokens?: number): string {
++  const tokens = typeof thinkingTokens === 'number' && thinkingTokens > 0
++    ? thinkingTokens
++    : estimateTokens(text)
++  return `${(tokens / 1000).toFixed(2)}k`
++}
++
++/**
++ * Three-ladder duration for the thinking badge, deliberately NOT the tool
++ * `formatDuration`: `<60s` → `12.3s` (one decimal), `60s~1h` → `3m05s`
++ * (whole, zero-padded), `>=1h` → `2h05m` (no seconds). Round the seconds once,
++ * then derive the parts — rounding each part independently can print
++ * impossible values like `1m60s`.
++ */
++export function formatThinkingDuration(durationMs: number): string {
++  const totalSeconds = Math.round(durationMs / 1000)
++  if (totalSeconds < 60) return `${(durationMs / 1000).toFixed(1)}s`
++  const minutes = Math.floor(totalSeconds / 60)
++  const seconds = totalSeconds % 60
++  if (minutes < 60) return `${minutes}m${String(seconds).padStart(2, '0')}s`
++  return `${Math.floor(minutes / 60)}h${String(minutes % 60).padStart(2, '0')}m`
++}
++
+ const THINKING_PREVIEW_MAX_CHARS = 160
+ /** A short line ending in a colon is a heading for what comes after it. */
+ const THINKING_OPENER_MAX_CHARS = 24
+diff --git a/desktop/src/components/chat/ToolCallGroup.test.tsx b/desktop/src/components/chat/ToolCallGroup.test.tsx
+new file mode 100644
+index 000000000..bc20fea80
+--- /dev/null
++++ b/desktop/src/components/chat/ToolCallGroup.test.tsx
+@@ -0,0 +1,241 @@
++import { afterEach, describe, expect, it } from 'vitest'
++import { cleanup, fireEvent, render, screen } from '@testing-library/react'
++import { ToolCallGroup } from './ToolCallGroup'
++import { useSettingsStore } from '../../stores/settingsStore'
++import type { AgentTaskNotification, UIMessage } from '../../types/chat'
++
++// 会话扩展信息在本 fork 默认开启；用例若关闭后必须复位，避免泄漏到后续用例。
++// cleanup 先卸载，否则仍在挂载的组件会订阅到这里的 setState（act 警告）。
++afterEach(() => {
++  cleanup()
++  useSettingsStore.setState({ sessionExtendedInfo: true })
++})
++
++type ToolCall = Extract<UIMessage, { type: 'tool_use' }>
++type ToolResult = Extract<UIMessage, { type: 'tool_result' }>
++
++function agentCall(id: string, timestamp: number): ToolCall {
++  return {
++    id: `tool-${id}`,
++    type: 'tool_use',
++    toolName: 'Agent',
++    toolUseId: id,
++    input: { description: `Review ${id}` },
++    timestamp,
++  }
++}
++
++function result(id: string, timestamp: number): ToolResult {
++  return {
++    id: `result-${id}`,
++    type: 'tool_result',
++    toolUseId: id,
++    content: 'done',
++    isError: false,
++    timestamp,
++  }
++}
++
++function renderGroup(
++  toolCalls: ToolCall[],
++  results: ToolResult[],
++  notifications: Record<string, AgentTaskNotification> = {},
++  liveUsage: Record<string, { totalTokens?: number; thinkTokens?: number }> = {},
++) {
++  return render(
++    <ToolCallGroup
++      sessionId="session-1"
++      toolCalls={toolCalls}
++      resultMap={new Map(results.map((item) => [item.toolUseId, item]))}
++      childToolCallsByParent={new Map()}
++      agentTaskNotifications={notifications}
++      agentTaskLiveUsage={liveUsage}
++    />,
++  )
++}
++
++function rowDurations(): (string | null | undefined)[] {
++  return Array.from(document.querySelectorAll('[data-agent-call-duration="true"]'))
++    .map((node) => node.textContent?.trim())
++}
++
++describe('subagent run duration', () => {
++  it('sums the members into the header and shows each run beside its own actions', () => {
++    // Two synchronous agents, each blocking its own tool call: 120s and 300s.
++    const toolCalls = [agentCall('a', 1_000), agentCall('b', 200_000)]
++    const results = [result('a', 121_000), result('b', 500_000)]
++    renderGroup(toolCalls, results)
++
++    // Header is the group's wall-clock SPAN, not the sum: the runs start 199s
++    // apart and the last ends at 500s, so it reads 8m19s — a serial sum would
++    // have said 2m0s + 5m0s = 7m0s.
++    const header = screen.getByRole('button', { name: /dispatched 2 agents/i })
++    const headerDuration = document.querySelector('[data-agent-group-duration="true"]')
++    expect(headerDuration?.textContent?.trim()).toBe('8m19s')
++    expect(header.textContent).toContain('Duration')
++    expect(header.textContent).not.toContain('7m0s')
++    // Rows only mount once the group is expanded, and each stays bare.
++    expect(rowDurations()).toEqual([])
++    fireEvent.click(header)
++    expect(rowDurations()).toEqual(['2m0s', '5m0s'])
++  })
++
++  it('prefers the runtime report for a background agent, whose call returns at launch', () => {
++    // The launch result lands 50ms after the call, but the run itself took
++    // three minutes — only the report knows that.
++    const toolCalls = [agentCall('bg', 1_000)]
++    const results = [result('bg', 1_050)]
++    const notifications: Record<string, AgentTaskNotification> = {
++      bg: {
++        taskId: 'task-bg',
++        toolUseId: 'bg',
++        status: 'completed',
++        usage: { durationMs: 180_000 },
++      },
++    }
++    renderGroup(toolCalls, results, notifications)
++
++    expect(document.querySelector('[data-agent-group-duration="true"]')?.textContent?.trim()).toBe('3m0s')
++    fireEvent.click(screen.getByRole('button', { name: /agent/i }))
++    expect(rowDurations()).toEqual(['3m0s'])
++  })
++
++  it('shows an estimate for the elapsed time while a synchronous run is in flight', () => {
++    // Waiting on a dispatch means watching elapsed time, so the header reports
++    // it from the moment the call starts rather than staying blank until the
++    // whole group ends. It is marked ≈ because the span is still open.
++    renderGroup([agentCall('a', Date.now() - 30_000)], [])
++
++    const headerDuration = document.querySelector('[data-agent-group-duration="true"]')
++    expect(headerDuration?.textContent).toContain('≈')
++    expect(headerDuration?.textContent).toMatch(/30s|31s/)
++
++    const header = screen.getByRole('button', { name: /agent/i })
++    fireEvent.click(header)
++    // Rows keep reporting settled numbers only; the summary is what ticks.
++    expect(rowDurations()).toEqual([])
++  })
++
++  it('omits the elapsed estimate when the call has no usable start', () => {
++    // An absent timestamp defaults to 0, and closing that at "now" would print a
++    // span measured from 1970.
++    renderGroup([agentCall('a', 0)], [])
++    expect(document.querySelector('[data-agent-group-duration="true"]')).toBeNull()
++  })
++})
++
++describe('a parallel dispatch is spanned, never summed', () => {
++  it('reports one run\'s length when the agents start together', () => {
++    // Both dispatched at the same instant, each taking two minutes. Summing
++    // would print 4m of work for 2m of wall clock.
++    const toolCalls = [agentCall('a', 1_000), agentCall('b', 1_000)]
++    const results = [result('a', 121_000), result('b', 121_000)]
++    renderGroup(toolCalls, results)
++
++    const headerDuration = document.querySelector('[data-agent-group-duration="true"]')
++    expect(headerDuration?.textContent?.trim()).toBe('2m0s')
++  })
++})
++
++describe('subagent group usage', () => {
++  const withUsage = (id: string, timestamp: number, totalTokens: number): ToolResult => ({
++    id: `result-${id}`,
++    type: 'tool_result',
++    toolUseId: id,
++    content: `agentId: ${id} (use SendMessage with to: '${id}')\n<usage>total_tokens: ${totalTokens}\ntool_uses: 3\nduration_ms: 1000</usage>`,
++    isError: false,
++    timestamp,
++  })
++
++  it('adds the members up in the header — work is not shared the way the wall clock is', () => {
++    // Two concurrent runs of 10k and 20k: 30k of work, unlike the span, which
++    // would count the overlap once.
++    const toolCalls = [agentCall('a', 1_000), agentCall('b', 1_000)]
++    renderGroup(toolCalls, [withUsage('a', 61_000, 10_000), withUsage('b', 61_000, 20_000)])
++
++    const usage = document.querySelector('[data-agent-group-usage="true"]')
++    expect(usage?.textContent?.trim()).toBe('30.00k')
++  })
++
++  it('omits the number rather than showing zero when nothing reported tokens', () => {
++    renderGroup([agentCall('a', 1_000)], [result('a', 61_000)])
++    expect(document.querySelector('[data-agent-group-usage="true"]')).toBeNull()
++  })
++
++  it('keeps tokens off the individual rows, where only the duration belongs', () => {
++    const toolCalls = [agentCall('a', 1_000), agentCall('b', 1_000)]
++    renderGroup(toolCalls, [withUsage('a', 61_000, 10_000), withUsage('b', 61_000, 20_000)])
++    fireEvent.click(screen.getByRole('button', { name: /dispatched 2 agents/i }))
++
++    const rowText = document.querySelector('[data-agent-call-duration="true"]')?.parentElement?.textContent ?? ''
++    expect(rowText).not.toContain('k')
++  })
++
++  it('splits into thinking + the rest when the runtime reported the reasoning share', () => {
++    // The runtime emits the split only while the thinking itself is withheld, so
++    // a present count is the case where the bar must show two numbers: without
++    // it, a 30k run reads as 30k of answer when 22k of it was deliberation.
++    const withSplit = (id: string, total: number, think: number): ToolResult => ({
++      id: `result-${id}`,
++      type: 'tool_result',
++      toolUseId: id,
++      content: `agentId: ${id} (use SendMessage with to: '${id}')\n<usage>total_tokens: ${total}\ntool_uses: 3\nduration_ms: 1000\noutput_tokens: ${total}\nthink_tokens: ${think}</usage>`,
++      isError: false,
++      timestamp: 61_000,
++    })
++    renderGroup([agentCall('a', 1_000)], [withSplit('a', 30_000, 22_000)])
++
++    const usage = document.querySelector('[data-agent-group-usage="true"]')
++    expect(usage?.textContent?.replace(/\s+/g, '')).toBe('22.00k+8.00k')
++  })
++
++  it('counts what a still-running run has produced so far', () => {
++    // Waiting on a dispatch means watching the total climb. Before this, the
++    // header had nothing to show until the last agent finished, so six agents
++    // running for minutes reported nothing at all.
++    renderGroup([agentCall('a', Date.now() - 1_000)], [], {}, { a: { totalTokens: 12_000 } })
++
++    const usage = document.querySelector('[data-agent-group-usage="true"]')
++    expect(usage?.textContent?.replace(/\s+/g, '')).toBe('≈12.00k')
++  })
++
++  it('shows the live split while a run is in flight', () => {
++    // Same contract as a settled run: thinking is withheld from the API, so the
++    // running numbers split too rather than showing one total.
++    renderGroup(
++      [agentCall('a', Date.now() - 1_000)],
++      [],
++      {},
++      { a: { totalTokens: 30_000, thinkTokens: 22_000 } },
++    )
++
++    const usage = document.querySelector('[data-agent-group-usage="true"]')
++    expect(usage?.textContent?.replace(/\s+/g, '')).toBe('≈22.00k+8.00k')
++  })
++
++  it('drops the live figures once the completion notification lands', () => {
++    // The notification is authoritative and final. If the live entry lingered,
++    // the bar would keep printing a snapshot taken mid-run instead of the run's
++    // real total — the correction step in this design.
++    renderGroup(
++      [agentCall('a', 1_000)],
++      [withUsage('a', 61_000, 40_000)],
++      { a: { taskId: 'task-a', toolUseId: 'a', status: 'completed', usage: { totalTokens: 40_000, thinkTokens: 30_000 } } },
++      {},
++    )
++
++    const usage = document.querySelector('[data-agent-group-usage="true"]')
++    expect(usage?.textContent?.replace(/\s+/g, '')).toBe('30.00k+10.00k')
++  })
++
++  it('hides the header usage and duration when session extended info is off', () => {
++    useSettingsStore.setState({ sessionExtendedInfo: false })
++    const toolCalls = [agentCall('a', 1_000), agentCall('b', 1_000)]
++    renderGroup(toolCalls, [withUsage('a', 61_000, 10_000), withUsage('b', 61_000, 20_000)])
++
++    // 收纳栏头部的用量与耗时读数整体消失，但分组本身照常渲染。
++    expect(document.querySelector('[data-agent-group-usage="true"]')).toBeNull()
++    expect(document.querySelector('[data-agent-group-duration="true"]')).toBeNull()
++    expect(screen.getByRole('button', { name: /dispatched 2 agents/i })).toBeTruthy()
++  })
++})
+diff --git a/desktop/src/components/chat/TurnCompletionStamp.test.tsx b/desktop/src/components/chat/TurnCompletionStamp.test.tsx
+index 7813412b4..df3968903 100644
+--- a/desktop/src/components/chat/TurnCompletionStamp.test.tsx
++++ b/desktop/src/components/chat/TurnCompletionStamp.test.tsx
+@@ -8,7 +8,7 @@ const COMPLETED_AT = new Date('2026-07-30T07:20:41Z').getTime()
+ 
+ describe('TurnCompletionStamp', () => {
+   beforeEach(() => {
+-    useSettingsStore.setState({ locale: 'en' })
++    useSettingsStore.setState({ locale: 'en', sessionExtendedInfo: true })
+   })
+ 
+   it('reads as a compact clock time plus how long the turn took', () => {
+@@ -26,6 +26,37 @@ describe('TurnCompletionStamp', () => {
+     expect(container.querySelector('[data-turn-completion-duration]')).toBeNull()
+   })
+ 
++  it('shows what the turn spent, before how long it took', () => {
++    const { container } = render(
++      <TurnCompletionStamp completion={{ completedAt: COMPLETED_AT, durationMs: 739_000, outputTokens: 1_500 }} />,
++    )
++
++    expect(screen.getByText('used 1.50k')).toBeTruthy()
++    // Same order as the activity digest: tokens first, elapsed time last.
++    const text = container.textContent ?? ''
++    expect(text.indexOf('used 1.50k')).toBeLessThan(text.indexOf('took 12m 19s'))
++  })
++
++  it('omits the token total for a turn whose calls reported none', () => {
++    const { container } = render(<TurnCompletionStamp completion={{ completedAt: COMPLETED_AT, durationMs: 1_000 }} />)
++
++    expect(container.querySelector('[data-turn-completion-usage]')).toBeNull()
++    expect(screen.getByText('took 1s')).toBeTruthy()
++  })
++
++  it('keeps usage but drops duration when session extended info is off', () => {
++    // 例外：usage 面向所有会话保留；只有 fork 新增的 duration 受开关控制。
++    useSettingsStore.setState({ sessionExtendedInfo: false })
++    const { container } = render(
++      <TurnCompletionStamp completion={{ completedAt: COMPLETED_AT, durationMs: 739_000, outputTokens: 1_500 }} />,
++    )
++
++    expect(screen.getByText('used 1.50k')).toBeTruthy()
++    expect(container.querySelector('[data-turn-completion-usage]')).not.toBeNull()
++    expect(container.querySelector('[data-turn-completion-duration]')).toBeNull()
++    expect(screen.queryByText('took 12m 19s')).toBeNull()
++  })
++
+   it('carries the exact timestamp as a title for the rounded clock label', () => {
+     render(<TurnCompletionStamp completion={{ completedAt: COMPLETED_AT, durationMs: 1_000 }} />)
+ 
+diff --git a/desktop/src/components/chat/activityGroupModel.ts b/desktop/src/components/chat/activityGroupModel.ts
+index a57ad5a5d..c17198fc6 100644
+--- a/desktop/src/components/chat/activityGroupModel.ts
++++ b/desktop/src/components/chat/activityGroupModel.ts
+@@ -13,6 +13,8 @@ import {
+ } from 'lucide-react'
+ import type { TranslationKey } from '../../i18n'
+ import type { UIMessage } from '../../types/chat'
++import { estimateTokens } from '../../lib/tpsMeter'
++import { extractTextContent } from '../../lib/traceViewModel'
+ 
+ type ToolCall = Extract<UIMessage, { type: 'tool_use' }>
+ type ToolResult = Extract<UIMessage, { type: 'tool_result' }>
+@@ -53,6 +55,199 @@ export function toolCallDurationMs(
+   return Number.isFinite(elapsed) && elapsed >= 0 ? elapsed : undefined
+ }
+ 
++/**
++ * When one Agent (subagent) run started and ended, on the parent session's clock.
++ *
++ * The runtime dispatches a group's agents **in parallel**, so a group's total is
++ * a span over intervals, never a sum of durations — three concurrent 2-minute
++ * runs are 2 minutes of wall clock, not 6. Measuring that needs both ends of each
++ * run, which is why the interval (not just a duration) is the primitive here.
++ *
++ * `endMs` comes from the runtime's own report when there is one —
++ * `AgentTaskNotification.usage.durationMs`, carried by `task_progress` /
++ * `task_notification` — because a *background* agent returns from its launch
++ * immediately: its tool_result lands ~milliseconds later while the run itself
++ * takes minutes, so the report is the only truthful length. A *synchronous*
++ * agent blocks its tool call, so tool_use → tool_result is that run's real span
++ * (the same measurement `toolCallDurationMs` uses for every other tool) and is
++ * used when nothing was reported: older transcripts, and the one-shot
++ * Explore/Plan agents that emit no `<usage>` block at all.
++ *
++ * `undefined` while a synchronous run is still in flight — there is no
++ * trustworthy anchor to tick from, so the caller shows no number rather than a
++ * guessed one.
++ */
++export type AgentRunInterval = { startMs: number; endMs: number }
++
++export function agentRunInterval(
++  toolCall: Pick<ToolCall, 'timestamp'>,
++  result: Pick<ToolResult, 'timestamp'> | undefined,
++  reportedDurationMs?: number,
++  /**
++   * Wall clock to close an in-flight run's interval with, when it has neither a
++   * result nor a reported duration.
++   *
++   * Without it a running member contributes no span at all, so a dispatch's
++   * clock stops at its last finished member and only moves once the whole group
++   * ends — which reads as a hung run rather than a busy one. Only consulted when
++   * there is no result, so a finished run's interval is untouched.
++   */
++  liveEndMs?: number,
++): AgentRunInterval | undefined {
++  const startMs = toolCall.timestamp
++  // `> 0` as well as finite: an absent timestamp defaults to 0, and closing that
++  // at the live clock would print a span measured from 1970.
++  if (!Number.isFinite(startMs) || startMs <= 0) return undefined
++  if (typeof reportedDurationMs === 'number' && Number.isFinite(reportedDurationMs) && reportedDurationMs > 0) {
++    return { startMs, endMs: startMs + reportedDurationMs }
++  }
++  if (result) {
++    const endMs = result.timestamp
++    if (typeof endMs !== 'number' || !Number.isFinite(endMs) || endMs < startMs) return undefined
++    return { startMs, endMs }
++  }
++  if (typeof liveEndMs === 'number' && Number.isFinite(liveEndMs) && liveEndMs >= startMs) {
++    return { startMs, endMs: liveEndMs }
++  }
++  return undefined
++}
++
++/**
++ * Tokens one subagent run reported.
++ *
++ * A background agent reports them on the task notification; a synchronous one
++ * reports them in the `<usage>` block the Agent tool appends to its own result,
++ * which the transcript keeps as ordinary text. Unlike the duration, this number
++ * cannot be reconstructed from the span, so a run that reported neither is
++ * simply uncounted rather than guessed at.
++ */
++export function agentRunTokens(
++  reportedTokens: number | undefined,
++  result: Pick<ToolResult, 'content'> | undefined,
++): number | undefined {
++  if (typeof reportedTokens === 'number' && Number.isFinite(reportedTokens) && reportedTokens > 0) {
++    return reportedTokens
++  }
++  if (!result || typeof result.content === 'undefined') return undefined
++  const match = /<usage>[\s\S]*?\btotal_tokens:\s*(\d+)/.exec(extractTextContent(result.content))
++  if (!match) return undefined
++  const tokens = Number(match[1])
++  return Number.isFinite(tokens) && tokens > 0 ? tokens : undefined
++}
++
++/**
++ * Tokens a whole subagent group reported: the members' counts added up.
++ *
++ * Summed, unlike {@link agentGroupSpanMs} — tokens are work done, not time
++ * elapsed, so three concurrent runs of 10k are 30k of work rather than 10k.
++ * Returns `undefined` when no member reported one, so the header omits the
++ * number instead of printing `0`.
++ */
++export function agentGroupTokens(
++  tokens: ReadonlyArray<number | undefined>,
++): number | undefined {
++  let total = 0
++  let measured = false
++  for (const value of tokens) {
++    if (typeof value !== 'number' || !Number.isFinite(value) || value <= 0) continue
++    total += value
++    measured = true
++  }
++  return measured ? total : undefined
++}
++
++/**
++ * Thinking tokens one agent run reported, or `undefined` when it reported none.
++ *
++ * Read from the notification when the runtime carried it there, otherwise from
++ * the run's own result text — the synchronous dispatch puts its numbers in the
++ * result, where the transcript keeps them as ordinary text. `undefined` rather
++ * than 0, because "no thinking" and "not measured" are different claims and the
++ * label below says different things for each.
++ */
++export function agentRunThinkTokens(
++  reportedThinkTokens: number | undefined,
++  result: Pick<ToolResult, 'content'> | undefined,
++): number | undefined {
++  if (
++    typeof reportedThinkTokens === 'number' &&
++    Number.isFinite(reportedThinkTokens) &&
++    reportedThinkTokens > 0
++  ) {
++    return reportedThinkTokens
++  }
++  if (!result || typeof result.content === 'undefined') return undefined
++  const match = /\bthink_tokens:\s*(\d+)/.exec(extractTextContent(result.content))
++  if (!match) return undefined
++  const tokens = Number(match[1])
++  return Number.isFinite(tokens) && tokens > 0 ? tokens : undefined
++}
++
++/** Thinking tokens a whole agent group reported; `undefined` when none did. */
++export function agentGroupThinkTokens(
++  tokens: ReadonlyArray<number | undefined>,
++): number | undefined {
++  let total = 0
++  let measured = false
++  for (const value of tokens) {
++    if (typeof value !== 'number' || !Number.isFinite(value) || value <= 0) continue
++    total += value
++    measured = true
++  }
++  return measured ? total : undefined
++}
++
++/**
++ * Token label parts for an agent group.
++ *
++ * The runtime emits the split only when the thinking itself is not returned to
++ * the reader (see the CLI's shouldSendThinkingToAPI gate): with the reasoning
++ * visible, one total is readable; with it hidden, the numbers are the only
++ * evidence that most of the cost was thinking. So the absence of a reasoning
++ * count is the signal to show a single total, not a prompt to guess one.
++ */
++export function agentTokenParts(
++  totalTokens: number | undefined,
++  thinkTokens: number | undefined,
++): string[] {
++  if (totalTokens === undefined) return []
++  if (thinkTokens === undefined) return [formatActivityTokens(totalTokens)]
++  return [
++    formatActivityTokens(thinkTokens),
++    formatActivityTokens(Math.max(0, totalTokens - thinkTokens)),
++  ]
++}
++
++/** One run's own length, for the row that shows it. */
++export function agentRunDurationMs(interval: AgentRunInterval | undefined): number | undefined {
++  return interval ? interval.endMs - interval.startMs : undefined
++}
++
++/**
++ * Wall-clock span of a subagent group: earliest start to latest end.
++ *
++ * The union of the members' intervals, so concurrent runs are counted once —
++ * the same reason {@link activityDurationMs} sums its steps: those steps (a
++ * thought, then a tool) genuinely happen in sequence, whereas a dispatched group
++ * genuinely runs at once. Runs that are still in flight, or that carried no
++ * usable timestamps, contribute nothing; a group where none was measurable
++ * returns `undefined` so the header prints no number instead of `0s`.
++ */
++export function agentGroupSpanMs(
++  intervals: ReadonlyArray<AgentRunInterval | undefined>,
++): number | undefined {
++  let spanStart = Infinity
++  let spanEnd = -Infinity
++  for (const interval of intervals) {
++    if (!interval) continue
++    if (!Number.isFinite(interval.startMs) || !Number.isFinite(interval.endMs)) continue
++    if (interval.startMs < spanStart) spanStart = interval.startMs
++    if (interval.endMs > spanEnd) spanEnd = interval.endMs
++  }
++  if (spanStart === Infinity || spanEnd < spanStart) return undefined
++  return spanEnd - spanStart
++}
++
+ const TOOL_VERBS: Record<string, (count: number, t: Translate) => string> = {
+   Read: (n, t) => n === 1 ? t('toolGroup.readOne') : t('toolGroup.readMany', { count: n }),
+   Write: (n, t) => n === 1 ? t('toolGroup.createdOne') : t('toolGroup.createdMany', { count: n }),
+@@ -205,28 +400,124 @@ export function hasUnresolvedToolCalls(
+ }
+ 
+ /**
+- * Wall-clock span of the whole run: first step start to last result. Same
+- * transcript-timestamp caveat as {@link toolCallDurationMs} — it is the span the
+- * user waited, not billed execution time.
++ * Combined "work time" of the whole run: the sum of every settled segment —
++ * each thinking block's recorded generation span plus each tool call's
++ * execution span — rather than the wall-clock span from first step to last
++ * result. The span overcounted: it includes the idle gaps between steps, and a
++ * run that ends in thought never had an "end" at all, so its time was not
++ * shown. Summing segments counts exactly what the run worked, which is what
++ * "thinking + tools time" means. Thinking blocks without a recorded duration
++ * (older transcripts) contribute nothing; a run with no measurable segment at
++ * all returns undefined, so the header prints no number instead of `0s`.
+  */
+ export function activityDurationMs(
+   steps: ActivityStep[],
+   resultMap: Map<string, ToolResult>,
+ ): number | undefined {
+-  let start = Number.POSITIVE_INFINITY
+-  let end = Number.NEGATIVE_INFINITY
++  let total = 0
++  let measured = false
+ 
+   for (const step of steps) {
+-    const startedAt = step.kind === 'thinking' ? step.message.timestamp : step.toolCall.timestamp
+-    if (Number.isFinite(startedAt)) start = Math.min(start, startedAt)
+-    if (step.kind === 'tool') {
+-      const result = resultMap.get(step.toolCall.toolUseId)
+-      if (result && Number.isFinite(result.timestamp)) end = Math.max(end, result.timestamp)
++    if (step.kind === 'thinking') {
++      const durationMs = step.message.thinkingDurationMs
++      if (typeof durationMs === 'number' && Number.isFinite(durationMs) && durationMs >= 0) {
++        total += durationMs
++        measured = true
++      }
++      continue
++    }
++    const result = resultMap.get(step.toolCall.toolUseId)
++    const durationMs = toolCallDurationMs(step.toolCall, result)
++    if (typeof durationMs === 'number') {
++      total += durationMs
++      measured = true
+     }
+   }
+ 
+-  if (!Number.isFinite(start) || !Number.isFinite(end) || end < start) return undefined
+-  return end - start
++  return measured ? total : undefined
++}
++
++/** Estimated tokens a run spent: thought content plus the tool results it pulled in. */
++export type ActivityTokenUsage = {
++  thinkingTokens: number
++  toolTokens: number
++  /** True when the thought side is an estimate (no real API thinking-token count
++   *  was returned). Drives the label: estimated → `thought + tool`, real → one total. */
++  thinkingIsEstimated: boolean
++}
++
++/**
++ * Token usage of a whole activity run. The model does not return a dedicated
++ * thinking-token count, so the thought side is estimated from content (the same
++ * CJK/ASCII heuristic the per-thought badge and the TPS meter use) and the tool
++ * side from the text of each result — the content that actually entered the
++ * context. A run that produced neither shows `0 + 0` only if it had steps at all;
++ * an empty run returns all zeros with `thinkingIsEstimated` true and the caller
++ * decides whether that warrants a label.
++ */
++export function activityTokenUsage(
++  steps: ActivityStep[],
++  resultMap: Map<string, ToolResult>,
++): ActivityTokenUsage {
++  const thinkingSteps = steps.filter(
++    (step): step is Extract<ActivityStep, { kind: 'thinking' }> => step.kind === 'thinking',
++  )
++  // All-or-nothing, so the total is one measurement rather than a blend: every
++  // thought needs its engine count for the sum to be comparable with itself.
++  // Partial coverage falls back to estimating the lot, which is what the badge
++  // does per block too.
++  const realThinking = thinkingSteps.length > 0
++    && thinkingSteps.every((step) => (step.message.thinkingTokens ?? 0) > 0)
++
++  let thinkingTokens = 0
++  let toolTokens = 0
++  const thinkingIsEstimated = !realThinking
++
++  for (const step of thinkingSteps) {
++    if (realThinking) thinkingTokens += step.message.thinkingTokens ?? 0
++    else if (step.message.content.trim().length > 0) {
++      thinkingTokens += estimateTokens(step.message.content)
++    }
++  }
++  for (const step of steps) {
++    if (step.kind !== 'tool') continue
++    const result = resultMap.get(step.toolCall.toolUseId)
++    if (result && typeof result.content !== 'undefined') {
++      toolTokens += estimateTokens(extractTextContent(result.content))
++    }
++  }
++
++  return { thinkingTokens, toolTokens, thinkingIsEstimated }
++}
++
++/**
++ * The run's token label parts. Estimated thought → two numbers (thought, then
++ * tool); a real thought count → one combined total, because then the number is
++ * what the API billed rather than two different measurement methods glued
++ * together.
++ *
++ * Returned as parts rather than a joined string so the separator can be laid
++ * out with CSS: the label renders in a monospace font, where a literal space is
++ * a full character cell and cannot be tightened to an in-between width.
++ */
++export function activityTokenParts(usage: ActivityTokenUsage): string[] {
++  if (!usage.thinkingIsEstimated) {
++    return [formatActivityTokens(usage.thinkingTokens + usage.toolTokens)]
++  }
++  return [
++    formatActivityTokens(usage.thinkingTokens),
++    formatActivityTokens(usage.toolTokens),
++  ]
++}
++
++/** Plain-string form of {@link activityTokenParts}, for tests and fallbacks. */
++export function activityTokenLabel(usage: ActivityTokenUsage): string {
++  return activityTokenParts(usage).join(' + ')
++}
++
++/** Token count as `xx.xxk`, two decimals (`0.80k`, `12.50k`). */
++export function formatActivityTokens(tokens: number): string {
++  return `${(tokens / 1000).toFixed(2)}k`
+ }
+ 
+ export function activityStepToolCalls(steps: ActivityStep[]): ToolCall[] {
+diff --git a/desktop/src/hooks/useCompactMetrics.ts b/desktop/src/hooks/useCompactMetrics.ts
+new file mode 100644
+index 000000000..dc1920be3
+--- /dev/null
++++ b/desktop/src/hooks/useCompactMetrics.ts
+@@ -0,0 +1,16 @@
++import { isDesktopRuntime } from '../lib/desktopRuntime'
++import { useMobileViewport } from './useMobileViewport'
++
++/**
++ * Whether the run metrics (usage / elapsed) should render in their compact form.
++ *
++ * A desktop window is wide enough to spell out「用量 ≈9.24k + 0.98k 总耗时 ≈1m11s」.
++ * A phone browser is portrait and narrow, where those labels push the agent name
++ * and the status badge off the line — so there the numbers stand alone and sit
++ * closer together. The desktop runtime keeps the roomy form even when its window
++ * is dragged narrow, because it is not a phone.
++ */
++export function useCompactMetrics(): boolean {
++  const isMobileViewport = useMobileViewport()
++  return isMobileViewport && !isDesktopRuntime()
++}
+diff --git a/desktop/src/lib/turnCompletion.test.ts b/desktop/src/lib/turnCompletion.test.ts
+index c2bb40b67..d14ddbdc7 100644
+--- a/desktop/src/lib/turnCompletion.test.ts
++++ b/desktop/src/lib/turnCompletion.test.ts
+@@ -182,3 +182,88 @@ describe('buildTurnCompletionByMessageId', () => {
+     expect(completions.size).toBe(0)
+   })
+ })
++
++describe('buildTurnCompletionByMessageId — turn token usage', () => {
++  function withUsage(
++    id: string,
++    offsetMs: number,
++    outputTokens: number,
++    usageKey?: string,
++  ): UIMessage {
++    return {
++      id,
++      type: 'assistant_text',
++      content: `reply ${id}`,
++      timestamp: T0 + offsetMs,
++      usage: { output_tokens: outputTokens },
++      ...(usageKey ? { usageKey } : {}),
++    }
++  }
++
++  it('totals every API call the turn made, not just its last one', () => {
++    // A turn is model call → tool → model call: the footer's number has to be
++    // what the whole turn spent, so it sums both replies' reported output.
++    const completions = buildTurnCompletionByMessageId([
++      user('u1', 0),
++      withUsage('a1', 5 * SECOND, 400, 'msg_1\0req_1'),
++      toolResult('r1', 8 * SECOND),
++      withUsage('a2', 12 * SECOND, 600, 'msg_2\0req_2'),
++    ])
++
++    expect(completions.get('a2')?.outputTokens).toBe(1000)
++  })
++
++  it('counts one API call once even though the transcript repeats it on every row', () => {
++    // One reply is persisted as a dozen lines (one per content block) that each
++    // repeat the whole `usage` object; summing per row is the 2.2x inflation the
++    // transcript readers already dedupe on `usageKey`.
++    const completions = buildTurnCompletionByMessageId([
++      user('u1', 0),
++      { id: 't1', type: 'thinking', content: 'thinking', timestamp: T0 + 2 * SECOND, usage: { output_tokens: 250 }, usageKey: 'msg_1\0req_1' },
++      withUsage('a1', 5 * SECOND, 250, 'msg_1\0req_1'),
++      withUsage('a2', 7 * SECOND, 250, 'msg_1\0req_1'),
++    ])
++
++    expect(completions.get('a2')?.outputTokens).toBe(250)
++  })
++
++  it('counts rows that carry no usage key, matching the transcript readers', () => {
++    const completions = buildTurnCompletionByMessageId([
++      user('u1', 0),
++      withUsage('a1', 2 * SECOND, 100),
++      withUsage('a2', 4 * SECOND, 100),
++    ])
++
++    expect(completions.get('a2')?.outputTokens).toBe(200)
++  })
++
++  it('keeps each turn to its own calls', () => {
++    const completions = buildTurnCompletionByMessageId([
++      user('u1', 0),
++      withUsage('a1', 3 * SECOND, 500, 'msg_1\0req_1'),
++      user('u2', 60 * SECOND),
++      withUsage('a2', 65 * SECOND, 700, 'msg_2\0req_2'),
++    ])
++
++    expect(completions.get('a1')?.outputTokens).toBe(500)
++    expect(completions.get('a2')?.outputTokens).toBe(700)
++  })
++
++  it('leaves the total off when no call reported one', () => {
++    const completions = buildTurnCompletionByMessageId([
++      user('u1', 0),
++      assistant('a1', 3 * SECOND),
++    ])
++
++    expect(completions.get('a1')).not.toHaveProperty('outputTokens')
++  })
++
++  it('treats a reported zero as no measurement rather than printing 0.00k', () => {
++    const completions = buildTurnCompletionByMessageId([
++      user('u1', 0),
++      withUsage('a1', 3 * SECOND, 0, 'msg_1\0req_1'),
++    ])
++
++    expect(completions.get('a1')).not.toHaveProperty('outputTokens')
++  })
++})
+diff --git a/desktop/src/lib/turnCompletion.ts b/desktop/src/lib/turnCompletion.ts
+index 060e03b78..f509a3b28 100644
+--- a/desktop/src/lib/turnCompletion.ts
++++ b/desktop/src/lib/turnCompletion.ts
+@@ -5,6 +5,13 @@ export type TurnCompletion = {
+   completedAt: number
+   /** 用户提示词发出到该轮结束的耗时；起止时间不可信时缺省。 */
+   durationMs?: number
++  /**
++   * 这一轮里各次 API 调用自报的输出 token 合计（`usage.output_tokens`，按
++   * `usageKey` 去重）。一轮可能有多轮「模型调用→工具→再调用」，故是求和而非
++   * 单次值。全部调用都没自报数量时缺省 —— 老 transcript、以及不返回 usage 的
++   * provider 都属于这种情况，此时不显示，而不是显示一个 0。
++   */
++  outputTokens?: number
+ }
+ 
+ /**
+@@ -19,6 +26,30 @@ type OpenTurn = {
+   lastAssistantTextId: string | null
+   /** 最后一条助手文本之后是否还有实质内容（有的话这轮不是以回复收尾的）。 */
+   hasWorkAfterLastReply: boolean
++  outputTokens: number
++  /** 有任意一次调用自报了数量，才让 `outputTokens` 参与展示。 */
++  hasReportedUsage: boolean
++  /** 已计入的 API 调用标识，防止同一次调用被重复累加。 */
++  countedUsageKeys: Set<string>
++}
++
++/**
++ * 一行消息上可用的调用自报用量。只有助手侧的行会带 `usage`（一次调用的全部内容
++ * 块都重复同一份），且数量为 0 或缺失时视为「没自报」，返回 null。
++ */
++function responseUsage(message: UIMessage): { outputTokens: number; key?: string } | null {
++  if (
++    message.type !== 'assistant_text' &&
++    message.type !== 'thinking' &&
++    message.type !== 'tool_use'
++  ) {
++    return null
++  }
++  const outputTokens = message.usage?.output_tokens
++  if (typeof outputTokens !== 'number' || !Number.isFinite(outputTokens) || outputTokens <= 0) {
++    return null
++  }
++  return { outputTokens, ...(message.usageKey ? { key: message.usageKey } : {}) }
+ }
+ 
+ function isTurnStart(message: UIMessage): boolean {
+@@ -65,6 +96,9 @@ export function buildTurnCompletionByMessageId(
+         completedAt: startedAt,
+         lastAssistantTextId: null,
+         hasWorkAfterLastReply: false,
++        outputTokens: 0,
++        hasReportedUsage: false,
++        countedUsageKeys: new Set<string>(),
+       }
+       turns.push(current)
+       continue
+@@ -74,6 +108,16 @@ export function buildTurnCompletionByMessageId(
+     if (!current) continue
+     if (isTrailingCard(message)) continue
+ 
++    // 用量就在这次遍历里顺带累加（这一轮的所有调用都在同一段消息区间内），
++    // 不额外扫一遍。同一次调用的十来行重复携带同一份 usage，靠 usageKey 去重；
++    // 没有 key 的行照计，与 `summarizeTokenUsageFromHistory` 的口径一致。
++    const usage = responseUsage(message)
++    if (usage && (!usage.key || !current.countedUsageKeys.has(usage.key))) {
++      if (usage.key) current.countedUsageKeys.add(usage.key)
++      current.outputTokens += usage.outputTokens
++      current.hasReportedUsage = true
++    }
++
+     if (Number.isFinite(message.timestamp)) {
+       current.completedAt = Number.isFinite(current.completedAt)
+         ? Math.max(current.completedAt, message.timestamp)
+@@ -98,6 +142,7 @@ export function buildTurnCompletionByMessageId(
+     completions.set(turn.lastAssistantTextId, {
+       completedAt: turn.completedAt,
+       ...(plausible ? { durationMs } : {}),
++      ...(turn.hasReportedUsage ? { outputTokens: turn.outputTokens } : {}),
+     })
+   })
+ 
+diff --git a/desktop/src/stores/__fixtures__/chat-store.golden.json b/desktop/src/stores/__fixtures__/chat-store.golden.json
+index f8fdd6e23..28bd1cb69 100644
+--- a/desktop/src/stores/__fixtures__/chat-store.golden.json
++++ b/desktop/src/stores/__fixtures__/chat-store.golden.json
+@@ -137,7 +137,8 @@
+             "id": "msg#1",
+             "type": "thinking",
+             "content": "Considering options",
+-            "timestamp": 0
++            "timestamp": 0,
++            "thinkingDurationMs": 51
+           }
+         ],
+         "chatState": "streaming",
+@@ -163,7 +164,8 @@
+             "id": "msg#1",
+             "type": "thinking",
+             "content": "Considering options",
+-            "timestamp": 0
++            "timestamp": 0,
++            "thinkingDurationMs": 51
+           }
+         ],
+         "chatState": "streaming",
+@@ -189,7 +191,8 @@
+             "id": "msg#1",
+             "type": "thinking",
+             "content": "Considering options",
+-            "timestamp": 0
++            "timestamp": 0,
++            "thinkingDurationMs": 51
+           },
+           {
+             "id": "msg#2",
+diff --git a/desktop/src/stores/sessionUsageRestore.test.ts b/desktop/src/stores/sessionUsageRestore.test.ts
+new file mode 100644
+index 000000000..f89183fee
+--- /dev/null
++++ b/desktop/src/stores/sessionUsageRestore.test.ts
+@@ -0,0 +1,94 @@
++import { describe, expect, it } from 'vitest'
++import {
++  agentGroupThinkTokens,
++  agentGroupTokens,
++  agentRunThinkTokens,
++  agentRunTokens,
++  agentTokenParts,
++} from '../components/chat/activityGroupModel'
++import type { AgentTaskNotification } from '../types/chat'
++import type { MessageEntry } from '../types/session'
++import { reconstructRunActivityFromTranscript } from './chatStore'
++
++const TOOL_USE_ID = 'call_subagent_1'
++
++/**
++ * A finished Agent call as an older transcript wrote it: the result text carries
++ * only `total_tokens`, written with the agent's last context window (150k) —
++ * not the tokens it generated. That single number is all a restored session used
++ * to have, which is why the group bar could only ever show one total.
++ */
++function olderTranscript(): MessageEntry[] {
++  return [
++    {
++      id: 'agent-use',
++      type: 'assistant',
++      timestamp: '2026-09-27T02:40:00.000Z',
++      content: [{ type: 'tool_use', id: TOOL_USE_ID, name: 'Agent', input: { description: 'write' } }],
++    },
++    {
++      id: 'agent-result',
++      type: 'tool_result',
++      timestamp: '2026-09-27T02:44:00.000Z',
++      content: [{
++        type: 'tool_result',
++        tool_use_id: TOOL_USE_ID,
++        content: 'done\n<usage>total_tokens: 150000\ntool_uses: 3\nduration_ms: 1000</usage>',
++      }],
++    },
++  ] as unknown as MessageEntry[]
++}
++
++function notification(usage?: AgentTaskNotification['usage']): AgentTaskNotification {
++  return {
++    taskId: 'task-1',
++    toolUseId: TOOL_USE_ID,
++    status: 'completed',
++    ...(usage ? { usage } : {}),
++  }
++}
++
++/** How the group bar reads one Agent call. */
++function barParts(notifications: Record<string, AgentTaskNotification>): string[] {
++  const total = agentGroupTokens([agentRunTokens(notifications[TOOL_USE_ID]?.usage?.totalTokens, undefined)])
++  const think = agentGroupThinkTokens([agentRunThinkTokens(notifications[TOOL_USE_ID]?.usage?.thinkTokens, undefined)])
++  return agentTokenParts(total, think)
++}
++
++describe('restored session token split', () => {
++  it('shows only the stale context total when nothing was derived', () => {
++    // Baseline: the old behaviour this pilot exists to fix. The result text's
++    // 150k is a context window, and there is no thinking share to show.
++    const restored = reconstructRunActivityFromTranscript(olderTranscript())
++    const entry = restored.agentTaskNotifications[TOOL_USE_ID]
++    const withFallback = agentGroupTokens([
++      agentRunTokens(entry?.usage?.totalTokens, {
++        content: '<usage>total_tokens: 150000\ntool_uses: 3</usage>',
++      } as never),
++    ])
++    expect(withFallback).toBe(150000)
++    expect(agentTokenParts(withFallback, undefined)).toEqual(['150.00k'])
++  })
++
++  it('shows think + non-think once the server supplies the derived usage', () => {
++    const restored = reconstructRunActivityFromTranscript(
++      olderTranscript(),
++      [notification({ totalTokens: 6554, outputTokens: 6554, thinkTokens: 4844, toolUses: 0 })],
++    )
++
++    // The bar reads agentTaskNotifications, so the derived usage has to survive
++    // the merge with the notifications parsed out of the transcript itself.
++    expect(restored.agentTaskNotifications[TOOL_USE_ID]?.usage?.thinkTokens).toBe(4844)
++    expect(barParts(restored.agentTaskNotifications)).toEqual(['4.84k', '1.71k'])
++  })
++
++  it('keeps one total when the server withheld the thinking share', () => {
++    // The split is withheld when thinking is sent back to the API; the reader
++    // then shows the run's own total, matching the live path.
++    const restored = reconstructRunActivityFromTranscript(
++      olderTranscript(),
++      [notification({ totalTokens: 6554, outputTokens: 6554, toolUses: 0 })],
++    )
++    expect(barParts(restored.agentTaskNotifications)).toEqual(['6.55k'])
++  })
++})
+diff --git a/src/server/__tests__/fixtures/translate-cli-message.golden.json b/src/server/__tests__/fixtures/translate-cli-message.golden.json
+index 672d947d3..bdc15c5d7 100644
+--- a/src/server/__tests__/fixtures/translate-cli-message.golden.json
++++ b/src/server/__tests__/fixtures/translate-cli-message.golden.json
+@@ -84,7 +84,8 @@
+       "out": [
+         {
+           "type": "thinking",
+-          "text": "Considering options"
++          "text": "Considering options",
++          "serverStart": "golden:server-start"
+         }
+       ]
+     },
+diff --git a/src/server/__tests__/translateCliMessage.agentRunMessage.test.ts b/src/server/__tests__/translateCliMessage.agentRunMessage.test.ts
+index d91700e02..d7c63226d 100644
+--- a/src/server/__tests__/translateCliMessage.agentRunMessage.test.ts
++++ b/src/server/__tests__/translateCliMessage.agentRunMessage.test.ts
+@@ -114,7 +114,7 @@ describe('translateCliMessage: agent_run_message', () => {
+     ]
+ 
+     expect(translated).toEqual(expect.arrayContaining([
+-      { type: 'agent_run_event', ...route, event: { type: 'thinking', text: 'checking' } },
++      { type: 'agent_run_event', ...route, event: expect.objectContaining({ type: 'thinking', text: 'checking' }) },
+       { type: 'agent_run_event', ...route, event: { type: 'content_delta', text: 'live answer' } },
+       {
+         type: 'agent_run_event',
+diff --git a/src/server/__tests__/translateCliMessage.golden.test.ts b/src/server/__tests__/translateCliMessage.golden.test.ts
+index cfe762308..5a959d1e9 100644
+--- a/src/server/__tests__/translateCliMessage.golden.test.ts
++++ b/src/server/__tests__/translateCliMessage.golden.test.ts
+@@ -17,11 +17,31 @@ type GoldenFile = Record<string, GoldenStep[]>
+  * `sessionStopRequested`, `agentStopRequestedSessions`) are all keyed by session id,
+  * so a unique id per run is full isolation with no production seam.
+  */
++/**
++ * Thinking deltas carry a live `serverStart` (the server's receive clock), so a
++ * byte-exact golden would flake on every replay. Normalise the field to a stable
++ * marker; the presence check below still pins that the anchor is emitted.
++ */
++const GOLDEN_SERVER_START_MARKER = 'golden:server-start'
++function normalizeServerStart(value: unknown): unknown {
++  if (Array.isArray(value)) return value.map(normalizeServerStart)
++  if (value && typeof value === 'object') {
++    const normalized: Record<string, unknown> = {}
++    for (const [key, item] of Object.entries(value)) {
++      normalized[key] = key === 'serverStart' && typeof item === 'number'
++        ? GOLDEN_SERVER_START_MARKER
++        : normalizeServerStart(item)
++    }
++    return normalized
++  }
++  return value
++}
++
+ function replay(scenarioId: string, messages: Array<Record<string, unknown>>, salt: string): GoldenStep[] {
+   const sessionId = `golden-${scenarioId}-${salt}`
+   return messages.map((message) => ({
+     in: describeFrame(message),
+-    out: JSON.parse(JSON.stringify(translateCliMessage(message, sessionId))) as unknown[],
++    out: normalizeServerStart(JSON.parse(JSON.stringify(translateCliMessage(message, sessionId)))) as unknown[],
+   }))
+ }
+ 
+diff --git a/src/server/__tests__/ws-memory-events.test.ts b/src/server/__tests__/ws-memory-events.test.ts
+index cedca6124..04e1c3792 100644
+--- a/src/server/__tests__/ws-memory-events.test.ts
++++ b/src/server/__tests__/ws-memory-events.test.ts
+@@ -1250,7 +1250,7 @@ describe('WebSocket stream event translation', () => {
+         delta: { type: 'thinking_delta', thinking: 'Let me think' },
+       },
+     }, sessionId)).toEqual([
+-      { type: 'thinking', text: 'Let me think' },
++      expect.objectContaining({ type: 'thinking', text: 'Let me think' }),
+     ])
+ 
+     expect(translateCliMessage({
+diff --git a/src/server/api/sessions.ts b/src/server/api/sessions.ts
+index d4da52559..438eda6f9 100644
+--- a/src/server/api/sessions.ts
++++ b/src/server/api/sessions.ts
+@@ -26,6 +26,9 @@
+ 
+ import * as path from 'node:path'
+ import { sessionService } from '../services/sessionService.js'
++import { enrichTaskNotificationsWithUsage, sessionUsageRollup } from '../services/sessionUsageRollup.js'
++import { activeSubagentRuns } from '../ws/agentTaskState.js'
++import { projectAgentRunUsage } from '../services/agentRunUsageProjection.js'
+ import { conversationService } from '../services/conversationService.js'
+ import { ApiError, errorResponse } from '../middleware/errorHandler.js'
+ import {
+@@ -499,13 +502,81 @@ async function getSessionMessages(req: Request, sessionId: string, url: URL): Pr
+   // A full read always starts from the tail; mixing it with a cursor would
+   // silently turn it back into a paged read with a larger budget.
+   if (mode === 'full' && cursor) throw ApiError.badRequest('mode=full does not take a cursor')
+-  return Response.json(await sessionService.getSessionHistoryPage(sessionId, {
++  const history = await sessionService.getSessionHistoryPage(sessionId, {
+     cursor,
+     // `mode=full` returns the whole transcript up to the reader's byte budget in
+     // one response so the desktop timeline never stitches pages together.
+     full: mode === 'full',
+     signal: req.signal,
+-  }))
++  })
++  return Response.json({
++    ...history,
++    // A run's tokens are recoverable from its own subagent transcript even when
++    // the parent's result text only kept the old context-based total.
++    taskNotifications: await enrichTaskNotificationsWithUsage(sessionId, history.taskNotifications),
++    runningAgentUsage: await runningAgentUsage(sessionId),
++  })
++}
++
++/**
++ * The in-flight subagent runs of a session, keyed by the Agent tool-call id the
++ * UI reads usage under.
++ *
++ * A client that opens the session while a run is in flight has no way to learn
++ * how much that run has already produced, and — because it missed the
++ * `task_started` that ties the run's own id to its spawning tool call — no way to
++ * even attribute what it sees. So each entry carries both ids, not just the key:
++ * the run id is what the client's live frames are addressed with, the tool-call id
++ * is what it must display the number under.
++ *
++ * Two sources answer how much, and neither alone is enough. The transcript rollup
++ * holds a run's *real* total, but states it only at a tool boundary; inside a long
++ * single generation — exactly where a client that just arrived notices the gap — it
++ * has nothing. The server-side projection counts that generation as it streams, so
++ * it is always current, but by characters rather than tokens. Taking whichever is
++ * further along means the figure is the real one once a boundary has passed, and an
++ * estimate only while the run is mid-flight. Both are superseded by the run's own
++ * completion, so an estimate can never outlive the number it stood in for.
++ *
++ * The identity is sent even with no total. A run that has only just started has
++ * nothing to report yet, and it is precisely then that a client joining now would
++ * otherwise have nothing to attach. `totalTokens` is therefore optional;
++ * `taskId`/`toolUseId` are not.
++ *
++ * Only in-flight runs are included, because the client marks whatever it finds
++ * here as running: sending every run would re-open finished ones whenever their
++ * terminal notification fell outside the loaded window.
++ */
++type RunningAgentUsage = {
++  /** The run's own id; the key live frames address it by. */
++  taskId: string
++  /** The Agent tool call that spawned it; the key the UI renders usage under. */
++  toolUseId: string
++  totalTokens?: number
++  thinkTokens?: number
++  toolUses?: number
++}
++
++async function runningAgentUsage(sessionId: string): Promise<Record<string, RunningAgentUsage>> {
++  const runs = activeSubagentRuns(sessionId)
++  if (runs.length === 0) return {}
++  const byToolUseId = await sessionUsageRollup.byToolUseId(sessionId)
++  const projected = new Map(projectAgentRunUsage(sessionId).map(run => [run.taskId, run]))
++  const usage: Record<string, RunningAgentUsage> = {}
++  for (const run of runs) {
++    const entry = byToolUseId.get(run.toolUseId)
++    const live = projected.get(run.taskId)
++    const totalTokens = Math.max(entry?.totalTokens ?? 0, live?.totalTokens ?? 0)
++    const thinkTokens = Math.max(entry?.thinkTokens ?? 0, live?.thinkTokens ?? 0)
++    usage[run.toolUseId] = {
++      taskId: run.taskId,
++      toolUseId: run.toolUseId,
++      ...(totalTokens > 0 ? { totalTokens } : {}),
++      ...(thinkTokens > 0 ? { thinkTokens } : {}),
++      ...(entry ? { toolUses: entry.toolUses } : {}),
++    }
++  }
++  return usage
+ }
+ 
+ async function getSessionTrace(req: Request, sessionId: string, url: URL): Promise<Response> {
+diff --git a/src/server/services/conversationService.ts b/src/server/services/conversationService.ts
+index ebc063ec6..e10375891 100644
+--- a/src/server/services/conversationService.ts
++++ b/src/server/services/conversationService.ts
+@@ -10,6 +10,10 @@ import * as fs from 'node:fs'
+ import * as os from 'node:os'
+ import * as path from 'node:path'
+ import { ProviderService } from './providerService.js'
++import {
++  clearAgentRunUsage,
++  observeAgentRunUsage,
++} from './agentRunUsageProjection.js'
+ import { SettingsService } from './settingsService.js'
+ import {
+   OPENAI_CODEX_OAUTH_FILE_ENV_KEY,
+@@ -751,6 +755,7 @@ export class ConversationService {
+       const startupError = this.buildStartupError(sessionId, startupExitCode)
+       this.clearSessionAutoAnswerWaits(session)
+       this.sessions.delete(sessionId)
++      clearAgentRunUsage(sessionId)
+ 
+       if (this.clearStaleLock(sessionId)) {
+         console.log(
+@@ -1412,6 +1417,12 @@ export class ConversationService {
+           this.clearAutoAnswerWait(session.pendingPermissionRequests.get(msg.response.request_id))
+           session.pendingPermissionRequests.delete(msg.response.request_id)
+         }
++        // Count this toward any subagent run it belongs to, before the fan-out.
++        // This is the one place a session's messages pass through exactly once:
++        // the per-client forwarding below translates the same frame again for each
++        // connected client, so counting there would multiply a run's output by the
++        // number of clients watching it.
++        observeAgentRunUsage(sessionId, msg)
+         this.notifyOutputCallbacks(sessionId, session.outputCallbacks, msg)
+       } catch {
+         console.warn(
+@@ -1547,6 +1558,9 @@ export class ConversationService {
+     this.cancelPendingControlRequests(session)
+     this.clearSessionAutoAnswerWaits(session)
+     this.sessions.delete(sessionId)
++    // The CLI is going away, so nothing will add to this session's run counts
++    // again; keeping them would only offer a future client stale figures.
++    clearAgentRunUsage(sessionId)
+     this.killProcess(sessionId, session)
+   }
+ 
+@@ -1560,6 +1574,7 @@ export class ConversationService {
+     this.cancelPendingControlRequests(session)
+     this.clearSessionAutoAnswerWaits(session)
+     this.sessions.delete(sessionId)
++    clearAgentRunUsage(sessionId)
+     await this.stopProcessAndWait(sessionId, session, timeoutMs)
+   }
+ 
+@@ -1757,6 +1772,7 @@ export class ConversationService {
+       const callbacks = [...activeSession.outputCallbacks]
+       this.clearSessionAutoAnswerWaits(activeSession)
+       this.sessions.delete(sessionId)
++      clearAgentRunUsage(sessionId)
+       this.notifyOutputCallbacks(sessionId, callbacks, {
+         type: 'result',
+         subtype: 'error',
+diff --git a/src/server/services/sessionUsageRollup.test.ts b/src/server/services/sessionUsageRollup.test.ts
+new file mode 100644
+index 000000000..1d97353c0
+--- /dev/null
++++ b/src/server/services/sessionUsageRollup.test.ts
+@@ -0,0 +1,249 @@
++import { describe, expect, it } from 'bun:test'
++import {
++  SessionUsageRollup,
++  attachUsageToNotifications,
++  computeSubagentUsage,
++  type SubagentUsage,
++  type UsageRollupSource,
++} from './sessionUsageRollup.js'
++import type { RawEntry, SessionTaskNotification } from './sessionService.js'
++
++/** RawEntry is untyped JSON; build entries through one cast so tests stay readable. */
++function entry(value: Record<string, unknown>): RawEntry {
++  return value as unknown as RawEntry
++}
++
++function assistant(output: number, content: unknown = [], reasoning?: number): RawEntry {
++  return entry({
++    type: 'assistant',
++    message: {
++      role: 'assistant',
++      content,
++      usage: {
++        input_tokens: 10,
++        output_tokens: output,
++        ...(reasoning !== undefined ? { reasoning_tokens: reasoning } : {}),
++      },
++    },
++  })
++}
++
++const thinking = (text: string) => [{ type: 'thinking', thinking: text }]
++/**
++ * One record of a response that was streamed in several records — the shape the
++ * CLI actually writes: the thinking block lands as its own assistant record with
++ * no usage of its own, and the response's usage (reasoning included) lands on the
++ * text record sharing its id. Measured on the local engine, both records carry
++ * `output_tokens: 0, no reasoning` and `output_tokens: N, reasoning: R`.
++ */
++function assistantOfResponse(
++  id: string,
++  output: number,
++  content: unknown = [],
++  reasoning?: number,
++): RawEntry {
++  return entry({
++    type: 'assistant',
++    message: {
++      id,
++      role: 'assistant',
++      content,
++      usage: {
++        input_tokens: 10,
++        output_tokens: output,
++        ...(reasoning !== undefined ? { reasoning_tokens: reasoning } : {}),
++      },
++    },
++  })
++}
++const toolUse = [{ type: 'tool_use', id: 't1', name: 'Read', input: {} }]
++
++describe('computeSubagentUsage', () => {
++  it('sums output across turns and estimates thinking from the thinking blocks', () => {
++    // 40 CJK chars of thinking ≈ 10 tokens at the estimator's 4-chars-per-token.
++    const usage = computeSubagentUsage([
++      assistant(100, thinking('思'.repeat(40))),
++      assistant(50, [{ type: 'text', text: 'done' }]),
++      entry({ type: 'user', message: { role: 'user', content: 'x' } }),
++    ])
++    expect(usage?.outputTokens).toBe(150)
++    expect(usage?.totalTokens).toBe(150)
++    expect(usage?.thinkTokens).toBeGreaterThan(0)
++  })
++
++  it('prefers an engine-reported reasoning count over the estimate', () => {
++    const usage = computeSubagentUsage([assistant(100, thinking('思'.repeat(400)), 33)])
++    // The engine's 33 wins; estimating the same content would read ~100.
++    expect(usage?.thinkTokens).toBe(33)
++  })
++
++  it('treats a reported reasoning_tokens of 0 as "not measured" and estimates anyway', () => {
++    // Engines that fill the field without computing it report 0. Trusting that
++    // zero suppressed the estimate and hid the split entirely.
++    const usage = computeSubagentUsage([assistant(100, thinking('思'.repeat(40)), 0)])
++    expect(usage?.thinkTokens).toBeGreaterThan(0)
++  })
++
++  it('omits thinkTokens when no turn produced thinking', () => {
++    const usage = computeSubagentUsage([assistant(100, [{ type: 'text', text: 'hi' }])])
++    expect(usage?.thinkTokens).toBeUndefined()
++    expect(usage?.outputTokens).toBe(100)
++  })
++
++  it('counts tool uses from the assistant turns', () => {
++    expect(computeSubagentUsage([assistant(10, toolUse), assistant(10, toolUse)])?.toolUses).toBe(2)
++  })
++
++  it('returns undefined when no turn reported output', () => {
++    expect(computeSubagentUsage([])).toBeUndefined()
++    expect(computeSubagentUsage([assistant(0)])).toBeUndefined()
++    expect(computeSubagentUsage([entry({ type: 'user', message: { role: 'user' } })])).toBeUndefined()
++  })
++  it('does not estimate the thinking of a record whose response reported it', () => {
++    // Measured shape (agent-a47f5e65272e0bd40.jsonl): the thinking record carries
++    // output_tokens 0 and no reasoning; its sibling reports the real pair.
++    // Estimating the first on top of the second made a 9.3k run report 15.7k of
++    // thinking, which drove the UI's `total - think` to zero.
++    const usage = computeSubagentUsage([
++      assistantOfResponse('msg_1', 0, thinking('思'.repeat(400))),
++      assistantOfResponse('msg_1', 100, [{ type: 'text', text: 'done' }], 60),
++    ])
++    expect(usage?.outputTokens).toBe(100)
++    expect(usage?.thinkTokens).toBe(60)
++    expect((usage?.totalTokens ?? 0) - (usage?.thinkTokens ?? 0)).toBe(40)
++  })
++
++  it('still estimates when no record of the response reported reasoning', () => {
++    // Same split shape on an engine without the split: the estimate is the only
++    // signal there is, and it must survive.
++    const usage = computeSubagentUsage([
++      assistantOfResponse('msg_2', 0, thinking('思'.repeat(40))),
++      assistantOfResponse('msg_2', 100, [{ type: 'text', text: 'done' }]),
++    ])
++    expect(usage?.outputTokens).toBe(100)
++    expect(usage?.thinkTokens).toBe(10)
++  })
++})
++
++describe('attachUsageToNotifications', () => {
++  const derived = new Map<string, SubagentUsage>([
++    ['tool-1', { totalTokens: 900, outputTokens: 900, thinkTokens: 400, toolUses: 3 }],
++  ])
++  const notification = (toolUseId: string, usage?: SessionTaskNotification['usage']): SessionTaskNotification => ({
++    taskId: `task-${toolUseId}`,
++    toolUseId,
++    status: 'completed',
++    ...(usage ? { usage } : {}),
++  })
++
++  it('attaches the derived split when thinking is withheld', () => {
++    const [result] = attachUsageToNotifications([notification('tool-1')], derived, true)
++    expect(result?.usage).toEqual({ totalTokens: 900, outputTokens: 900, thinkTokens: 400, toolUses: 3 })
++  })
++
++  it('leaves thinkTokens off when thinking is sent back to the API', () => {
++    // The live path withholds the split in that case; a reader must not get one
++    // just because the number happened to be derived from disk.
++    const [result] = attachUsageToNotifications([notification('tool-1')], derived, false)
++    expect(result?.usage).toEqual({ totalTokens: 900, outputTokens: 900, toolUses: 3 })
++    expect(result?.usage?.thinkTokens).toBeUndefined()
++  })
++
++  it('never overwrites a usage the live run already reported', () => {
++    const live = { totalTokens: 5, outputTokens: 5, thinkTokens: 1 }
++    const [result] = attachUsageToNotifications([notification('tool-1', live)], derived, true)
++    expect(result?.usage).toEqual(live)
++  })
++
++  it('leaves notifications with no resolvable transcript untouched', () => {
++    const [result] = attachUsageToNotifications([notification('tool-unknown')], derived, true)
++    expect(result?.usage).toBeUndefined()
++  })
++})
++
++describe('SessionUsageRollup', () => {
++  function source(overrides: Partial<UsageRollupSource> & { sidecars?: unknown } = {}): {
++    source: UsageRollupSource
++    calls: { signature: number; sidecars: number; reads: number }
++  } {
++    const calls = { signature: 0, sidecars: 0, reads: 0 }
++    const defaults: UsageRollupSource = {
++      async getSessionMessagesSignature() {
++        calls.signature += 1
++        return 'sig-1'
++      },
++      async listSubagentSidecars() {
++        calls.sidecars += 1
++        return {
++          sidecars: [
++            { agentId: 'a1', toolUseId: 'tool-1' },
++            { agentId: 'a2', toolUseId: 'tool-2', ownerAgentId: 'parent' },
++          ],
++          complete: true,
++        }
++      },
++      async readSubagentTranscriptEntries(_sessionId, agentId) {
++        calls.reads += 1
++        return agentId === 'a1' ? [assistant(120, thinking('思'.repeat(20)))] : [assistant(7)]
++      },
++    }
++    return { source: { ...defaults, ...(overrides as UsageRollupSource) }, calls }
++  }
++
++  it('keys root agents by toolUseId and skips owned sidecars', async () => {
++    const { source: src } = source()
++    const rollup = new SessionUsageRollup(src)
++    const result = await rollup.byToolUseId('session-1')
++    expect([...result.keys()]).toEqual(['tool-1'])
++    expect(result.get('tool-1')?.outputTokens).toBe(120)
++  })
++
++  it('re-reads transcripts only when the signature moves', async () => {
++    let signature = 'sig-1'
++    const { source: src, calls } = source({
++      async getSessionMessagesSignature() {
++        calls.signature += 1
++        return signature
++      },
++    })
++    const rollup = new SessionUsageRollup(src)
++    await rollup.byToolUseId('session-1')
++    await rollup.byToolUseId('session-1')
++    expect(calls.reads).toBe(1)
++
++    // A running agent rewrites its transcript, which moves the signature.
++    signature = 'sig-2'
++    await rollup.byToolUseId('session-1')
++    expect(calls.reads).toBe(2)
++  })
++
++  it('yields nothing rather than throwing when the session or sidecars are unreadable', async () => {
++    const rollup = new SessionUsageRollup({
++      async getSessionMessagesSignature() { return null },
++      async listSubagentSidecars() { throw new Error('gone') },
++      async readSubagentTranscriptEntries() { throw new Error('gone') },
++    })
++    expect((await rollup.byToolUseId('missing')).size).toBe(0)
++  })
++
++  it('keeps the other agents when one transcript cannot be read', async () => {
++    const rollup = new SessionUsageRollup({
++      async getSessionMessagesSignature() { return 'sig' },
++      async listSubagentSidecars() {
++        return {
++          sidecars: [
++            { agentId: 'bad', toolUseId: 'tool-bad' },
++            { agentId: 'good', toolUseId: 'tool-good' },
++          ],
++          complete: false,
++        }
++      },
++      async readSubagentTranscriptEntries(_sessionId, agentId) {
++        if (agentId === 'bad') throw new Error('unreadable')
++        return [assistant(42)]
++      },
++    })
++    const result = await rollup.byToolUseId('session-1')
++    expect([...result.keys()]).toEqual(['tool-good'])
++  })
++})
+diff --git a/src/server/services/sessionUsageRollup.ts b/src/server/services/sessionUsageRollup.ts
+new file mode 100644
+index 000000000..fed5f08b9
+--- /dev/null
++++ b/src/server/services/sessionUsageRollup.ts
+@@ -0,0 +1,237 @@
++import { getOutputTokenCountFromUsage, getReasoningTokenCountFromUsage } from '../../utils/tokens.js'
++import { roughTokenCountEstimationForThinking } from '../../services/tokenEstimation.js'
++import { shouldSendThinkingToAPI } from '../../utils/thinking.js'
++import { sessionService } from './sessionService.js'
++import type { RawEntry, SessionTaskNotification } from './sessionService.js'
++
++type ReportedUsage = Parameters<typeof getOutputTokenCountFromUsage>[0]
++
++/**
++ * Token usage a single subagent run generated, derived from its own transcript.
++ *
++ * The parent session's result text is not a usable source for this. It carries
++ * one `total_tokens` line that older runs wrote with the *context window* of the
++ * agent's last call — which describes what the run had read rather than what it
++ * produced — and it carries no thinking split at all. The agent's own transcript
++ * has both, per turn, so this is what the UI reads once a session is opened
++ * again instead of streamed live.
++ */
++export type SubagentUsage = {
++  /** Generated tokens — the run's "usage", matching the live notification. */
++  totalTokens: number
++  outputTokens: number
++  /** Thinking share; absent when thinking is sent to the API (see the gate). */
++  thinkTokens?: number
++  toolUses: number
++}
++
++function countToolUsesInEntries(entries: readonly RawEntry[]): number {
++  let count = 0
++  for (const entry of entries) {
++    if (entry.type !== 'assistant') continue
++    const content = entry.message?.content
++    if (!Array.isArray(content)) continue
++    for (const block of content) {
++      if (block && typeof block === 'object' && (block as { type?: unknown }).type === 'tool_use') {
++        count += 1
++      }
++    }
++  }
++  return count
++}
++
++/**
++ * Sum one agent's generated tokens, and the thinking share of them.
++ *
++ * Mirrors the live path (`finalizeAgentTool`): per turn, the engine's own
++ * reasoning count wins, and a turn it did not measure is estimated from the
++ * thinking that turn produced. Per turn rather than per run, because a reported
++ * turn already covers its own thinking.
++ *
++ * A reported `0` means the engine measured no thinking, which is not a
++ * measurement of thinking the transcript plainly contains — so anything not
++ * strictly positive falls through to the estimate. Treating `0` as "measured" is
++ * what silently suppressed the split on engines that report the field as 0.
++ *
++ * Returns `undefined` when nothing was generated, so a caller can tell "no
++ * usage" from "zero usage" — the bar renders nothing rather than "0k".
++ */
++export function computeSubagentUsage(entries: readonly RawEntry[]): SubagentUsage | undefined {
++  let outputTokens = 0
++  let sawOutput = false
++  // Grouped by response, because a streamed response arrives as several records:
++  // the thinking one alone (carrying no usage of its own), then the text one with
++  // the usage. Only the latter can report reasoning, so estimating the thinking
++  // record *and* adding its sibling's real count counts the same thinking twice —
++  // a run then reports more thinking than it generated and the UI's
++  // `total - think` collapses to zero. A reported count wins for its response;
++  // the estimate is kept only where nothing was reported.
++  const reportedThinkByResponse = new Map<string, number>()
++  const estimatedThinkByResponse = new Map<string, number>()
++
++  for (const [index, entry] of entries.entries()) {
++    if (entry.type !== 'assistant') continue
++    const usage = entry.message?.usage
++    if (!usage) continue
++    const reportedUsage = usage as unknown as ReportedUsage
++
++    const output = getOutputTokenCountFromUsage(reportedUsage)
++    if (output > 0) {
++      outputTokens += output
++      sawOutput = true
++    }
++
++    // A record with no id cannot be grouped with its siblings, so it stands
++    // alone — the old behavior, which is right for a single-record response.
++    const responseId = entry.message?.id ?? `__record_${index}`
++    const reported = getReasoningTokenCountFromUsage(reportedUsage)
++    if (reported !== undefined && reported > 0) {
++      reportedThinkByResponse.set(
++        responseId,
++        (reportedThinkByResponse.get(responseId) ?? 0) + reported,
++      )
++      continue
++    }
++    const estimate = roughTokenCountEstimationForThinking(
++      entry.message?.content as Parameters<typeof roughTokenCountEstimationForThinking>[0],
++    )
++    if (estimate > 0) {
++      estimatedThinkByResponse.set(
++        responseId,
++        (estimatedThinkByResponse.get(responseId) ?? 0) + estimate,
++      )
++    }
++  }
++
++  let thinkTokens = 0
++  for (const reported of reportedThinkByResponse.values()) thinkTokens += reported
++  for (const [responseId, estimate] of estimatedThinkByResponse) {
++    if (!reportedThinkByResponse.has(responseId)) thinkTokens += estimate
++  }
++
++  if (!sawOutput) return undefined
++  return {
++    totalTokens: outputTokens,
++    outputTokens,
++    ...(thinkTokens > 0 ? { thinkTokens } : {}),
++    toolUses: countToolUsesInEntries(entries),
++  }
++}
++
++const CACHE_CAPACITY = 32
++
++/** The slice of the session service this needs; injectable so it can be tested. */
++export type UsageRollupSource = Pick<
++  typeof sessionService,
++  'getSessionMessagesSignature' | 'listSubagentSidecars' | 'readSubagentTranscriptEntries'
++>
++
++/**
++ * Derives each subagent's token usage from the subagents' own transcripts, so a
++ * session read back from disk shows the split the live run would have shown
++ * instead of the single context-based total its result text happens to hold.
++ *
++ * Cached per session against the message signature, which already folds in every
++ * child transcript's size and mtime — a running agent therefore invalidates its
++ * own entry without this having to watch files.
++ */
++export class SessionUsageRollup {
++  private readonly cache = new Map<string, { signature: string; byToolUseId: Map<string, SubagentUsage> }>()
++
++  constructor(private readonly source: UsageRollupSource = sessionService) {}
++
++  /** One usage entry per Agent call whose subagent transcript could be resolved. */
++  async byToolUseId(sessionId: string): Promise<Map<string, SubagentUsage>> {
++    let signature: string | null
++    try {
++      signature = await this.source.getSessionMessagesSignature(sessionId)
++    } catch {
++      return new Map()
++    }
++    if (signature === null) return new Map()
++
++    const cached = this.cache.get(sessionId)
++    if (cached && cached.signature === signature) return cached.byToolUseId
++
++    const derived = await this.derive(sessionId)
++    this.cache.delete(sessionId)
++    this.cache.set(sessionId, { signature, byToolUseId: derived })
++    if (this.cache.size > CACHE_CAPACITY) {
++      const oldest = this.cache.keys().next()
++      if (!oldest.done) this.cache.delete(oldest.value)
++    }
++    return derived
++  }
++
++  private async derive(sessionId: string): Promise<Map<string, SubagentUsage>> {
++    const result = new Map<string, SubagentUsage>()
++    let sidecars: Awaited<ReturnType<UsageRollupSource['listSubagentSidecars']>>
++    try {
++      sidecars = await this.source.listSubagentSidecars(sessionId)
++    } catch {
++      return result
++    }
++
++    // Root agents only. An owned sidecar answers to its parent's tool call and
++    // the group bar reads root calls; counting it here would also attribute one
++    // toolUseId to several transcripts when a fan-out shares it.
++    const seenToolUseId = new Set<string>()
++    for (const sidecar of sidecars.sidecars) {
++      if (sidecar.ownerAgentId !== undefined) continue
++      if (seenToolUseId.has(sidecar.toolUseId)) continue
++      seenToolUseId.add(sidecar.toolUseId)
++      try {
++        const entries = await this.source.readSubagentTranscriptEntries(sessionId, sidecar.agentId)
++        const usage = computeSubagentUsage(entries)
++        if (usage) result.set(sidecar.toolUseId, usage)
++      } catch {
++        // One unreadable agent must not cost the session its whole rollup.
++      }
++    }
++    return result
++  }
++}
++
++export const sessionUsageRollup = new SessionUsageRollup()
++
++/**
++ * Attach already-derived usage to a session's task notifications.
++ *
++ * An existing `usage` wins: a live notification already carries the engine's own
++ * numbers, and the derived ones exist only to fill the gap left when a session
++ * is read back. The thinking share is attached only while thinking is withheld
++ * from the API, mirroring the live gate — otherwise a reader would show a split
++ * the live path deliberately does not, decided by nothing but which of the two
++ * paths happened to produce the number.
++ */
++export function attachUsageToNotifications(
++  notifications: readonly SessionTaskNotification[],
++  byToolUseId: ReadonlyMap<string, SubagentUsage>,
++  includeThink: boolean,
++): SessionTaskNotification[] {
++  if (byToolUseId.size === 0) return [...notifications]
++  return notifications.map(notification => {
++    if (notification.usage) return notification
++    const usage = byToolUseId.get(notification.toolUseId)
++    if (!usage) return notification
++    return {
++      ...notification,
++      usage: {
++        totalTokens: usage.totalTokens,
++        outputTokens: usage.outputTokens,
++        ...(includeThink && usage.thinkTokens !== undefined ? { thinkTokens: usage.thinkTokens } : {}),
++        toolUses: usage.toolUses,
++      },
++    }
++  })
++}
++
++/** {@link attachUsageToNotifications} against the shared rollup cache. */
++export async function enrichTaskNotificationsWithUsage(
++  sessionId: string,
++  notifications: readonly SessionTaskNotification[],
++): Promise<SessionTaskNotification[]> {
++  if (notifications.length === 0) return [...notifications]
++  const byToolUseId = await sessionUsageRollup.byToolUseId(sessionId)
++  return attachUsageToNotifications(notifications, byToolUseId, !shouldSendThinkingToAPI())
++}
+diff --git a/src/server/services/subagentRunService.ts b/src/server/services/subagentRunService.ts
+index 75eda48bd..39c19339b 100644
+--- a/src/server/services/subagentRunService.ts
++++ b/src/server/services/subagentRunService.ts
+@@ -13,6 +13,8 @@ export type SubagentRunUsage = {
+   inputTokens?: number
+   outputTokens?: number
+   totalTokens?: number
++  /** Thinking share of the output. Absent when the engine reported no split. */
++  thinkTokens?: number
+ }
+ 
+ export type SubagentRunResponse = {
+@@ -363,6 +365,9 @@ function normalizeUsage(usage: SubagentRunUsage): SubagentRunUsage | undefined {
+   if (typeof usage.outputTokens === 'number' && Number.isFinite(usage.outputTokens)) {
+     normalized.outputTokens = usage.outputTokens
+   }
++  if (typeof usage.thinkTokens === 'number' && Number.isFinite(usage.thinkTokens)) {
++    normalized.thinkTokens = usage.thinkTokens
++  }
+   if (typeof usage.totalTokens === 'number' && Number.isFinite(usage.totalTokens)) {
+     normalized.totalTokens = usage.totalTokens
+   } else if (
+@@ -381,6 +386,7 @@ function extractUsage(text: string): SubagentRunUsage | undefined {
+     inputTokens: readNumberValue(usageText, ['input_tokens', 'inputTokens']),
+     outputTokens: readNumberValue(usageText, ['output_tokens', 'outputTokens']),
+     totalTokens: readNumberValue(usageText, ['total_tokens', 'totalTokens']),
++    thinkTokens: readNumberValue(usageText, ['think_tokens', 'thinkTokens']),
+   })
+ }
+ 
+@@ -395,6 +401,7 @@ function mergeUsage(
+     inputTokens: preferred.inputTokens ?? fallback.inputTokens,
+     outputTokens: preferred.outputTokens ?? fallback.outputTokens,
+     totalTokens: preferred.totalTokens ?? fallback.totalTokens,
++    thinkTokens: preferred.thinkTokens ?? fallback.thinkTokens,
+   })
+ }
+ 
+diff --git a/src/server/ws/agentTaskState.test.ts b/src/server/ws/agentTaskState.test.ts
+index 399f16de6..79b4b67d1 100644
+--- a/src/server/ws/agentTaskState.test.ts
++++ b/src/server/ws/agentTaskState.test.ts
+@@ -1,5 +1,11 @@
+-import { describe, expect, test } from 'bun:test'
+-import { getCliBackgroundTaskLifecycle } from './agentTaskState.js'
++import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
++import {
++  activeAgentTasks,
++  activeBackgroundTaskIds,
++  activeNonAgentTasks,
++  activeSubagentRuns,
++  getCliBackgroundTaskLifecycle,
++} from './agentTaskState.js'
+ 
+ describe('getCliBackgroundTaskLifecycle ownership', () => {
+   test('keeps root task ownership implicit', () => {
+@@ -46,3 +52,66 @@ describe('getCliBackgroundTaskLifecycle ownership', () => {
+     })
+   })
+ })
++
++describe('activeSubagentRuns', () => {
++  const SESSION = 'active-subagent-runs'
++
++  beforeEach(() => {
++    activeBackgroundTaskIds.clear()
++    activeAgentTasks.clear()
++    activeNonAgentTasks.clear()
++  })
++  afterEach(() => {
++    activeBackgroundTaskIds.clear()
++    activeAgentTasks.clear()
++    activeNonAgentTasks.clear()
++  })
++
++  function agentTask(taskId: string, toolUseId: string): void {
++    let ids = activeBackgroundTaskIds.get(SESSION)
++    if (!ids) {
++      ids = new Set()
++      activeBackgroundTaskIds.set(SESSION, ids)
++    }
++    ids.add(taskId)
++    let tasks = activeAgentTasks.get(SESSION)
++    if (!tasks) {
++      tasks = new Map()
++      activeAgentTasks.set(SESSION, tasks)
++    }
++    tasks.set(taskId, {
++      taskId,
++      taskType: 'local_agent',
++      toolUseId,
++      stopIntent: false,
++      stopRequested: false,
++      localStopConfirmed: false,
++      bookendPending: false,
++      finalizationRetryCount: 0,
++    })
++  }
++
++  test('reports the run id and the spawning tool-call id as a pair', () => {
++    // The two differ in practice: the run id is the agent's own id, the tool-use
++    // id is the Agent tool call's. A client that missed `task_started` needs both.
++    agentTask('a74ce8', 'call_00_s8R2abcdef')
++    expect(activeSubagentRuns(SESSION)).toEqual([
++      { taskId: 'a74ce8', toolUseId: 'call_00_s8R2abcdef' },
++    ])
++  })
++
++  test('excludes a shell job sharing the same active set', () => {
++    agentTask('a74ce8', 'call_00_s8R2abcdef')
++    // A Bash background task is active too, and has no subagent transcript — it
++    // must not be looked up as if its usage were derivable.
++    activeBackgroundTaskIds.get(SESSION)!.add('bash-1')
++    expect(activeSubagentRuns(SESSION)).toEqual([
++      { taskId: 'a74ce8', toolUseId: 'call_00_s8R2abcdef' },
++    ])
++  })
++
++  test('is empty when nothing is running', () => {
++    expect(activeSubagentRuns(SESSION)).toEqual([])
++    expect(activeSubagentRuns('some-other-session')).toEqual([])
++  })
++})
+diff --git a/src/server/ws/agentTaskState.ts b/src/server/ws/agentTaskState.ts
+index 88698d1ed..6fe73d3ba 100644
+--- a/src/server/ws/agentTaskState.ts
++++ b/src/server/ws/agentTaskState.ts
+@@ -175,6 +175,40 @@ export function hasActiveBackgroundTasks(sessionId: string): boolean {
+   })
+ }
+ 
++/** An in-flight subagent run, as the identity pair the rest of the system looks it up by. */
++export type ActiveSubagentRun = {
++  /** The run's own id. Live agent-run frames are addressed with this. */
++  taskId: string
++  /** The Agent tool call that spawned it. The UI and the usage rollup are keyed by this. */
++  toolUseId: string
++}
++
++/**
++ * The in-flight *subagent* runs of a session.
++ *
++ * Both ids are reported because they are not interchangeable and not derivable
++ * from each other: `taskId` is what live frames carry, `toolUseId` is what the UI
++ * renders the number under. A client that joined the session mid-run never saw the
++ * `task_started` frame that ties the two together, so without both it cannot
++ * present the run's usage at all — it would have to guess, and a guessed
++ * `toolUseId` is simply never looked up.
++ *
++ * Agent tasks only on purpose. `activeBackgroundTaskIds` also holds shell jobs,
++ * which have no subagent transcript and must not be looked up as if they had one.
++ */
++export function activeSubagentRuns(sessionId: string): ActiveSubagentRun[] {
++  const taskIds = activeBackgroundTaskIds.get(sessionId)
++  if (!taskIds || taskIds.size === 0) return []
++  const sessionAgentTasks = activeAgentTasks.get(sessionId)
++  const runs: ActiveSubagentRun[] = []
++  for (const taskId of taskIds) {
++    const agentTask = sessionAgentTasks?.get(taskId)
++    if (!agentTask) continue
++    runs.push({ taskId: agentTask.taskId, toolUseId: agentTask.toolUseId })
++  }
++  return runs
++}
++
+ export function clearAgentStopFinalizationRetry(task: ActiveAgentTaskState): void {
+   if (task.finalizationRetryTimer === undefined) return
+   clearTimeout(task.finalizationRetryTimer)
+diff --git a/src/server/ws/streamBlocks.ts b/src/server/ws/streamBlocks.ts
+index 193ad1ad1..a98e1bbd2 100644
+--- a/src/server/ws/streamBlocks.ts
++++ b/src/server/ws/streamBlocks.ts
+@@ -22,6 +22,13 @@ export type SessionStreamState = {
+   activeMessageIdsByScope: Map<string, string>
+   activeBlockScopesByIndex: Map<number, Set<string>>
+   activeBlockTypes: Map<string, 'text' | 'tool_use' | 'thinking'>
++  /** Epoch ms the server first saw each open thinking block's `content_block_start`.
++   *  Attached to the block's `thinking` deltas as `serverStart` so the client can
++   *  anchor the block's wall-clock start on the server's receive clock (the true
++   *  "generation began" moment) instead of its own delta-receive clock, and show
++   *  the elapsed thinking time ticking from the very first block, not after the
++   *  text/tool block that follows it. */
++  thinkingBlockStarts: Map<string, number>
+   activeToolBlocks: Map<string, { toolName: string; toolUseId: string; inputJson: string; parentToolUseId?: string }>
+   pendingLocalCommand?: { name: string; args: string }
+   /** Tool blocks whose input JSON failed to parse in content_block_stop.
+@@ -40,6 +47,7 @@ export function resetCurrentStreamAttempt(state: SessionStreamState): void {
+   state.activeMessageIdsByScope.clear()
+   state.activeBlockScopesByIndex.clear()
+   state.activeBlockTypes.clear()
++  state.thinkingBlockStarts.clear()
+   state.activeToolBlocks.clear()
+   state.pendingToolBlocks.clear()
+   state.toolParentUseIds.clear()
+diff --git a/src/services/api/emptyUsage.ts b/src/services/api/emptyUsage.ts
+index a1b16a3b5..517c2c66a 100644
+--- a/src/services/api/emptyUsage.ts
++++ b/src/services/api/emptyUsage.ts
+@@ -30,7 +30,7 @@ export const EMPTY_USAGE: Readonly<NonNullableUsage> = {
+ export function normalizeUsage(
+   usage: Partial<BetaUsage> | null | undefined,
+ ): NonNullableUsage {
+-  return {
++  const normalized: NonNullableUsage = {
+     input_tokens: usage?.input_tokens ?? EMPTY_USAGE.input_tokens,
+     cache_creation_input_tokens:
+       usage?.cache_creation_input_tokens ??
+@@ -59,4 +59,22 @@ export function normalizeUsage(
+     iterations: usage?.iterations ?? EMPTY_USAGE.iterations,
+     speed: usage?.speed ?? EMPTY_USAGE.speed,
+   }
++  // The reasoning split a compatible engine reports is not part of the SDK
++  // usage type, so it is attached with a cast (the same treatment
++  // updateUsage() gives the streaming path). On a reasoning model most of
++  // output_tokens is thinking, and only this field says how much — a caller
++  // that cannot tell the two apart cannot size either.
++  const reasoningTokens = (
++    usage as unknown as { reasoning_tokens?: number } | null | undefined
++  )?.reasoning_tokens
++  if (
++    typeof reasoningTokens === 'number' &&
++    Number.isFinite(reasoningTokens) &&
++    reasoningTokens > 0
++  ) {
++    ;(
++      normalized as unknown as { reasoning_tokens?: number }
++    ).reasoning_tokens = reasoningTokens
++  }
++  return normalized
+ }
+diff --git a/src/services/tokenEstimation.test.ts b/src/services/tokenEstimation.test.ts
+index 3149671c8..aa1f68953 100644
+--- a/src/services/tokenEstimation.test.ts
++++ b/src/services/tokenEstimation.test.ts
+@@ -1,6 +1,7 @@
+ import { describe, expect, test } from 'bun:test'
+ import {
+   roughTokenCountEstimationForContent,
++  roughTokenCountEstimationForThinking,
+ } from './tokenEstimation.js'
+ import { OPENAI_REASONING_ENVELOPE_PREFIX } from '../utils/openAIReasoningEnvelope.js'
+ 
+@@ -27,3 +28,31 @@ describe('roughTokenCountEstimationForContent', () => {
+     ).toBe(100)
+   })
+ })
++
++describe('roughTokenCountEstimationForThinking', () => {
++  // Stands in for the engine's reasoning count where it reports none, so the
++  // split between deliberation and answer stays available on any endpoint.
++  test('counts thinking blocks only', () => {
++    // 600 chars of thinking at 4 bytes/token = 150; the text block's 800 chars
++    // belong to the output total and must not be added here.
++    const estimate = roughTokenCountEstimationForThinking([
++      { type: 'thinking', thinking: 'x'.repeat(600) },
++      { type: 'text', text: 'y'.repeat(800) },
++    ])
++    expect(estimate).toBe(150)
++  })
++
++  test('reads nothing from a turn that did not think', () => {
++    expect(roughTokenCountEstimationForThinking([{ type: 'text', text: 'answer' }])).toBe(0)
++    expect(roughTokenCountEstimationForThinking('plain string content')).toBe(0)
++    expect(roughTokenCountEstimationForThinking(undefined)).toBe(0)
++  })
++
++  test('includes redacted thinking, which is thinking the reader cannot see', () => {
++    expect(
++      roughTokenCountEstimationForThinking([
++        { type: 'redacted_thinking', data: 'x'.repeat(400) },
++      ]),
++    ).toBe(100)
++  })
++})
+diff --git a/src/services/tokenEstimation.ts b/src/services/tokenEstimation.ts
+index 4dba222d7..69348a371 100644
+--- a/src/services/tokenEstimation.ts
++++ b/src/services/tokenEstimation.ts
+@@ -416,6 +416,46 @@ function roughTokenCountEstimationForBlock(
+   if (block.type === 'text') {
+     return roughTokenCountEstimation(block.text)
+   }
++  return roughTokenCountEstimationForNonTextBlock(block)
++}
++
++/**
++ * Thinking tokens estimated from an assistant message's own blocks.
++ *
++ * Stands in for the engine's reasoning count when it reports none, so the split
++ * between deliberation and answer stays available on any endpoint rather than
++ * only the ones that measure it. Only the thinking blocks are counted: the text
++ * and tool input the same message produced belong to the output total, not to
++ * this side of it, and adding them here would double them.
++ *
++ * Returns 0 when there is nothing to estimate, which the caller reads as "this
++ * turn did not think" — the same reading a reported zero would get.
++ */
++export function roughTokenCountEstimationForThinking(
++  content:
++    | string
++    | Array<Anthropic.ContentBlock>
++    | Array<Anthropic.ContentBlockParam>
++    | undefined,
++): number {
++  if (!content || typeof content === 'string') {
++    return 0
++  }
++  let totalTokens = 0
++  for (const block of content) {
++    if (typeof block === 'string') {
++      continue
++    }
++    if (block.type === 'thinking' || block.type === 'redacted_thinking') {
++      totalTokens += roughTokenCountEstimationForBlock(block)
++    }
++  }
++  return totalTokens
++}
++
++function roughTokenCountEstimationForNonTextBlock(
++  block: Anthropic.ContentBlock | Anthropic.ContentBlockParam,
++): number {
+   if (block.type === 'image' || block.type === 'document') {
+     // https://platform.claude.com/docs/en/build-with-claude/vision#calculate-image-costs
+     // tokens = (width px * height px)/750
+diff --git a/src/tasks/LocalAgentTask/LocalAgentTask.test.ts b/src/tasks/LocalAgentTask/LocalAgentTask.test.ts
+index cf38bf36b..08b851e3e 100644
+--- a/src/tasks/LocalAgentTask/LocalAgentTask.test.ts
++++ b/src/tasks/LocalAgentTask/LocalAgentTask.test.ts
+@@ -19,11 +19,15 @@ import { drainSdkEvents } from '../../utils/sdkEventQueue.js'
+ import { _clearOutputsForTest } from '../../utils/task/diskOutput.js'
+ import {
+   backgroundAgentTask,
++  createProgressTracker,
+   enqueueAgentNotification,
++  getReasoningTokenCountFromTracker,
++  getTokenCountFromTracker,
+   type LocalAgentTaskState,
+   registerAgentForeground,
+   registerAsyncAgent,
+   updateAgentSummary,
++  updateProgressFromMessage,
+ } from './LocalAgentTask.js'
+ 
+ const selectedAgent = {
+@@ -98,6 +102,53 @@ afterEach(async () => {
+   resetStateForTests()
+ })
+ 
++describe('enqueueAgentNotification thinking split', () => {
++  // The numbers are emitted only while the thinking itself is withheld: with
++  // the reasoning visible, one total reads fine; with it hidden, the pair is the
++  // only evidence that most of the cost was deliberation.
++  test('emits think_tokens alongside the output when thinking is not returned', () => {
++    const harness = makeHarness()
++
++    enqueueAgentNotification({
++      taskId: harness.taskId,
++      description: 'Write an article',
++      status: 'completed',
++      setAppState: harness.setAppState,
++      toolUseId: 'toolu_agent',
++      usage: {
++        totalTokens: 11_900,
++        toolUses: 1,
++        durationMs: 60_000,
++        outputTokens: 11_900,
++        reasoningTokens: 9_000,
++      },
++    })
++
++    const value = String(getCommandQueue()[0]?.value)
++    expect(value).toContain('<think_tokens>9000</think_tokens>')
++    expect(value).toContain('<output_tokens>11900</output_tokens>')
++    // The pre-existing total stays, so readers that only know it keep working.
++    expect(value).toContain('<total_tokens>11900</total_tokens>')
++  })
++
++  test('omits the split when the run reported no reasoning share', () => {
++    const harness = makeHarness()
++
++    enqueueAgentNotification({
++      taskId: harness.taskId,
++      description: 'Run a command',
++      status: 'completed',
++      setAppState: harness.setAppState,
++      toolUseId: 'toolu_agent',
++      usage: { totalTokens: 2000, toolUses: 1, durationMs: 1000 },
++    })
++
++    const value = String(getCommandQueue()[0]?.value)
++    expect(value).toContain('<total_tokens>2000</total_tokens>')
++    expect(value).not.toContain('think_tokens')
++  })
++})
++
+ describe('enqueueAgentNotification ownership', () => {
+   test('keeps a root agent terminal notification on the main-thread path', () => {
+     const harness = makeHarness()
+@@ -217,3 +268,141 @@ describe('Agent task registration ownership', () => {
+     await foreground.backgroundSignal
+   })
+ })
++
++
++describe('getTokenCountFromTracker usage basis', () => {
++  // The tracker sees both sides, but a run's "usage" means what it generated.
++  // The input side is the window it was handed, so adding it made a run that
++  // read a lot look busier than one that wrote a lot. The synchronous path was
++  // moved onto this same basis so a run's number means one thing.
++  test('reports generated output tokens, not the context it read', () => {
++    const tracker = createProgressTracker()
++    const turn = (input: number, cacheRead: number, output: number) => ({
++      type: 'assistant' as const,
++      message: {
++        content: [],
++        usage: {
++          input_tokens: input,
++          cache_read_input_tokens: cacheRead,
++          cache_creation_input_tokens: 0,
++          output_tokens: output,
++        },
++      },
++    })
++
++    updateProgressFromMessage(tracker, turn(1000, 5000, 300) as never)
++    updateProgressFromMessage(tracker, turn(4000, 9000, 700) as never)
++
++    expect(tracker.cumulativeOutputTokens).toBe(1000)
++    // `latestInputTokens` is the latest turn's input, not a sum.
++    expect(tracker.latestInputTokens).toBe(13000)
++    expect(getTokenCountFromTracker(tracker)).toBe(1000)
++  })
++})
++
++describe('thinking share of a run', () => {
++  // On a reasoning model most of the output is deliberation, so a single total
++  // cannot be read: 12k may be a 3k answer or a 3k answer plus 9k of thinking.
++  test('prefers the engine count when it reports one', () => {
++    const tracker = createProgressTracker()
++    const turn = (output: number, reasoning?: number) => ({
++      type: 'assistant' as const,
++      message: {
++        // Thinking content present, so an estimate would have a number to use —
++        // the engine's own count must win anyway.
++        content: [{ type: 'thinking', thinking: 'x'.repeat(4000) }],
++        usage: {
++          input_tokens: 10,
++          cache_read_input_tokens: 0,
++          cache_creation_input_tokens: 0,
++          output_tokens: output,
++          ...(reasoning === undefined ? {} : { reasoning_tokens: reasoning }),
++        },
++      },
++    })
++
++    updateProgressFromMessage(tracker, turn(500, 300) as never)
++    updateProgressFromMessage(tracker, turn(400, 150) as never)
++
++    expect(tracker.cumulativeReasoningTokens).toBe(450)
++    expect(getReasoningTokenCountFromTracker(tracker)).toBe(450)
++  })
++
++  test('estimates the thinking when the engine reports none', () => {
++    const tracker = createProgressTracker()
++    // 4000 chars of thinking at 4 bytes/token = 1000, used because no engine
++    // count came with the turn — otherwise this endpoint would have no split.
++    updateProgressFromMessage(tracker, {
++      type: 'assistant' as const,
++      message: {
++        content: [{ type: 'thinking', thinking: 'x'.repeat(4000) }],
++        usage: {
++          input_tokens: 10,
++          cache_read_input_tokens: 0,
++          cache_creation_input_tokens: 0,
++          output_tokens: 1200,
++        },
++      },
++    } as never)
++
++    expect(tracker.cumulativeReasoningTokens).toBe(1000)
++  })
++
++  test('does not estimate a thinking record whose response reported the count', () => {
++    // Measured shape on the local engine (agent-a47f5e65272e0bd40.jsonl): one
++    // response arrives as two records sharing a message id — the thinking block
++    // alone with `output_tokens: 0` and no reasoning, then the text record with
++    // the real pair. Estimating the first on top of the second made a 9.3k run
++    // report 15.7k of thinking, so the UI's `total - think` read zero.
++    const tracker = createProgressTracker()
++    const record = (output: number, content: unknown, reasoning?: number) => ({
++      type: 'assistant' as const,
++      message: {
++        id: 'msg_1',
++        content,
++        usage: {
++          input_tokens: 10,
++          cache_read_input_tokens: 0,
++          cache_creation_input_tokens: 0,
++          output_tokens: output,
++          ...(reasoning === undefined ? {} : { reasoning_tokens: reasoning }),
++        },
++      },
++    })
++
++    updateProgressFromMessage(
++      tracker,
++      record(0, [{ type: 'thinking', thinking: 'x'.repeat(4000) }]) as never,
++    )
++    updateProgressFromMessage(
++      tracker,
++      record(1200, [{ type: 'text', text: 'done' }], 800) as never,
++    )
++
++    // The withdrawn estimate leaves the engine's own count alone.
++    expect(tracker.cumulativeReasoningTokens).toBe(800)
++    expect(tracker.cumulativeOutputTokens).toBe(1200)
++    // And the non-thinking part stays positive, which is what the bar shows.
++    expect(tracker.cumulativeOutputTokens - tracker.cumulativeReasoningTokens).toBe(400)
++  })
++
++  test('reports no thinking share for a run that did not think', () => {
++    const tracker = createProgressTracker()
++    updateProgressFromMessage(tracker, {
++      type: 'assistant' as const,
++      message: {
++        content: [{ type: 'text', text: 'answer' }],
++        usage: {
++          input_tokens: 10,
++          cache_read_input_tokens: 0,
++          cache_creation_input_tokens: 0,
++          output_tokens: 40,
++        },
++      },
++    } as never)
++
++    // Absent rather than 0: a reader must be able to tell "no thinking" from
++    // "the number is there and it is zero".
++    expect(getReasoningTokenCountFromTracker(tracker)).toBeUndefined()
++  })
++})
+diff --git a/src/tasks/LocalAgentTask/LocalAgentTask.tsx b/src/tasks/LocalAgentTask/LocalAgentTask.tsx
+index c3c31703d..8d1041d90 100644
+--- a/src/tasks/LocalAgentTask/LocalAgentTask.tsx
++++ b/src/tasks/LocalAgentTask/LocalAgentTask.tsx
+@@ -19,6 +19,9 @@ import { getAgentTranscriptPath } from '../../utils/sessionStorage.js';
+ import { evictTaskOutput, getTaskOutputPath, initTaskOutputAsSymlink } from '../../utils/task/diskOutput.js';
+ import { PANEL_GRACE_MS, registerTask, updateTaskState } from '../../utils/task/framework.js';
+ import { emitTaskProgress } from '../../utils/task/sdkProgress.js';
++import { roughTokenCountEstimationForThinking } from '../../services/tokenEstimation.js';
++import { getReasoningTokenCountFromUsage } from '../../utils/tokens.js';
++import { shouldSendThinkingToAPI } from '../../utils/thinking.js';
+ import { emitTaskTerminatedSdk } from '../../utils/sdkEventQueue.js';
+ import type { TaskState } from '../types.js';
+ export type ToolActivity = {
+@@ -34,6 +37,8 @@ export type ToolActivity = {
+ export type AgentProgress = {
+   toolUseCount: number;
+   tokenCount: number;
++  /** Thinking share of `tokenCount`; undefined when the engine reported none. */
++  reasoningTokens?: number;
+   lastActivity?: ToolActivity;
+   recentActivities?: ToolActivity[];
+   summary?: string;
+@@ -46,6 +51,25 @@ export type ProgressTracker = {
+   // so we keep the latest value. output_tokens is per-turn, so we sum those.
+   latestInputTokens: number;
+   cumulativeOutputTokens: number;
++  /**
++   * How much of `cumulativeOutputTokens` was thinking. Summed per turn for the
++   * same reason output is. Stays 0 when the engine reports no reasoning split,
++   * which is how a reader tells "no split available" from "no thinking".
++   */
++  cumulativeReasoningTokens: number;
++  /**
++   * Thinking estimated for records whose response reported no reasoning, keyed by
++   * response id.
++   *
++   * A streamed response reaches the tracker as several records — the thinking one
++   * alone, then the text one carrying the usage — and only the latter can report
++   * reasoning (measured on the local engine: `output_tokens: 0` with no
++   * reasoning on the thinking record, then the real pair on the text record).
++   * Without this map, the thinking record is estimated *and* its sibling's real
++   * count is added, so a run reported more thinking than it generated in total
++   * (15.7k against 9.3k) and the UI's `total - think` collapsed to zero.
++   */
++  thinkingEstimatesByResponse: Map<string, number>;
+   recentActivities: ToolActivity[];
+ };
+ export function createProgressTracker(): ProgressTracker {
+@@ -53,11 +77,35 @@ export function createProgressTracker(): ProgressTracker {
+     toolUseCount: 0,
+     latestInputTokens: 0,
+     cumulativeOutputTokens: 0,
++    cumulativeReasoningTokens: 0,
++    thinkingEstimatesByResponse: new Map(),
+     recentActivities: []
+   };
+ }
++/**
++ * Tokens an agent run has generated — the basis the UI shows as its "usage".
++ *
++ * Output only. `latestInputTokens` (input plus cache) is accumulated as well,
++ * but it describes the window the run has read, which grows with how much
++ * context it was handed rather than with the work it did; adding it to the
++ * output count made a long-context run look far busier than a long-output one.
++ * The synchronous path was moved onto this same basis, so a run's number means
++ * the same thing however it was dispatched.
++ */
+ export function getTokenCountFromTracker(tracker: ProgressTracker): number {
+-  return tracker.latestInputTokens + tracker.cumulativeOutputTokens;
++  return tracker.cumulativeOutputTokens;
++}
++
++/**
++ * How many of the run's output tokens were thinking, or `undefined` when the
++ * engine never reported a split — an absent number, not a zero one.
++ */
++export function getReasoningTokenCountFromTracker(
++  tracker: ProgressTracker
++): number | undefined {
++  return tracker.cumulativeReasoningTokens > 0
++    ? tracker.cumulativeReasoningTokens
++    : undefined;
+ }
+ 
+ /**
+@@ -74,6 +122,41 @@ export function updateProgressFromMessage(tracker: ProgressTracker, message: Mes
+   // Keep latest input (it's cumulative in the API), sum outputs
+   tracker.latestInputTokens = usage.input_tokens + (usage.cache_creation_input_tokens ?? 0) + (usage.cache_read_input_tokens ?? 0);
+   tracker.cumulativeOutputTokens += usage.output_tokens;
++  // Prefer the engine's own reasoning count; fall back to estimating this
++  // turn's thinking when it reports none, so the split survives on endpoints
++  // that do not measure it. Per turn, never both: a turn's real count already
++  // covers its thinking.
++  //
++  // A reported 0 counts as "not measured": an engine that fills the field
++  // without computing it reports 0, and treating that as a real measurement
++  // would suppress the estimate and hide the split entirely.
++    const reported = getReasoningTokenCountFromUsage(usage);
++    const responseId = (message.message as { id?: string }).id;
++    if (reported !== undefined && reported > 0) {
++      // The real count covers this response's thinking, so an estimate made for
++      // an earlier record of the SAME response must be withdrawn rather than
++      // added to (see thinkingEstimatesByResponse).
++      const pending = responseId
++        ? tracker.thinkingEstimatesByResponse.get(responseId)
++        : undefined;
++      if (pending !== undefined && responseId) {
++        tracker.cumulativeReasoningTokens -= pending;
++        tracker.thinkingEstimatesByResponse.delete(responseId);
++      }
++      tracker.cumulativeReasoningTokens += reported;
++    } else {
++      const estimate = roughTokenCountEstimationForThinking(message.message.content);
++      if (estimate > 0) {
++        tracker.cumulativeReasoningTokens += estimate;
++        if (responseId) {
++          tracker.thinkingEstimatesByResponse.set(
++            responseId,
++            (tracker.thinkingEstimatesByResponse.get(responseId) ?? 0) + estimate,
++          );
++        }
++      }
++    }
++    if (tracker.cumulativeReasoningTokens < 0) tracker.cumulativeReasoningTokens = 0;
+   for (const content of message.message.content) {
+     if (content.type === 'tool_use') {
+       tracker.toolUseCount++;
+@@ -99,6 +182,7 @@ export function getProgressUpdate(tracker: ProgressTracker): AgentProgress {
+   return {
+     toolUseCount: tracker.toolUseCount,
+     tokenCount: getTokenCountFromTracker(tracker),
++    reasoningTokens: getReasoningTokenCountFromTracker(tracker),
+     lastActivity: tracker.recentActivities.length > 0 ? tracker.recentActivities[tracker.recentActivities.length - 1] : undefined,
+     recentActivities: [...tracker.recentActivities]
+   };
+@@ -219,6 +303,10 @@ export function enqueueAgentNotification({
+     totalTokens: number;
+     toolUses: number;
+     durationMs: number;
++    /** Generated tokens; equals `totalTokens`, named for what it counts. */
++    outputTokens?: number;
++    /** Thinking share of the output. Absent when the engine reported no split. */
++    reasoningTokens?: number;
+   };
+   toolUseId?: string;
+   worktreePath?: string;
+@@ -252,7 +340,22 @@ export function enqueueAgentNotification({
+   const outputPath = getTaskOutputPath(taskId);
+   const toolUseIdLine = toolUseId ? `\n<${TOOL_USE_ID_TAG}>${toolUseId}</${TOOL_USE_ID_TAG}>` : '';
+   const resultSection = finalMessage ? `\n<result>${finalMessage}</result>` : '';
+-  const usageSection = usage ? `\n<usage><total_tokens>${usage.totalTokens}</total_tokens><tool_uses>${usage.toolUses}</tool_uses><duration_ms>${usage.durationMs}</duration_ms></usage>` : '';
++  // `total_tokens` is kept as-is for every existing reader (task notification
++  // policy, subagent run service, the desktop's own regex). `output_tokens`
++  // states the same number under the name that says what it counts — generated
++  // tokens — and `think_tokens` is the part of it spent thinking. On a reasoning
++  // model that part is most of the total, so one number cannot stand in for the
++  // pair; it is emitted only when the engine measured one.
++  // The split is emitted only when the thinking itself is not being returned to
++  // the caller: with the content in hand a single total is enough to read, and
++  // without it the numbers are the only way to see that most of the cost was
++  // thinking. Gating here keeps the decision with the side that knows the switch
++  // and the numbers; the reader just renders the shape it was handed.
++  const showSplit = usage?.reasoningTokens != null && !shouldSendThinkingToAPI();
++  const reasoningSection = showSplit
++    ? `<output_tokens>${usage.outputTokens ?? usage.totalTokens}</output_tokens><think_tokens>${usage.reasoningTokens}</think_tokens>`
++    : '';
++  const usageSection = usage ? `\n<usage><total_tokens>${usage.totalTokens}</total_tokens>${reasoningSection}<tool_uses>${usage.toolUses}</tool_uses><duration_ms>${usage.durationMs}</duration_ms></usage>` : '';
+   const worktreeSection = worktreePath ? `\n<${WORKTREE_TAG}><${WORKTREE_PATH_TAG}>${worktreePath}</${WORKTREE_PATH_TAG}>${worktreeBranch ? `<${WORKTREE_BRANCH_TAG}>${worktreeBranch}</${WORKTREE_BRANCH_TAG}>` : ''}</${WORKTREE_TAG}>` : '';
+   const message = `<${TASK_NOTIFICATION_TAG}>
+ <${TASK_ID_TAG}>${taskId}</${TASK_ID_TAG}>${toolUseIdLine}
+@@ -277,7 +380,13 @@ export function enqueueAgentNotification({
+       usage: usage ? {
+         total_tokens: usage.totalTokens,
+         tool_uses: usage.toolUses,
+-        duration_ms: usage.durationMs
++        duration_ms: usage.durationMs,
++        ...(usage.reasoningTokens != null && !shouldSendThinkingToAPI()
++          ? {
++              output_tokens: usage.outputTokens ?? usage.totalTokens,
++              think_tokens: usage.reasoningTokens
++            }
++          : {})
+       } : undefined,
+       ownerAgentId
+     });
+diff --git a/src/tools/AgentTool/AgentTool.tsx b/src/tools/AgentTool/AgentTool.tsx
+index cf08205b4..3dd8b5da5 100644
+--- a/src/tools/AgentTool/AgentTool.tsx
++++ b/src/tools/AgentTool/AgentTool.tsx
+@@ -11,7 +11,7 @@ import { startAgentSummarization } from '../../services/AgentSummary/agentSummar
+ import { getFeatureValue_CACHED_MAY_BE_STALE } from '../../services/analytics/growthbook.js';
+ import { type AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS, logEvent } from '../../services/analytics/index.js';
+ import { clearDumpState } from '../../services/api/dumpPrompts.js';
+-import { completeAgentTask as completeAsyncAgent, createActivityDescriptionResolver, createProgressTracker, enqueueAgentNotification, failAgentTask as failAsyncAgent, getProgressUpdate, getTokenCountFromTracker, isLocalAgentTask, killAsyncAgent, registerAgentForeground, registerAsyncAgent, unregisterAgentForeground, updateAgentProgress as updateAsyncAgentProgress, updateProgressFromMessage } from '../../tasks/LocalAgentTask/LocalAgentTask.js';
++import { completeAgentTask as completeAsyncAgent, createActivityDescriptionResolver, createProgressTracker, enqueueAgentNotification, failAgentTask as failAsyncAgent, getProgressUpdate, getReasoningTokenCountFromTracker, getTokenCountFromTracker, isLocalAgentTask, killAsyncAgent, registerAgentForeground, registerAsyncAgent, unregisterAgentForeground, updateAgentProgress as updateAsyncAgentProgress, updateProgressFromMessage } from '../../tasks/LocalAgentTask/LocalAgentTask.js';
+ import { checkRemoteAgentEligibility, formatPreconditionError, getRemoteTaskSessionUrl, registerRemoteAgentTask } from '../../tasks/RemoteAgentTask/RemoteAgentTask.js';
+ import { assembleToolPool } from '../../tools.js';
+ import { asAgentId } from '../../types/ids.js';
+@@ -46,6 +46,7 @@ import { BackgroundHint } from '../BashTool/UI.js';
+ import { FILE_READ_TOOL_NAME } from '../FileReadTool/prompt.js';
+ import { spawnTeammate } from '../shared/spawnMultiAgent.js';
+ import { setAgentColor } from './agentColorManager.js';
++import { shouldSendThinkingToAPI } from '../../utils/thinking.js';
+ import { agentToolResultSchema, classifyHandoffIfNeeded, emitAgentToolActivitiesForMessage, emitTaskProgress, extractPartialResult, finalizeAgentTool, getLastToolUseName, runAsyncAgentLifecycle } from './agentToolUtils.js';
+ import { GENERAL_PURPOSE_AGENT } from './built-in/generalPurposeAgent.js';
+ import { AGENT_TOOL_NAME, LEGACY_AGENT_TOOL_NAME, ONE_SHOT_BUILTIN_AGENT_TYPES } from './constants.js';
+@@ -998,7 +999,9 @@ export const AgentTool = buildTool({
+                       usage: {
+                         totalTokens: getTokenCountFromTracker(tracker),
+                         toolUses: agentResult.totalToolUseCount,
+-                        durationMs: agentResult.totalDurationMs
++                        durationMs: agentResult.totalDurationMs,
++                        outputTokens: getTokenCountFromTracker(tracker),
++                        reasoningTokens: getReasoningTokenCountFromTracker(tracker)
+                       },
+                       toolUseId: toolUseContext.toolUseId
+                     });
+@@ -1206,11 +1209,17 @@ export const AgentTool = buildTool({
+                 status: syncAgentError ? 'failed' : wasAborted ? 'stopped' : 'completed',
+                 output_file: '',
+                 summary: description,
+-                usage: {
+-                  total_tokens: progress.tokenCount,
+-                  tool_uses: progress.toolUseCount,
+-                  duration_ms: Date.now() - agentStartTime
+-                },
++                  usage: {
++                    total_tokens: progress.tokenCount,
++                    tool_uses: progress.toolUseCount,
++                    duration_ms: Date.now() - agentStartTime,
++                    ...(progress.reasoningTokens != null
++                      ? {
++                          output_tokens: progress.tokenCount,
++                          think_tokens: progress.reasoningTokens
++                        }
++                      : {})
++                  },
+                 ...(toolUseContext.agentId ? { owner_agent_id: toolUseContext.agentId } : {})
+               });
+             }
+@@ -1410,7 +1419,9 @@ The agent is now running and will receive instructions via mailbox.`
+           text: `agentId: ${data.agentId} (use SendMessage with to: '${data.agentId}' to continue this agent)${worktreeInfoText}
+ <usage>total_tokens: ${data.totalTokens}
+ tool_uses: ${data.totalToolUseCount}
+-duration_ms: ${data.totalDurationMs}</usage>`
++duration_ms: ${data.totalDurationMs}${data.reasoningTokens != null && !shouldSendThinkingToAPI() ? `
++output_tokens: ${data.totalTokens}
++think_tokens: ${data.reasoningTokens}` : ''}</usage>`
+         }]
+       };
+     }
+diff --git a/src/tools/AgentTool/agentToolUtils.test.ts b/src/tools/AgentTool/agentToolUtils.test.ts
+index b4122eebf..1ada79ff6 100644
+--- a/src/tools/AgentTool/agentToolUtils.test.ts
++++ b/src/tools/AgentTool/agentToolUtils.test.ts
+@@ -22,6 +22,7 @@ import { registerTask } from '../../utils/task/framework.js'
+ import {
+   emitAgentToolActivitiesForMessage,
+   extractAgentToolActivities,
++  finalizeAgentTool,
+   runAsyncAgentLifecycle,
+ } from './agentToolUtils.js'
+ import { SYNTHETIC_OUTPUT_TOOL_NAME } from '../SyntheticOutputTool/SyntheticOutputTool.js'
+@@ -493,3 +494,47 @@ describe('emitAgentToolActivitiesForMessage', () => {
+     }
+   })
+ })
++
++
++describe('finalizeAgentTool usage basis', () => {
++  const metadata = {
++    prompt: 'write an article',
++    resolvedAgentModel: 'test-model',
++    isBuiltInAgent: false,
++    startTime: 0,
++    agentType: 'general-purpose',
++    isAsync: false,
++  }
++
++  // The number is shown as the run's "usage", which means work the engine
++  // generated. Input and cache tokens describe what was already in the window;
++  // counting them made a run's number track how much it had read. Summing over
++  // turns matters too: taking only the last turn dropped every earlier turn's
++  // output, understating a two-turn agent by a wide margin.
++  test('counts output tokens summed over turns, ignoring input and cache', () => {
++    const messages = [
++      createAssistantMessage({
++        content: 'first turn',
++        usage: {
++          input_tokens: 1000,
++          cache_read_input_tokens: 5000,
++          cache_creation_input_tokens: 200,
++          output_tokens: 300,
++        },
++      }),
++      createAssistantMessage({
++        content: 'second turn',
++        usage: {
++          input_tokens: 4000,
++          cache_read_input_tokens: 9000,
++          cache_creation_input_tokens: 0,
++          output_tokens: 700,
++        },
++      }),
++    ] as Message[]
++
++    const result = finalizeAgentTool(messages, 'agent-1', metadata)
++
++    expect(result.totalTokens).toBe(1000)
++  })
++})
+diff --git a/src/tools/AgentTool/agentToolUtils.ts b/src/tools/AgentTool/agentToolUtils.ts
+index d808914ca..d327c6fa7 100644
+--- a/src/tools/AgentTool/agentToolUtils.ts
++++ b/src/tools/AgentTool/agentToolUtils.ts
+@@ -28,6 +28,7 @@ import {
+   enqueueAgentNotification,
+   failAgentTask as failAsyncAgent,
+   getProgressUpdate,
++  getReasoningTokenCountFromTracker,
+   getTokenCountFromTracker,
+   isLocalAgentTask,
+   killAsyncAgent,
+@@ -54,10 +55,14 @@ import {
+   classifyYoloAction,
+ } from '../../utils/permissions/yoloClassifier.js'
+ import { emitTaskProgress as emitTaskProgressEvent } from '../../utils/task/sdkProgress.js'
++import { roughTokenCountEstimationForThinking } from '../../services/tokenEstimation.js'
+ import { emitAgentToolActivity, type AgentToolActivity } from '../../utils/sdkEventQueue.js'
+ import { SYNTHETIC_OUTPUT_TOOL_NAME } from '../SyntheticOutputTool/SyntheticOutputTool.js'
+ import { isInProcessTeammate } from '../../utils/teammateContext.js'
+-import { getTokenCountFromUsage } from '../../utils/tokens.js'
++import {
++  getOutputTokenCountFromUsage,
++  getReasoningTokenCountFromUsage,
++} from '../../utils/tokens.js'
+ import { EXIT_PLAN_MODE_V2_TOOL_NAME } from '../ExitPlanModeTool/constants.js'
+ import { AGENT_TOOL_NAME, LEGACY_AGENT_TOOL_NAME } from './constants.js'
+ import type { AgentDefinition } from './loadAgentsDir.js'
+@@ -237,6 +242,9 @@ export const agentToolResultSchema = lazySchema(() =>
+     totalToolUseCount: z.number(),
+     totalDurationMs: z.number(),
+     totalTokens: z.number(),
++    // Optional: an engine that reports no reasoning split omits it, and older
++    // persisted sessions predate the field. Absent means "not measured".
++    reasoningTokens: z.number().optional(),
+     usage: z.object({
+       input_tokens: z.number(),
+       output_tokens: z.number(),
+@@ -318,7 +326,35 @@ export function finalizeAgentTool(
+     }
+   }
+ 
+-  const totalTokens = getTokenCountFromUsage(lastAssistantMessage.message.usage)
++  // Output tokens only, summed over every turn: this number is shown as the
++  // run's "usage", which means work the engine generated (the thinking badge's
++  // basis) rather than context held. The previous count took the last turn's
++  // input+cache+output, which both counted what the agent had read and dropped
++  // the output of every earlier turn — a two-turn agent understated itself by
++  // 62% (measured).
++  const totalTokens = agentMessages.reduce(
++    (sum, m) =>
++      sum + (m.type === 'assistant' ? getOutputTokenCountFromUsage(m.message.usage) : 0),
++    0,
++  )
++  // Thinking share of that output, summed on the same per-turn basis. Stays
++  // undefined when the engine reported no split at all, so a reader can tell
++  // "mostly thinking" from "not measured" — the number alone cannot.
++  let reasoningTokens: number | undefined
++  for (const m of agentMessages) {
++    if (m.type !== 'assistant') continue
++    // The engine's count wins; a turn it did not measure is estimated from the
++    // thinking that turn produced, so the split exists on any endpoint. Per
++    // turn rather than per run: a reported turn already covers its own thinking.
++    // A reported 0 counts as "not measured", not as a measurement: it is what an
++    // engine that fills the field without computing it reports, and treating it
++    // as real would suppress the estimate and hide the split entirely.
++    const reported = getReasoningTokenCountFromUsage(m.message.usage)
++    const part = reported !== undefined && reported > 0
++      ? reported
++      : roughTokenCountEstimationForThinking(m.message.content)
++    if (part > 0) reasoningTokens = (reasoningTokens ?? 0) + part
++  }
+   const totalToolUseCount = countToolUses(agentMessages)
+ 
+   logEvent('tengu_agent_tool_completed', {
+@@ -354,6 +390,9 @@ export function finalizeAgentTool(
+     totalDurationMs: Date.now() - startTime,
+     totalTokens,
+     totalToolUseCount,
++    // The thinking share of totalTokens, omitted when the engine reported no
++    // split (the schema field is optional for exactly that reason).
++    ...(reasoningTokens !== undefined ? { reasoningTokens } : {}),
+     usage: lastAssistantMessage.message.usage,
+   }
+ }
+@@ -438,6 +477,9 @@ export function emitTaskProgress(
+     description: progress.lastActivity?.activityDescription ?? description,
+     startTime,
+     totalTokens: progress.tokenCount,
++    ...(progress.reasoningTokens != null
++      ? { reasoningTokens: progress.reasoningTokens }
++      : {}),
+     toolUses: progress.toolUseCount,
+     lastToolName,
+     ownerAgentId,
+@@ -692,6 +734,8 @@ export async function runAsyncAgentLifecycle({
+         totalTokens: getTokenCountFromTracker(tracker),
+         toolUses: agentResult.totalToolUseCount,
+         durationMs: agentResult.totalDurationMs,
++        outputTokens: getTokenCountFromTracker(tracker),
++        reasoningTokens: getReasoningTokenCountFromTracker(tracker),
+       },
+       toolUseId: agentToolUseId,
+     })
+diff --git a/src/utils/sdkEventQueue.ts b/src/utils/sdkEventQueue.ts
+index 3468e3647..9854606e9 100644
+--- a/src/utils/sdkEventQueue.ts
++++ b/src/utils/sdkEventQueue.ts
+@@ -234,7 +234,14 @@ export function emitTaskTerminatedSdk(
+     summary?: string
+     outputFile?: string
+     workflowRunId?: string
+-    usage?: { total_tokens: number; tool_uses: number; duration_ms: number }
++    usage?: {
++      total_tokens: number
++      tool_uses: number
++      duration_ms: number
++      /** Generated tokens; the thinking share is `think_tokens` when reported. */
++      output_tokens?: number
++      think_tokens?: number
++    }
+     ownerAgentId?: string
+   },
+ ): void {
+diff --git a/src/utils/task/sdkProgress.ts b/src/utils/task/sdkProgress.ts
+index 2452168d8..d44107ec2 100644
+--- a/src/utils/task/sdkProgress.ts
++++ b/src/utils/task/sdkProgress.ts
+@@ -13,6 +13,8 @@ export function emitTaskProgress(params: {
+   description: string
+   startTime: number
+   totalTokens: number
++  /** Thinking share of `totalTokens`; omitted when the engine reported none. */
++  reasoningTokens?: number
+   toolUses: number
+   lastToolName?: string
+   summary?: string
+@@ -30,6 +32,12 @@ export function emitTaskProgress(params: {
+       total_tokens: params.totalTokens,
+       tool_uses: params.toolUses,
+       duration_ms: Date.now() - params.startTime,
++      ...(params.reasoningTokens != null
++        ? {
++            output_tokens: params.totalTokens,
++            think_tokens: params.reasoningTokens,
++          }
++        : {}),
+     },
+     last_tool_name: params.lastToolName,
+     summary: params.summary,
+diff --git a/src/utils/taskNotificationPolicy.ts b/src/utils/taskNotificationPolicy.ts
+index a341df05a..3886b33c6 100644
+--- a/src/utils/taskNotificationPolicy.ts
++++ b/src/utils/taskNotificationPolicy.ts
+@@ -23,6 +23,9 @@ export type ParsedTaskNotification = {
+     total_tokens: number
+     tool_uses: number
+     duration_ms: number
++    /** Generated tokens; the thinking share is `think_tokens` when reported. */
++    output_tokens?: number
++    think_tokens?: number
+   }
+ }
+ 
+@@ -43,6 +46,8 @@ export function parseTaskNotificationXml(text: string): ParsedTaskNotification {
+   const totalTokens = getTagValue(usageContent, 'total_tokens')
+   const toolUses = getTagValue(usageContent, 'tool_uses')
+   const durationMs = getTagValue(usageContent, 'duration_ms')
++  const outputTokens = getTagValue(usageContent, 'output_tokens')
++  const thinkTokens = getTagValue(usageContent, 'think_tokens')
+ 
+   return {
+     taskId: getTagValue(text, TASK_ID_TAG) ?? '',
+@@ -59,6 +64,12 @@ export function parseTaskNotificationXml(text: string): ParsedTaskNotification {
+             total_tokens: parseInt(totalTokens, 10),
+             tool_uses: parseInt(toolUses, 10),
+             duration_ms: durationMs ? parseInt(durationMs, 10) : 0,
++            // Present only when the engine measured a reasoning split; their
++            // absence is what tells a reader the split is unknown.
++            ...(outputTokens
++              ? { output_tokens: parseInt(outputTokens, 10) }
++              : {}),
++            ...(thinkTokens ? { think_tokens: parseInt(thinkTokens, 10) } : {}),
+           }
+         : undefined,
+   }
+diff --git a/src/utils/tokens.ts b/src/utils/tokens.ts
+index 0c6fb00a8..e2d92773e 100644
+--- a/src/utils/tokens.ts
++++ b/src/utils/tokens.ts
+@@ -52,6 +52,36 @@ export function getTokenCountFromUsage(usage: Usage): number {
+   )
+ }
+ 
++/**
++ * Output tokens one API response reports — what the engine actually generated.
++ *
++ * This is the basis the UI means by "usage" for an agent run, the same one the
++ * thinking badge uses: work produced, not context held. Input and cache tokens
++ * describe what was *already* in the window, so counting them made a run's
++ * number grow with how much it had read rather than how much it wrote, and made
++ * two runs of very different length look similar.
++ */
++export function getOutputTokenCountFromUsage(usage: Usage): number {
++  return safeUsageTokenCount(usage.output_tokens)
++}
++
++/**
++ * Thinking tokens one API response reports, or `undefined` when the engine did
++ * not measure them.
++ *
++ * On a reasoning model most of `output_tokens` is deliberation, so a run that
++ * shows only the output total cannot be read: a 12k run may be a 3k answer or a
++ * 3k answer with 9k of thinking, and the two mean different things to whoever is
++ * paying for them. The field is not in the SDK usage type, hence the cast; an
++ * absent value stays `undefined` rather than becoming 0, because "no thinking"
++ * and "we did not look" are different claims.
++ */
++export function getReasoningTokenCountFromUsage(usage: Usage): number | undefined {
++  const raw = (usage as unknown as { reasoning_tokens?: unknown }).reasoning_tokens
++  if (typeof raw !== 'number' || !Number.isFinite(raw) || raw < 0) return undefined
++  return raw
++}
++
+ function safeUsageTokenCount(value: unknown): number {
+   return typeof value === 'number' && Number.isFinite(value) && value >= 0
+     ? value

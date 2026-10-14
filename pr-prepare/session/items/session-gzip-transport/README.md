@@ -1,7 +1,7 @@
 # session-gzip-transport — 历史 gzip 传输（原链位 20,25）
 
 > 功能主题：`session` — 会话及相关优化（会话基础 + 文件下载 + 大会话加载/传输性能 + 打开提速）（`pr-prepare/session/`）｜ PR 分支 `session-related-optimizations`
-> **单一真相源 patch**：`modify/patches/session/session-gzip-transport-patch1.patch`（3 文件 +415−1）—— 本目录只存说明，**不复制 patch**
+> **单一真相源 patch**：`modify/archive/patches-merged-20261014/session/session-gzip-transport-patch1.patch`（3 文件 +415−1）—— 本目录只存说明，**不复制 patch**
 
 ## 含链位
 

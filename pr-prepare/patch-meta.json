@@ -1,442 +1,510 @@
 {
- "h5-access-token": {
-  "theme": "h5",
-  "slots": [
-   1,
-   2,
-   5
-  ],
-  "desc": "H5 访问令牌开关 + 免令牌豁免",
-  "patch": "modify/patches/h5/h5-access-token-patch1.patch",
-  "files_n": 34,
-  "ins": 2480,
-  "del": 144,
-  "status": "✅"
- },
- "h5-settings-parity": {
-  "theme": "h5",
-  "slots": [
-   4
-  ],
-  "desc": "H5 设置全对齐",
-  "patch": "modify/patches/h5/h5-settings-parity-patch1.patch",
-  "files_n": 4,
-  "ins": 212,
-  "del": 134,
-  "status": "✅"
- },
- "h5-mobile-quick-actions": {
-  "theme": "h5",
-  "slots": [
-   13
-  ],
-  "desc": "H5 移动端快捷操作",
-  "patch": "modify/patches/h5/h5-mobile-quick-actions-patch1.patch",
-  "files_n": 3,
-  "ins": 251,
-  "del": 0,
-  "status": "✅"
- },
- "h5-mobile-scheduled": {
-  "theme": "h5",
-  "slots": [
-   15
-  ],
-  "desc": "H5 移动端定时任务",
-  "patch": "modify/patches/h5/h5-mobile-scheduled-patch1.patch",
-  "files_n": 2,
-  "ins": 4,
-  "del": 3,
-  "status": "✅"
- },
- "h5-mobile-market-layout": {
-  "theme": "h5",
-  "slots": [
-   17
-  ],
-  "desc": "H5 市场页布局",
-  "patch": "modify/patches/h5/h5-mobile-market-layout-patch1.patch",
-  "files_n": 1,
-  "ins": 1,
-  "del": 1,
-  "status": "✅"
- },
- "h5-mobile-run-records": {
-  "theme": "h5",
-  "slots": [
-   34
-  ],
-  "desc": "H5 运行记录",
-  "patch": "modify/patches/h5/h5-mobile-run-records-patch1.patch",
-  "files_n": 2,
-  "ins": 52,
-  "del": 1,
-  "status": "✅"
- },
- "h5-local-index-multi-root": {
-  "theme": "h5",
-  "slots": [
-   46,
-   48
-  ],
-  "desc": "本地索引多项目根 + 会话列表多根校验",
-  "patch": "modify/patches/h5/h5-local-index-multi-root-patch1.patch",
-  "files_n": 4,
-  "ins": 292,
-  "del": 121,
-  "status": "✅"
- },
- "session-export": {
-  "theme": "session",
-  "slots": [
-   3
-  ],
-  "desc": "会话导出",
-  "patch": "modify/patches/session/session-export-patch1.patch",
-  "files_n": 5,
-  "ins": 493,
-  "del": 38,
-  "status": "✅"
- },
- "session-refresh": {
-  "theme": "session",
-  "slots": [
-   6
-  ],
-  "desc": "会话刷新",
-  "patch": "modify/patches/session/session-refresh-patch1.patch",
-  "files_n": 2,
-  "ins": 183,
-  "del": 7,
-  "status": "✅"
- },
- "session-file-download": {
-  "theme": "session",
-  "slots": [
-   8,
-   45,
-   51,
-   53
-  ],
-  "desc": "文件下载桥接（anchor 导航）",
-  "patch": "modify/patches/session/session-file-download-patch1.patch",
-  "files_n": 15,
-  "ins": 644,
-  "del": 44,
-  "status": "✅"
- },
- "session-disable-updates": {
-  "theme": "session",
-  "slots": [
-   9
-  ],
-  "desc": "禁止更新",
-  "patch": "modify/patches/session/session-disable-updates-patch1.patch",
-  "files_n": 4,
-  "ins": 145,
-  "del": 1,
-  "status": "✅"
- },
- "session-thinking-switch": {
-  "theme": "session",
-  "slots": [
-   11
-  ],
-  "desc": "思考开关",
-  "patch": "modify/patches/session/session-thinking-switch-patch1.patch",
-  "files_n": 11,
-  "ins": 349,
-  "del": 7,
-  "status": "✅"
- },
- "session-gzip-transport": {
-  "theme": "session",
-  "slots": [
-   20,
-   25
-  ],
-  "desc": "历史 gzip 传输",
-  "patch": "modify/patches/session/session-gzip-transport-patch1.patch",
-  "files_n": 3,
-  "ins": 415,
-  "del": 1,
-  "status": "✅"
- },
- "session-history-transport": {
-  "theme": "session",
-  "slots": [
-   23,
-   24,
-   26,
-   31
-  ],
-  "desc": "历史传输边界 / 去重 / 首屏",
-  "patch": "modify/patches/session/session-history-transport-patch1.patch",
-  "files_n": 9,
-  "ins": 363,
-  "del": 16,
-  "status": "✅"
- },
- "session-baseline-typecheck": {
-  "theme": "session",
-  "slots": [
-   27
-  ],
-  "desc": "基线类型检查修复",
-  "patch": "modify/patches/session/session-baseline-typecheck-patch1.patch",
-  "files_n": 2,
-  "ins": 7,
-  "del": 4,
-  "status": "✅"
- },
- "session-open-speed": {
-  "theme": "session",
-  "slots": [
-   55,
-   56,
-   57
-  ],
-  "desc": "大会话打开提速",
-  "patch": "modify/patches/session/session-open-speed-patch1.patch",
-  "files_n": 6,
-  "ins": 526,
-  "del": 22,
-  "status": "✅"
- },
- "tps-indicator": {
-  "theme": "tps",
-  "slots": [
-   7,
-   30,
-   35,
-   38,
-   42,
-   44,
-   50,
-   54
-  ],
-  "desc": "TPS 指示器基础 + 子代理汇聚 + 展示格式 + 多轮脉冲修复",
-  "patch": "modify/patches/tps/tps-indicator-patch1.patch",
-  "files_n": 25,
-  "ins": 2743,
-  "del": 14,
-  "status": "✅"
- },
- "tps-engine-rewrite": {
-  "theme": "tps",
-  "slots": [
-   62,
-   64,
-   65,
-   67
-  ],
-  "desc": "125ms 分桶引擎重写 + 后台冻结 + 引擎 token ids + 4Hz 读数",
-  "patch": "modify/patches/tps/tps-engine-rewrite-patch1.patch",
-  "files_n": 25,
-  "ins": 2269,
-  "del": 1002,
-  "status": "✅"
- },
- "tps-density-estimation": {
-  "theme": "tps",
-  "slots": [
-   66
-  ],
-  "desc": "TPS 密度估算（4 类字符 + 岭回归收缩）",
-  "patch": "modify/patches/tps/tps-density-estimation-patch1.patch",
-  "files_n": 10,
-  "ins": 728,
-  "del": 43,
-  "status": "✅"
- },
- "tps-session-total": {
-  "theme": "tps",
-  "slots": [],
-  "desc": "会话读数 = 会话总量（去子代理重复计）",
-  "patch": "modify/patches/tps/tps-session-total-patch1.patch",
-  "files_n": 5,
-  "ins": 118,
-  "del": 70,
-  "status": "✅"
- },
- "usage-cache-billing": {
-  "theme": "usage",
-  "slots": [
-   10
-  ],
-  "desc": "上下文缓存计费与总费用",
-  "patch": "modify/patches/usage/usage-cache-billing-patch1.patch",
-  "files_n": 7,
-  "ins": 311,
-  "del": 30,
-  "status": "✅"
- },
- "usage-context-usage-anchor": {
-  "theme": "usage",
-  "slots": [
-   19
-  ],
-  "desc": "上下文用量锚点",
-  "patch": "modify/patches/usage/usage-context-usage-anchor-patch1.patch",
-  "files_n": 4,
-  "ins": 74,
-  "del": 12,
-  "status": "✅"
- },
- "usage-session-speed-usage-pairing": {
-  "theme": "usage",
-  "slots": [
-   37
-  ],
-  "desc": "面板生成速度与用量配对",
-  "patch": "modify/patches/usage/usage-session-speed-usage-pairing-patch1.patch",
-  "files_n": 11,
-  "ins": 375,
-  "del": 41,
-  "status": "✅"
- },
- "test-server-test-baseline": {
-  "theme": "test",
-  "slots": [
-   12,
-   47
-  ],
-  "desc": "服务端测试基线清零 + 环境隔离",
-  "patch": "modify/patches/test/test-server-test-baseline-patch1.patch",
-  "files_n": 10,
-  "ins": 115,
-  "del": 16,
-  "status": "✅"
- },
- "test-chapter-27-tests": {
-  "theme": "test",
-  "slots": [
-   58,
-   60
-  ],
-  "desc": "章二十七测试隔离与残余 hunk",
-  "patch": "modify/patches/test/test-chapter-27-tests-patch1.patch",
-  "files_n": 18,
-  "ins": 180,
-  "del": 28,
-  "status": "✅"
- },
- "vcc-compactor": {
-  "theme": "vcc",
-  "slots": [
-   14,
-   40
-  ],
-  "desc": "pi-vcc 算法压缩 + vcc_recall 工具",
-  "patch": "modify/patches/vcc/vcc-compactor-patch1.patch",
-  "files_n": 48,
-  "ins": 5794,
-  "del": 35,
-  "status": "✅"
- },
- "vcc-autocompact-window-tiers": {
-  "theme": "vcc",
-  "slots": [
-   22
-  ],
-  "desc": "自动压缩窗口分档",
-  "patch": "modify/patches/vcc/vcc-autocompact-window-tiers-patch1.patch",
-  "files_n": 2,
-  "ins": 144,
-  "del": 26,
-  "status": "✅"
- },
- "vcc-compact-dead-import": {
-  "theme": "vcc",
-  "slots": [
-   36
-  ],
-  "desc": "压缩死导入清理",
-  "patch": "modify/patches/vcc/vcc-compact-dead-import-patch1.patch",
-  "files_n": 3,
-  "ins": 1,
-  "del": 3,
-  "status": "✅"
- },
- "vcc-calibration-scripts": {
-  "theme": "vcc",
-  "slots": [
-   59
-  ],
-  "desc": "vcc 校准脚本",
-  "patch": "modify/patches/vcc/vcc-calibration-scripts-patch1.patch",
-  "files_n": 3,
-  "ins": 1518,
-  "del": 0,
-  "status": "✅"
- },
- "computer-use-connector-linux": {
-  "theme": "computer-use",
-  "slots": [
-   16
-  ],
-  "desc": "连接器 Linux 平台支持",
-  "patch": "modify/patches/computer-use/computer-use-connector-linux-patch1.patch",
-  "files_n": 4,
-  "ins": 21,
-  "del": 11,
-  "status": "✅"
- },
- "computer-use-linux": {
-  "theme": "computer-use",
-  "slots": [
-   18,
-   32,
-   33
-  ],
-  "desc": "Computer Use 解锁 Linux(X11)",
-  "patch": "modify/patches/computer-use/computer-use-linux-patch1.patch",
-  "files_n": 31,
-  "ins": 1473,
-  "del": 81,
-  "status": "✅"
- },
- "thinking-subagent-thinking-tool-timing": {
-  "theme": "thinking-subagent",
-  "slots": [
-   21,
-   28,
-   29,
-   39,
-   41,
-   43,
-   49,
-   61
-  ],
-  "desc": "思考计时与工具耗时",
-  "patch": "modify/patches/thinking-subagent/thinking-subagent-thinking-tool-timing-patch1.patch",
-  "files_n": 54,
-  "ins": 3346,
-  "del": 139,
-  "status": "✅"
- },
- "thinking-subagent-split-no-double-count": {
-  "theme": "thinking-subagent",
-  "slots": [
-   52
-  ],
-  "desc": "拆分不双计",
-  "patch": "modify/patches/thinking-subagent/thinking-subagent-split-no-double-count-patch1.patch",
-  "files_n": 4,
-  "ins": 166,
-  "del": 14,
-  "status": "✅"
- },
- "thinking-subagent-subagent-usage-cross-client": {
-  "theme": "thinking-subagent",
-  "slots": [
-   63
-  ],
-  "desc": "子代理用量跨客户端一致",
-  "patch": "modify/patches/thinking-subagent/thinking-subagent-subagent-usage-cross-client-patch1.patch",
-  "files_n": 11,
-  "ins": 1067,
-  "del": 39,
-  "status": "✅"
- }
+  "h5-access-token": {
+    "theme": "h5",
+    "slots": [
+      1,
+      2,
+      5
+    ],
+    "desc": "H5 访问令牌开关 + 免令牌豁免",
+    "patch": "modify/patches/h5/h5-access-token-patch1.patch",
+    "files_n": 34,
+    "ins": 2480,
+    "del": 144,
+    "status": "✅",
+    "bundle": "modify/patches/h5/h5-bundle-patch1.patch",
+    "patch_archived": "modify/archive/patches-merged-20261014/h5/h5-access-token-patch1.patch"
+  },
+  "h5-settings-parity": {
+    "theme": "h5",
+    "slots": [
+      4
+    ],
+    "desc": "H5 设置全对齐",
+    "patch": "modify/patches/h5/h5-settings-parity-patch1.patch",
+    "files_n": 4,
+    "ins": 212,
+    "del": 134,
+    "status": "✅",
+    "bundle": "modify/patches/h5/h5-bundle-patch1.patch",
+    "patch_archived": "modify/archive/patches-merged-20261014/h5/h5-settings-parity-patch1.patch"
+  },
+  "h5-mobile-quick-actions": {
+    "theme": "h5",
+    "slots": [
+      13
+    ],
+    "desc": "H5 移动端快捷操作",
+    "patch": "modify/patches/h5/h5-mobile-quick-actions-patch1.patch",
+    "files_n": 3,
+    "ins": 251,
+    "del": 0,
+    "status": "✅",
+    "bundle": "modify/patches/h5/h5-bundle-patch1.patch",
+    "patch_archived": "modify/archive/patches-merged-20261014/h5/h5-mobile-quick-actions-patch1.patch"
+  },
+  "h5-mobile-scheduled": {
+    "theme": "h5",
+    "slots": [
+      15
+    ],
+    "desc": "H5 移动端定时任务",
+    "patch": "modify/patches/h5/h5-mobile-scheduled-patch1.patch",
+    "files_n": 2,
+    "ins": 4,
+    "del": 3,
+    "status": "✅",
+    "bundle": "modify/patches/h5/h5-bundle-patch1.patch",
+    "patch_archived": "modify/archive/patches-merged-20261014/h5/h5-mobile-scheduled-patch1.patch"
+  },
+  "h5-mobile-market-layout": {
+    "theme": "h5",
+    "slots": [
+      17
+    ],
+    "desc": "H5 市场页布局",
+    "patch": "modify/patches/h5/h5-mobile-market-layout-patch1.patch",
+    "files_n": 1,
+    "ins": 1,
+    "del": 1,
+    "status": "✅",
+    "bundle": "modify/patches/h5/h5-bundle-patch1.patch",
+    "patch_archived": "modify/archive/patches-merged-20261014/h5/h5-mobile-market-layout-patch1.patch"
+  },
+  "h5-mobile-run-records": {
+    "theme": "h5",
+    "slots": [
+      34
+    ],
+    "desc": "H5 运行记录",
+    "patch": "modify/patches/h5/h5-mobile-run-records-patch1.patch",
+    "files_n": 2,
+    "ins": 52,
+    "del": 1,
+    "status": "✅",
+    "bundle": "modify/patches/h5/h5-bundle-patch1.patch",
+    "patch_archived": "modify/archive/patches-merged-20261014/h5/h5-mobile-run-records-patch1.patch"
+  },
+  "h5-local-index-multi-root": {
+    "theme": "h5",
+    "slots": [
+      46,
+      48
+    ],
+    "desc": "本地索引多项目根 + 会话列表多根校验",
+    "patch": "modify/patches/h5/h5-local-index-multi-root-patch1.patch",
+    "files_n": 4,
+    "ins": 292,
+    "del": 121,
+    "status": "✅",
+    "bundle": "modify/patches/h5/h5-bundle-patch1.patch",
+    "patch_archived": "modify/archive/patches-merged-20261014/h5/h5-local-index-multi-root-patch1.patch"
+  },
+  "session-export": {
+    "theme": "session",
+    "slots": [
+      3
+    ],
+    "desc": "会话导出",
+    "patch": "modify/patches/session/session-export-patch1.patch",
+    "files_n": 5,
+    "ins": 493,
+    "del": 38,
+    "status": "✅",
+    "bundle": "modify/patches/session/session-bundle-patch1.patch",
+    "patch_archived": "modify/archive/patches-merged-20261014/session/session-export-patch1.patch"
+  },
+  "session-refresh": {
+    "theme": "session",
+    "slots": [
+      6
+    ],
+    "desc": "会话刷新",
+    "patch": "modify/patches/session/session-refresh-patch1.patch",
+    "files_n": 2,
+    "ins": 183,
+    "del": 7,
+    "status": "✅",
+    "bundle": "modify/patches/session/session-bundle-patch1.patch",
+    "patch_archived": "modify/archive/patches-merged-20261014/session/session-refresh-patch1.patch"
+  },
+  "session-file-download": {
+    "theme": "session",
+    "slots": [
+      8,
+      45,
+      51,
+      53
+    ],
+    "desc": "文件下载桥接（anchor 导航）",
+    "patch": "modify/patches/session/session-file-download-patch1.patch",
+    "files_n": 15,
+    "ins": 644,
+    "del": 44,
+    "status": "✅",
+    "bundle": "modify/patches/session/session-bundle-patch1.patch",
+    "patch_archived": "modify/archive/patches-merged-20261014/session/session-file-download-patch1.patch"
+  },
+  "session-disable-updates": {
+    "theme": "session",
+    "slots": [
+      9
+    ],
+    "desc": "禁止更新",
+    "patch": "modify/patches/session/session-disable-updates-patch1.patch",
+    "files_n": 4,
+    "ins": 145,
+    "del": 1,
+    "status": "✅",
+    "bundle": "modify/patches/session/session-bundle-patch1.patch",
+    "patch_archived": "modify/archive/patches-merged-20261014/session/session-disable-updates-patch1.patch"
+  },
+  "session-thinking-switch": {
+    "theme": "session",
+    "slots": [
+      11
+    ],
+    "desc": "思考开关",
+    "patch": "modify/patches/session/session-thinking-switch-patch1.patch",
+    "files_n": 11,
+    "ins": 349,
+    "del": 7,
+    "status": "✅",
+    "bundle": "modify/patches/session/session-bundle-patch1.patch",
+    "patch_archived": "modify/archive/patches-merged-20261014/session/session-thinking-switch-patch1.patch"
+  },
+  "session-gzip-transport": {
+    "theme": "session",
+    "slots": [
+      20,
+      25
+    ],
+    "desc": "历史 gzip 传输",
+    "patch": "modify/patches/session/session-gzip-transport-patch1.patch",
+    "files_n": 3,
+    "ins": 415,
+    "del": 1,
+    "status": "✅",
+    "bundle": "modify/patches/session/session-bundle-patch1.patch",
+    "patch_archived": "modify/archive/patches-merged-20261014/session/session-gzip-transport-patch1.patch"
+  },
+  "session-history-transport": {
+    "theme": "session",
+    "slots": [
+      23,
+      24,
+      26,
+      31
+    ],
+    "desc": "历史传输边界 / 去重 / 首屏",
+    "patch": "modify/patches/session/session-history-transport-patch1.patch",
+    "files_n": 9,
+    "ins": 363,
+    "del": 16,
+    "status": "✅",
+    "bundle": "modify/patches/session/session-bundle-patch1.patch",
+    "patch_archived": "modify/archive/patches-merged-20261014/session/session-history-transport-patch1.patch"
+  },
+  "session-baseline-typecheck": {
+    "theme": "session",
+    "slots": [
+      27
+    ],
+    "desc": "基线类型检查修复",
+    "patch": "modify/patches/session/session-baseline-typecheck-patch1.patch",
+    "files_n": 2,
+    "ins": 7,
+    "del": 4,
+    "status": "✅",
+    "bundle": "modify/patches/session/session-bundle-patch1.patch",
+    "patch_archived": "modify/archive/patches-merged-20261014/session/session-baseline-typecheck-patch1.patch"
+  },
+  "session-open-speed": {
+    "theme": "session",
+    "slots": [
+      55,
+      56,
+      57
+    ],
+    "desc": "大会话打开提速",
+    "patch": "modify/patches/session/session-open-speed-patch1.patch",
+    "files_n": 6,
+    "ins": 526,
+    "del": 22,
+    "status": "✅",
+    "bundle": "modify/patches/session/session-bundle-patch1.patch",
+    "patch_archived": "modify/archive/patches-merged-20261014/session/session-open-speed-patch1.patch"
+  },
+  "tps-indicator": {
+    "theme": "tps",
+    "slots": [
+      7,
+      30,
+      35,
+      38,
+      42,
+      44,
+      50,
+      54
+    ],
+    "desc": "TPS 指示器基础 + 子代理汇聚 + 展示格式 + 多轮脉冲修复",
+    "patch": "modify/patches/tps/tps-indicator-patch1.patch",
+    "files_n": 25,
+    "ins": 2743,
+    "del": 14,
+    "status": "✅",
+    "bundle": "modify/patches/tps/tps-bundle-patch1.patch",
+    "patch_archived": "modify/archive/patches-merged-20261014/tps/tps-indicator-patch1.patch"
+  },
+  "tps-engine-rewrite": {
+    "theme": "tps",
+    "slots": [
+      62,
+      64,
+      65,
+      67
+    ],
+    "desc": "125ms 分桶引擎重写 + 后台冻结 + 引擎 token ids + 4Hz 读数",
+    "patch": "modify/patches/tps/tps-engine-rewrite-patch1.patch",
+    "files_n": 25,
+    "ins": 2269,
+    "del": 1002,
+    "status": "✅",
+    "bundle": "modify/patches/tps/tps-bundle-patch1.patch",
+    "patch_archived": "modify/archive/patches-merged-20261014/tps/tps-engine-rewrite-patch1.patch"
+  },
+  "tps-density-estimation": {
+    "theme": "tps",
+    "slots": [
+      66
+    ],
+    "desc": "TPS 密度估算（4 类字符 + 岭回归收缩）",
+    "patch": "modify/patches/tps/tps-density-estimation-patch1.patch",
+    "files_n": 10,
+    "ins": 728,
+    "del": 43,
+    "status": "✅",
+    "bundle": "modify/patches/tps/tps-bundle-patch1.patch",
+    "patch_archived": "modify/archive/patches-merged-20261014/tps/tps-density-estimation-patch1.patch"
+  },
+  "tps-session-total": {
+    "theme": "tps",
+    "slots": [],
+    "desc": "会话读数 = 会话总量（去子代理重复计）",
+    "patch": "modify/patches/tps/tps-session-total-patch1.patch",
+    "files_n": 5,
+    "ins": 118,
+    "del": 70,
+    "status": "✅",
+    "bundle": "modify/patches/tps/tps-bundle-patch1.patch",
+    "patch_archived": "modify/archive/patches-merged-20261014/tps/tps-session-total-patch1.patch"
+  },
+  "usage-cache-billing": {
+    "theme": "usage",
+    "slots": [
+      10
+    ],
+    "desc": "上下文缓存计费与总费用",
+    "patch": "modify/patches/usage/usage-cache-billing-patch1.patch",
+    "files_n": 7,
+    "ins": 311,
+    "del": 30,
+    "status": "✅",
+    "bundle": "modify/patches/usage/usage-bundle-patch1.patch",
+    "patch_archived": "modify/archive/patches-merged-20261014/usage/usage-cache-billing-patch1.patch"
+  },
+  "usage-context-usage-anchor": {
+    "theme": "usage",
+    "slots": [
+      19
+    ],
+    "desc": "上下文用量锚点",
+    "patch": "modify/patches/usage/usage-context-usage-anchor-patch1.patch",
+    "files_n": 4,
+    "ins": 74,
+    "del": 12,
+    "status": "✅",
+    "bundle": "modify/patches/usage/usage-bundle-patch1.patch",
+    "patch_archived": "modify/archive/patches-merged-20261014/usage/usage-context-usage-anchor-patch1.patch"
+  },
+  "usage-session-speed-usage-pairing": {
+    "theme": "usage",
+    "slots": [
+      37
+    ],
+    "desc": "面板生成速度与用量配对",
+    "patch": "modify/patches/usage/usage-session-speed-usage-pairing-patch1.patch",
+    "files_n": 11,
+    "ins": 375,
+    "del": 41,
+    "status": "✅",
+    "bundle": "modify/patches/usage/usage-bundle-patch1.patch",
+    "patch_archived": "modify/archive/patches-merged-20261014/usage/usage-session-speed-usage-pairing-patch1.patch"
+  },
+  "test-server-test-baseline": {
+    "theme": "test",
+    "slots": [
+      12,
+      47
+    ],
+    "desc": "服务端测试基线清零 + 环境隔离",
+    "patch": "modify/patches/test/test-server-test-baseline-patch1.patch",
+    "files_n": 10,
+    "ins": 115,
+    "del": 16,
+    "status": "✅",
+    "bundle": "modify/patches/test/test-bundle-patch1.patch",
+    "patch_archived": "modify/archive/patches-merged-20261014/test/test-server-test-baseline-patch1.patch"
+  },
+  "test-chapter-27-tests": {
+    "theme": "test",
+    "slots": [
+      58,
+      60
+    ],
+    "desc": "章二十七测试隔离与残余 hunk",
+    "patch": "modify/patches/test/test-chapter-27-tests-patch1.patch",
+    "files_n": 18,
+    "ins": 180,
+    "del": 28,
+    "status": "✅",
+    "bundle": "modify/patches/test/test-bundle-patch1.patch",
+    "patch_archived": "modify/archive/patches-merged-20261014/test/test-chapter-27-tests-patch1.patch"
+  },
+  "vcc-compactor": {
+    "theme": "vcc",
+    "slots": [
+      14,
+      40
+    ],
+    "desc": "pi-vcc 算法压缩 + vcc_recall 工具",
+    "patch": "modify/patches/vcc/vcc-compactor-patch1.patch",
+    "files_n": 48,
+    "ins": 5794,
+    "del": 35,
+    "status": "✅",
+    "bundle": "modify/patches/vcc/vcc-bundle-patch1.patch",
+    "patch_archived": "modify/archive/patches-merged-20261014/vcc/vcc-compactor-patch1.patch"
+  },
+  "vcc-autocompact-window-tiers": {
+    "theme": "vcc",
+    "slots": [
+      22
+    ],
+    "desc": "自动压缩窗口分档",
+    "patch": "modify/patches/vcc/vcc-autocompact-window-tiers-patch1.patch",
+    "files_n": 2,
+    "ins": 144,
+    "del": 26,
+    "status": "✅",
+    "bundle": "modify/patches/vcc/vcc-bundle-patch1.patch",
+    "patch_archived": "modify/archive/patches-merged-20261014/vcc/vcc-autocompact-window-tiers-patch1.patch"
+  },
+  "vcc-compact-dead-import": {
+    "theme": "vcc",
+    "slots": [
+      36
+    ],
+    "desc": "压缩死导入清理",
+    "patch": "modify/patches/vcc/vcc-compact-dead-import-patch1.patch",
+    "files_n": 3,
+    "ins": 1,
+    "del": 3,
+    "status": "✅",
+    "bundle": "modify/patches/vcc/vcc-bundle-patch1.patch",
+    "patch_archived": "modify/archive/patches-merged-20261014/vcc/vcc-compact-dead-import-patch1.patch"
+  },
+  "vcc-calibration-scripts": {
+    "theme": "vcc",
+    "slots": [
+      59
+    ],
+    "desc": "vcc 校准脚本",
+    "patch": "modify/patches/vcc/vcc-calibration-scripts-patch1.patch",
+    "files_n": 3,
+    "ins": 1518,
+    "del": 0,
+    "status": "✅",
+    "bundle": "modify/patches/vcc/vcc-bundle-patch1.patch",
+    "patch_archived": "modify/archive/patches-merged-20261014/vcc/vcc-calibration-scripts-patch1.patch"
+  },
+  "computer-use-connector-linux": {
+    "theme": "computer-use",
+    "slots": [
+      16
+    ],
+    "desc": "连接器 Linux 平台支持",
+    "patch": "modify/patches/computer-use/computer-use-connector-linux-patch1.patch",
+    "files_n": 4,
+    "ins": 21,
+    "del": 11,
+    "status": "✅",
+    "bundle": "modify/patches/computer-use/computer-use-bundle-patch1.patch",
+    "patch_archived": "modify/archive/patches-merged-20261014/computer-use/computer-use-connector-linux-patch1.patch"
+  },
+  "computer-use-linux": {
+    "theme": "computer-use",
+    "slots": [
+      18,
+      32,
+      33
+    ],
+    "desc": "Computer Use 解锁 Linux(X11)",
+    "patch": "modify/patches/computer-use/computer-use-linux-patch1.patch",
+    "files_n": 31,
+    "ins": 1473,
+    "del": 81,
+    "status": "✅",
+    "bundle": "modify/patches/computer-use/computer-use-bundle-patch1.patch",
+    "patch_archived": "modify/archive/patches-merged-20261014/computer-use/computer-use-linux-patch1.patch"
+  },
+  "thinking-subagent-thinking-tool-timing": {
+    "theme": "thinking-subagent",
+    "slots": [
+      21,
+      28,
+      29,
+      39,
+      41,
+      43,
+      49,
+      61
+    ],
+    "desc": "思考计时与工具耗时",
+    "patch": "modify/patches/thinking-subagent/thinking-subagent-thinking-tool-timing-patch1.patch",
+    "files_n": 54,
+    "ins": 3346,
+    "del": 139,
+    "status": "✅",
+    "bundle": "modify/patches/thinking-subagent/thinking-subagent-bundle-patch1.patch",
+    "patch_archived": "modify/archive/patches-merged-20261014/thinking-subagent/thinking-subagent-thinking-tool-timing-patch1.patch"
+  },
+  "thinking-subagent-split-no-double-count": {
+    "theme": "thinking-subagent",
+    "slots": [
+      52
+    ],
+    "desc": "拆分不双计",
+    "patch": "modify/patches/thinking-subagent/thinking-subagent-split-no-double-count-patch1.patch",
+    "files_n": 4,
+    "ins": 166,
+    "del": 14,
+    "status": "✅",
+    "bundle": "modify/patches/thinking-subagent/thinking-subagent-bundle-patch1.patch",
+    "patch_archived": "modify/archive/patches-merged-20261014/thinking-subagent/thinking-subagent-split-no-double-count-patch1.patch"
+  },
+  "thinking-subagent-subagent-usage-cross-client": {
+    "theme": "thinking-subagent",
+    "slots": [
+      63
+    ],
+    "desc": "子代理用量跨客户端一致",
+    "patch": "modify/patches/thinking-subagent/thinking-subagent-subagent-usage-cross-client-patch1.patch",
+    "files_n": 11,
+    "ins": 1067,
+    "del": 39,
+    "status": "✅",
+    "bundle": "modify/patches/thinking-subagent/thinking-subagent-bundle-patch1.patch",
+    "patch_archived": "modify/archive/patches-merged-20261014/thinking-subagent/thinking-subagent-subagent-usage-cross-client-patch1.patch"
+  }
 }

@@ -1,0 +1,1188 @@
+diff --git a/desktop/src/components/chat/ContextUsageDetails.tsx b/desktop/src/components/chat/ContextUsageDetails.tsx
+index 36f331986..804c35675 100644
+--- a/desktop/src/components/chat/ContextUsageDetails.tsx
++++ b/desktop/src/components/chat/ContextUsageDetails.tsx
+@@ -2,6 +2,7 @@ import { useState } from 'react'
+ import { ChevronRight } from 'lucide-react'
+ import {
+   formatCacheHitRate,
++  formatCnyCost,
+   formatCompactTokens,
+   formatTokensPerSecond,
+ } from '../../lib/sessionUsageMetrics'
+@@ -19,12 +20,22 @@ type ContextCategory = {
+  * rounding a cache hit up to 100%, withholding a speed with no API duration) stay in one place.
+  */
+ export type ContextUsageSessionStats = {
++  /**
++   * Request-level (latest-turn) hit rate — the headline, because it reflects how the cache
++   * actually performs turn-over-turn rather than a cumulative ratio diluted by replayed prompts.
++   * `null` when the session has never streamed a turn.
++   */
+   cacheHitRate: number | null
++  /** Latest-turn cache-read token count, shown next to the rate as the absolute figure. */
++  cacheReadTokens: number
+   tokensPerSecond: number | null
+   /** Pre-formatted by the server (unknown-model sessions included), displayed verbatim. */
+   costDisplay: string
++  /** Raw USD total for the CNY readout beside `costDisplay` (`null` when unknown). */
++  totalCostUSD: number | null
+ }
+ 
++
+ export type ContextUsageDetailsStatus = 'ready' | 'pending' | 'loading' | 'unavailable'
+ 
+ export type ContextUsageDetailsProps = {
+@@ -113,29 +124,60 @@ function SessionStatGrid({
+   const labelClass = density === 'compact'
+     ? 'text-[12.5px] text-[var(--color-text-tertiary)]'
+     : 'text-xs text-[var(--color-text-tertiary)]'
+-  const valueClass = 'mt-[3px] font-mono text-sm text-[var(--color-text-primary)]'
++  // 13/10px uniform — the values read as an even row.
++  const valueClass = 'mt-[3px] font-mono text-[13px] text-[var(--color-text-primary)]'
++  const unitClass = 'text-[10px] text-[var(--color-text-tertiary)]'
+ 
+   return (
+-    <div className="mt-4 grid grid-cols-3 gap-3">
+-      <div>
++    // Flex with justify-evenly (not a fixed-width grid): each stat group sizes
++    // to its own content and the browser distributes the leftover width into
++    // exactly equal gaps — including the outer margins — so the three fields
++    // stay 间距匀称 no matter how long the live values are (an idle "--" speed
++    // no longer leaves a dead column, a 6-digit cost no longer crowds its
++    // neighbor). Values never wrap (whitespace-nowrap); the 384px popover has
++    // room for the worst cases ($9999.99 · ¥71999.93 ≈ 125px).
++    <div className="mt-4 flex items-start justify-evenly">
++      <div className="flex flex-col items-center">
+         <div className={labelClass}>{labels.sessionSpeed}</div>
+-        <div className={valueClass} data-testid="session-speed">
++        <div className={`${valueClass} whitespace-nowrap`} data-testid="session-speed">
+           {formatTokensPerSecond(stats.tokensPerSecond ?? 0)}
+           {stats.tokensPerSecond !== null && (
+-            <span className="ml-1 text-[11px] text-[var(--color-text-tertiary)]">{labels.sessionSpeedUnit}</span>
++            <span className={`ml-1 ${unitClass}`}>{labels.sessionSpeedUnit}</span>
+           )}
+         </div>
+       </div>
+-      <div>
++      <div className="flex flex-col items-center">
+         <div className={labelClass}>{labels.sessionCacheHit}</div>
+-        <div className={valueClass} data-testid="session-cache-hit">
++        <div
++          className={`${valueClass} whitespace-nowrap ${stats.cacheHitRate !== null ? 'text-[#ea580c]' : ''}`}
++          data-testid="session-cache-hit"
++          title={stats.cacheHitRate !== null && stats.cacheReadTokens > 0
++            ? `${formatCacheHitRate(stats.cacheHitRate!)} · ${formatCompactTokens(stats.cacheReadTokens)}`
++            : undefined}
++        >
+           {stats.cacheHitRate === null ? '--' : formatCacheHitRate(stats.cacheHitRate)}
++          {stats.cacheHitRate !== null && stats.cacheReadTokens > 0 && (
++            <span className={`ml-1 mr-1 ${unitClass}`}>·</span>
++          )}
++          {stats.cacheHitRate !== null && stats.cacheReadTokens > 0 && (
++            <span className={unitClass}>{formatCompactTokens(stats.cacheReadTokens)}</span>
++          )}
+         </div>
+       </div>
+-      <div>
++      <div className="flex flex-col items-center">
+         <div className={labelClass}>{labels.sessionCost}</div>
+-        <div className={`${valueClass} truncate`} data-testid="session-cost" title={stats.costDisplay}>
++        <div
++          className={`${valueClass} whitespace-nowrap`}
++          data-testid="session-cost"
++          title={stats.totalCostUSD !== null ? `${stats.costDisplay} · ${formatCnyCost(stats.totalCostUSD)}` : stats.costDisplay}
++        >
+           {stats.costDisplay}
++          {stats.totalCostUSD !== null && stats.totalCostUSD > 0 && (
++            <span className={`ml-1 mr-1 ${unitClass}`}>·</span>
++          )}
++          {stats.totalCostUSD !== null && stats.totalCostUSD > 0 && (
++            <span className={unitClass}>{formatCnyCost(stats.totalCostUSD)}</span>
++          )}
+         </div>
+       </div>
+     </div>
+diff --git a/desktop/src/components/chat/ContextUsageIndicator.test.tsx b/desktop/src/components/chat/ContextUsageIndicator.test.tsx
+index 8be4eaccd..de445b041 100644
+--- a/desktop/src/components/chat/ContextUsageIndicator.test.tsx
++++ b/desktop/src/components/chat/ContextUsageIndicator.test.tsx
+@@ -840,6 +840,10 @@ describe('ContextUsageIndicator session usage', () => {
+     hasUnknownModelCost: false,
+     totalAPIDuration: 42_000,
+     totalDecodeDuration: 12_000,
++    // The tokens the 12s decode span covered. The panel pairs the two: dividing the session's
++    // whole output by a span only some calls reported is what printed 6044 tok/s for an engine
++    // running ~120.
++    totalTimedOutputTokens: 2_400,
+     totalTtftDuration: 3_000,
+     totalDuration: 300,
+     totalLinesAdded: 0,
+@@ -891,8 +895,9 @@ describe('ContextUsageIndicator session usage', () => {
+ 
+     // Cache reads stay in the hit-rate row; they are not a separate headline.
+     expect(await screen.findByTestId('session-cache-hit')).toHaveTextContent('90.0%')
+-    // 2400 output / 42s API time, including prefill — not the 12s decode span (200 tok/s).
+-    expect(screen.getByTestId('session-speed')).toHaveTextContent('57')
++    // Generation speed divides the paired tokens by the decode-only span (12s), not the 42s
++    // API wall-clock that includes 3s of first-token wait.
++    expect(screen.getByTestId('session-speed')).toHaveTextContent('200')
+     expect(screen.getByTestId('session-speed')).toHaveTextContent('tok/s')
+     expect(screen.getByTestId('session-cost')).toHaveTextContent('$1.23')
+     expect(sessionsApiMock.getSessionUsage).toHaveBeenCalledWith('session-1', expect.anything())
+diff --git a/desktop/src/components/chat/ContextUsageIndicator.tsx b/desktop/src/components/chat/ContextUsageIndicator.tsx
+index 5b4001401..19f4b46a3 100644
+--- a/desktop/src/components/chat/ContextUsageIndicator.tsx
++++ b/desktop/src/components/chat/ContextUsageIndicator.tsx
+@@ -10,7 +10,7 @@ import type { ChatState } from '../../types/chat'
+ import { useMobileViewport } from '../../hooks/useMobileViewport'
+ import { useDismissable } from '../../hooks/useDismissable'
+ import { isDesktopRuntime } from '../../lib/desktopRuntime'
+-import { deriveSessionUsageMetrics } from '../../lib/sessionUsageMetrics'
++import { deriveSessionUsageMetrics, formatCacheHitRate, formatCompactTokens, latestTurnCacheHitRate } from '../../lib/sessionUsageMetrics'
+ import { MobileBottomSheet } from '@/components/ui/MobileBottomSheet'
+ import {
+   ContextUsageDetails,
+@@ -49,7 +49,10 @@ const USAGE_POLL_MS = 3_000
+ // still be settling, so retry the event-driven refresh once.
+ const FORCED_REFRESH_RETRY_MS = 5_000
+ 
+-const POPOVER_WIDTH = 340
++// 384px (was 340): wide enough that a 6-digit cost ($123.45 · ¥888.84 ≈ 111px
++// at 13px mono) fits the cost column without truncation, and roomy enough that
++// the three stat groups read as evenly spaced when centered in their columns.
++const POPOVER_WIDTH = 384
+ const POPOVER_GAP = 8
+ const VIEWPORT_MARGIN = 16
+ // The collapsed panel is much shorter than the old always-expanded breakdown; the expanded
+@@ -439,18 +442,32 @@ export function ContextUsageIndicator({
+   // Derived per render rather than memoized on `usage` alone: the session it belongs to lives in
+   // a ref, so the guard has to run against the current sessionId every time.
+   const displayUsage = usageSessionIdRef.current === sessionId ? usage : null
++  // Latest-turn usage (the most recent assistant request) rides on the context snapshot, not the
++  // lifetime usage poll. The cache hit rate is computed against it — the ratio the cache achieves
++  // on the *current* turn, not a cumulative average diluted by replayed prompts.
++  const latestTurnUsage = displayContext?.apiUsage ?? null
++  // Latest-turn hit rate and absolute cache-read figure, shared by the composer tail and the
++  // detail panel so both read from the same number.
++  const latestCacheRate = latestTurnUsage ? latestTurnCacheHitRate(latestTurnUsage) : null
++  const latestCacheReadTokens = latestTurnUsage ? Math.max(0, latestTurnUsage.cache_read_input_tokens) : 0
+   const sessionStats = useMemo<ContextUsageSessionStats | null>(() => {
+     if (!displayUsage) return null
+     const metrics = deriveSessionUsageMetrics(displayUsage)
+     // A session with nothing produced yet has no honest answer for any of these rows; showing an
+     // empty block (or a 0 tok/s) would read as a measurement rather than an absence.
+     if (metrics.totalTokens === 0) return null
++    // Lead the cache row with the latest turn's hit rate; fall back to the session-cumulative
++    // ratio only when the context snapshot carries no per-turn usage.
+     return {
+-      cacheHitRate: metrics.cacheHitRate,
++      cacheHitRate: latestCacheRate ?? metrics.cacheHitRate,
++      cacheReadTokens: latestCacheReadTokens > 0
++        ? latestCacheReadTokens
++        : Math.max(0, displayUsage.totalCacheReadInputTokens),
+       tokensPerSecond: metrics.tokensPerSecond,
+       costDisplay: displayUsage.costDisplay,
++      totalCostUSD: displayUsage.totalCostUSD ?? null,
+     }
+-  }, [displayUsage])
++  }, [displayUsage, latestCacheRate, latestCacheReadTokens])
+ 
+   const detailsBody = (
+     <ContextUsageDetails
+@@ -476,8 +493,12 @@ export function ContextUsageIndicator({
+     const viewportWidth = window.innerWidth || document.documentElement.clientWidth
+     const viewportHeight = window.innerHeight || document.documentElement.clientHeight
+     const width = Math.min(POPOVER_WIDTH, Math.max(0, viewportWidth - VIEWPORT_MARGIN * 2))
++    // The card's right edge sits 30px left of the ring's right edge: flush
++    // alignment made the panel read as part of the ring and the two-line
++    // session stats crowded against the composer.
++    const LEFT_NUDGE_PX = 30
+     const left = Math.min(
+-      Math.max(VIEWPORT_MARGIN, rect.right - width),
++      Math.max(VIEWPORT_MARGIN, rect.right - width - LEFT_NUDGE_PX),
+       Math.max(VIEWPORT_MARGIN, viewportWidth - width - VIEWPORT_MARGIN),
+     )
+ 
+@@ -532,8 +553,15 @@ export function ContextUsageIndicator({
+   }
+ 
+   return (
+-    <div className="relative pointer-events-auto">
++    <div
++      className="relative flex items-center gap-0 pointer-events-auto"
++      // Cumulative right nudge requested for the ring + cache % group. transform (not
++      // margin) because the composer toolbar right-aligns this item: margin-left on the
++      // leading child only widens the empty flex-1 gap and never moves the element.
++      style={{ transform: 'translateX(15px)' }}
++    >
+       <button
++
+         ref={triggerRef}
+         type="button"
+         aria-label={ariaLabel}
+@@ -568,6 +596,25 @@ export function ContextUsageIndicator({
+         </span>
+         <span className="sr-only">{displayPercent}</span>
+       </button>
++      {latestCacheRate !== null && latestCacheReadTokens > 0 && (
++        <span
++          data-testid="context-cache-hit-tail"
++          className="shrink-0 font-mono text-[8px] font-semibold tabular-nums leading-none"
++          style={{
++            // The tail is positioned against the 32px (desktop) / 44px (mobile) trigger button,
++            // but the visible ring is only 20px / 22px — the button's touch padding eats the
++            // same translate on both, so the mobile shift must compensate its extra 5px.
++            color: '#ea580c',
++            transform: isMobileBrowser ? 'translate(-9px, 3px)' : 'translate(-4px, 3px)',
++          }}
++          title={t('contextIndicator.cacheHint', {
++            percent: formatCacheHitRate(latestCacheRate),
++            tokens: formatCompactTokens(latestCacheReadTokens),
++          })}
++        >
++          {formatCacheHitRate(latestCacheRate)}
++        </span>
++      )}
+ 
+       {!preferSheet && detailsOpen && popoverPosition && createPortal(
+         <div
+@@ -575,7 +622,10 @@ export function ContextUsageIndicator({
+           role="dialog"
+           aria-label={t('contextIndicator.title')}
+           data-testid="context-usage-popover"
+-          className="fixed z-[var(--z-popover)] overflow-y-auto rounded-[var(--radius-xl)] border border-[var(--color-border)] bg-[var(--color-surface-container-lowest)] px-[22px] py-5 text-left shadow-[var(--shadow-overlay)]"
++          // 18px padding (not the usual 22) so the cost readout, which sits
++          // flush against the right content edge, keeps ~19px of breathing
++          // room to the card border.
++          className="fixed z-[var(--z-popover)] overflow-y-auto rounded-[var(--radius-xl)] border border-[var(--color-border)] bg-[var(--color-surface-container-lowest)] px-[18px] py-5 text-left shadow-[var(--shadow-overlay)]"
+           style={{
+             top: popoverPosition.top,
+             bottom: popoverPosition.bottom,
+diff --git a/desktop/src/components/chat/LocalSlashCommandPanel.tsx b/desktop/src/components/chat/LocalSlashCommandPanel.tsx
+index b47fe2a0c..0084c69a5 100644
+--- a/desktop/src/components/chat/LocalSlashCommandPanel.tsx
++++ b/desktop/src/components/chat/LocalSlashCommandPanel.tsx
+@@ -12,6 +12,7 @@ import { EmptyState } from '@/components/ui/EmptyState'
+ import { ErrorState } from '@/components/ui/ErrorState'
+ import { LoadingState } from '@/components/ui/LoadingState'
+ import { mcpStatusTone } from '@/lib/mcpStatus'
++import { formatCacheHitRate, latestTurnCacheHitRate } from '../../lib/sessionUsageMetrics'
+ import { useTranslation, type TranslationKey } from '../../i18n'
+ import { useUIStore } from '../../stores/uiStore'
+ import { SETTINGS_TAB_ID, useTabStore } from '../../stores/tabStore'
+@@ -467,6 +468,12 @@ function ContextOverview({ context, categories, t }: { context: SessionContextSn
+   const usedPercent = Math.min(100, Math.max(0, context.percentage))
+   const freeTokens = Math.max(0, context.rawMaxTokens - context.totalTokens)
+   const freePercent = context.rawMaxTokens > 0 ? (freeTokens / context.rawMaxTokens) * 100 : 0
++  // Latest-turn cache hit rate from the context snapshot's apiUsage (the newest assistant
++  // request). The headline meter above is window occupancy; this reads how much of the current
++  // turn's prompt was served from cache — the number users actually budget against.
++  const latestCacheRate = context.apiUsage ? latestTurnCacheHitRate(context.apiUsage) : null
++  const latestCacheRead = context.apiUsage ? Math.max(0, context.apiUsage.cache_read_input_tokens) : 0
++  const hasCache = latestCacheRate !== null && latestCacheRead > 0
+   return (
+     <div className="rounded-md border border-[var(--color-inspector-border)] bg-[var(--color-inspector-panel)] px-5 py-6">
+       <div className="mb-8 flex items-start justify-between gap-4">
+@@ -478,6 +485,11 @@ function ContextOverview({ context, categories, t }: { context: SessionContextSn
+         <span className="mx-1.5 text-[var(--color-inspector-text)]">/</span>
+         <span>{formatNumber(context.rawMaxTokens)}</span>
+         <span className="ml-3 align-middle text-sm font-normal text-[var(--color-inspector-accent-secondary)]">[{formatPercent(usedPercent)} {t('slash.inspector.context.used')}]</span>
++        {hasCache && (
++          <span className="ml-3 align-middle text-sm font-normal" style={{ color: '#ea580c' }}>
++            {formatCacheHitRate(latestCacheRate!)} {t('slash.inspector.context.cached')}
++          </span>
++        )}
+       </div>
+       <div className="mt-7">
+         <ContextStackedBar categories={categories} rawMaxTokens={context.rawMaxTokens} />
+@@ -493,7 +505,10 @@ function ContextOverview({ context, categories, t }: { context: SessionContextSn
+           <ContextStatPill label={t('slash.inspector.context.toolResults')} value={formatNumber(context.messageBreakdown?.toolResultTokens ?? 0)} />
+         </div>
+         <div className="rounded-md border border-[var(--color-inspector-border)] bg-[var(--color-inspector-surface)] px-4 py-3">
+-          <ContextStatPill label={t('slash.inspector.context.context')} value={formatPercent(usedPercent)} />
++          {hasCache
++            ? <ContextStatPill label={t('slash.inspector.context.cache')} value={formatCacheHitRate(latestCacheRate!)} detail={`${formatNumber(latestCacheRead)} · ${t('slash.inspector.context.cached')}`} />
++            : <ContextStatPill label={t('slash.inspector.context.context')} value={formatPercent(usedPercent)} />
++          }
+         </div>
+       </div>
+     </div>
+diff --git a/desktop/src/components/chat/SessionCostBadge.tsx b/desktop/src/components/chat/SessionCostBadge.tsx
+new file mode 100644
+index 000000000..406fb8600
+--- /dev/null
++++ b/desktop/src/components/chat/SessionCostBadge.tsx
+@@ -0,0 +1,82 @@
++import { useEffect, useState } from 'react'
++import { sessionsApi } from '../../api/sessions'
++import { formatCnyCost } from '../../lib/sessionUsageMetrics'
++import { useTranslation } from '../../i18n'
++
++/**
++ * Session total-cost badge for the chat header.
++ *
++ * Cost only changes when a turn completes, but a turn can run for minutes while the user stares
++ * at the header. So: one read on mount (the usageOnly single-control path, which is deliberately
++ * cheap — no mcp/skills scan, no transcript cross-check), then a slow 10s poll while the session
++ * is actively running. Inactive sessions never poll; a stale-but-true number beats a round-trip.
++ *
++ * Hidden until the session has produced tokens — a `$0.0000` badge before the first turn would
++ * read as a measurement rather than an absence.
++ */
++const POLL_MS = 10_000
++
++export function SessionCostBadge({
++  sessionId,
++  active = false,
++  compact = false,
++}: {
++  sessionId: string
++  active?: boolean
++  /** Compact (mobile header) shows USD only to fit the narrow bar. */
++  compact?: boolean
++}) {
++  const t = useTranslation()
++  const [cost, setCost] = useState<{ usd: number; display: string } | null>(null)
++
++  useEffect(() => {
++    if (!sessionId) return
++    let cancelled = false
++    let inFlight = false
++    const load = () => {
++      if (inFlight) return
++      inFlight = true
++      sessionsApi.getSessionUsage(sessionId)
++        .then((inspection) => {
++          if (cancelled) return
++          const usage = inspection.usage
++          if (!usage) return
++          const produced =
++            usage.totalInputTokens +
++            usage.totalOutputTokens +
++            usage.totalCacheReadInputTokens +
++            usage.totalCacheCreationInputTokens
++          if (produced === 0) return
++          setCost({ usd: usage.totalCostUSD, display: usage.costDisplay })
++        })
++        .catch(() => {
++          // A failed poll (CLI busy, control timeout) leaves the last good number on screen.
++        })
++        .finally(() => {
++          inFlight = false
++        })
++    }
++    load()
++    if (!active) return () => { cancelled = true }
++    const timer = setInterval(load, POLL_MS)
++    return () => {
++      cancelled = true
++      clearInterval(timer)
++    }
++  }, [sessionId, active])
++
++  if (!cost) return null
++
++  return (
++    <span
++      data-testid="session-cost-badge"
++      className="inline-flex shrink-0 items-center gap-1 rounded-full border border-[var(--color-border)] bg-[var(--color-surface-container)] px-2 py-0.5 font-mono text-[11px] leading-none tabular-nums text-[var(--color-text-secondary)]"
++      title={t('session.totalCost')}
++    >
++      <span className="text-[var(--color-text-primary)]">{cost.display}</span>
++      {!compact && cost.usd > 0 && (
++        <span className="text-[var(--color-text-tertiary)]">· {formatCnyCost(cost.usd)}</span>
++      )}
++    </span>
++  )
++}
+diff --git a/desktop/src/lib/sessionUsageMetrics.test.ts b/desktop/src/lib/sessionUsageMetrics.test.ts
+index 67e317af5..1deed1de9 100644
+--- a/desktop/src/lib/sessionUsageMetrics.test.ts
++++ b/desktop/src/lib/sessionUsageMetrics.test.ts
+@@ -48,24 +48,62 @@ describe('deriveSessionUsageMetrics', () => {
+     expect(deriveSessionUsageMetrics(usage({ totalOutputTokens: 500 })).cacheHitRate).toBeNull()
+   })
+ 
+-  it('derives tokens per second from API wall-clock, including prefill', () => {
++  it('derives tokens per second from the decode-only span (TTFT excluded)', () => {
+     const metrics = deriveSessionUsageMetrics(usage({
+       totalOutputTokens: 1_000,
++      totalTimedOutputTokens: 1_000,
+       totalAPIDuration: 5_000,
+       totalDecodeDuration: 2_000,
+     }))
+ 
+-    // Decode-only would report 500 here and ignore the wait the user actually sat through.
++    // Generation speed divides by the time the model spent emitting tokens — the
++    // 3s of first-token wait in the API span is not generation.
++    expect(metrics.tokensPerSecond).toBe(500)
++  })
++
++  it('divides a decode span only by the tokens that span covered', () => {
++    // Session 60aa321f/f1be2b52 shape: most calls were served by the non-streaming fallback, so
++    // they added output tokens but no decode time. Dividing the session's whole output by the
++    // few measured seconds printed 6044 tok/s for an engine that runs ~120.
++    const metrics = deriveSessionUsageMetrics(usage({
++      totalOutputTokens: 406_799,
++      totalTimedOutputTokens: 6_000,
++      totalAPIDuration: 900_000,
++      totalDecodeDuration: 60_000,
++    }))
++
++    expect(metrics.tokensPerSecond).toBe(100)
++  })
++
++  it('ignores a decode span with no paired tokens and uses the API span instead', () => {
++    // Snapshots written before the pairing existed carry a decode span but no token count for
++    // it; pairing the session total with that partial span is exactly the inflated rate.
++    const metrics = deriveSessionUsageMetrics(usage({
++      totalOutputTokens: 1_000,
++      totalAPIDuration: 5_000,
++      totalDecodeDuration: 2_000,
++    }))
++
++    expect(metrics.tokensPerSecond).toBe(200)
++  })
++
++  it('falls back to the API span when only that was reported', () => {
++    const metrics = deriveSessionUsageMetrics(usage({
++      totalOutputTokens: 1_000,
++      totalAPIDuration: 5_000,
++      totalDecodeDuration: 0,
++    }))
++
+     expect(metrics.tokensPerSecond).toBe(200)
+   })
+ 
+-  it('withholds tokens per second when no API duration was reported', () => {
++  it('withholds tokens per second when no duration was reported', () => {
+     // Transcript-sourced usage has no request timing. Falling back to session wall clock would
+     // divide by a span that includes tool execution and invent a rate.
+     const metrics = deriveSessionUsageMetrics(usage({
+       totalOutputTokens: 1_000,
+       totalAPIDuration: 0,
+-      totalDecodeDuration: 5_000,
++      totalDecodeDuration: 0,
+     }))
+ 
+     expect(metrics.tokensPerSecond).toBeNull()
+@@ -80,11 +118,12 @@ describe('deriveSessionUsageMetrics', () => {
+       totalCacheReadInputTokens: 53_480_064,
+       totalAPIDuration: 1_480_000,
+       totalDecodeDuration: 326_000,
++      totalTimedOutputTokens: 166_998,
+     }))
+ 
+     expect(metrics.totalTokens).toBe(392_886)
+     expect(metrics.cacheHitRate).toBeCloseTo(53_480_064 / (225_888 + 53_480_064), 10)
+-    expect(metrics.tokensPerSecond).toBeCloseTo(166_998 / 1_480, 6)
++    expect(metrics.tokensPerSecond).toBeCloseTo(166_998 / 326, 6)
+   })
+ 
+   it('treats missing and non-finite fields as zero rather than NaN', () => {
+diff --git a/desktop/src/lib/sessionUsageMetrics.ts b/desktop/src/lib/sessionUsageMetrics.ts
+index a8e9cf261..a980fdb4a 100644
+--- a/desktop/src/lib/sessionUsageMetrics.ts
++++ b/desktop/src/lib/sessionUsageMetrics.ts
+@@ -17,6 +17,11 @@ export type SessionUsageLike = {
+   totalCacheCreationInputTokens: number
+   totalDecodeDuration?: number
+   totalAPIDuration?: number
++  /**
++   * Output tokens of exactly the calls `totalDecodeDuration` covers. Absent/0 for
++   * transcript-sourced usage and for snapshots written before the pairing existed.
++   */
++  totalTimedOutputTokens?: number
+ }
+ 
+ export type SessionUsageMetrics = {
+@@ -31,8 +36,19 @@ export type SessionUsageMetrics = {
+   /** `null` when the session has sent no prompt tokens yet. */
+   cacheHitRate: number | null
+   /**
+-   * Output tokens over API wall-clock. `null` when no API duration was reported.
+-   * Decode-only spans exclude TTFT and read as a peak the user never felt.
++   * Output tokens per second of actual generation.
++   *
++   * Numerator and denominator must describe the **same calls**. The decode-only span
++   * excludes the first-token wait, so it is the better denominator — but it is only
++   * produced by streamed responses that reached `message_stop`. A session whose calls were
++   * served by the non-streaming fallback (or whose streams were truncated) still counts
++   * their tokens in `totalOutputTokens` while contributing no span at all, so
++   * `totalOutputTokens / totalDecodeDuration` can read hundreds of times too high
++   * (observed: 6044 tok/s on a fallback-heavy session).
++   *
++   * So the decode rate is computed over `totalTimedOutputTokens` — the tokens the same
++   * calls reported — and the API span is used (over every call's tokens) only when no
++   * decode span exists at all. `null` when neither duration was reported.
+    */
+   tokensPerSecond: number | null
+ }
+@@ -44,16 +60,19 @@ function finite(value: number | undefined): number {
+ /**
+  * Derives the panel's headline numbers.
+  *
+- * `tokensPerSecond` divides output tokens by the time the API was actually running, including
+- * prefill. A caller that only has a transcript (no API duration) gets `null` rather than a rate
+- * computed against wall clock that includes `Bash`.
++ * `tokensPerSecond` is generation speed over the calls that measured a span, so a session
++ * that partly fell back to non-streaming reads as the rate the model actually ran at
++ * instead of dividing every token by the few measured seconds. See the field's doc for why
++ * the numerator is not simply `totalOutputTokens`.
+  */
+ export function deriveSessionUsageMetrics(usage: SessionUsageLike): SessionUsageMetrics {
+   const input = finite(usage.totalInputTokens)
+   const output = finite(usage.totalOutputTokens)
+   const cacheRead = finite(usage.totalCacheReadInputTokens)
+   const cacheWrite = finite(usage.totalCacheCreationInputTokens)
++  const decodeMs = finite(usage.totalDecodeDuration)
+   const apiMs = finite(usage.totalAPIDuration)
++  const timedOutput = finite(usage.totalTimedOutputTokens)
+ 
+   const promptTokens = input + cacheRead + cacheWrite
+   return {
+@@ -61,10 +80,32 @@ export function deriveSessionUsageMetrics(usage: SessionUsageLike): SessionUsage
+     promptTokens,
+     cachedTokens: cacheRead,
+     cacheHitRate: promptTokens > 0 ? cacheRead / promptTokens : null,
+-    tokensPerSecond: apiMs > 0 && output > 0 ? output / (apiMs / 1000) : null,
++    tokensPerSecond: generationSpeed({ output, timedOutput, decodeMs, apiMs }),
+   }
+ }
+ 
++function generationSpeed({
++  output,
++  timedOutput,
++  decodeMs,
++  apiMs,
++}: {
++  output: number
++  timedOutput: number
++  decodeMs: number
++  apiMs: number
++}): number | null {
++  // Paired numerator/denominator: the tokens those same calls reported over the span they
++  // spent emitting them.
++  if (decodeMs > 0 && timedOutput > 0) return timedOutput / (decodeMs / 1000)
++  // No decode span anywhere (a transcript, or a session served entirely by the non-streaming
++  // fallback): the API clock covers every call, so it is the only denominator that matches
++  // the session-wide token total. It includes the first-token wait and so reads low, which
++  // is the honest number when no generation span exists.
++  if (apiMs > 0 && output > 0) return output / (apiMs / 1000)
++  return null
++}
++
+ /**
+  * Formats a cache hit rate without ever rounding a partial hit up to a flat 100%.
+  *
+@@ -90,8 +131,43 @@ export function formatTokensPerSecond(value: number): string {
+   return value >= 10 ? `${Math.round(value)}` : `${value.toFixed(1)}`
+ }
+ 
++/**
++ * Request-level (latest-turn) cache hit rate, from the newest assistant usage.
++ *
++ * Unlike the session-cumulative `cacheHitRate` (which dilutes the ratio across a long agent
++ * loop as earlier prompts are replayed), this reads the *most recent* turn only: cache reads as a
++ * fraction of that turn's total prompt (fresh input + cache write + cache read). A long-running
++ * session therefore reads as the cache actually performs turn-over-turn (~99%), not ~0.5%.
++ *
++ * Returns `null` when the turn produced no prompt tokens (no honest answer).
++ */
++export function latestTurnCacheHitRate(usage: {
++  input_tokens: number
++  cache_creation_input_tokens: number
++  cache_read_input_tokens: number
++}): number | null {
++  const input = finite(usage.input_tokens)
++  const cacheRead = finite(usage.cache_read_input_tokens)
++  const cacheWrite = finite(usage.cache_creation_input_tokens)
++  const promptTokens = input + cacheRead + cacheWrite
++  return promptTokens > 0 ? cacheRead / promptTokens : null
++}
++
++/** Fixed display-only FX rate for the USD/CNY dual cost readout (not a billing conversion). */
++export const CNY_PER_USD = 7.2
++
++/**
++ * `¥8.86` / `¥0.0036` — mirrors the server's USD formatting rules (2dp above ¥0.5, else 4dp) so
++ * the two currencies read at the same precision next to each other.
++ */
++export function formatCnyCost(usd: number): string {
++  const cny = usd * CNY_PER_USD
++  return `¥${cny > 0.5 ? (Math.round(cny * 100) / 100).toFixed(2) : cny.toFixed(4)}`
++}
++
+ /** `1.2M`, `375K`, `812` — compact enough for a stat row, never a lie about magnitude. */
+ export function formatCompactTokens(value: number): string {
++
+   if (!Number.isFinite(value) || value <= 0) return '0'
+   if (value < 1_000) return `${Math.round(value)}`
+   const thousands = value / 1_000
+diff --git a/src/QueryEngine.ts b/src/QueryEngine.ts
+index d1f627c6d..75611c91e 100644
+--- a/src/QueryEngine.ts
++++ b/src/QueryEngine.ts
+@@ -870,10 +870,13 @@ export class QueryEngine {
+             this.totalDecodeMs += message.decodeMs ?? 0
+             this.totalTtftMs += currentMessageTtftMs
+             // Session-scoped twin of the turn totals above: survives across turns so the
+-            // usage snapshot can report generation speed for the whole conversation.
++            // usage snapshot can report generation speed for the whole conversation. The
++            // call's own output tokens ride along so the speed pairs this span with the
++            // tokens it covered — session totals also carry calls that reported no span.
+             addToTotalGenerationDuration(
+               message.decodeMs ?? 0,
+               currentMessageTtftMs,
++              currentMessageUsage.output_tokens,
+             )
+           }
+ 
+diff --git a/src/bootstrap/state.generationTiming.test.ts b/src/bootstrap/state.generationTiming.test.ts
+new file mode 100644
+index 000000000..05cc257f5
+--- /dev/null
++++ b/src/bootstrap/state.generationTiming.test.ts
+@@ -0,0 +1,39 @@
++import { afterEach, describe, expect, test } from 'bun:test'
++import {
++  addToTotalGenerationDuration,
++  getTotalDecodeDuration,
++  getTotalTimedOutputTokens,
++  resetTotalDurationStateAndCost_FOR_TESTS_ONLY,
++} from './state.js'
++
++afterEach(() => {
++  resetTotalDurationStateAndCost_FOR_TESTS_ONLY()
++})
++
++describe('session generation timing pairs its span with the tokens it covered', () => {
++  test('counts a call that reported a span', () => {
++    addToTotalGenerationDuration(2_000, 300, 250)
++
++    expect(getTotalDecodeDuration()).toBe(2_000)
++    expect(getTotalTimedOutputTokens()).toBe(250)
++  })
++
++  test('a call with no span contributes time to neither side', () => {
++    // A non-streamed fallback reports its usage but never opened a decode span. Its tokens still
++    // reach the session totals, so recording them as "timed" would restore exactly the pairing
++    // bug the counter exists to prevent: 6044 tok/s for an engine running ~120.
++    addToTotalGenerationDuration(0, 0, 9_000)
++
++    expect(getTotalDecodeDuration()).toBe(0)
++    expect(getTotalTimedOutputTokens()).toBe(0)
++  })
++
++  test('accumulates across calls', () => {
++    addToTotalGenerationDuration(1_000, 100, 100)
++    addToTotalGenerationDuration(3_000, 200, 300)
++    addToTotalGenerationDuration(0, 0, 5_000)
++
++    expect(getTotalDecodeDuration()).toBe(4_000)
++    expect(getTotalTimedOutputTokens()).toBe(400)
++  })
++})
+diff --git a/src/bootstrap/state.ts b/src/bootstrap/state.ts
+index 5148f8584..8abbe9dc9 100644
+--- a/src/bootstrap/state.ts
++++ b/src/bootstrap/state.ts
+@@ -56,6 +56,11 @@ type State = {
+   // response, and the prefill wait that precedes it. See QueryEngine's per-turn accumulators.
+   totalDecodeDuration: number
+   totalTtftDuration: number
++  // Output tokens of exactly the calls whose decode span was measured. The numerator that pairs
++  // with `totalDecodeDuration`: a call that reported no span (a non-streamed fallback, a stream
++  // that ended without `message_stop`) contributes tokens to the model totals but no time here, so
++  // dividing the whole session's output by this span would read as a rate nobody ever saw.
++  totalTimedOutputTokens: number
+   turnHookDurationMs: number
+   turnToolDurationMs: number
+   turnClassifierDurationMs: number
+@@ -291,6 +296,7 @@ function getInitialState(): State {
+     totalToolDuration: 0,
+     totalDecodeDuration: 0,
+     totalTtftDuration: 0,
++    totalTimedOutputTokens: 0,
+     turnHookDurationMs: 0,
+     turnToolDurationMs: 0,
+     turnClassifierDurationMs: 0,
+@@ -557,15 +563,25 @@ export function addToTotalDurationState(
+ export function addToTotalGenerationDuration(
+   decodeDuration: number,
+   ttftDuration: number,
++  outputTokens = 0,
+ ): void {
+   STATE.totalDecodeDuration += decodeDuration
+   STATE.totalTtftDuration += ttftDuration
++  // Pair the time with the tokens it actually covered. Only calls that measured a span reach
++  // here, so this is the numerator `totalDecodeDuration` is a denominator for.
++  if (decodeDuration > 0 && outputTokens > 0) {
++    STATE.totalTimedOutputTokens += outputTokens
++  }
+ }
+ 
+ export function getTotalDecodeDuration(): number {
+   return STATE.totalDecodeDuration
+ }
+ 
++export function getTotalTimedOutputTokens(): number {
++  return STATE.totalTimedOutputTokens
++}
++
+ export function getTotalTtftDuration(): number {
+   return STATE.totalTtftDuration
+ }
+@@ -576,6 +592,7 @@ export function resetTotalDurationStateAndCost_FOR_TESTS_ONLY(): void {
+   STATE.totalCostUSD = 0
+   STATE.totalDecodeDuration = 0
+   STATE.totalTtftDuration = 0
++  STATE.totalTimedOutputTokens = 0
+ }
+ 
+ export function addToTotalCostState(
+@@ -910,6 +927,7 @@ export function setCostStateForRestore({
+   totalAPIDurationWithoutRetries,
+   totalDecodeDuration,
+   totalTtftDuration,
++  totalTimedOutputTokens,
+   totalToolDuration,
+   totalLinesAdded,
+   totalLinesRemoved,
+@@ -921,6 +939,7 @@ export function setCostStateForRestore({
+   totalAPIDurationWithoutRetries: number
+   totalDecodeDuration: number
+   totalTtftDuration: number
++  totalTimedOutputTokens?: number
+   totalToolDuration: number
+   totalLinesAdded: number
+   totalLinesRemoved: number
+@@ -932,6 +951,10 @@ export function setCostStateForRestore({
+   STATE.totalAPIDurationWithoutRetries = totalAPIDurationWithoutRetries
+   STATE.totalDecodeDuration = totalDecodeDuration
+   STATE.totalTtftDuration = totalTtftDuration
++  // Absent in snapshots written before the pairing existed: 0 then means "the tokens behind this
++  // span were never recorded", and the panel falls back to the API span rather than pairing a
++  // session-wide numerator with a partial denominator.
++  STATE.totalTimedOutputTokens = totalTimedOutputTokens ?? 0
+   STATE.totalToolDuration = totalToolDuration
+   STATE.totalLinesAdded = totalLinesAdded
+   STATE.totalLinesRemoved = totalLinesRemoved
+diff --git a/src/cost-tracker.ts b/src/cost-tracker.ts
+index b5b915216..bd6e05242 100644
+--- a/src/cost-tracker.ts
++++ b/src/cost-tracker.ts
+@@ -14,6 +14,7 @@ import {
+   getTotalCacheReadInputTokens,
+   getTotalCostUSD,
+   getTotalDecodeDuration,
++  getTotalTimedOutputTokens,
+   getTotalDuration,
+   getTotalInputTokens,
+   getTotalLinesAdded,
+@@ -79,6 +80,10 @@ export type SessionUsageSnapshot = {
+   // no streamed response reported a decode span (non-streaming fallback, aborted turn).
+   totalDecodeDuration: number
+   totalTtftDuration: number
++  // Output tokens of the calls `totalDecodeDuration` covers. Generation speed is this over that
++  // span: `totalOutputTokens` also counts calls that reported no span (a non-streamed fallback,
++  // a truncated stream), and pairing it with the partial span reads as a rate nobody saw.
++  totalTimedOutputTokens: number
+   totalDuration: number
+   totalLinesAdded: number
+   totalLinesRemoved: number
+@@ -108,6 +113,7 @@ type StoredCostState = {
+   totalAPIDurationWithoutRetries: number
+   totalDecodeDuration: number
+   totalTtftDuration: number
++  totalTimedOutputTokens?: number
+   totalToolDuration: number
+   totalLinesAdded: number
+   totalLinesRemoved: number
+@@ -152,6 +158,7 @@ export function getStoredSessionCosts(
+       projectConfig.lastAPIDurationWithoutRetries ?? 0,
+     totalDecodeDuration: projectConfig.lastDecodeDuration ?? 0,
+     totalTtftDuration: projectConfig.lastTtftDuration ?? 0,
++    totalTimedOutputTokens: projectConfig.lastTimedOutputTokens ?? 0,
+     totalToolDuration: projectConfig.lastToolDuration ?? 0,
+     totalLinesAdded: projectConfig.lastLinesAdded ?? 0,
+     totalLinesRemoved: projectConfig.lastLinesRemoved ?? 0,
+@@ -186,6 +193,7 @@ export function saveCurrentSessionCosts(fpsMetrics?: FpsMetrics): void {
+     lastAPIDurationWithoutRetries: getTotalAPIDurationWithoutRetries(),
+     lastDecodeDuration: getTotalDecodeDuration(),
+     lastTtftDuration: getTotalTtftDuration(),
++    lastTimedOutputTokens: getTotalTimedOutputTokens(),
+     lastToolDuration: getTotalToolDuration(),
+     lastDuration: getTotalDuration(),
+     lastLinesAdded: getTotalLinesAdded(),
+@@ -291,6 +299,7 @@ export function getSessionUsageSnapshot(): SessionUsageSnapshot {
+     totalAPIDuration: getTotalAPIDuration(),
+     totalDecodeDuration: getTotalDecodeDuration(),
+     totalTtftDuration: getTotalTtftDuration(),
++    totalTimedOutputTokens: getTotalTimedOutputTokens(),
+     totalDuration: getTotalDuration(),
+     totalLinesAdded: getTotalLinesAdded(),
+     totalLinesRemoved: getTotalLinesRemoved(),
+diff --git a/src/server/__tests__/conversations.test.ts b/src/server/__tests__/conversations.test.ts
+index c09ddfa56..1d99c8d82 100644
+--- a/src/server/__tests__/conversations.test.ts
++++ b/src/server/__tests__/conversations.test.ts
+@@ -1263,6 +1263,64 @@ describe('ConversationService', () => {
+     }
+   })
+ 
++  it('should anchor displayed context to the last real usage, not full rough accumulation', async () => {
++    const previousConfigDir = process.env.CLAUDE_CONFIG_DIR
++    const previousNodeEnv = process.env.NODE_ENV
++    const tmpConfigDir = await fs.mkdtemp(path.join(os.tmpdir(), 'claude-transcript-usage-anchored-'))
++    const workDir = await fs.mkdtemp(path.join(os.tmpdir(), 'claude-workdir-usage-anchored-'))
++    process.env.CLAUDE_CONFIG_DIR = tmpConfigDir
++    process.env.NODE_ENV = 'development'
++
++    try {
++      const svc = new SessionService()
++      const { sessionId } = await svc.createSession(workDir)
++      const found = await svc.findSessionFile(sessionId)
++      expect(found).not.toBeNull()
++
++      // ~600k chars of text ≈ 150k rough tokens, but the provider reports a
++      // modest 1200-token usage. The displayed total must anchor to that real
++      // usage (plus the rough delta after it, which is 0 here) rather than the
++      // full self-since-boundary rough accumulation — otherwise bc-compressed
++      // transcripts stay pinned at a high percentage.
++      await fs.appendFile(found!.filePath, JSON.stringify({
++        type: 'assistant',
++        uuid: crypto.randomUUID(),
++        timestamp: '2026-04-27T12:00:00.000Z',
++        cwd: workDir,
++        version: '999.0.0-test',
++        message: {
++          role: 'assistant',
++          model: 'claude-sonnet-4-6',
++          content: [{ type: 'text', text: 'x'.repeat(600_000) }],
++          usage: {
++            input_tokens: 1000,
++            output_tokens: 200,
++          },
++        },
++      }) + '\n')
++
++      const contextEstimate = await svc.getTranscriptContextEstimate(sessionId)
++
++      expect(contextEstimate?.rawMaxTokens).toBe(200_000)
++      // 150k rough tokens must NOT dominate: total anchors to the 1200 real usage.
++      expect(contextEstimate?.totalTokens).toBe(1200)
++      expect(contextEstimate?.percentage).toBe(1)
++    } finally {
++      if (previousConfigDir === undefined) {
++        delete process.env.CLAUDE_CONFIG_DIR
++      } else {
++        process.env.CLAUDE_CONFIG_DIR = previousConfigDir
++      }
++      if (previousNodeEnv === undefined) {
++        delete process.env.NODE_ENV
++      } else {
++        process.env.NODE_ENV = previousNodeEnv
++      }
++      await fs.rm(tmpConfigDir, { recursive: true, force: true })
++      await fs.rm(workDir, { recursive: true, force: true })
++    }
++  })
++
+   it('should fall back to transcript estimates when provider usage is empty or zero', async () => {
+     const previousConfigDir = process.env.CLAUDE_CONFIG_DIR
+     const previousNodeEnv = process.env.NODE_ENV
+diff --git a/src/server/__tests__/sessions.test.ts b/src/server/__tests__/sessions.test.ts
+index f18ebdf40..a6fb3b142 100644
+--- a/src/server/__tests__/sessions.test.ts
++++ b/src/server/__tests__/sessions.test.ts
+@@ -4028,6 +4028,60 @@ describe('Sessions API', () => {
+     expect(body.usage?.totalInputTokens).toBe(20)
+   })
+ 
++  it('bills the last line of a call, not the first, when the transcript repeats its usage', async () => {
++    // Real transcripts write a call twice: the first line carries the prompt with
++    // `output_tokens: 0` and no cache fields, the last carries the final split (uncached input
++    // + cache read + real output). Keeping the first — which the dedup did — reported 0 output
++    // tokens and a 0% cache hit rate for the whole session.
++    const workDir = await fs.mkdtemp(path.join(tmpDir, 'api-session-usage-final-'))
++    const sessionId = '33333333-4444-5555-6666-777777777777'
++    const projectDir = '-tmp-api-session-usage-final'
++    const messageId = 'msg_two_phase'
++    const phase = (usage: Record<string, unknown>) => ({
++      parentUuid: null,
++      isSidechain: false,
++      type: 'assistant',
++      message: {
++        model: 'claude-opus-4-7',
++        id: messageId,
++        type: 'message',
++        role: 'assistant',
++        content: [{ type: 'text', text: 'block' }],
++        usage,
++      },
++      uuid: crypto.randomUUID(),
++      timestamp: '2026-01-01T00:02:00.000Z',
++      sessionId,
++      cwd: workDir,
++    })
++    await writeSessionFile(projectDir, sessionId, [
++      makeSessionMetaEntry(workDir),
++      makeUserEntry('go', crypto.randomUUID()),
++      // message_start: the prompt total, nothing generated yet.
++      phase({ input_tokens: 30_505, output_tokens: 0 }),
++      // message_stop: uncached input + cache read + the tokens actually emitted.
++      phase({
++        input_tokens: 1_129,
++        output_tokens: 67,
++        cache_read_input_tokens: 29_376,
++        cache_creation_input_tokens: 0,
++      }),
++    ])
++
++    const res = await fetch(`${baseUrl}/api/sessions/${sessionId}/inspection?includeContext=0`)
++    const body = await res.json() as {
++      usage?: {
++        totalInputTokens: number
++        totalOutputTokens: number
++        totalCacheReadInputTokens: number
++      }
++    }
++
++    expect(body.usage?.totalOutputTokens).toBe(67)
++    expect(body.usage?.totalCacheReadInputTokens).toBe(29_376)
++    expect(body.usage?.totalInputTokens).toBe(1_129)
++  })
++
+   it('GET /api/sessions/repository-context should return branch launch metadata', async () => {
+     const workDir = await createCleanGitRepo(tmpDir)
+     const res = await fetch(
+diff --git a/src/server/services/localIndex/transcriptReducer.test.ts b/src/server/services/localIndex/transcriptReducer.test.ts
+index 57eabf5a0..01ba85568 100644
+--- a/src/server/services/localIndex/transcriptReducer.test.ts
++++ b/src/server/services/localIndex/transcriptReducer.test.ts
+@@ -527,6 +527,45 @@ describe('reduceTranscript activity usage', () => {
+     }])
+   })
+ 
++  it('replaces a call\'s partial usage line with its final one', () => {
++    // Real transcripts write a call twice: the first line carries the prompt with
++    // `output_tokens: 0` and no cache read, the last carries the final split. Counting only the
++    // first (what the dedup did) stored `output_tokens: 0` and `cache_read_input_tokens: 0` for
++    // every indexed row, so the activity views had no output and no cache-hit data at all.
++    const entry = (usage: Record<string, unknown>) => ({
++      type: 'assistant',
++      requestId: 'req_two_phase',
++      message: {
++        role: 'assistant',
++        model: 'claude-opus-5',
++        id: 'msg_two_phase',
++        content: [{ type: 'text', text: 'x' }],
++        usage,
++      },
++      timestamp: '2026-01-01T10:00:00.000Z',
++    })
++    const result = reduceTranscript(
++      completeChunks([
++        entry({ input_tokens: 30_505, output_tokens: 0 }),
++        entry({
++          input_tokens: 1_129,
++          output_tokens: 67,
++          cache_read_input_tokens: 29_376,
++          cache_creation_input_tokens: 0,
++        }),
++      ]),
++      initialProjection(),
++    )
++
++    expect(modelTotals(result)).toEqual([{
++      model: 'claude-opus-5',
++      inputTokens: 1_129,
++      outputTokens: 67,
++      cacheReadInputTokens: 29_376,
++      cacheCreationInputTokens: 0,
++    }])
++  })
++
+   it('keeps deduplicating across an incremental read', () => {
+     const [firstLine, ...restLines] = assistantBlockLines({
+       messageId: 'msg_split',
+diff --git a/src/server/services/localIndex/transcriptReducer.ts b/src/server/services/localIndex/transcriptReducer.ts
+index c688f163b..1707545ed 100644
+--- a/src/server/services/localIndex/transcriptReducer.ts
++++ b/src/server/services/localIndex/transcriptReducer.ts
+@@ -109,13 +109,20 @@ type ReducerState = {
+   activityModels: Map<string, ActivityModelProjection>
+   activityTools: Map<string, ActivityNamedUsageProjection>
+   activitySkills: Map<string, ActivityNamedUsageProjection>
+-  // (message.id, requestId) pairs whose usage has already been counted for this source. Claude
+-  // Code writes one JSONL line per content block of an assistant message — a turn with thinking,
+-  // text and 12 tool_use blocks is 14 lines — and every one of them repeats the same complete
+-  // `usage` object. Without this the tokens of a single reply get counted once per block; on real
+-  // transcripts that inflated the total by 2.2x. Lives only in memory alongside the projection
+-  // Maps: a full re-read starts empty (correct), and an incremental read clones it forward.
+-  activityUsageKeys: Set<string>
++  // (message.id, requestId) pairs whose usage has already been counted for this source, mapped to
++  // what each contributed. Claude Code writes one JSONL line per content block of an assistant
++  // message — a turn with thinking, text and 12 tool_use blocks is 14 lines — and every one
++  // repeats `usage`. Without dedup the tokens of a single reply get counted once per block; on
++  // real transcripts that inflated the total by 2.2x.
++  //
++  // The repeats are not identical: measured over 1227 calls, the early lines of a call carry
++  // `output_tokens: 0` and the last line carries the final split (uncached input, cache
++  // read/write, real output). Keeping only the first line is what made every indexed row report
++  // `output_tokens: 0` and `cache_read_input_tokens: 0`; the stored contribution lets a later
++  // line of the same call replace it instead of being dropped. Lives only in memory alongside the
++  // projection Maps: a full re-read starts empty (correct), and an incremental read clones it
++  // forward.
++  activityUsageKeys: Map<string, CountedUsage>
+ }
+ 
+ export type TranscriptReductionOptions = {
+@@ -221,7 +228,7 @@ function cloneState(state: ReducerState): ReducerState {
+     activitySkills: new Map(
+       [...state.activitySkills].map(([key, value]) => [key, { ...value }]),
+     ),
+-    activityUsageKeys: new Set(state.activityUsageKeys),
++    activityUsageKeys: new Map(state.activityUsageKeys),
+   }
+ }
+ 
+@@ -286,7 +293,7 @@ function createInitialState(
+         { ...skill },
+       ]),
+     ),
+-    activityUsageKeys: new Set(),
++    activityUsageKeys: new Map(),
+   }
+ }
+ 
+@@ -328,16 +335,51 @@ function usageIdentity(entry: ReducerEntry) {
+   }
+ }
+ 
++/** What one counted call has already contributed, so a later line can replace it. */
++type CountedUsage = {
++  /** `activityModels` bucket the contribution landed in, `${date}\0${model}`. */
++  bucketKey: string
++  inputTokens: number
++  outputTokens: number
++  cacheReadInputTokens: number
++  cacheCreationInputTokens: number
++  webSearchRequests: number
++  costUSD: number
++}
++
++/** Which call a line's `usage` describes, and what that call has already contributed. */
++type UsageClaim = {
++  /** `null` when the line has no identity to deduplicate on and is counted as-is. */
++  key: string | null
++  /** Non-null means this line supersedes that contribution rather than adding to it. */
++  previous: CountedUsage | null
++}
++
+ /**
+- * Claim this usage record, returning false when its key was already counted — i.e. this line is
+- * another content block of a reply already accounted for.
++ * Claim this usage record. A key already counted comes back with `previous` so the caller can
++ * take that contribution back before adding this line's numbers — the lines of one call are
++ * successive views of the same request, and the last one is the complete one.
+  */
+-function claimUsageRecord(state: ReducerState, entry: ReducerEntry, suffix = ''): boolean {
++function claimUsageRecord(
++  state: ReducerState,
++  entry: ReducerEntry,
++  suffix = '',
++): UsageClaim {
+   const key = usageRecordKey(usageIdentity(entry), suffix)
+-  if (key === null) return true
+-  if (state.activityUsageKeys.has(key)) return false
+-  state.activityUsageKeys.add(key)
+-  return true
++  if (key === null) return { key: null, previous: null }
++  return { key, previous: state.activityUsageKeys.get(key) ?? null }
++}
++
++/** Undo a contribution a later line of the same call is about to replace. */
++function releaseCountedUsage(state: ReducerState, previous: CountedUsage): void {
++  const aggregate = state.activityModels.get(previous.bucketKey)
++  if (!aggregate) return
++  aggregate.inputTokens -= previous.inputTokens
++  aggregate.outputTokens -= previous.outputTokens
++  aggregate.cacheReadInputTokens -= previous.cacheReadInputTokens
++  aggregate.cacheCreationInputTokens -= previous.cacheCreationInputTokens
++  aggregate.webSearchRequests -= previous.webSearchRequests
++  aggregate.costUSD -= previous.costUSD
+ }
+ 
+ function cacheCreationTokens(usage: ReducerUsage): number {
+@@ -353,7 +395,7 @@ function accumulateUsage(
+   date: string,
+   model: string,
+   usage: ReducerUsage,
+-): void {
++): CountedUsage {
+   const key = `${date}\0${model}`
+   let aggregate = state.activityModels.get(key)
+   if (!aggregate) {
+@@ -397,6 +439,16 @@ function accumulateUsage(
+     usage.speed,
+   )
+   if (cost !== null) aggregate.costUSD += cost
++
++  return {
++    bucketKey: key,
++    inputTokens,
++    outputTokens,
++    cacheReadInputTokens,
++    cacheCreationInputTokens,
++    webSearchRequests,
++    costUSD: cost ?? 0,
++  }
+ }
+ 
+ /**
+@@ -421,8 +473,10 @@ function accumulateAdvisorUsage(
+     // key as the first line's Nth advisor rather than shifting by the number already claimed.
+     const index = advisorIndex
+     advisorIndex += 1
+-    if (!claimUsageRecord(state, entry, `\0advisor:${index}`)) continue
+-    accumulateUsage(state, date, record.model, record)
++    const advisorClaim = claimUsageRecord(state, entry, `\0advisor:${index}`)
++    if (advisorClaim.previous) releaseCountedUsage(state, advisorClaim.previous)
++    const contribution = accumulateUsage(state, date, record.model, record)
++    if (advisorClaim.key !== null) state.activityUsageKeys.set(advisorClaim.key, contribution)
+   }
+ }
+ 
+@@ -500,9 +554,13 @@ function applyActivityEntry(state: ReducerState, entry: ReducerEntry): void {
+   const model = entry.message?.model || 'unknown'
+   if (!usage || model === SYNTHETIC_MODEL) return
+   if (!isBillableUsageRecord(usageIdentity(entry))) return
+-  // Every content-block line of this reply carries the same usage; bill only the first one.
+-  if (!claimUsageRecord(state, entry)) return
+-  accumulateUsage(state, timestamp.date, model, usage)
++  // Every content-block line of this reply repeats `usage`, and the last one is the complete
++  // view of the call: bill the line, replacing whatever the earlier lines of the same call
++  // contributed (they carry `output_tokens: 0` and no cache read).
++  const claim = claimUsageRecord(state, entry)
++  if (claim.previous) releaseCountedUsage(state, claim.previous)
++  const contribution = accumulateUsage(state, timestamp.date, model, usage)
++  if (claim.key !== null) state.activityUsageKeys.set(claim.key, contribution)
+   accumulateAdvisorUsage(state, entry, timestamp.date, usage)
+ }
+ 
+diff --git a/src/utils/config.ts b/src/utils/config.ts
+index 6f1259bae..72014f66a 100644
+--- a/src/utils/config.ts
++++ b/src/utils/config.ts
+@@ -81,6 +81,8 @@ export type ProjectConfig = {
+   lastAPIDurationWithoutRetries?: number
+   lastDecodeDuration?: number
+   lastTtftDuration?: number
++  // Output tokens paired with `lastDecodeDuration`; see the panel's generation-speed pairing.
++  lastTimedOutputTokens?: number
+   lastToolDuration?: number
+   lastCost?: number
+   lastDuration?: number

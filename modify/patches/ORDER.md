@@ -1,151 +1,64 @@
 # 应用顺序（自上而下）
+#════════════════════════════════════════
+# 2026-10-14 重排：45 → 15。原 45 个单优化项 patch 合并为「8 个域 bundle（段一）+ 7 个独立项（段二）」。
+# 被合并的原文件在 modify/archive/patches-merged-20261014/（含合并映射表）。
 #────────────────────────────────────────
-# 1–36：基座 = 上游 068b3ebd（0.6.6 血缘），链终态 = 06scode 树。
-patches/h5/h5-access-token-patch1.patch
-patches/session/session-export-patch1.patch
-patches/h5/h5-settings-parity-patch1.patch
-patches/session/session-refresh-patch1.patch
-patches/tps/tps-indicator-patch1.patch
-patches/session/session-file-download-patch1.patch
-patches/session/session-disable-updates-patch1.patch
-patches/usage/usage-cache-billing-patch1.patch
-patches/session/session-thinking-switch-patch1.patch
-patches/test/test-server-test-baseline-patch1.patch
-patches/h5/h5-mobile-quick-actions-patch1.patch
-patches/vcc/vcc-compactor-patch1.patch
-patches/h5/h5-mobile-scheduled-patch1.patch
-patches/computer-use/computer-use-connector-linux-patch1.patch
-patches/h5/h5-mobile-market-layout-patch1.patch
-patches/computer-use/computer-use-linux-patch1.patch
-patches/usage/usage-context-usage-anchor-patch1.patch
-patches/session/session-gzip-transport-patch1.patch
-patches/thinking-subagent/thinking-subagent-thinking-tool-timing-patch1.patch
-patches/vcc/vcc-autocompact-window-tiers-patch1.patch
-patches/session/session-history-transport-patch1.patch
-patches/session/session-baseline-typecheck-patch1.patch
-patches/h5/h5-mobile-run-records-patch1.patch
-patches/vcc/vcc-compact-dead-import-patch1.patch
-patches/usage/usage-session-speed-usage-pairing-patch1.patch
-patches/h5/h5-local-index-multi-root-patch1.patch
-patches/thinking-subagent/thinking-subagent-split-no-double-count-patch1.patch
-patches/session/session-open-speed-patch1.patch
-patches/test/test-chapter-27-tests-patch1.patch
-patches/vcc/vcc-calibration-scripts-patch1.patch
-patches/tps/tps-engine-rewrite-patch1.patch
-patches/thinking-subagent/thinking-subagent-subagent-usage-cross-client-patch1.patch
-patches/tps/tps-density-estimation-patch1.patch
-patches/tps/tps-session-total-patch1.patch
-patches/session/session-upstream-session-id-patch1.patch
-patches/session/session-local-index-budget-patch1.patch
+# 【段一】8 个域 bundle，基座 = 上游 068b3ebd（0.6.6 血缘），自上而下连续 apply，
+# 终态 = 06scode 树。权威校验：干净 068b3ebd 上连续 apply 8 条 ⇒ git tree = 42905e42f，
+# 与原 36 条链终态树逐字节一致（diff 零字节）✅ 2026-10-14 实测。
+# 域内顺序 = 原 ORDER 链序；跨域文件（28 个）归属最先应用域，故 bundle 应用顺序不可调换。
+#────────────────────────────────────────
+patches/h5/h5-bundle-patch1.patch
+patches/session/session-bundle-patch1.patch
+patches/tps/tps-bundle-patch1.patch
+patches/usage/usage-bundle-patch1.patch
+patches/test/test-bundle-patch1.patch
+patches/vcc/vcc-bundle-patch1.patch
+patches/computer-use/computer-use-bundle-patch1.patch
+patches/thinking-subagent/thinking-subagent-bundle-patch1.patch
 
-# 37：⚠️ 基座不同 —— = cchaha-067scode `align-latest` 的 HEAD（0.6.7 血缘），**不可**接到上面 36 条之后。
-# 该血缘里本轮触及的文件多数在 068b3ebd 基座中不存在或布局不同（如 `components/workspace/surfaces/document/`），
-# 故无法链尾追加；本 patch 独立应用（干净 HEAD 上 apply ⇒ 本轮 66 文件逐字节一致）。
+#════════════════════════════════════════
+# 【段二】7 个独立 patch，基座 = 0.6.7 血缘的 `3a51ef84`（与段一平行，**不可**接在段一终态之后——
+# h5-file-open 的 66 文件中 56 个在 068b3ebd 基座不存在或布局不同）。
+# 自上而下连续 apply，终态 src/+desktop/ = HEAD（7fc522679）。
+# 权威校验：干净 3a51ef84 上连续 apply 7 条 ⇒ 与旧 9 条（原 37-45）重放终态树逐字节一致（diff 零字节）✅
+# 2026-10-14 实测。与 HEAD 的少量残余差异（SideChat 浮钮/vite proxy 等）来自 63100ded9 建仓提交中
+# 不属于 patch 体系的内容，新旧体系完全一致。
+#────────────────────────────────────────
+
+# 9：h5-file-open（2026-10-06 起四轮，66 文件）。H5 文件点击页内打开/无 shell 时不落服务端打开/
+#    媒体页内播放/打开方式按能力过滤 + 用户显式点击弹移动浮层。
 patches/h5/h5-file-open-patch1.patch
 
-# 38：⚠️ 基座同上（0.6.7 血缘）—— = `align-latest` 的 `3a51ef84`，**同样不可**接到 36 条之后。
-# 压缩阈值分档改双百分比 + vcc 压缩后保留预算；触及 4 源码 + 2 测试文件。
-# 另含 **compact 摘要污染修复**（2026-10-12，`22b997bb9`）：`adapter.ts` 跳过 `isCompactSummary`
-#   消息（否则摘要自身的 `- Modified:` 条目被 `extractGoals` 当成 Session Goal 并逐次继承）+
-#   `vccCompact.ts` 的 `extractPreviousSummary` 改锚定首个 section 标题（head 已本地化，按英文
-#   prefix 剥头会切掉 `[Session Goal]` 本身）。该修复同步刷入 patch 15 的 `adapter.ts` 段。
-# 独立应用（干净 `3a51ef84` 上 apply ⇒ 6 文件逐字节一致）✅ 已实测。
-patches/vcc/vcc-compaction-retention-budget-patch1.patch
-
-# 39：⚠️ 基座同上（0.6.7 血缘）—— = `align-latest` 的 `cb7065b1e`，**同样独立应用**。
-# 内置提示词中文化 + 中文思考（v1 打样 + v22 产前实验期，**合并版**）：zh 覆盖表 + localizedPrompt。
-# 覆盖主系统提示词全节（intro/cyberRisk/env/language/outputStyle/会话指引/MCP/记忆段/toneAndStyle/outputEfficiency）+
-# 子代理（verification/guide/generalPurpose/explore/plan/default/statusline）+ compact/autoDream/review/team/extractMemories/toolUseSummary/chrome。
-# 含 locale 管道（desktop-ui.json.locale → 侧车）：src/server/* + desktop/src/api/desktopUiPreferences.ts + settingsStore.ts。
-# 【中文思考】① 三层注入：system 头 lead（promptLanguageLead）+ system 尾首词模板（promptLanguageTail）+
-#   user 首条 reminder（promptLanguageUserNote，prependUserContext）；根因＝32 个英文工具定义 ≈25k token 锚定英文思考；
-# ② 思考语言开关 thinkingLanguage（auto/zh/en，与界面语言解耦）：侧车 getThinkingLanguage() + 新端点 + 设置页 pill；
-# ③ 凡「替换 system」的路径补 lead（子代理 enhanceSystemPromptWithEnvDetails / coordinator 模式 / 主线程 agent）——
-#   否则那些路径无中文标记、引擎预填不触发、思考退化英文（子代理带工具实测 1/4→4/4）；
-# ④ 「模块顶层 const = localizedPrompt」固化英文 bug 共 10 处修复（memdir 5 section + frontmatter 示例 + 3 个 CLI 身份前缀 +
-#   CLI_SYSPROMPT_PREFIXES 集合 + SHUTDOWN_TEAM_PROMPT/BASE_CHROME_PROMPT/CLAUDE_IN_CHROME_SKILL_HINT(_WITH_WEBBROWSER)/
-#   AGENT_CREATION_SYSTEM_PROMPT/AGENT_MEMORY_INSTRUCTIONS）。
-# ⚠️ 配套**引擎侧**改动（不在本链；引擎侧只改 chat 模板一处，**不随 patch 跟踪**，仅记入引擎优化文档）：
-#   `1cat-vllm-v130/patches/1cat-vllm优化文档.md` §opt26（chat template 中文思考预填种子，7 词随机）；
-#   两者缺一不可——本 patch 提供中文标记，引擎 patch 据此预填。引擎改后需 `POST :8000/v1/internal/reload`。
-# 实测定稿：多轮连续 40/40、长会话 24 轮与 20 轮、工具穿插、子代理带工具 —— 全 100% 中文思考；英文会话零回归。
-# 2026-10-14 增补：**系统提示词语言**三档开关 promptLanguage（auto/zh/en，与界面语言解耦）——
-#   promptLanguage.ts setting 解析 + preferences promptLanguage 字段 + /api/desktop-ui/preferences/prompt-language
-#   端点 + 设置页新 section + 四语言 i18n 键；thinkingLanguage 的 auto 档改跟随 getPromptLanguage()（联动闭合：
-#   promptLanguage=en → lead 不注入 → 引擎预填不触发）；顺带 localize ExitPlanMode 的 transcriptHint。
-#   ⚠️ 修复既有缺失：patch 原漏 promptLanguage.ts / i18n/index.ts / i18n.test.ts 三段（上轮 git diff 未收 untracked），
-#   本轮以 add -N 重生成补回。
-# 48 文件（39 src/ + 9 desktop/）。独立应用（干净 `cb7065b1e` 上 apply ⇒ 48 文件逐字节一致 ✅ 2026-10-14 重验）。
-patches/prompt/prompt-i18n-localization-patch1.patch
-
-# 40：⚠️ 基座 = `53199e3f7`（0.6.7 血缘）—— **独立应用**。
-# H5 模型配置补齐测试/获取按钮：删 ProviderSettings 3 处 !browserMode 门控（行内 Test / 获取模型 / 测试连接）+ 测试。
-# 2026-10-12 补齐：服务端路由放行（remoteProviderRouteAllowed 的 test/models POST、:id/test）+ 远端回传已存 apiKey。
-# 8 文件（3 desktop/ + 5 src/）。干净 `53199e3f7` 上 apply ⇒ 8 文件逐字节一致。
-patches/h5/h5-provider-test-buttons-patch1.patch
-
-# 41：⚠️ 基座 = `c71ce319d`（0.6.7 血缘）—— **独立应用**。
-# 上下文估算口径统一（2026-10-12）：面板读数与压缩触发判据同源，修「显示超线却不压缩」。
-# ① 文本：`roughTokenCountEstimation` 改字符分类模型（CJK 1/1.5、字母词 max(1,len/4.5)、
-#   数字 1.0/字符、标点 1/1.2、空白 0）；显式传 bytesPerToken 者保留旧行为。
-# ② 图片：由常量 2000 改为按尺寸计价——读 PNG IHDR 取 w×h，第三方引擎 /1024（7 尺寸实测 ≤2.2%）、
-#   first-party Anthropic /750（官方文档）；不可读/超限回退 2000，document 保持 2000。
-# ③ 触发：`shouldAutoCompact` 改 max(tokenCountWithEstimation, 本地全量 + 前缀)，任一超线即触发；
-#   新增 EXACT_CONFIRM_BAND=0.1 —— 估算落在阈值 ±10% 内时调引擎 `count_tokens` 取精确值
-#   （字符分类建模不了 BPE：同构成实测 1.5–4.5 字符/token 浮动）。
-# ④ SessionMemory 截断由「字符 ≈ token×4」改为按 token（`estimateTokensByCharClass`）。
-# 刻意未做：用引擎 usage 对本地估算做 EMA 校准 —— 会在引擎少报时拉低估算、掩盖该触发的情形。
-# 4 源码 + 6 测试（10 文件）。干净 `c71ce319d` 上 apply ⇒ 10 文件逐字节一致 ✅ 已实测。
+# 10：usage-context-estimation（**合并原 38+41**，2026-10-14，14 文件）。
+#    原 38（vcc-compaction-retention-budget）：压缩阈值分档改双百分比 + vcc 保留预算；含摘要污染修复
+#      （22b997bb9 的 adapter.ts 段，另刷入段一 vcc/prompt bundle）。
+#    原 41：上下文估算口径统一——字符分类模型 + 图片按尺寸（PNG IHDR）+ 触发取 max(引擎usage, 本地)
+#      + ±10% 邻域 count_tokens 精算 + SessionMemory 按 token 截断。
+#    两者同改 shouldAutoCompact 判据（autoCompact{,.test}.ts 重叠），语义一脉合一。
+#    干净 3a51ef84 上 apply 后这 14 文件 = 0e219d844（41 落地树）同文件内容 ✅ 逐字节一致。
 patches/usage/usage-context-estimation-patch1.patch
 
-# 42：⚠️ 基座 = `54ae13c69`（0.6.7 血缘）—— **独立应用**。
-# 压缩摘要身份锚点（2026-10-14）：摘要头部句中文化后，WS 桥/历史装载/desktop 折叠的英文前缀匹配失效——
-# 中文摘要在实时视图被静默丢弃、历史重放时以全文用户气泡暴露（设计契约：摘要注入引擎上下文但不在用户
-# 消息流出现）。修复：isCompactSummary 旗标贯通 SDK 帧（toSDKMessages，protobuf catchall）→ SDK schema
-# （coreSchemas）→ JSONL 顶层（sessionService entryToMessage）→ MessageEntry → WS 桥（cliMessageParsing
-# 旗标优先 + 中英前缀兜底、extractReplayUserText 过滤）→ desktop（chatStore 提取/去重 + MessageEntry 折叠）；
-# looksLikeCompactSummaryContent 锚定 section 标题（语言无关）。dev 端到端实测：/compact 中文摘要折叠卡
-# 正确、replay 不泄漏、promptLanguage=en 时思考回英文（联动链闭合）。
-# 9 文件（7 src/ + 2 desktop/）。干净 `54ae13c69` 上 apply ⇒ 9 文件逐字节一致 ✅ 2026-10-14 已实测。
+# 11：prompt-i18n-localization（48 文件）。内置提示词全量中文化 + 中文思考三层注入 +
+#    thinkingLanguage/promptLanguage 双开关 + 引擎预填标记联动。配套引擎侧改动见引擎优化文档 §opt26。
+patches/prompt/prompt-i18n-localization-patch1.patch
+
+# 12：h5-provider-test-buttons（8 文件）。H5 模型配置「获取模型/测试连接/行内测试」+ 服务端路由放行。
+patches/h5/h5-provider-test-buttons-patch1.patch
+
+# 13：compact-summary-anchor（9 文件）。摘要身份锚点改 isCompactSummary 旗标贯通 SDK 帧/JSONL/desktop，
+#    修中文摘要头部句中文化后穿透英文前缀过滤、以全文气泡泄漏。
 patches/compact/compact-summary-anchor-patch1.patch
 
-# 43：⚠️ 基座 = `d240afe84`（0.6.7 血缘）—— **独立应用**。
-# TPS 与估算口径统一到引擎真值/密度池（2026-10-14，合并原 43+44+45 三个 patch——主题一脉、文件高度
-# 重叠，合一降管理成本）：
-# ① 流式指示器吃真值：会话态 streamingResponseExactTokens（tps_tokens 逐批累加 + attempt 边界镜像），
-#   estimateStreamingTokens 真值优先、ids 通路不可用回落估算；
-# ② 估算统一吃密度池：estimateTokens 优先吃密度池 density（池在两种模式下都持续从 usage 学习）、回落
-#   二类校准（行为不变）；密度池拟合加指数新近权重（halfLife = 池一半），分词器/引擎更新时跟随漂移；
-# ③ 工具期静默读数修复 + ids 断供回落：value() 仅在 callOpen=false 时冻结，回合中途静默回落零桶平均
-#   （读数落 0，近零 hold 挡抖动）；ids 模式粘性锁死防饿死——帧持续到达而 counts 静默超 10s 自动降回
-#   字符采样并 reset 网格。依赖 ids 通路（onecat 侧 token_ids 透传修复，见 WORK-HANDOFF）。
-# 7 文件（tokenDensity.ts/test、tpsDensityStore.ts、tpsMeter.ts/test、chatStore.ts/test）。
-# 干净 `d240afe84` 上 apply ⇒ 7 文件逐字节一致 ✅ 2026-10-14 已实测。
+# 14：tps-estimation-unified（**合并原 43+45**，2026-10-14，15 文件）。
+#    原 43：TPS 与估算口径统一——流式指示器吃 tps_tokens 真值 + attempt 边界镜像；估算吃密度池 +
+#    拟合 EWMA 新近权重；工具期静默读数落 0 + ids 断供 10s 回落。
+#    原 45：ids 探测与校准学习——probe 改流结束时判定 + 曾支持永不拉黑 + miss 10 分钟衰减；
+#    整块工具输入补喂 meter + 学习样本 4×units 护栏 + 校准 v5→v6 清毒值。
+#    同改 tpsMeter/chatStore（3 文件重叠），45 是 43 的延续，合一。
+#    干净 d240afe84 上 apply 43+45 后这 15 文件 = HEAD（7fc522679）同文件内容 ✅ 逐字节一致。
 patches/tps/tps-estimation-unified-patch1.patch
 
-# 44：⚠️ 基座 = `dfbfe9dc5`（0.6.7 血缘）—— **独立应用**。
-# 超预算会话的工作区降级（2026-10-14）：transcript 超历史预算（413）时 /workspace/status 整体 413，
-# 前端静默吞掉 → workDir 永远 null → 文件树右键只剩「添加到对话」、绝对路径解析全瘫；
-# 轮次文件卡的 diff 视图同因 413（turn-checkpoints 也读全量 transcript）→ 点卡 tab 只见报错。
-# ① loadStatus 对 413 回落有界读取 git-info，落为 state:'error' + error:HISTORY_WORKSPACE_LIMIT 的
-#   status（workDir/branch/repoName 仍在）→ 菜单与预览链路恢复；
-# ② CurrentTurnChangeCard 点文件行前查该标志，超预算会话直接开文件预览（用户要的就是文件本身）。
-# 4 文件（workspaceContentStore.ts/test、CurrentTurnChangeCard.tsx/test）。
-# 干净 `dfbfe9dc5` 上 apply ⇒ 4 文件逐字节一致 ✅ 2026-10-14 已实测。
+# 15：workspace-history-budget-degrade（4 文件）。超预算会话（transcript 413）的工作区降级——
+#    loadStatus 回落 git-info 保住 workDir，轮次文件卡点行改开文件预览。
 patches/workspace/workspace-history-budget-degrade-patch1.patch
-
-# 45：⚠️ 基座 = `782661ba7`（0.6.7 血缘）—— **独立应用**。
-# TPS ids 探测与校准学习修复（2026-10-14）：两个耦合缺陷——
-# ① ids probe 从请求发起计时：长 prefill（实测 ~1M token 上下文 23s）超 10s 探测窗即记 miss，
-#   两次即拉黑 origin（进程内永久）→ 之后不再向完全支持 ids 的本地引擎要 ids → 客户端 10s 静默
-#   降回字符采样（"老是跳到次级估算路线"）。修复：miss 改在流结束时判定（openaiChatStreamToAnthropic
-#   与 anthropicTokenTap 各加 onStreamEnd 钩子）；origin 一旦真正收到过 ids 即标记支持、此后永不拉黑；
-#   miss 记录 10 分钟衰减，历史偶发不再永久生效。
-# ② 校准学习样本缺口：整块工具输入（attempt 重放/非流式答案）从未以文本到达 meter，而引擎 usage
-#   照计 → 最小二乘把 kCjk/kAscii 拉向学习上限（K_MAX=6）并持久化 → 之后每次字符测量读数虚高数倍
-#   （用户观测"估算 3-5 倍"）。修复：tool_use_complete 时该块若无流式 delta 则整块补喂 meter
-#   （server 给该帧打 serverTs 保住 generation 时钟；desktop/types 同步字段）；子代理整块工具输入
-#   同样补喂 run meter；学习加护栏——real 超出帧可解释范围（>4×units）的样本直接丢弃；校准存储
-#   v5→v6 丢弃中毒条目重学。
-# 11 文件（5 desktop/ + 6 src/）。干净 `782661ba7` 上 apply ⇒ 11 文件逐字节一致 ✅ 2026-10-14 已实测。
-patches/tps/tps-ids-probe-calibration-patch1.patch

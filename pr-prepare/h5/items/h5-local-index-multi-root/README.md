@@ -1,7 +1,7 @@
 # h5-local-index-multi-root — 本地索引多项目根 + 会话列表多根校验（原链位 46,48）
 
 > 功能主题：`h5` — H5 远程访问与移动端支持（`pr-prepare/h5/`）｜ PR 分支 `h5-remote-access`
-> **单一真相源 patch**：`modify/patches/h5/h5-local-index-multi-root-patch1.patch`（4 文件 +292−121）—— 本目录只存说明，**不复制 patch**
+> **单一真相源 patch**：`modify/archive/patches-merged-20261014/h5/h5-local-index-multi-root-patch1.patch`（4 文件 +292−121）—— 本目录只存说明，**不复制 patch**
 
 ## 含链位
 

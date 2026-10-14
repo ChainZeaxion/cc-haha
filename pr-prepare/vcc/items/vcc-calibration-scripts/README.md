@@ -1,7 +1,7 @@
 # vcc-calibration-scripts — vcc 校准脚本（原链位 59）
 
 > 功能主题：`vcc` — vcc 算法压缩（`pr-prepare/vcc/`）｜ PR 分支 `vcc-compaction`
-> **单一真相源 patch**：`modify/patches/vcc/vcc-calibration-scripts-patch1.patch`（3 文件 +1518−0）—— 本目录只存说明，**不复制 patch**
+> **单一真相源 patch**：`modify/archive/patches-merged-20261014/vcc/vcc-calibration-scripts-patch1.patch`（3 文件 +1518−0）—— 本目录只存说明，**不复制 patch**
 
 ## 含链位
 

@@ -1,7 +1,7 @@
 # usage-session-speed-usage-pairing — 面板生成速度与用量配对（原链位 37）
 
 > 功能主题：`usage` — 上下文缓存计费与用量聚合显示（`pr-prepare/usage/`）｜ PR 分支 `usage-billing`
-> **单一真相源 patch**：`modify/patches/usage/usage-session-speed-usage-pairing-patch1.patch`（11 文件 +375−41）—— 本目录只存说明，**不复制 patch**
+> **单一真相源 patch**：`modify/archive/patches-merged-20261014/usage/usage-session-speed-usage-pairing-patch1.patch`（11 文件 +375−41）—— 本目录只存说明，**不复制 patch**
 
 ## 含链位
 

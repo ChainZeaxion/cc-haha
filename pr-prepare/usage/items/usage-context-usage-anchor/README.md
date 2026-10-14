@@ -1,7 +1,7 @@
 # usage-context-usage-anchor — 上下文用量锚点（原链位 19）
 
 > 功能主题：`usage` — 上下文缓存计费与用量聚合显示（`pr-prepare/usage/`）｜ PR 分支 `usage-billing`
-> **单一真相源 patch**：`modify/patches/usage/usage-context-usage-anchor-patch1.patch`（4 文件 +74−12）—— 本目录只存说明，**不复制 patch**
+> **单一真相源 patch**：`modify/archive/patches-merged-20261014/usage/usage-context-usage-anchor-patch1.patch`（4 文件 +74−12）—— 本目录只存说明，**不复制 patch**
 
 ## 含链位
 

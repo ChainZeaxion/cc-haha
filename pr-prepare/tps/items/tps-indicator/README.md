@@ -1,7 +1,7 @@
 # tps-indicator — TPS 指示器基础 + 子代理汇聚 + 展示格式 + 多轮脉冲修复（原链位 7,30,35,38,42,44,50,54）
 
 > 功能主题：`tps` — TPS 实时解码速度指示器（`pr-prepare/tps/`）｜ PR 分支 `tps-indicator`
-> **单一真相源 patch**：`modify/patches/tps/tps-indicator-patch1.patch`（25 文件 +2743−14）—— 本目录只存说明，**不复制 patch**
+> **单一真相源 patch**：`modify/archive/patches-merged-20261014/tps/tps-indicator-patch1.patch`（25 文件 +2743−14）—— 本目录只存说明，**不复制 patch**
 
 ## 含链位
 

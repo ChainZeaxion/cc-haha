@@ -19,7 +19,7 @@ pr-prepare/
   archive/pr-by-chain-20261003/   旧结构（pr-N 目录 + 64 项链位命名）
 ```
 
-**单一真相源**：patch 文件只在 `modify/patches/<主题>/<主题>-<优化项>-patch<N>.patch`（应用顺序见 `modify/patches/ORDER.md`）；`pr-prepare/` 只放**说明 + 组补丁**，不复制单项 patch。
+**单一真相源**：patch 文件只在 `modify/patches/<主题>/`。**2026-10-14 起该目录合并为 15 个**（段一 8 个域 bundle，与本表 8 主题一一对应；段二 7 个独立项属 0.6.7 血缘、不在 PR 层），应用顺序见 `modify/patches/ORDER.md`；原 34 个单项 patch 归档于 `modify/archive/patches-merged-20261014/`（`patch-meta.json` 的 `patch_archived` 字段指向）。`pr-prepare/` 只放**说明 + 组补丁**，不复制 patch。
 
 ## 8 主题 / 34 优化项 / 8 PR
 
@@ -37,8 +37,8 @@ pr-prepare/
 ## 提 PR 用法
 
 - **按主题整组提（推荐主粒度）**：干净基座 `068b3ebd` 上 `git apply pr-prepare/<主题>/00-group.patch`（8 组全部干净，并集 == 链终态 `56923871`）。
-- **全链按序还原产品**：34 个 `modify/patches/<主题>/*.patch` 按 `modify/patches/ORDER.md` apply，**终态逐字节 == 链终态**。
-- **按单项看/提**：`items/<主题>-<优化项>/README.md`（说明）+ `modify/patches/<主题>/<主题>-<优化项>-patch1.patch`（patch）。
+- **全链按序还原产品**：段一 8 个 bundle 按 `modify/patches/ORDER.md` apply（**终态逐字节 == 链终态**，2026-10-14 实测）；段二 7 个独立项在 0.6.7 血缘 `3a51ef84` 起另段 apply（同见 ORDER.md）。
+- **按单项看/提**：`items/<主题>-<优化项>/README.md`（说明）+ `modify/archive/patches-merged-20261014/<主题>/`（已归档单项 patch）。
 
 ## 分组依据
 

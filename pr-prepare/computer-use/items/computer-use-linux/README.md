@@ -1,7 +1,7 @@
 # computer-use-linux — Computer Use 解锁 Linux(X11)（原链位 18,32,33）
 
 > 功能主题：`computer-use` — Computer Use 解锁 Linux(X11) + 连接器平台（`pr-prepare/computer-use/`）｜ PR 分支 `computer-use-linux`
-> **单一真相源 patch**：`modify/patches/computer-use/computer-use-linux-patch1.patch`（31 文件 +1473−81）—— 本目录只存说明，**不复制 patch**
+> **单一真相源 patch**：`modify/archive/patches-merged-20261014/computer-use/computer-use-linux-patch1.patch`（31 文件 +1473−81）—— 本目录只存说明，**不复制 patch**
 
 ## 含链位
 

@@ -1,7 +1,7 @@
 # h5-mobile-scheduled — H5 移动端定时任务（原链位 15）
 
 > 功能主题：`h5` — H5 远程访问与移动端支持（`pr-prepare/h5/`）｜ PR 分支 `h5-remote-access`
-> **单一真相源 patch**：`modify/patches/h5/h5-mobile-scheduled-patch1.patch`（2 文件 +4−3）—— 本目录只存说明，**不复制 patch**
+> **单一真相源 patch**：`modify/archive/patches-merged-20261014/h5/h5-mobile-scheduled-patch1.patch`（2 文件 +4−3）—— 本目录只存说明，**不复制 patch**
 
 ## 含链位
 

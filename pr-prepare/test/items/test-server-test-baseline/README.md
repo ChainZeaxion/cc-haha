@@ -1,7 +1,7 @@
 # test-server-test-baseline — 服务端测试基线清零 + 环境隔离（原链位 12,47）
 
 > 功能主题：`test` — 测试环境隔离与基线修复（`pr-prepare/test/`）｜ PR 分支 `test-baseline`
-> **单一真相源 patch**：`modify/patches/test/test-server-test-baseline-patch1.patch`（10 文件 +115−16）—— 本目录只存说明，**不复制 patch**
+> **单一真相源 patch**：`modify/archive/patches-merged-20261014/test/test-server-test-baseline-patch1.patch`（10 文件 +115−16）—— 本目录只存说明，**不复制 patch**
 
 ## 含链位
 
