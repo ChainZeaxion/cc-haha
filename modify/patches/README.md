@@ -2,7 +2,7 @@
 
 结构：`patches/<主题>/<主题>-<优化项>-patch<N>.patch`（一个优化项一个 patch；拆不开才 patch2/3）。
 
-**应用顺序 = `ORDER.md` 自上而下**（43 个 patch；项按最小链位排序，见下）。
+**应用顺序 = `ORDER.md` 自上而下**（44 个 patch；项按最小链位排序，见下）。
 
 ```bash
 while read -r p; do git apply -p1 "$p"; done < modify/patches/ORDER.md
@@ -105,6 +105,12 @@ while read -r p; do git apply -p1 "$p"; done < modify/patches/ORDER.md
 | 优化项 patch | 原链位 |
 |---|---|
 | `compact-summary-anchor-patch1.patch` | 2026-10-14 新增（⚠️ 基座 = 067 `54ae13c69`，独立应用；摘要身份锚点改 `isCompactSummary` 旗标贯通 SDK 帧/JSONL/desktop——修中文摘要头部句中文化后穿透英文前缀过滤、以全文气泡泄漏进消息流；旗标优先 + 中英前缀兜底 + section 标题锚，9 文件） |
+
+## workspace/ — 工作区面板与文件操作
+
+| 优化项 patch | 原链位 |
+|---|---|
+| `workspace-history-budget-degrade-patch1.patch` | 2026-10-14 新增（⚠️ 基座 = 067 `dfbfe9dc5`，独立应用；超预算会话（transcript 413）的工作区降级——loadStatus 回落 git-info 保住 workDir（文件树菜单/预览链路恢复），轮次文件卡点行改开文件预览而非必炸的 turn-diff，4 文件） |
 
 > 主题 = 上游 PR 的 8 个功能域（h5 / session / tps / usage / test / vcc / computer-use / thinking-subagent）。
 > 优化项与链位的对应依据 `pr-prepare/00-overview.md` 的「链位→PR 组」表。

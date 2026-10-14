@@ -122,3 +122,14 @@ patches/compact/compact-summary-anchor-patch1.patch
 # 7 文件（tokenDensity.ts/test、tpsDensityStore.ts、tpsMeter.ts/test、chatStore.ts/test）。
 # 干净 `d240afe84` 上 apply ⇒ 7 文件逐字节一致 ✅ 2026-10-14 已实测。
 patches/tps/tps-estimation-unified-patch1.patch
+
+# 44：⚠️ 基座 = `dfbfe9dc5`（0.6.7 血缘）—— **独立应用**。
+# 超预算会话的工作区降级（2026-10-14）：transcript 超历史预算（413）时 /workspace/status 整体 413，
+# 前端静默吞掉 → workDir 永远 null → 文件树右键只剩「添加到对话」、绝对路径解析全瘫；
+# 轮次文件卡的 diff 视图同因 413（turn-checkpoints 也读全量 transcript）→ 点卡 tab 只见报错。
+# ① loadStatus 对 413 回落有界读取 git-info，落为 state:'error' + error:HISTORY_WORKSPACE_LIMIT 的
+#   status（workDir/branch/repoName 仍在）→ 菜单与预览链路恢复；
+# ② CurrentTurnChangeCard 点文件行前查该标志，超预算会话直接开文件预览（用户要的就是文件本身）。
+# 4 文件（workspaceContentStore.ts/test、CurrentTurnChangeCard.tsx/test）。
+# 干净 `dfbfe9dc5` 上 apply ⇒ 4 文件逐字节一致 ✅ 2026-10-14 已实测。
+patches/workspace/workspace-history-budget-degrade-patch1.patch
