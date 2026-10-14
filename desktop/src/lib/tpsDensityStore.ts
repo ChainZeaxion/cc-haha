@@ -23,7 +23,12 @@ import {
 } from '../../../src/shared/tokenDensity'
 
 export const TPS_DENSITY_STORAGE_KEY = 'cc-haha.tpsDensity'
-export const TPS_DENSITY_VERSION = 1
+// v2: v1 samples may have been learned from turns whose streamed characters did
+// not cover everything the engine billed (whole-block tool inputs, mid-turn ids
+// dropouts) — the same gap that poisoned the meter's coefficients before v6 of
+// `tpsCalibration`. The pool carries no per-sample provenance to filter by, so
+// the whole store is dropped and re-learned under the guarded feed.
+export const TPS_DENSITY_VERSION = 2
 /** Rolling window per model: enough to fit four densities, small enough to be free. */
 export const TPS_DENSITY_POOL_MAX = 20
 /** Models kept before the least recently updated are dropped. */

@@ -182,7 +182,7 @@ const UNIT_MEAN_EWMA_ALPHA = 0.2
  * dense tool-input JSON measures ~2 units-per-token under the neutral split,
  * so a healthy call lands far below it.
  */
-const MAX_EXPLAINABLE_TOKENS_PER_UNIT = 4
+export const MAX_EXPLAINABLE_TOKENS_PER_UNIT = 4
 /**
  * Forgetting factor on the least-squares accumulators: the engine's density is
  * stable, but a session that switched models (and kept this meter) should not

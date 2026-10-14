@@ -23,13 +23,14 @@ import { randomSpinnerVerb } from '../config/spinnerVerbs'
 import { notifyDesktop } from '../lib/desktopNotifications'
 import { createAsyncRefreshCoalescer } from '../lib/asyncRefreshCoalescer'
 import { deriveSessionTitle, isPlaceholderSessionTitle } from '../lib/sessionTitle'
-import { TpsMeter, isTpsEnabled, setEstimationCalibration, setEstimationDensity } from '../lib/tpsMeter'
+import { MAX_EXPLAINABLE_TOKENS_PER_UNIT, TpsMeter, isTpsEnabled, setEstimationCalibration, setEstimationDensity } from '../lib/tpsMeter'
 import { loadTpsCalibration, saveTpsCalibration } from '../lib/tpsCalibration'
 import { currentTpsDensity, recordTpsSample } from '../lib/tpsDensityStore'
 import {
   addCounts,
   classifyChars,
   emptyCounts,
+  PRIOR_DENSITY,
   tokensFromCounts,
   type CharCounts,
 } from '../../../src/shared/tokenDensity'
@@ -1180,6 +1181,13 @@ const toolInputStreamedCharsBySession = new Map<string, number>()
  * frames; a positive count means the meter already saw that text and the block
  * must not be fed again. Serialization order is fixed (stable stringify) so the
  * same block always measures the same.
+ *
+ * The same text is folded into `streamingResponseCounts`: the density pool
+ * learns from that counter paired against the engine's `usage` at
+ * message_complete, and the usage bills these tokens whether or not they
+ * streamed — leaving them out of the counts teaches the fit a systematically
+ * inflated tokens-per-character ratio (the same gap that poisoned the meter
+ * coefficients before the meter-side half of this fix existed).
  */
 function feedWholeBlockToolInput(
   sessionId: string,
@@ -1197,6 +1205,15 @@ function feedWholeBlockToolInput(
   }
   if (!text) return
   pushTpsFrame(sessionId, text, { generatedAt })
+  useChatStore.setState((current) => {
+    const session = current.sessions[sessionId]
+    if (!session) return current
+    return {
+      sessions: updateSessionIn(current.sessions, sessionId, (s) => ({
+        streamingResponseCounts: mergeCounts(s.streamingResponseCounts, text),
+      })),
+    }
+  })
 }
 
 /** Drop a session's whole-block tracker (reconnect / session teardown). */
@@ -5710,9 +5727,15 @@ export const useChatStore = create<ChatStore>((setState, get) => {
                 session.streamAttemptStartResponseChars ?? session.streamingResponseChars,
               streamingResponseCounts:
                 session.streamAttemptStartResponseCounts ?? session.streamingResponseCounts,
+              // The retry replays every tps_tokens the failed attempt already
+              // delivered, so the exact counter must rewind with the rest —
+              // keeping it would double-count the replayed half of the turn.
+              streamingResponseExactTokens:
+                session.streamAttemptStartExactTokens ?? session.streamingResponseExactTokens,
               streamAttemptStartIndex: undefined,
               streamAttemptStartResponseChars: undefined,
               streamAttemptStartResponseCounts: undefined,
+              streamAttemptStartExactTokens: undefined,
               streamingFallback: null,
               apiRetry: null,
               chatState: 'thinking',
@@ -6218,11 +6241,23 @@ export const useChatStore = create<ChatStore>((setState, get) => {
         // what teaches the estimator "what a character costs" — kept outside the
         // TPS gate because the live usage estimate needs it whether or not the
         // speed indicator is on.
+        //
+        // The plausibility guard is the density-pool twin of the meter's
+        // learnSample guard: a turn whose real tokens exceed what the streamed
+        // characters can plausibly explain (ids went dark mid-turn, an uncounted
+        // whole-block delivery) would teach the fit an inflated tokens-per-
+        // character ratio that then over-reads every later estimate. Drop the
+        // sample instead of learning from a known-bad pairing.
         {
           const counts = session.streamingResponseCounts
           const outputTokens = msg.usage?.output_tokens
           const anyCounted = counts && counts.cjk + counts.latin + counts.digit + counts.sym > 0
-          if (anyCounted && typeof outputTokens === 'number' && outputTokens > 0) {
+          const plausiblyExplained =
+            anyCounted &&
+            typeof outputTokens === 'number' &&
+            outputTokens <=
+              MAX_EXPLAINABLE_TOKENS_PER_UNIT * (tokensFromCounts(counts, PRIOR_DENSITY) + 1)
+          if (anyCounted && typeof outputTokens === 'number' && outputTokens > 0 && plausiblyExplained) {
             const model = tpsCalibrationModelBySession.get(sessionId)
             recordTpsSample(model, counts, outputTokens)
             // The pool just moved, so the badge/digest estimates can sharpen —
