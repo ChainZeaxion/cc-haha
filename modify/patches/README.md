@@ -2,7 +2,7 @@
 
 结构：`patches/<主题>/<主题>-<优化项>-patch<N>.patch`（一个优化项一个 patch；拆不开才 patch2/3）。
 
-**应用顺序 = `ORDER.md` 自上而下**（45 个 patch；项按最小链位排序，见下）。
+**应用顺序 = `ORDER.md` 自上而下**（43 个 patch；项按最小链位排序，见下）。
 
 ```bash
 while read -r p; do git apply -p1 "$p"; done < modify/patches/ORDER.md
@@ -52,9 +52,7 @@ while read -r p; do git apply -p1 "$p"; done < modify/patches/ORDER.md
 | `tps-engine-rewrite-patch1.patch` | 62,62,64,65,67 |
 | `tps-density-estimation-patch1.patch` | 66,66 |
 | `tps-session-total-patch1.patch` | 2026-10-03 新增（会话读数=会话总量，去子代理重复计） |
-| `tps-streaming-exact-patch1.patch` | 2026-10-14 新增（⚠️ 基座 = 067 `d240afe84`，独立应用；流式指示器吃 `tps_tokens` 引擎真值——会话态 `streamingResponseExactTokens` + attempt 边界镜像，`estimateStreamingTokens` 真值优先估算兜底，2 文件） |
-| `tps-density-unification-patch1.patch` | 2026-10-14 新增（⚠️ 基座 = 067 `7d70a15c3`，独立应用；估算统一吃密度池——`estimateTokens` 密度池优先、二类校准回落，密度池拟合加指数新近权重 halfLife=池半，6 文件） |
-| `tps-midturn-silence-patch1.patch` | 2026-10-14 新增（⚠️ 基座 = 067 `c18d4228`，独立应用；工具期静默读数落 0 不再冻结 + ids 断供 10s 回落字符采样，4 文件） |
+| `tps-estimation-unified-patch1.patch` | 2026-10-14 新增（⚠️ 基座 = 067 `d240afe84`，独立应用；**合并原 43+44+45**——主题一脉、文件重叠，合一降管理成本：① 流式指示器吃 `tps_tokens` 真值 + attempt 边界镜像；② 估算统一吃密度池 + 拟合 EWMA 新近权重；③ 工具期静默读数落 0 不再冻结 + ids 断供 10s 回落字符采样；7 文件） |
 
 ## usage/ — 上下文缓存计费与用量聚合显示（pr-5）
 

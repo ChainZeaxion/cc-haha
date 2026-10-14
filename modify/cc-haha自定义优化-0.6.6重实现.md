@@ -3642,34 +3642,32 @@ src/prompts/i18n/
 **窗口口径**：provider `autoCompactWindow` 231,248 → **233,000**（对齐引擎 `max_model_len`，运行时配置不进 patch）。触发线 181,050（用户确认「180K 左右压缩也可以」）。注：tier 百分比作用于 effectiveWindow 而非 declaredWindow（上游设计，见 `autoCompact.ts` 注释），故比「按 declared 算」的 198,050 早约 17K。
 
 
-## 四十 流式指示器吃引擎真值：tps_tokens 精确计数贯通（✅ 2026-10-14，`patches/tps/tps-streaming-exact-patch1.patch`，⚠️ 基座 `d240afe84` 独立应用）
+**patch 固化（2026-10-14）**：`patches/usage/usage-context-estimation-patch1.patch`（**链位 41**，⚠️ 基座 = `c71ce319d`，0.6.7 血缘，**独立应用**）。4 源码 + 6 测试（10 文件）。干净 `c71ce319d` 上 apply ⇒ 10 文件逐字节一致 ✅ 已实测。
 
-**问题**：`tps_tokens` 已喂 TPS 米表与思考徽章，但 StreamingIndicator 的「本轮 N tokens」仍走四类字符估算——同一批真值就在手边，估算却还在猜。
+## 四十 H5 模型配置：测试/获取/测试连接按钮贯通（✅ 2026-10-11 初版 + 10-12 补齐，`patches/h5/h5-provider-test-buttons-patch1.patch`，⚠️ 基座 `53199e3f7` 独立应用）
 
-**改动**：新增会话态 `streamingResponseExactTokens`（`tps_tokens` 逐批累加），`estimateStreamingTokens` 真值优先、ids 通路不可用时回落估算（行为不变）。attempt 边界镜像：失败且无副作用的流尝试回滚时，精确计数与字符计数同规回滚（`streamAttemptStartExactTokens`），避免重试后数字虚高。依赖 ids 通路（onecat 侧 token_ids 剥离问题见 WORK-HANDOFF，交 studio 工作区修复）。
+**内容**：删 ProviderSettings 3 处 `!browserMode` 门控，H5 端恢复行内 **Test / 获取模型 / 测试连接** 三个按钮 + 测试；2026-10-12 补齐服务端路由放行（`remoteProviderRouteAllowed` 的 `test/models` POST、`:id/test`）与远端回传已存 apiKey，H5 页面与桌面端行为对齐。
 
-**验证**：desktop 全量通过；干净 `d240afe84` 上 apply ⇒ 2 文件逐字节一致。
+**patch**：8 文件（3 desktop/ + 5 src/）。干净 `53199e3f7` 上 apply ⇒ 8 文件逐字节一致。
 
-## 四十一 估算统一吃密度池 + 密度池 EWMA 新近权重（✅ 2026-10-14，`patches/tps/tps-density-unification-patch1.patch`，⚠️ 基座 `7d70a15c3` 独立应用）
+## 四十一 压缩摘要身份锚点：旗标贯通取代英文前缀匹配（✅ 2026-10-14，`patches/compact/compact-summary-anchor-patch1.patch`，⚠️ 基座 `54ae13c69` 独立应用）
 
-**问题**：两条估算路径各自学习同一件事——米表的二类校准（kCjk/kAscii）与四类密度池。更糟的是米表跑引擎真值（`tps_tokens`）后**不再拟合自身系数**（endCall 跳过学习），徽章/摘要估算从此冻结在旧值上。
+**问题**：摘要头部句中文化后，WS 桥/历史装载/desktop 折叠的英文前缀匹配失效——中文摘要在实时视图被静默丢弃、历史重放时以全文用户气泡暴露（设计契约：摘要注入引擎上下文但不在用户消息流出现）。
 
-**改动**：
-- `estimateTokens`（desktop tpsMeter 版）优先吃密度池 density（池在两种模式下都持续从 usage 学习），回落二类校准（无池时行为不变）。`setEstimationDensity` 与 `setEstimationCalibration` 并列，chatStore 三处接线：meter 初始化、模型切换、每次 usage 采样后即时刷新——估算与 live 流式估算器从此读同一个池。
-- `learnDensity` 加 `options.halfLife` 指数新近权重：最新样本权满，每回退 halfLife 个样本减半；`currentTpsDensity` 传 halfLife = 池一半（10/20，滚动窗尾更新）。分词器/引擎更新时拟合跟随漂移而非跨缝平均；旧样本仍锚定稀疏类。`halfLife: 0` = 旧等权拟合，其余调用方不受影响。
+**修复**：`isCompactSummary` 旗标贯通 SDK 帧（`toSDKMessages`，protobuf catchall）→ SDK schema（`coreSchemas`）→ JSONL 顶层（`sessionService` entryToMessage）→ MessageEntry → WS 桥（`cliMessageParsing` 旗标优先 + 中英前缀兜底、`extractReplayUserText` 过滤）→ desktop（chatStore 提取/去重 + MessageEntry 折叠）；`looksLikeCompactSummaryContent` 锚定 section 标题（语言无关）。dev 端到端实测：/compact 中文摘要折叠卡正确、replay 不泄漏、`promptLanguage=en` 时思考回英文（联动链闭合）。
 
-**验证**：tokenDensity 11/11（新增漂移跟随 + 等权兼容两条）、desktop 受影响面 469、server 全量 6686/0；干净 `7d70a15c3` 上 apply ⇒ 6 文件逐字节一致。
+**patch**：9 文件（7 src/ + 2 desktop/）+1 新测试。干净 `54ae13c69` 上 apply ⇒ 9 文件逐字节一致 ✅ 2026-10-14 已实测。
 
-## 四十二 TPS 工具期静默假死修复 + ids 模式断供回落（✅ 2026-10-14，`patches/tps/tps-midturn-silence-patch1.patch`，⚠️ 基座 `c18d4228` 独立应用）
+## 四十二 TPS 与估算口径统一到引擎真值/密度池（✅ 2026-10-14，`patches/tps/tps-estimation-unified-patch1.patch`，⚠️ 基座 `d240afe84` 独立应用）
 
-**用户报告**：助手执行 Write/Edit 等工具期间，TPS 读数定格不动。
+> 本章 patch 由原 43+44+45 三个独立 patch **合并**而来（主题一脉、文件高度重叠，合一降管理成本；干净 `d240afe84` 上 apply ⇒ 7 文件逐字节一致）。
 
-**根因（两层）**：
-1. **米表冻结**：工具执行期引擎无 token 产出 → `tps_tokens` 停发 → 静默超 `LIVE_GAP_MS=1.5s` 后 `value()` 判「流已停」返回 `held()`（冻结在最后解码速率）。静默隐式判停区分不了「回合已结束」（保持末速合理）与「引擎在执行工具」（此刻真的没有解码，空桶即真实读数）。
-2. **ids 模式饿死**：`tps_tokens` 一旦说过话即粘性锁死 ids 模式，此后流帧只 `touch()` 丢弃。ids 断供（探针两轮落空拉黑 origin / 中继重启 / onecat 剥 ids）后，流帧持续到达却永远被丢弃——米表饿死在冻结读数上。
+**① 流式指示器吃真值**：`tps_tokens` 已喂 TPS 米表与思考徽章，但 StreamingIndicator 的「本轮 N tokens」仍走四类字符估算。新增会话态 `streamingResponseExactTokens`（`tps_tokens` 逐批累加），`estimateStreamingTokens` 真值优先、ids 通路不可用时回落估算（行为不变）。attempt 边界镜像：失败且无副作用的流尝试回滚时，精确计数与字符计数同规回滚，避免重试后数字虚高。依赖 ids 通路（onecat 侧 token_ids 剥离问题见 WORK-HANDOFF，交 studio 工作区修复）。
 
-**改动**：
-- `value()` 仅在 `callOpen=false`（call 已对账 / `endStream`）时冻结；回合中途静默回落零桶平均——读数诚实落 0，指示器近零 hold（1.5s）挡边界抖动，下一帧 `clearGrid` 重新计量（暂停后的新 burst 不被零污染）。断连时 callOpen 悬挂 → 持续 0，比假末速诚实，5min idle hide 兜底隐藏。run meter 用 external push 从不开 call 窗，行为不变（结束后保持末速，原设计）。
-- `lastTpsTokensAtBySession` 记录真值通路最近发言时刻；流帧持续到达而 counts 静默超 10s（中继批间隔仅 200ms）→ 自动降回字符采样并 `meter.reset()`（单位切换，网格重启）。工具执行期流帧也不来 → touch 不被调 → 不误降级；只有「帧来了但 ids 断供」才降级。`resetTpsWindow` 同步清新表。
+**② 估算统一吃密度池**：两条估算路径各自学习同一件事——米表二类校准（kCjk/kAscii）与四类密度池；且米表跑引擎真值后不再拟合自身系数（endCall 跳过学习），徽章/摘要估算冻结在旧值。修复：`estimateTokens`（desktop）优先吃密度池 density（池在两种模式下都持续从 usage 学习，与 live 流式估算器同源），回落二类校准（无池时行为不变）；`setEstimationDensity` 在 meter 初始化、模型切换、每次 usage 采样后即时刷新。密度池拟合加指数新近权重（`learnDensity` `options.halfLife`，`currentTpsDensity` 传池一半）：新样本权满、每回退 halfLife 个样本减半，分词器/引擎更新时拟合跟随漂移而非跨缝平均，旧样本仍锚定稀疏类；`halfLife: 0` = 旧等权拟合。
 
-**验证**：meter 35/35（新增中途静默落 0+恢复计量、endCall 后保持末速两条），chatStore 404/404（新增 ids 断供回落采样），desktop 全量 8292/0；干净 `c18d4228` 上 apply ⇒ 4 文件逐字节一致。
+**③ 工具期静默读数修复 + ids 断供回落**（用户报告：Write/Edit 执行期间 TPS 定格不动）：
+- 米表冻结：工具期无 token 产出 → 静默超 `LIVE_GAP_MS=1.5s` 后 `value()` 判「流已停」返回 `held()`。静默隐式判停区分不了「回合已结束」（保持末速合理）与「引擎在执行工具」（空桶即真实读数）。修复：`value()` 仅在 `callOpen=false`（call 已对账 / `endStream`）时冻结；回合中途静默回落零桶平均——读数诚实落 0，指示器近零 hold（1.5s）挡边界抖动，下一帧 `clearGrid` 重新计量（恢复后不被暂停期零污染）。run meter 用 external push 从不开 call 窗，行为不变。
+- ids 模式饿死：`tps_tokens` 一旦说过话即粘性锁死 ids 模式，此后流帧只 `touch()` 丢弃；ids 断供（探针两轮落空拉黑 origin / 中继重启 / onecat 剥 ids）后米表饿死。修复：`lastTpsTokensAtBySession` 记录真值通路最近发言时刻，流帧持续到达而 counts 静默超 10s（中继批间隔仅 200ms）→ 自动降回字符采样并 `meter.reset()`；工具执行期流帧也不来 → 不误降级。`resetTpsWindow` 同步清表。
+
+**验证**：tokenDensity 11/11、meter 35/35、chatStore 404/404（新增中途静默落 0+恢复计量、endCall 保持末速、ids 断供回落三条）、desktop 全量 8292/0、server 全量 6686/0。

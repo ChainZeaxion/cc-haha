@@ -110,24 +110,15 @@ patches/usage/usage-context-estimation-patch1.patch
 patches/compact/compact-summary-anchor-patch1.patch
 
 # 43：⚠️ 基座 = `d240afe84`（0.6.7 血缘）—— **独立应用**。
-# 流式指示器吃引擎真值（2026-10-14）：`tps_tokens` 已喂 TPS 米表与思考徽章，但 StreamingIndicator 的
-# 「本轮 N tokens」仍走四类字符估算。新增会话态 `streamingResponseExactTokens`（tps_tokens 逐批累加，
-# attempt 边界镜像——失败且无副作用的流尝试回滚与字符计数同规），`estimateStreamingTokens` 真值优先、
-# ids 通路不可用时回落估算（行为不变）。依赖 ids 通路（onecat 侧 token_ids 透传修复，见 WORK-HANDOFF）。
-# 2 文件（chatStore.ts + 测试）。干净 `d240afe84` 上 apply ⇒ 2 文件逐字节一致 ✅ 2026-10-14 已实测。
-patches/tps/tps-streaming-exact-patch1.patch
-
-# 44：⚠️ 基座 = `7d70a15c3`（0.6.7 血缘）—— **独立应用**。
-# 估算统一吃密度池 + 密度池 EWMA（2026-10-14）：徽章/摘要的字符估算与米表二类校准、四类密度池各自为政；
-# 米表跑引擎真值（tps_tokens）后不再拟合自身系数，估算冻结在旧值。修复：
-# ① estimateTokens 优先吃密度池 density（池在两种模式下都持续从 usage 学习），回落二类校准（行为不变）；
-# ② 密度池拟合加指数新近权重（halfLife = 池一半）——分词器/引擎更新时拟合跟随漂移而非跨缝平均，
-#   halfLife 0 = 旧等权拟合。6 文件。干净 `7d70a15c3` 上 apply ⇒ 6 文件逐字节一致 ✅ 2026-10-14 已实测。
-patches/tps/tps-density-unification-patch1.patch
-
-# 45：⚠️ 基座 = `c18d4228`（0.6.7 血缘）—— **独立应用**。
-# TPS 工具期静默读数修复 + ids 模式回落（2026-10-14）：工具调用超 1.5s 后指示器冻结在工具前速率——静默
-# 隐式判停区分不了「回合已结束」与「引擎在执行工具」。修复：value() 仅在 callOpen=false 时冻结，回合中途
-# 静默回落零桶平均（读数落 0）；ids 模式防饿死——tps_tokens 断供而流帧持续到达超 10s 时回落字符采样。
-# 4 文件。干净 `c18d4228` 上 apply ⇒ 4 文件逐字节一致 ✅ 2026-10-14 已实测。
-patches/tps/tps-midturn-silence-patch1.patch
+# TPS 与估算口径统一到引擎真值/密度池（2026-10-14，合并原 43+44+45 三个 patch——主题一脉、文件高度
+# 重叠，合一降管理成本）：
+# ① 流式指示器吃真值：会话态 streamingResponseExactTokens（tps_tokens 逐批累加 + attempt 边界镜像），
+#   estimateStreamingTokens 真值优先、ids 通路不可用回落估算；
+# ② 估算统一吃密度池：estimateTokens 优先吃密度池 density（池在两种模式下都持续从 usage 学习）、回落
+#   二类校准（行为不变）；密度池拟合加指数新近权重（halfLife = 池一半），分词器/引擎更新时跟随漂移；
+# ③ 工具期静默读数修复 + ids 断供回落：value() 仅在 callOpen=false 时冻结，回合中途静默回落零桶平均
+#   （读数落 0，近零 hold 挡抖动）；ids 模式粘性锁死防饿死——帧持续到达而 counts 静默超 10s 自动降回
+#   字符采样并 reset 网格。依赖 ids 通路（onecat 侧 token_ids 透传修复，见 WORK-HANDOFF）。
+# 7 文件（tokenDensity.ts/test、tpsDensityStore.ts、tpsMeter.ts/test、chatStore.ts/test）。
+# 干净 `d240afe84` 上 apply ⇒ 7 文件逐字节一致 ✅ 2026-10-14 已实测。
+patches/tps/tps-estimation-unified-patch1.patch

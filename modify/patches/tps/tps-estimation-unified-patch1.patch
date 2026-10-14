@@ -1,0 +1,563 @@
+# patch 43：⚠️ 基座 = `d240afe84`（0.6.7 血缘）—— **独立应用**。
+# TPS 与估算口径统一到引擎真值/密度池（2026-10-14，合并原 43+44+45 三个 patch，主题一脉，降管理成本）：
+# ① 流式指示器吃真值：会话态 streamingResponseExactTokens（tps_tokens 逐批累加 + attempt 边界镜像），
+#   estimateStreamingTokens 真值优先、ids 通路不可用回落估算（2 文件）。
+# ② 估算统一吃密度池：estimateTokens 优先吃密度池 density（池在两种模式下都持续从 usage 学习）、
+#   回落二类校准（行为不变）；密度池拟合加指数新近权重（halfLife = 池一半），分词器/引擎更新时
+#   跟随漂移而非跨缝平均，halfLife 0 = 旧等权（6 文件）。
+# ③ 工具期静默读数修复 + ids 断供回落：value() 仅在 callOpen=false 时冻结，回合中途静默回落零桶平均
+#   （读数落 0，近零 hold 挡抖动）；ids 模式粘性锁死防饿死——帧持续到达而 counts 静默超 10s 自动降回
+#   字符采样并 reset 网格（4 文件）。
+# 7 文件（tokenDensity.ts/test、tpsDensityStore.ts、tpsMeter.ts/test、chatStore.ts/test）。
+# 干净 `d240afe84` 上 apply ⇒ 7 文件逐字节一致。
+diff --git a/desktop/src/lib/tpsDensityStore.ts b/desktop/src/lib/tpsDensityStore.ts
+index 285825e9b..8bfab3426 100644
+--- a/desktop/src/lib/tpsDensityStore.ts
++++ b/desktop/src/lib/tpsDensityStore.ts
+@@ -87,10 +87,15 @@ export function loadTpsSamples(model: string | null | undefined): DensitySample[
+ 
+ /**
+  * The density to estimate with right now: the learned fit once the pool is
+- * mature (see `densityForSamples`), the prior before that.
++ * mature (see `densityForSamples`), the prior before that. Recent samples
++ * outweigh old ones (half-life of half the window): a tokenizer or engine
++ * update shifts the real densities, and the fit should follow rather than
++ * average across the seam.
+  */
+ export function currentTpsDensity(model: string | null | undefined): Density {
+-  return densityForSamples(loadTpsSamples(model), PRIOR_DENSITY)
++  return densityForSamples(loadTpsSamples(model), PRIOR_DENSITY, {
++    halfLife: TPS_DENSITY_POOL_MAX / 2,
++  })
+ }
+ 
+ /** Record one completed response: what it held by class, and its real token cost. */
+diff --git a/desktop/src/lib/tpsMeter.test.ts b/desktop/src/lib/tpsMeter.test.ts
+index c706c5e68..c64747386 100644
+--- a/desktop/src/lib/tpsMeter.test.ts
++++ b/desktop/src/lib/tpsMeter.test.ts
+@@ -5,6 +5,7 @@ import {
+   aggregateMeterReadings,
+   estimateTokens,
+   setEstimationCalibration,
++  setEstimationDensity,
+   type TpsClock,
+ } from './tpsMeter'
+ 
+@@ -228,6 +229,37 @@ describe('closing the stream', () => {
+     clock.advance(2000)
+     expect(meter.value()).toBeCloseTo(104, 0)
+   })
++
++  it('reads zero through a mid-call silence instead of freezing the old rate', () => {
++    const clock = arrivalClock()
++    const meter = new TpsMeter('arrival')
++    const gen = { at: 0 }
++    steady(meter, clock, 16, 13, gen)
++    // A tool call starts executing: the call window is open (no endCall yet) and
++    // no tokens arrive while the engine runs it. The honest reading is "nothing
++    // is decoding right now" — holding the pre-tool speed here is what read as a
++    // stuck indicator for the whole tool call.
++    meter.ensureCall()
++    clock.advance(2000)
++    expect(meter.value()).toBe(0)
++
++    // And the reading recovers as soon as tokens flow again (the grid restarts
++    // on the first frame after the gap).
++    steady(meter, clock, 8, 13, gen)
++    expect(meter.value()).toBeCloseTo(104, 0)
++  })
++
++  it('keeps the end-of-call rate once the call has been reconciled', () => {
++    const clock = arrivalClock()
++    const meter = new TpsMeter('arrival')
++    const gen = { at: 0 }
++    steady(meter, clock, 16, 13, gen)
++    // endCall closed the window: a silence now is a finished turn, and the last
++    // real rate is what the readout should hold.
++    meter.endCall(156, 1500)
++    clock.advance(2000)
++    expect(meter.value()).toBeCloseTo(156 / 1.5, 5)
++  })
+ })
+ 
+ describe('clock discipline', () => {
+@@ -308,6 +340,25 @@ describe('token estimation', () => {
+     setEstimationCalibration(undefined)
+     expect(estimateTokens('abcdefg')).toBeCloseTo(2, 5)
+   })
++
++  it('prefers the four-class density pool over the two-term calibration', () => {
++    // The pool keeps learning from `usage` even when the meter runs on exact
++    // engine counts and stops fitting its own coefficients — pointing the
++    // estimates at it keeps them current in both modes.
++    setEstimationCalibration({ kCjk: 0.8, kAscii: 1.6 })
++    setEstimationDensity({ cjk: 1.2, latin: 0.25, digit: 0.5, sym: 0.5 })
++    // 4 CJK + 1 full-width comma, all cjk class → 5 × 1.2.
++    expect(estimateTokens('你好世界，')).toBeCloseTo(5 * 1.2, 5)
++    // 7 latin letters → 7 × 0.25.
++    expect(estimateTokens('abcdefg')).toBeCloseTo(7 * 0.25, 5)
++    // Digits follow their own class instead of the ASCII average.
++    expect(estimateTokens('1234567890')).toBeCloseTo(10 * 0.5, 5)
++
++    setEstimationDensity(null)
++    expect(estimateTokens('你好世界，')).toBeCloseTo(5 * 0.8, 5)
++    setEstimationCalibration(null)
++    expect(estimateTokens('abcdefg')).toBeCloseTo(2, 5)
++  })
+ })
+ 
+ describe('calibration learning', () => {
+diff --git a/desktop/src/lib/tpsMeter.ts b/desktop/src/lib/tpsMeter.ts
+index 722a5118d..8181143bb 100644
+--- a/desktop/src/lib/tpsMeter.ts
++++ b/desktop/src/lib/tpsMeter.ts
+@@ -1,3 +1,9 @@
++import {
++  classifyChars,
++  tokensFromCounts,
++  type Density,
++} from '../../../src/shared/tokenDensity'
++
+ /**
+  * Real-time decode-speed (TPS) meter.
+  *
+@@ -914,13 +920,22 @@ export class TpsMeter {
+   value(): number {
+     if (!this.everStreamed) return 0
+     const now = performance.now()
+-    // A silence past LIVE_GAP_MS means the stream has stopped, so there is no
+-    // live speed left to report — show what the last one was. Settling here as
+-    // well as in endStream() is what makes the implicit end a real one: a
+-    // finished run's terminal notice arrives as a task event, not as a frame, so
+-    // this read is the only close its meter ever sees. This is the same
+-    // threshold at which placeFrame drops the grid, so the two agree.
+-    if (this.ended || (this.lastPushAt > 0 && now - this.lastPushAt > LIVE_GAP_MS)) {
++    // A silence past LIVE_GAP_MS means no tokens have arrived for a while. What
++    // that *means* depends on whether the call is still open:
++    //  - Call closed (the turn's usage reconciled in endCall) or explicitly
++    //    ended: the stream has stopped for good, so show the last real rate.
++    //    Settling here as well as in endStream() is what makes the implicit end
++    //    a real one: a finished run's terminal notice arrives as a task event,
++    //    not as a frame, so this read is the only close its meter ever sees.
++    //    This is the same threshold at which placeFrame drops the grid, so the
++    //    two agree.
++    //  - Call still open (mid-turn — the engine is executing a tool, or the
++    //    exact-count feed dropped out): the silence is a real pause in
++    //    generation, and the buckets say so — an empty window averages to zero.
++    //    Freezing the pre-pause rate here is what read as "stuck" whenever a
++    //    Write/Edit ran longer than the gap: the display held a speed the engine
++    //    was no longer producing.
++    if (this.ended || (!this.callOpen && this.lastPushAt > 0 && now - this.lastPushAt > LIVE_GAP_MS)) {
+       if (!this.settled) this.settle()
+       return this.held()
+     }
+@@ -1116,7 +1131,25 @@ export function setEstimationCalibration(calibration: TpsCalibration | null | un
+     : null
+ }
+ 
++/**
++ * The four-class density the content-based estimates use, once the density pool
++ * has learned one for the model in play. Preferred over the two-term
++ * {@link estimationCalibration} — four classes separate prose from code and
++ * JSON, which no two-coefficient fit can — and, crucially, the pool keeps
++ * learning from `usage` even when the meter runs on exact engine counts and
++ * stops fitting its own coefficients (endCall skips learning once `tps_tokens`
++ * is flowing). Pointing the estimates at the pool therefore keeps them current
++ * in both modes, and makes them agree with the live streaming estimator, which
++ * reads the same pool.
++ */
++let estimationDensity: Density | null = null
++
++export function setEstimationDensity(density: Density | null | undefined): void {
++  estimationDensity = density ?? null
++}
++
+ export function estimateTokens(text: string): number {
++  if (estimationDensity) return tokensFromCounts(classifyChars(text), estimationDensity)
+   const { cjk, ascii } = textUnits(text)
+   // Same shape, and the same neutral default, the meter uses — so a learned
+   // calibration means the same thing in both places.
+diff --git a/desktop/src/stores/chatStore.test.ts b/desktop/src/stores/chatStore.test.ts
+index 8efec2c7a..732bb6845 100644
+--- a/desktop/src/stores/chatStore.test.ts
++++ b/desktop/src/stores/chatStore.test.ts
+@@ -200,6 +200,7 @@ import {
+   reconstructAgentNotifications,
+   reconstructRunActivityFromTranscript,
+   settleThinkingDurations,
++  estimateStreamingTokens,
+   stripGeneratedImageMetadataLines,
+   type PerSessionState,
+   useChatStore,
+@@ -11005,6 +11006,54 @@ describe('chatStore history mapping', () => {
+     ).toBe(false)
+   })
+ 
++  it('feeds the streaming indicator the exact counts once the engine relays them', () => {
++    vi.useFakeTimers()
++    try {
++      const sessionId = '__streaming-exact'
++      useChatStore.setState({ sessions: { [sessionId]: makeSession() } })
++
++      // Before any relay the indicator falls back to the four-class estimate
++      // (the delta flush runs on a 50 ms timer).
++      useChatStore.getState().handleServerMessage(sessionId, { type: 'content_delta', text: 'x'.repeat(400) })
++      vi.advanceTimersByTime(50)
++      expect(estimateStreamingTokens(sessionId)).toBeGreaterThan(0)
++
++      // Relayed counts win outright, even though the text frame already streamed.
++      useChatStore.getState().handleServerMessage(sessionId, { type: 'tps_tokens', tokens: 77, kind: 'content' })
++      expect(estimateStreamingTokens(sessionId)).toBe(77)
++      useChatStore.getState().handleServerMessage(sessionId, { type: 'tps_tokens', tokens: 23, kind: 'thinking' })
++      expect(estimateStreamingTokens(sessionId)).toBe(100)
++    } finally {
++      vi.useRealTimers()
++    }
++  })
++
++  it('falls back to sampling when the exact feed goes silent while frames keep arriving', () => {
++    const sessionId = '__tps-ids-fallback'
++    useChatStore.setState({ sessions: { [sessionId]: makeSession() } })
++    let now = 2_000_000
++    const nowSpy = vi.spyOn(performance, 'now').mockImplementation(() => now)
++
++    // The relay speaks once: the session locks onto exact counts.
++    useChatStore.getState().handleServerMessage(sessionId, { type: 'tps_tokens', tokens: 40, kind: 'content' })
++    useChatStore.getState().handleServerMessage(sessionId, { type: 'content_delta', text: 'x'.repeat(200) })
++    const meter = getSessionTpsMeter(sessionId)
++    expect(meter.source()).toBe('ids')
++
++    // Then the feed stops (probe blacklisted the origin, relay restarted), but
++    // the engine keeps producing and the frames keep arriving. Past the silence
++    // bound a frame must fall back to character sampling — the touched-away
++    // path would starve the meter forever.
++    now += 10_500
++    useChatStore.getState().handleServerMessage(sessionId, { type: 'content_delta', text: 'y'.repeat(350) })
++    now += 125 // let the bucket it landed in complete
++    expect(meter.source()).toBe('char')
++    // 350 ASCII chars / 3.5 = 100 sampled tokens (the relaying tier is gone).
++    expect(meter.windowTokens()).toBeCloseTo(100, 0)
++
++    nowSpy.mockRestore()
++  })
++
+   it('drops the sampling window when the transport reconnects', () => {
+     clearTpsCalibration()
+     const sessionId = '__tps-reconnect'
+diff --git a/desktop/src/stores/chatStore.ts b/desktop/src/stores/chatStore.ts
+index fa7cd628b..30a3fff61 100644
+--- a/desktop/src/stores/chatStore.ts
++++ b/desktop/src/stores/chatStore.ts
+@@ -23,7 +23,7 @@ import { randomSpinnerVerb } from '../config/spinnerVerbs'
+ import { notifyDesktop } from '../lib/desktopNotifications'
+ import { createAsyncRefreshCoalescer } from '../lib/asyncRefreshCoalescer'
+ import { deriveSessionTitle, isPlaceholderSessionTitle } from '../lib/sessionTitle'
+-import { TpsMeter, isTpsEnabled, setEstimationCalibration } from '../lib/tpsMeter'
++import { TpsMeter, isTpsEnabled, setEstimationCalibration, setEstimationDensity } from '../lib/tpsMeter'
+ import { loadTpsCalibration, saveTpsCalibration } from '../lib/tpsCalibration'
+ import { currentTpsDensity, recordTpsSample } from '../lib/tpsDensityStore'
+ import {
+@@ -197,10 +197,17 @@ export type PerSessionState = {
+    * ÷4 undercounts Chinese by ~4x and lumps digits and symbols in with Latin.
+    */
+   streamingResponseCounts?: CharCounts
++  /**
++   * Engine-reported tokens for the current turn (the `tps_tokens` batches the
++   * meter already consumes). When present, the streaming indicator shows this
++   * instead of the four-class estimate — real counts, not an inference.
++   */
++  streamingResponseExactTokens?: number
+   /** Boundary used to discard one failed, side-effect-free stream attempt. */
+   streamAttemptStartIndex?: number
+   streamAttemptStartResponseChars?: number
+   streamAttemptStartResponseCounts?: CharCounts
++  streamAttemptStartExactTokens?: number
+   elapsedSeconds: number
+   statusVerb: string
+   apiRetry?: ApiRetryState | null
+@@ -260,6 +267,7 @@ const DEFAULT_SESSION_STATE: PerSessionState = {
+   runtimeConfigReadyCount: 0,
+   streamingResponseChars: 0,
+   streamingResponseCounts: { cjk: 0, latin: 0, digit: 0, sym: 0 },
++  streamingResponseExactTokens: 0,
+   elapsedSeconds: 0,
+   statusVerb: '',
+   apiRetry: null,
+@@ -1102,8 +1110,11 @@ export function getSessionTpsMeter(sessionId: string): TpsMeter {
+     const seeded = loadTpsCalibration(model)
+     meter.setCalibration(seeded)
+     // The badge/digest estimate from characters, so they want the same learned
+-    // coefficients the meter reads its rate with.
++    // coefficients the meter reads its rate with. The four-class density pool
++    // takes precedence: it keeps learning from `usage` even when this meter
++    // runs on exact engine counts and stops fitting its own.
+     setEstimationCalibration(seeded)
++    setEstimationDensity(currentTpsDensity(model))
+     tpsCalibrationModelBySession.set(sessionId, model)
+     tpsMeterBySession.set(sessionId, meter)
+   }
+@@ -1132,6 +1143,25 @@ const tpsCalibrationModelBySession = new Map<string, string | undefined>()
+  */
+ const tpsIdsModeBySession = new Map<string, boolean>()
+ 
++/** The wall-clock moment a session's `tps_tokens` feed last spoke. */
++const lastTpsTokensAtBySession = new Map<string, number>()
++
++/**
++ * How long the exact-count feed may stay silent while stream frames keep
++ * arriving before a session falls back to character sampling.
++ *
++ * The `tps_tokens` feed is sticky once it has spoken (the meter resets its grid
++ * on the tier switch, so flickering between modes would corrupt the window), but
++ * stickiness assumes the feed stays alive. It can stop mid-session — the probe
++ * blacklists an origin after two silent requests, a relay restarts, an engine
++ * stops attaching ids — and then the session would sample nothing forever: text
++ * frames keep arriving only to be touched away, and the meter starves. Ten
++ * seconds of frames-without-counts is far past any real batching gap (the relay
++ * flushes every 200 ms) and still brief enough that the readout recovers within
++ * a turn.
++ */
++const IDS_FALLBACK_SILENCE_MS = 10_000
++
+ /**
+  * Feed one of a session's own streamed frames into its TPS meter, opening the
+  * call window on the first frame so endCall() can reconcile it afterwards.
+@@ -1144,9 +1174,22 @@ function pushTpsFrame(
+   if (!isTpsEnabled()) return
+   const meter = getSessionTpsMeter(sessionId)
+   if (tpsIdsModeBySession.get(sessionId)) {
+-    // The relay already counted these tokens exactly; keep liveness only.
+-    meter.touch()
+-    return
++    // The relay already counted these tokens exactly; keep liveness only —
++    // unless the counts have stopped coming while frames keep arriving. A frame
++    // is itself proof the engine is producing, so a silence this long means the
++    // exact feed is broken, not busy: fall back to sampling this frame.
++    const last = lastTpsTokensAtBySession.get(sessionId) ?? 0
++    if (last > 0 && performance.now() - last > IDS_FALLBACK_SILENCE_MS) {
++      tpsIdsModeBySession.delete(sessionId)
++      lastTpsTokensAtBySession.delete(sessionId)
++      // The units switch mid-stream (exact ids → sampled characters); the grid
++      // restarts rather than averaging two incomparable halves, same as the
++      // tier switch on the way up.
++      meter.reset()
++    } else {
++      meter.touch()
++      return
++    }
+   }
+   meter.ensureCall()
+   meter.push(text, options)
+@@ -1155,6 +1198,7 @@ function pushTpsFrame(
+ /** Drop a session's sampling window (reconnect / retry replays a prefix). */
+ function resetTpsWindow(sessionId: string): void {
+   tpsIdsModeBySession.delete(sessionId)
++  lastTpsTokensAtBySession.delete(sessionId)
+   tpsMeterBySession.get(sessionId)?.reset()
+ }
+ 
+@@ -1319,10 +1363,16 @@ function mergeCounts(base: CharCounts | undefined, text: string): CharCounts {
+  * The current turn's output tokens so far, estimated from what has streamed.
+  *
+  * The same four-class density as every other in-flight figure, so the spinner,
+- * the subagent rows and the panels all measure text the same way.
++ * the subagent rows and the panels all measure text the same way. When the
++ * engine reports real per-chunk counts (`tps_tokens`), those win outright —
++ * the estimate is the fallback for engines that cannot report them.
+  */
+ export function estimateStreamingTokens(sessionId: string): number {
+-  const counts = useChatStore.getState().sessions[sessionId]?.streamingResponseCounts
++  const session = useChatStore.getState().sessions[sessionId]
++  if (!session) return 0
++  const exact = session.streamingResponseExactTokens ?? 0
++  if (exact > 0) return exact
++  const counts = session.streamingResponseCounts
+   if (!counts) return 0
+   const density = currentTpsDensity(tpsCalibrationModelBySession.get(sessionId))
+   return Math.round(tokensFromCounts(counts, density))
+@@ -3860,6 +3910,7 @@ export const useChatStore = create<ChatStore>((setState, get) => {
+             streamingText: '',
+             streamingResponseChars: 0,
+             streamingResponseCounts: { cjk: 0, latin: 0, digit: 0, sym: 0 },
++            streamingResponseExactTokens: 0,
+             statusVerb: isDirectAgentSession ? '' : randomSpinnerVerb(),
+             apiRetry: null,
+             streamingFallback: null,
+@@ -5244,9 +5295,12 @@ export const useChatStore = create<ChatStore>((setState, get) => {
+                 current.streamAttemptStartResponseChars ?? current.streamingResponseChars,
+               streamingResponseCounts:
+                 current.streamAttemptStartResponseCounts ?? current.streamingResponseCounts,
++              streamingResponseExactTokens:
++                current.streamAttemptStartExactTokens ?? current.streamingResponseExactTokens,
+               streamAttemptStartIndex: undefined,
+               streamAttemptStartResponseChars: undefined,
+               streamAttemptStartResponseCounts: undefined,
++              streamAttemptStartExactTokens: undefined,
+               apiRetry: null,
+               streamingFallback: null,
+               statusVerb: '',
+@@ -5391,6 +5445,7 @@ export const useChatStore = create<ChatStore>((setState, get) => {
+               streamAttemptStartIndex: session.messages.length,
+               streamAttemptStartResponseChars: session.streamingResponseChars,
+               streamAttemptStartResponseCounts: session.streamingResponseCounts,
++              streamAttemptStartExactTokens: session.streamingResponseExactTokens,
+             } : {}),
+             ...(nextMessages !== session.messages ? { messages: nextMessages } : {}),
+             ...(shouldFlush ? {
+@@ -5421,6 +5476,7 @@ export const useChatStore = create<ChatStore>((setState, get) => {
+           const next = loadTpsCalibration(msg.modelId)
+           meter.setCalibration(next)
+           setEstimationCalibration(next)
++          setEstimationDensity(currentTpsDensity(msg.modelId))
+           tpsCalibrationModelBySession.set(sessionId, msg.modelId)
+         }
+         const selected = useSessionRuntimeStore.getState().selections[sessionId]
+@@ -6039,7 +6095,11 @@ export const useChatStore = create<ChatStore>((setState, get) => {
+           })
+         }
+         // The same counts are exact feed for the TPS meter, where the sampled
+-        // text frames would otherwise double-count them.
++        // text frames would otherwise double-count them. They also give the
++        // streaming indicator a real number to show instead of the estimate.
++        update((s) => ({
++          streamingResponseExactTokens: (s.streamingResponseExactTokens ?? 0) + msg.tokens,
++        }))
+         if (!isTpsEnabled()) break
+         const meter = getSessionTpsMeter(sessionId)
+         if (!tpsIdsModeBySession.get(sessionId)) {
+@@ -6048,6 +6108,7 @@ export const useChatStore = create<ChatStore>((setState, get) => {
+           meter.reset()
+           tpsIdsModeBySession.set(sessionId, true)
+         }
++        lastTpsTokensAtBySession.set(sessionId, performance.now())
+         meter.ensureCall()
+         meter.pushTokens(msg.tokens, { generatedAt: msg.serverTs })
+         break
+@@ -6080,7 +6141,12 @@ export const useChatStore = create<ChatStore>((setState, get) => {
+           const outputTokens = msg.usage?.output_tokens
+           const anyCounted = counts && counts.cjk + counts.latin + counts.digit + counts.sym > 0
+           if (anyCounted && typeof outputTokens === 'number' && outputTokens > 0) {
+-            recordTpsSample(tpsCalibrationModelBySession.get(sessionId), counts, outputTokens)
++            const model = tpsCalibrationModelBySession.get(sessionId)
++            recordTpsSample(model, counts, outputTokens)
++            // The pool just moved, so the badge/digest estimates can sharpen —
++            // this is also the only learning path left once the meter runs on
++            // exact engine counts and stops fitting its own coefficients.
++            setEstimationDensity(currentTpsDensity(model))
+           }
+         }
+         if (consumeAllPendingTaskToolUseIds(sessionId)) {
+diff --git a/src/shared/tokenDensity.test.ts b/src/shared/tokenDensity.test.ts
+index 47880230a..8a56b4345 100644
+--- a/src/shared/tokenDensity.test.ts
++++ b/src/shared/tokenDensity.test.ts
+@@ -1,6 +1,7 @@
+ import { describe, expect, test } from 'bun:test'
+ import {
+   classifyChars,
++  DEFAULT_RIDGE_LAMBDA,
+   densityForSamples,
+   estimateTokens,
+   learnDensity,
+@@ -94,3 +95,37 @@ describe('densityForSamples maturity gate', () => {
+     expect(densityForSamples(samples.slice(0, 10))).not.toEqual(PRIOR_DENSITY)
+   })
+ })
++
++describe('learnDensity recency weighting', () => {
++  // Pure cjk+latin samples at a fixed ratio: cjk solves to ~1, latin to ~ratio
++  // (both pulled slightly toward the prior by the ridge term, and toward each
++  // other by the collinearity of the 50/50 mix).
++  const make = (ratio: number): DensitySample[] => Array.from({ length: 10 }, () => ({
++    counts: { cjk: 100, latin: 100, digit: 0, sym: 0 },
++    tokens: 100 + 100 * ratio,
++  }))
++
++  test('recent samples outweigh old ones when the true density drifts', () => {
++    const old = 0.2
++    const drifted = 0.8
++    const combined = [...make(old), ...make(drifted)]
++    // halfLife 5: the five newest samples alone carry >96% of the weight.
++    const learned = learnDensity(combined, PRIOR_DENSITY, DEFAULT_RIDGE_LAMBDA, { halfLife: 5 })
++    const equal = learnDensity(combined, PRIOR_DENSITY, DEFAULT_RIDGE_LAMBDA, { halfLife: 0 })
++    // The decayed fit tracks the recent regime; the equal one straddles both.
++    // (Ridge shrinkage and the collinear cjk term keep both well under the
++    // regime's nominal 0.8 — the point is the separation, not the absolute.)
++    expect(learned.latin).toBeGreaterThan(equal.latin)
++    expect(learned.latin).toBeGreaterThan(0.45)
++    expect(equal.latin).toBeLessThan(learned.latin - 0.05)
++  })
++
++  test('halfLife 0 keeps the old equally-weighted fit', () => {
++    const combined = [...make(0.2), ...make(0.8)]
++    const learned = learnDensity(combined, PRIOR_DENSITY, DEFAULT_RIDGE_LAMBDA, { halfLife: 0 })
++    // Equal weights: the fit sits between the two regimes (ridge and the
++    // collinear cjk term pull it below the arithmetic midpoint).
++    expect(learned.latin).toBeGreaterThan(0.2)
++    expect(learned.latin).toBeLessThan(0.5)
++  })
++})
+diff --git a/src/shared/tokenDensity.ts b/src/shared/tokenDensity.ts
+index 63f79ae56..b38ab6ab6 100644
+--- a/src/shared/tokenDensity.ts
++++ b/src/shared/tokenDensity.ts
+@@ -155,6 +155,7 @@ export function learnDensity(
+   samples: DensitySample[],
+   prior: Density = PRIOR_DENSITY,
+   lambda = DEFAULT_RIDGE_LAMBDA,
++  options: { halfLife?: number } = {},
+ ): Density {
+   const xtx: number[][] = [
+     [0, 0, 0, 0],
+@@ -163,15 +164,26 @@ export function learnDensity(
+     [0, 0, 0, 0],
+   ]
+   const xty = [0, 0, 0, 0]
++  // Exponential recency weighting: the newest sample counts fully, each step
++  // back through the (oldest-first) list halves the weight every `halfLife`
++  // samples. A tokenizer or engine update shifts the true densities, and an
++  // equally-weighted window keeps averaging across the seam long after; the
++  // decay lets the fit follow the drift while old samples still anchor the
++  // sparse classes. Omitted weight = every sample equal, as before.
++  const halfLife = options.halfLife ?? 0
++  const oldest = samples.length - 1
++  let sampleIndex = -1
+   for (const sample of samples) {
++    sampleIndex += 1
+     if (!(sample.tokens > 0)) continue
++    const weight = halfLife > 0 ? Math.pow(0.5, (oldest - sampleIndex) / halfLife) : 1
+     const x = [sample.counts.cjk, sample.counts.latin, sample.counts.digit, sample.counts.sym]
+     for (let i = 0; i < 4; i++) {
+       const xi = x[i] ?? 0
+       if (xi === 0) continue
+       const row = xtx[i] as number[]
+-      for (let j = 0; j < 4; j++) row[j] = (row[j] ?? 0) + xi * (x[j] ?? 0)
+-      xty[i] = (xty[i] ?? 0) + xi * sample.tokens
++      for (let j = 0; j < 4; j++) row[j] = (row[j] ?? 0) + weight * xi * (x[j] ?? 0)
++      xty[i] = (xty[i] ?? 0) + weight * xi * sample.tokens
+     }
+   }
+   const priorVector = [prior.cjk, prior.latin, prior.digit, prior.sym]
+@@ -193,13 +205,19 @@ export function learnDensity(
+  * The density to estimate with, given the samples seen so far: the prior until
+  * the pool is mature, the learned fit after. The caller keeps the pool capped
+  * (a rolling window), so `samples.length` doubles as the pool size.
++ *
++ * The fit weights recent samples exponentially (`halfLife` in samples — the
++ * rolling window renews at its tail, so half the window's weight sits on the
++ * freshest half). Pass `halfLife: 0` for the old equally-weighted fit.
+  */
+ export function densityForSamples(
+   samples: DensitySample[],
+   prior: Density = PRIOR_DENSITY,
+-  options: { minSamples?: number; lambda?: number } = {},
++  options: { minSamples?: number; lambda?: number; halfLife?: number } = {},
+ ): Density {
+   const min = options.minSamples ?? MIN_SAMPLES_TO_LEARN
+   if (samples.length < min) return { ...prior }
+-  return learnDensity(samples, prior, options.lambda ?? DEFAULT_RIDGE_LAMBDA)
++  return learnDensity(samples, prior, options.lambda ?? DEFAULT_RIDGE_LAMBDA, {
++    halfLife: options.halfLife,
++  })
+ }
