@@ -200,6 +200,7 @@ import {
   reconstructAgentNotifications,
   reconstructRunActivityFromTranscript,
   settleThinkingDurations,
+  estimateStreamingTokens,
   stripGeneratedImageMetadataLines,
   type PerSessionState,
   useChatStore,
@@ -11003,6 +11004,28 @@ describe('chatStore history mapping', () => {
       useChatStore.getState().sessions[sessionId]!.messages
         .some((message) => message.type === 'thinking'),
     ).toBe(false)
+  })
+
+  it('feeds the streaming indicator the exact counts once the engine relays them', () => {
+    vi.useFakeTimers()
+    try {
+      const sessionId = '__streaming-exact'
+      useChatStore.setState({ sessions: { [sessionId]: makeSession() } })
+
+      // Before any relay the indicator falls back to the four-class estimate
+      // (the delta flush runs on a 50 ms timer).
+      useChatStore.getState().handleServerMessage(sessionId, { type: 'content_delta', text: 'x'.repeat(400) })
+      vi.advanceTimersByTime(50)
+      expect(estimateStreamingTokens(sessionId)).toBeGreaterThan(0)
+
+      // Relayed counts win outright, even though the text frame already streamed.
+      useChatStore.getState().handleServerMessage(sessionId, { type: 'tps_tokens', tokens: 77, kind: 'content' })
+      expect(estimateStreamingTokens(sessionId)).toBe(77)
+      useChatStore.getState().handleServerMessage(sessionId, { type: 'tps_tokens', tokens: 23, kind: 'thinking' })
+      expect(estimateStreamingTokens(sessionId)).toBe(100)
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it('drops the sampling window when the transport reconnects', () => {

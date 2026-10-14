@@ -197,10 +197,17 @@ export type PerSessionState = {
    * ÷4 undercounts Chinese by ~4x and lumps digits and symbols in with Latin.
    */
   streamingResponseCounts?: CharCounts
+  /**
+   * Engine-reported tokens for the current turn (the `tps_tokens` batches the
+   * meter already consumes). When present, the streaming indicator shows this
+   * instead of the four-class estimate — real counts, not an inference.
+   */
+  streamingResponseExactTokens?: number
   /** Boundary used to discard one failed, side-effect-free stream attempt. */
   streamAttemptStartIndex?: number
   streamAttemptStartResponseChars?: number
   streamAttemptStartResponseCounts?: CharCounts
+  streamAttemptStartExactTokens?: number
   elapsedSeconds: number
   statusVerb: string
   apiRetry?: ApiRetryState | null
@@ -260,6 +267,7 @@ const DEFAULT_SESSION_STATE: PerSessionState = {
   runtimeConfigReadyCount: 0,
   streamingResponseChars: 0,
   streamingResponseCounts: { cjk: 0, latin: 0, digit: 0, sym: 0 },
+  streamingResponseExactTokens: 0,
   elapsedSeconds: 0,
   statusVerb: '',
   apiRetry: null,
@@ -1319,10 +1327,16 @@ function mergeCounts(base: CharCounts | undefined, text: string): CharCounts {
  * The current turn's output tokens so far, estimated from what has streamed.
  *
  * The same four-class density as every other in-flight figure, so the spinner,
- * the subagent rows and the panels all measure text the same way.
+ * the subagent rows and the panels all measure text the same way. When the
+ * engine reports real per-chunk counts (`tps_tokens`), those win outright —
+ * the estimate is the fallback for engines that cannot report them.
  */
 export function estimateStreamingTokens(sessionId: string): number {
-  const counts = useChatStore.getState().sessions[sessionId]?.streamingResponseCounts
+  const session = useChatStore.getState().sessions[sessionId]
+  if (!session) return 0
+  const exact = session.streamingResponseExactTokens ?? 0
+  if (exact > 0) return exact
+  const counts = session.streamingResponseCounts
   if (!counts) return 0
   const density = currentTpsDensity(tpsCalibrationModelBySession.get(sessionId))
   return Math.round(tokensFromCounts(counts, density))
@@ -3860,6 +3874,7 @@ export const useChatStore = create<ChatStore>((setState, get) => {
             streamingText: '',
             streamingResponseChars: 0,
             streamingResponseCounts: { cjk: 0, latin: 0, digit: 0, sym: 0 },
+            streamingResponseExactTokens: 0,
             statusVerb: isDirectAgentSession ? '' : randomSpinnerVerb(),
             apiRetry: null,
             streamingFallback: null,
@@ -5244,9 +5259,12 @@ export const useChatStore = create<ChatStore>((setState, get) => {
                 current.streamAttemptStartResponseChars ?? current.streamingResponseChars,
               streamingResponseCounts:
                 current.streamAttemptStartResponseCounts ?? current.streamingResponseCounts,
+              streamingResponseExactTokens:
+                current.streamAttemptStartExactTokens ?? current.streamingResponseExactTokens,
               streamAttemptStartIndex: undefined,
               streamAttemptStartResponseChars: undefined,
               streamAttemptStartResponseCounts: undefined,
+              streamAttemptStartExactTokens: undefined,
               apiRetry: null,
               streamingFallback: null,
               statusVerb: '',
@@ -5391,6 +5409,7 @@ export const useChatStore = create<ChatStore>((setState, get) => {
               streamAttemptStartIndex: session.messages.length,
               streamAttemptStartResponseChars: session.streamingResponseChars,
               streamAttemptStartResponseCounts: session.streamingResponseCounts,
+              streamAttemptStartExactTokens: session.streamingResponseExactTokens,
             } : {}),
             ...(nextMessages !== session.messages ? { messages: nextMessages } : {}),
             ...(shouldFlush ? {
@@ -6039,7 +6058,11 @@ export const useChatStore = create<ChatStore>((setState, get) => {
           })
         }
         // The same counts are exact feed for the TPS meter, where the sampled
-        // text frames would otherwise double-count them.
+        // text frames would otherwise double-count them. They also give the
+        // streaming indicator a real number to show instead of the estimate.
+        update((s) => ({
+          streamingResponseExactTokens: (s.streamingResponseExactTokens ?? 0) + msg.tokens,
+        }))
         if (!isTpsEnabled()) break
         const meter = getSessionTpsMeter(sessionId)
         if (!tpsIdsModeBySession.get(sessionId)) {
