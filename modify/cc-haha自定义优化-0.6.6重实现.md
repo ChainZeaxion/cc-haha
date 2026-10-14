@@ -3671,3 +3671,15 @@ src/prompts/i18n/
 - ids 模式饿死：`tps_tokens` 一旦说过话即粘性锁死 ids 模式，此后流帧只 `touch()` 丢弃；ids 断供（探针两轮落空拉黑 origin / 中继重启 / onecat 剥 ids）后米表饿死。修复：`lastTpsTokensAtBySession` 记录真值通路最近发言时刻，流帧持续到达而 counts 静默超 10s（中继批间隔仅 200ms）→ 自动降回字符采样并 `meter.reset()`；工具执行期流帧也不来 → 不误降级。`resetTpsWindow` 同步清表。
 
 **验证**：tokenDensity 11/11、meter 35/35、chatStore 404/404（新增中途静默落 0+恢复计量、endCall 保持末速、ids 断供回落三条）、desktop 全量 8292/0、server 全量 6686/0。
+## 四十三 超预算会话的工作区降级：git-info 兜底 workDir + 文件卡直开预览（✅ 2026-10-14，`patches/workspace/workspace-history-budget-degrade-patch1.patch`，⚠️ 基座 `dfbfe9dc5` 独立应用）
+
+**问题**（用户报告两症，实为同根）：① 轮次结束的文件引用卡点击打不开文件，tab 只见报错；② 文件树右键菜单部分会话只有「添加到对话」一项（正常 5 项），H5 手机与桌面浏览器均现。
+
+**根因**（实测定位）：transcript 超历史预算的会话（如 tools-test-pro 31.6MB），`/workspace/status` 因 `getFileHistoryChanges` 对 file-history 快照 413 rethrow 而**整体** 413（`HISTORY_WORKSPACE_LIMIT`）——快照列表只是 status 的附加信息，却拖死了客户端唯一的 `workDir` 来源。前端 `loadStatus` 静默吞掉 → `workDir` 永远 null → `WorkspaceFileOpenWith` 被 `workDir ?` 门控整块不渲染（菜单剩 1 项）、绝对路径解析全瘫。文件卡走 `review(turn)` → `turn-checkpoints`/`turn-checkpoints/diff` 同读全量 transcript → 同 413 → 点卡 tab 只见报错。正常会话一切正常——「部分 1 项、部分 5 项」即超预算/正常会话之别。
+
+**改动**（全在 desktop 前端，4 文件；服务端 413 诚实报错语义**有意保留**——`workspace-service.test.ts` 锁定「bounded transcript failures must surface」，不让用户误看干净工作区）：
+- `desktop/src/stores/workspaceContentStore.ts`：`loadStatus` 捕获 `ApiError(413)` 回落 `sessionsApi.getGitInfo()`（有界读取，不碰 transcript，实测 31.6MB 会话照常返回 workDir），落 `state:'error' + error:'HISTORY_WORKSPACE_LIMIT'` 的 status——workDir/branch/repoName 保留，changedFiles 置空（本来也看不了）；新增 `isSessionOverHistoryBudget(sessionId)`。
+- `desktop/src/components/chat/CurrentTurnChangeCard.tsx`：`openChangedFile` 的 review 分支前查该标志，超预算会话直接 `workspaceOpen.file` 开文件预览（用户点卡要的就是文件本身），不再进必炸的 diff 视图；普通会话零变化。
+- 排查手段沉淀：`curl /api/sessions/:id/workspace/status` 看 413；菜单缺项用一次性探针测试渲染 `WorkspaceFileOpenWith` 数 menuitem（browserHost + workspacePath ⇒ 4 项为基线）；vite dev 7787（无 `VITE_DEV_SERVER_PROXY`）的 `/api` 返回 HTML 会让一切静默失败，实测前先确认连的是 8877 sidecar。
+
+**验证**：workspaceContentStore 38/38（新增 413 兜底落 workDir + 非预算会话标志为否两条）、CurrentTurnChangeCard 52/52（新增超预算点行直开文件预览一条）、desktop 全量 8295/0、server 全量 6686/0。干净 `dfbfe9dc5` 上 apply ⇒ 4 文件逐字节一致 ✅。
