@@ -53,6 +53,7 @@ while read -r p; do git apply -p1 "$p"; done < modify/patches/ORDER.md
 | `tps-density-estimation-patch1.patch` | 66,66 |
 | `tps-session-total-patch1.patch` | 2026-10-03 新增（会话读数=会话总量，去子代理重复计） |
 | `tps-streaming-exact-patch1.patch` | 2026-10-14 新增（⚠️ 基座 = 067 `d240afe84`，独立应用；流式指示器吃 `tps_tokens` 引擎真值——会话态 `streamingResponseExactTokens` + attempt 边界镜像，`estimateStreamingTokens` 真值优先估算兜底，2 文件） |
+| `tps-density-unification-patch1.patch` | 2026-10-14 新增（⚠️ 基座 = 067 `7d70a15c3`，独立应用；估算统一吃密度池——`estimateTokens` 密度池优先、二类校准回落，密度池拟合加指数新近权重 halfLife=池半，6 文件） |
 
 ## usage/ — 上下文缓存计费与用量聚合显示（pr-5）
 

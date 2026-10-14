@@ -116,3 +116,11 @@ patches/compact/compact-summary-anchor-patch1.patch
 # ids 通路不可用时回落估算（行为不变）。依赖 ids 通路（onecat 侧 token_ids 透传修复，见 WORK-HANDOFF）。
 # 2 文件（chatStore.ts + 测试）。干净 `d240afe84` 上 apply ⇒ 2 文件逐字节一致 ✅ 2026-10-14 已实测。
 patches/tps/tps-streaming-exact-patch1.patch
+
+# 44：⚠️ 基座 = `7d70a15c3`（0.6.7 血缘）—— **独立应用**。
+# 估算统一吃密度池 + 密度池 EWMA（2026-10-14）：徽章/摘要的字符估算与米表二类校准、四类密度池各自为政；
+# 米表跑引擎真值（tps_tokens）后不再拟合自身系数，估算冻结在旧值。修复：
+# ① estimateTokens 优先吃密度池 density（池在两种模式下都持续从 usage 学习），回落二类校准（行为不变）；
+# ② 密度池拟合加指数新近权重（halfLife = 池一半）——分词器/引擎更新时拟合跟随漂移而非跨缝平均，
+#   halfLife 0 = 旧等权拟合。6 文件。干净 `7d70a15c3` 上 apply ⇒ 6 文件逐字节一致 ✅ 2026-10-14 已实测。
+patches/tps/tps-density-unification-patch1.patch
