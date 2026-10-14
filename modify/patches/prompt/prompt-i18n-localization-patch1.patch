@@ -11,18 +11,23 @@
 # 实测：多轮连续对话 40/40 = 100% 中文思考（真实 /v1/messages 路径）。
 # 47 文件（39 src/ + 8 desktop/）。独立应用（干净 `cb7065b1e` 上 apply ⇒ 47 文件逐字节一致）。
 diff --git a/desktop/src/i18n/locales/zh-TW.ts b/desktop/src/i18n/locales/zh-TW.ts
-index 708a5cfeb..924ebdabd 100644
+index 708a5cfeb..df8b2b2f8 100644
 --- a/desktop/src/i18n/locales/zh-TW.ts
 +++ b/desktop/src/i18n/locales/zh-TW.ts
-@@ -2343,6 +2343,11 @@ export const zh: Record<TranslationKey, string> = {
+@@ -2343,6 +2343,16 @@ export const zh: Record<TranslationKey, string> = {
    'settings.general.appearance.lightThemeLabel': '淺色模式下使用',
    'settings.general.appearance.darkThemeLabel': '深色模式下使用',
    'settings.general.languageTitle': '語言',
 +  'settings.general.thinkingLangTitle': '思考語言',
-+  'settings.general.thinkingLangDescription': '模型思考（reasoning）所用的語言，與上面的介面語言相互獨立。',
++  'settings.general.thinkingLangDescription': '模型思考（reasoning）所用的語言，與上面的介面語言相互獨立。設為「跟隨介面語言」且介面為中文（或手動選中文）時，會向引擎傳遞中文思考標記以啟用預填種子。',
 +  'settings.general.thinkingLangAuto': '跟隨介面語言',
 +  'settings.general.thinkingLangZh': '中文',
 +  'settings.general.thinkingLangEn': '英文',
++  'settings.general.promptLangTitle': '系統提示詞語言',
++  'settings.general.promptLangDescription': '內建系統提示詞使用的語言，與介面語言相互獨立。設為「跟隨系統語言」時跟隨上面的介面語言。',
++  'settings.general.promptLangAuto': '跟隨系統語言',
++  'settings.general.promptLangZh': '中文',
++  'settings.general.promptLangEn': '英文',
    'settings.general.languageDescription': '選擇應用程式的顯示語言。',
    'settings.general.responseLangTitle': '回覆語言',
    'settings.general.responseLangDescription': '指定 Claude 始終以某種語言回覆。',
