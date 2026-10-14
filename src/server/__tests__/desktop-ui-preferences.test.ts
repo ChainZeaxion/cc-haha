@@ -75,6 +75,7 @@ describe('DesktopUiPreferencesService', () => {
     expect(result.preferences).toEqual({
       schemaVersion: 6,
       locale: null,
+      promptLanguage: 'auto',
       thinkingLanguage: 'auto',
       profile: {
         displayName: 'cc-haha',
@@ -132,6 +133,7 @@ describe('DesktopUiPreferencesService', () => {
     expect(before.preferences).toEqual({
       schemaVersion: 6,
       locale: null,
+      promptLanguage: 'auto',
       thinkingLanguage: 'auto',
       futureField: { keep: true },
       profile: {
@@ -156,6 +158,7 @@ describe('DesktopUiPreferencesService', () => {
     expect(after).toEqual({
       schemaVersion: 6,
       locale: null,
+      promptLanguage: 'auto',
       thinkingLanguage: 'auto',
       futureField: { keep: true },
       profile: {
@@ -500,6 +503,7 @@ describe('DesktopUiPreferencesService', () => {
     expect(after).toEqual({
       schemaVersion: 6,
       locale: null,
+      promptLanguage: 'auto',
       thinkingLanguage: 'auto',
       profile: {
         displayName: 'Claude Captain',
@@ -624,7 +628,8 @@ describe('desktop UI preferences API', () => {
       preferences: {
         schemaVersion: 6,
         locale: null,
-        thinkingLanguage: 'auto',
+        promptLanguage: 'auto',
+      thinkingLanguage: 'auto',
         profile: {
           displayName: 'cc-haha',
           subtitle: 'github.com/NanmiCoder/cc-haha',
@@ -654,7 +659,8 @@ describe('desktop UI preferences API', () => {
       preferences: {
         schemaVersion: 6,
         locale: null,
-        thinkingLanguage: 'auto',
+        promptLanguage: 'auto',
+      thinkingLanguage: 'auto',
         profile: {
           displayName: 'cc-haha',
           subtitle: 'github.com/NanmiCoder/cc-haha',

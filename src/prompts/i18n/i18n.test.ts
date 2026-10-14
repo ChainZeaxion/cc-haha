@@ -1,14 +1,23 @@
 import { beforeEach, describe, expect, test } from 'bun:test'
 
+// The language layer reads desktop-ui.json for the persisted locale and
+// language settings. Point CLAUDE_CONFIG_DIR at an empty directory before the
+// module is imported so a developer's real preferences (e.g. thinkingLanguage:
+// 'zh') cannot leak into these assertions.
+process.env.CLAUDE_CONFIG_DIR = '/tmp/i18n-test-empty-config'
+
 import {
+  getPromptLanguage,
   getThinkingLanguage,
   localizedPrompt,
   promptLanguageLead,
   promptLanguageTail,
   promptLanguageUserNote,
   resolvePromptLanguage,
+  resolvePromptLanguageSetting,
   resolveThinkingLanguageSetting,
   setPromptLanguage,
+  setPromptLanguageSetting,
   setThinkingLanguagePreference,
 } from './index.js'
 import { ZH_PROMPTS } from './zh.js'
@@ -173,6 +182,57 @@ describe('the reasoning-language setting', () => {
     expect(getThinkingLanguage()).toBe('zh')
     setPromptLanguage('en')
     expect(getThinkingLanguage()).toBe('en')
+  })
+})
+
+describe('the system-prompt-language setting', () => {
+  beforeEach(() => setPromptLanguageSetting('auto'))
+
+  test('resolution follows the setting value', () => {
+    for (const v of ['zh', 'ZH']) expect(resolvePromptLanguageSetting(v)).toBe('zh')
+    for (const v of ['en', 'EN']) expect(resolvePromptLanguageSetting(v)).toBe('en')
+    for (const v of ['auto', '', 'jp', undefined, null, 42]) {
+      expect(resolvePromptLanguageSetting(v)).toBe('auto')
+    }
+  })
+
+  test('a manual setting pins the prompt language over the locale', () => {
+    // Chinese prompts on an English UI.
+    setPromptLanguage('en')
+    setPromptLanguageSetting('zh')
+    expect(getPromptLanguage()).toBe('zh')
+    expect(localizedPrompt(ID, ENGLISH)).toBe(ZH_PROMPTS[ID])
+
+    // English prompts on a Chinese UI — and the reasoning lead (whose marker
+    // drives the engine's prefill seed) goes quiet with it.
+    setPromptLanguage('zh')
+    setPromptLanguageSetting('en')
+    expect(getPromptLanguage()).toBe('en')
+    expect(localizedPrompt(ID, ENGLISH)).toBe(ENGLISH)
+
+    setThinkingLanguagePreference('auto')
+    expect(getThinkingLanguage()).toBe('en')
+    expect(promptLanguageLead()).toBeNull()
+  })
+
+  test('auto defers back to the locale, and a locale change propagates', () => {
+    setPromptLanguage('zh')
+    setPromptLanguageSetting('auto')
+    expect(getPromptLanguage()).toBe('zh')
+
+    setPromptLanguage('en')
+    expect(getPromptLanguage()).toBe('en')
+  })
+
+  test('a manual thinking language stays independent of the prompt setting', () => {
+    setPromptLanguage('en')
+    setPromptLanguageSetting('en')
+    setThinkingLanguagePreference('zh')
+    expect(getPromptLanguage()).toBe('en')
+    expect(getThinkingLanguage()).toBe('zh')
+    // The reasoning marker is about thinking, not the prompt body, so it
+    // still injects — the engine prefill follows the thinking language.
+    expect(promptLanguageLead()).not.toBeNull()
   })
 })
 

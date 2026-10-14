@@ -9,9 +9,12 @@ import { normalizeVoicePreferences } from './voice/preferences.js'
 import { DEFAULT_VOICE_PREFERENCES, type VoicePreferences } from './voice/types.js'
 import {
   resolveThinkingLanguageSetting,
+  resolvePromptLanguageSetting,
   setPromptLanguage,
+  setPromptLanguageSetting,
   setThinkingLanguagePreference,
   type PromptLanguage,
+  type PromptLanguageSetting,
   type ThinkingLanguageSetting,
 } from '../../prompts/i18n/promptLanguage.js'
 
@@ -83,8 +86,15 @@ export type DesktopUiPreferences = {
    */
   locale: string | null
   /**
-   * The language the model should reason in: `auto` (follow `locale`), `zh`, or
-   * `en`. Independent of `locale` so an English UI can still reason in Chinese.
+   * The language the built-in model prompts are rendered in: `auto` (follow
+   * `locale`, the original behaviour), `zh`, or `en`. Independent of `locale`
+   * so an English UI can still prompt in Chinese.
+   */
+  promptLanguage: PromptLanguageSetting
+  /**
+   * The language the model should reason in: `auto` (follow the prompt
+   * language), `zh`, or `en`. Independent so an English UI can still reason in
+   * Chinese.
    */
   thinkingLanguage: ThinkingLanguageSetting
   [key: string]: unknown
@@ -133,6 +143,7 @@ function defaultPreferences(): DesktopUiPreferences {
     voiceInput: { ...DEFAULT_VOICE_PREFERENCES },
     projectDisplayNames: createProjectDisplayNames(),
     locale: null,
+    promptLanguage: 'auto',
     thinkingLanguage: 'auto',
   }
 }
@@ -379,6 +390,7 @@ function normalizeDesktopUiPreferences(value: unknown): DesktopUiPreferences | n
     voiceInput: normalizeVoicePreferences(record.voiceInput),
     projectDisplayNames: normalizeProjectDisplayNames(record.projectDisplayNames),
     locale: normalizeLocalePreference(record.locale),
+    promptLanguage: resolvePromptLanguageSetting(record.promptLanguage),
     thinkingLanguage: resolveThinkingLanguageSetting(record.thinkingLanguage),
   }
 }
@@ -547,6 +559,32 @@ export class DesktopUiPreferencesService {
       await this.writePreferences(nextPreferences)
       setThinkingLanguagePreference(setting)
       return { preferences: nextPreferences, thinkingLanguage: setting }
+    })
+  }
+
+  /**
+   * Persist the system-prompt language. `auto` defers to `locale`. Like the
+   * other language writes, the in-process setting updates immediately so a
+   * running sidecar follows on the very next request; the thinking cache is
+   * dropped inside `setPromptLanguageSetting` because an `auto` thinking
+   * setting follows this one.
+   */
+  async updatePromptLanguage(raw: unknown): Promise<{
+    preferences: DesktopUiPreferences
+    promptLanguage: PromptLanguageSetting
+  }> {
+    const filePath = this.getPreferencesPath()
+    return this.withWriteLock(filePath, async () => {
+      const { preferences } = await this.readPreferences()
+      const setting = resolvePromptLanguageSetting(raw)
+      const nextPreferences: DesktopUiPreferences = {
+        ...preferences,
+        schemaVersion: preferences.schemaVersion,
+        promptLanguage: setting,
+      }
+      await this.writePreferences(nextPreferences)
+      setPromptLanguageSetting(setting)
+      return { preferences: nextPreferences, promptLanguage: setting }
     })
   }
 

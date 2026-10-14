@@ -4,6 +4,7 @@ import figures from 'figures';
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useNotifications } from 'src/context/notifications.js';
 import { type AnalyticsMetadata_I_VERIFIED_THIS_IS_NOT_CODE_OR_FILEPATHS, logEvent } from 'src/services/analytics/index.js';
+import { localizedPrompt } from '../../../prompts/i18n/index.js';
 import { useAppState, useAppStateStore, useSetAppState } from 'src/state/AppState.js';
 import { getSdkBetas, getSessionId, isSessionPersistenceDisabled, setHasExitedPlanMode, setNeedsAutoModeExitAttachment, setNeedsPlanModeExitAttachment } from '../../../bootstrap/state.js';
 import { generateSessionName } from '../../../commands/rename/generateSessionName.js';
@@ -372,7 +373,7 @@ export function ExitPlanModePermissionRequest({
 
       // Capture the transcript path before context is cleared (session ID will be regenerated)
       const transcriptPath = getTranscriptPath();
-      const transcriptHint = `\n\nIf you need specific details from before exiting plan mode (like exact code snippets, error messages, or content you generated), read the full transcript at: ${transcriptPath}`;
+      const transcriptHint = `\n\n${localizedPrompt('service.compact.transcriptHint', `If you need specific details from before exiting plan mode (like exact code snippets, error messages, or content you generated), read the full transcript at: ${transcriptPath}`, { path: transcriptPath })}`;
       const teamHint = isAgentSwarmsEnabled() ? `\n\nIf this plan can be broken down into multiple independent tasks, consider using the ${TEAM_CREATE_TOOL_NAME} tool to create a team and parallelize the work.` : '';
       const feedbackSuffix = acceptFeedback ? `\n\nUser feedback on this plan: ${acceptFeedback}` : '';
       setAppState(prev => ({

@@ -3,7 +3,7 @@ import { ApiError } from '../api/client'
 import { settingsApi } from '../api/settings'
 import { modelsApi } from '../api/models'
 import { h5AccessApi } from '../api/h5Access'
-import { desktopUiPreferencesApi, type ThinkingLanguageSetting } from '../api/desktopUiPreferences'
+import { desktopUiPreferencesApi, type PromptLanguageSetting, type ThinkingLanguageSetting } from '../api/desktopUiPreferences'
 import { tracesApi } from '../api/traces'
 import {
   type AppMode,
@@ -103,6 +103,7 @@ type SettingsStore = {
   h5AccessDiagnostics: H5AccessDiagnostics | null
   h5AccessError: string | null
   responseLanguage: string
+  promptLanguage: PromptLanguageSetting
   thinkingLanguage: ThinkingLanguageSetting
   uiZoom: number
   isLoading: boolean
@@ -128,6 +129,8 @@ type SettingsStore = {
   setAutoQuestion: (settings: AutoQuestionSettings) => Promise<void>
   acceptAutoModeOptIn: () => Promise<void>
   setLocale: (locale: Locale) => void
+  setPromptLanguage: (setting: PromptLanguageSetting) => Promise<void>
+  loadPromptLanguage: () => Promise<void>
   setThinkingLanguage: (setting: ThinkingLanguageSetting) => Promise<void>
   loadThinkingLanguage: () => Promise<void>
   setTheme: (theme: ThemeMode) => Promise<void>
@@ -250,6 +253,7 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
   activeProviderName: null,
   locale: initialLocale,
   thinkingLanguage: 'auto',
+  promptLanguage: 'auto',
   chatSendBehavior: 'enter',
   outputStyle: DEFAULT_OUTPUT_STYLE,
   outputStyles: DEFAULT_OUTPUT_STYLE_OPTIONS,
@@ -517,6 +521,27 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
       set({ thinkingLanguage })
     } catch (error) {
       console.error('[desktop] Failed to load thinking language', error)
+    }
+  },
+
+  loadPromptLanguage: async () => {
+    try {
+      const { promptLanguage } = await desktopUiPreferencesApi.getPromptLanguage()
+      set({ promptLanguage })
+    } catch (error) {
+      console.error('[desktop] Failed to load prompt language', error)
+    }
+  },
+
+  setPromptLanguage: async (setting) => {
+    const prev = get().promptLanguage
+    set({ promptLanguage: setting })
+    try {
+      await desktopUiPreferencesApi.updatePromptLanguagePreference(setting)
+    } catch (error) {
+      set({ promptLanguage: prev })
+      console.error('[desktop] Failed to persist prompt language', error)
+      throw error
     }
   },
 

@@ -90,6 +90,9 @@ export function GeneralSettings() {
     setAutoQuestion,
     locale,
     setLocale,
+    promptLanguage,
+    setPromptLanguage,
+    loadPromptLanguage,
     thinkingLanguage,
     setThinkingLanguage,
     loadThinkingLanguage,
@@ -263,6 +266,10 @@ export function GeneralSettings() {
     void loadThinkingLanguage()
   }, [loadThinkingLanguage])
 
+  useEffect(() => {
+    void loadPromptLanguage()
+  }, [loadPromptLanguage])
+
   const LANGUAGES: Array<{ value: Locale; label: string }> = [
     { value: 'en', label: 'English' },
     { value: 'zh', label: '简体中文' },
@@ -275,6 +282,12 @@ export function GeneralSettings() {
     { value: 'auto', label: t('settings.general.thinkingLangAuto') },
     { value: 'zh', label: t('settings.general.thinkingLangZh') },
     { value: 'en', label: t('settings.general.thinkingLangEn') },
+  ]
+
+  const PROMPT_LANGUAGES: Array<{ value: 'auto' | 'zh' | 'en'; label: string }> = [
+    { value: 'auto', label: t('settings.general.promptLangAuto') },
+    { value: 'zh', label: t('settings.general.promptLangZh') },
+    { value: 'en', label: t('settings.general.promptLangEn') },
   ]
 
   const RESPONSE_LANGUAGES: Array<{ value: string; label: string }> = [
@@ -944,6 +957,24 @@ export function GeneralSettings() {
               key={value}
               selected={thinkingLanguage === value}
               onClick={() => void setThinkingLanguage(value)}
+            >
+              {label}
+            </SettingsPill>
+          ))}
+        </div>
+      </SettingsSection>
+
+      {/* System prompt language — independent of the UI language */}
+      <SettingsSection
+        title={t('settings.general.promptLangTitle')}
+        description={t('settings.general.promptLangDescription')}
+      >
+        <div className="flex flex-wrap gap-2">
+          {PROMPT_LANGUAGES.map(({ value, label }) => (
+            <SettingsPill
+              key={value}
+              selected={promptLanguage === value}
+              onClick={() => void setPromptLanguage(value)}
             >
               {label}
             </SettingsPill>

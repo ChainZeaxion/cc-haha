@@ -88,6 +88,23 @@ export async function handleDesktopUiApi(
       return Response.json({ ok: true, locale: preferences.locale, promptLanguage })
     }
 
+    if (detail === 'prompt-language') {
+      if (req.method === 'GET') {
+        const result = await desktopUiPreferencesService.readPreferences()
+        return Response.json({
+          exists: result.exists,
+          promptLanguage: result.preferences.promptLanguage,
+        })
+      }
+      if (req.method !== 'PUT') throw methodNotAllowed(req.method)
+      const body = await parseJsonBody(req)
+      const { preferences, promptLanguage } =
+        await desktopUiPreferencesService.updatePromptLanguage(
+          (body as { promptLanguage?: unknown } | null)?.promptLanguage,
+        )
+      return Response.json({ ok: true, promptLanguage, locale: preferences.locale })
+    }
+
     if (detail === 'thinking-language') {
       if (req.method === 'GET') {
         const result = await desktopUiPreferencesService.readPreferences()
