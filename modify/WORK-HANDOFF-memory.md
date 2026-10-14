@@ -1,5 +1,24 @@
 # cc-haha 0.6.6 重实现 — 交接检查点（2026-09-29 更新：28 章 + 七处真根因，64 链）
 
+## ⚠️ 移交 studio 工作区：onecat（Anthropic 入站）剥离 token_ids，ids 精确 TPS 通路断在引擎侧（2026-10-14 发现，待 studio 会话修复）
+
+**现象**：cc-haha dev 实测（WS 全事件监听，会话 d1a3a112）**全程 0 个 `tps_tokens` 事件**——TpsIndicator 的实时读数全部退化为字符估算，从未接到引擎精确计数。cc-haha 侧链路自证完好（见下），断点在 onecat（8866）。
+
+**根因链**（`1cat-studio/studio/backend/onecat/proxy.py`）：
+1. cc-haha CLI 请求带 `X-Claude-Code-Session-Id`（`src/services/api/client.ts:227` ✓）；cc-haha proxy 对私网引擎转发时加 `x-return-token-ids: 1` **header**（`src/server/proxy/handler.ts:617`，刻意只发 header 不改 body，保「byte-for-byte 透传」，:612-614 注释）。
+2. onecat `_forward` **只认 body 字段 `return_token_ids`**（proxy.py:573 `requested_ids = body.get("return_token_ids", False)`），**不读 `x-return-token-ids` header** → anthropic 入站（/v1/messages，dialect="anthropic"）时 `requested_ids=False`。
+3. 但 579 行对 vLLM 无条件 `body["return_token_ids"] = True` → 引擎确实逐 delta 回了 token_ids。
+4. 出站 810 行 `if not requested_ids: strip_ids(event, dialect)` → **token_ids 全部剥离后才转发**。
+5. cc-haha 的 `anthropicTokenTap` 等的就是 `content_block_delta.token_ids`（`anthropicTokenTap.ts:55-57`）→ 永远数到 0 → `emitTpsTokens` 不发。且 cc-haha 侧探针 10s×2 次落空即把 origin 拉黑（handler.ts:1016-1024 `tokenIdUnsupportedOrigins`），连 header 都不再发。
+
+**决定性佐证**：同一 8866 走 **OpenAI chat completions** 路径实测回 11 个 `token_ids` 块（请求带 body 字段 `return_token_ids:true` → `requested_ids=True` → 不剥离）——剥离逻辑本身没问题，只断在「anthropic 入站认不出请求方的意图」这一层。
+
+**建议修法（一行级，onecat 侧）**：`_forward` 的 anthropic 分支读 `request.headers.get("x-return-token-ids")`，视同 `requested_ids=True`（即 810 行不剥离）。OpenAI 入站路径无需动。修后 cc-haha 侧无需任何改动，`tps_tokens` 事件恢复、TpsIndicator/思考徽章 thinkingTokens/密度池校准自动接上真值；若需触发 cc-haha 重新探测（origin 已被拉黑），重启 dev sidecar 即可（拉黑表是内存态）。
+
+**备选修法 B（不推荐）**：cc-haha `handleAnthropicCompatible` 对私网引擎往 body 注入 `return_token_ids: true`——违背直通字节保真设计，且是 vLLM 系私有字段。
+
+**验收**：onecat 修复 + reload 后，cc-haha dev 起会话收流式回复，WS 监听应看到 `[tps_tokens]` 事件（thinking/content/tool 三种 kind）；TpsIndicator 读数应从「≈估算」变为引擎真值口径。
+
 ## 最新状态（2026-09-29）
 
 - **分支**：custom-066。**链 61 → 64**（新增链位 **62** `tps-bucket-engine-rewrite.patch`、**63** `subagent-usage-cross-client.patch`、**64** `tps-background-freeze.patch`）。
