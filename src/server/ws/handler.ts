@@ -3504,7 +3504,7 @@ export function translateCliMessage(cliMsg: any, sessionId: string): ServerMessa
       // CLI 发送 type:'user' 消息，其中 content 包含 tool_result 块
       const messages: ServerMessage[] = []
 
-      if (isCompactSummaryMessageContent(cliMsg.message?.content)) {
+      if (isCompactSummaryMessageContent(cliMsg.message?.content, cliMsg.isCompactSummary)) {
         messages.push({
           type: 'system_notification',
           subtype: 'compact_summary',

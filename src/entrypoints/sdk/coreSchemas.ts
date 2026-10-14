@@ -1310,6 +1310,9 @@ const SDKUserMessageContentSchema = lazySchema(() =>
     message: APIUserMessagePlaceholder(),
     parent_tool_use_id: z.string().nullable(),
     isSynthetic: z.boolean().optional(),
+    // Marks a post-compaction summary message. Consumers must anchor on this
+    // flag rather than the summary's first line, which is localized.
+    isCompactSummary: z.boolean().optional(),
     tool_use_result: z.unknown().optional(),
     priority: z.enum(['now', 'next', 'later']).optional(),
     timestamp: z

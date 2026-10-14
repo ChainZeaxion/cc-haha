@@ -136,6 +136,11 @@ export function toSDKMessages(messages: Message[]): SDKMessage[] {
             uuid: message.uuid,
             timestamp: message.timestamp,
             isSynthetic: message.isMeta || message.isVisibleInTranscriptOnly,
+            // Compact summaries must keep their identity across the bridge:
+            // downstream consumers (WS compact_summary cards, desktop folding)
+            // anchor on this flag, not on the summary's first line — which is
+            // localized and therefore not a stable anchor.
+            ...(message.isCompactSummary ? { isCompactSummary: true } : {}),
             // Structured tool output (not the string content sent to the
             // model — the full Output object). Rides the protobuf catchall
             // so web viewers can read things like BriefTool's file_uuid

@@ -1181,6 +1181,52 @@ describe('chatStore history mapping', () => {
     ])
   })
 
+  it('folds a Chinese-headed compact summary into the compact card via the flag', () => {
+    // The head sentence is localized; without the flag the text anchors miss
+    // and the whole summary renders as a user bubble (the reported bug).
+    const messages: MessageEntry[] = [
+      {
+        id: 'zh-summary',
+        type: 'user',
+        isCompactSummary: true,
+        content: [
+          '本会话由一段超出上下文的先前对话继续而来。下方摘要覆盖了对话较早的部分。',
+          '',
+          '[Session Goal]',
+          '- 修复摘要识别',
+          '',
+          '若你需要压缩前的具体细节（如确切的代码片段、报错信息或你生成的内容），请阅读完整实录：/tmp/transcript.jsonl',
+        ].join('\n'),
+        timestamp: '2026-10-14T10:00:01.000Z',
+      },
+    ]
+
+    const mapped = mapHistoryMessagesToUiMessages(messages)
+
+    expect(mapped).toHaveLength(1)
+    expect(mapped[0]).toMatchObject({
+      type: 'compact_summary',
+      title: 'Context compacted',
+      summary: '[Session Goal]\n- 修复摘要识别',
+    })
+  })
+
+  it('folds a Chinese-headed compact summary by text anchor when the flag is absent', () => {
+    const messages: MessageEntry[] = [
+      {
+        id: 'zh-summary-legacy',
+        type: 'user',
+        content: '本会话由一段超出上下文的先前对话继续而来。下方摘要覆盖了对话较早的部分。\n\n[Session Goal]\n- 修复摘要识别',
+        timestamp: '2026-10-14T10:00:01.000Z',
+      },
+    ]
+
+    const mapped = mapHistoryMessagesToUiMessages(messages)
+
+    expect(mapped).toHaveLength(1)
+    expect(mapped[0]).toMatchObject({ type: 'compact_summary', summary: '[Session Goal]\n- 修复摘要识别' })
+  })
+
   it('drops compact local command stdout after mapping compact history', () => {
     const messages: MessageEntry[] = [
       {

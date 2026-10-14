@@ -320,12 +320,43 @@ export function getCompactBoundaryMessage(cliMsg: any): string {
   return 'Context compacted'
 }
 
-export function isCompactSummaryMessageContent(content: unknown): content is string {
+// The summary's first line is localized (prompt-i18n), so text anchors can
+// only ever be a fallback. Prefer the isCompactSummary flag riding the SDK
+// frame; these constants exist for older transcripts and bridges that predate
+// the flag.
+const COMPACT_SUMMARY_PREFIXES = [
+  'This session is being continued from a previous conversation that ran out of context. The summary below covers the earlier portion of the conversation.',
+  '本会话由一段超出上下文的先前对话继续而来。下方摘要覆盖了对话较早的部分。',
+]
+
+export function isCompactSummaryMessageContent(
+  content: unknown,
+  hasFlag?: boolean,
+): content is string {
+  // The flag rides the SDK frame (set by toSDKMessages) — authoritative and
+  // language-independent. The prefixes are the fallback for frames that
+  // predate it.
+  if (hasFlag === true) return typeof content === 'string'
+  if (typeof content !== 'string') return false
+  const trimmed = content.trim()
+  return COMPACT_SUMMARY_PREFIXES.some(prefix => trimmed.startsWith(prefix))
+}
+
+/**
+ * Anchor that works regardless of the head sentence's language: the section
+ * headers are code-generated English in every locale.
+ */
+export function looksLikeCompactSummaryContent(content: unknown): content is string {
+  if (typeof content !== 'string') return false
+  const trimmed = content.trim()
+  if (isCompactSummaryMessageContent(trimmed)) return true
+  // A summary always opens with at least one generated section header.
   return (
-    typeof content === 'string' &&
-    content.trim().startsWith(
-      'This session is being continued from a previous conversation that ran out of context. The summary below covers the earlier portion of the conversation.',
-    )
+    trimmed.startsWith('[Session Goal]') ||
+    trimmed.startsWith('[Files And Changes]') ||
+    trimmed.startsWith('[Outstanding Context]') ||
+    trimmed.startsWith('[Preferences Observed]') ||
+    trimmed.startsWith('[Notable Exchange]')
   )
 }
 
@@ -343,6 +374,7 @@ export function extractReplayUserText(cliMsg: any): string | null {
   const commandDisplayText = getCommandMetadataDisplayText(content)
   if (commandDisplayText) return commandDisplayText
   if (shouldHideCommandMetadataContent(content)) return null
+  if (cliMsg.isCompactSummary === true) return null
   if (isCompactSummaryMessageContent(content)) return null
   if (hasToolResultBlock(content)) return null
   if (extractLocalCommandOutput(content)) return null

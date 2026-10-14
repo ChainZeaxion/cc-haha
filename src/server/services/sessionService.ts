@@ -395,6 +395,7 @@ export type RawEntry = {
   parent_tool_use_id?: string | null
   isSidechain?: boolean
   isMeta?: boolean
+  isCompactSummary?: boolean
   forkedFrom?: unknown
   cwd?: string
   message?: {
@@ -2193,6 +2194,7 @@ export class SessionService {
       parentUuid: entry.parentUuid ?? undefined,
       parentToolUseId,
       isSidechain: entry.isSidechain,
+      ...(entry.isCompactSummary === true ? { isCompactSummary: true } : {}),
       ...(typeof entry.cwd === 'string' && entry.cwd.trim() ? { cwd: entry.cwd } : {}),
     }
   }

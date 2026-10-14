@@ -71,6 +71,8 @@ export type MessageEntry = {
   parentUuid?: string
   parentToolUseId?: string
   isSidechain?: boolean
+  /** Post-compaction summary message; fold it into a compact card, not a user bubble. */
+  isCompactSummary?: true
 }
 
 export type SessionDetail = SessionListItem & {

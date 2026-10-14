@@ -916,11 +916,65 @@ function clearPendingToolParentUseIds(sessionId: string): void {
 const AGENT_COMPLETION_NOTIFICATION_PREVIEW_CHARS = 160
 const COMPACT_SUMMARY_PREFIX =
   'This session is being continued from a previous conversation that ran out of context. The summary below covers the earlier portion of the conversation.'
+// The head sentence is localized (prompt-i18n), so the English prefix only
+// covers legacy transcripts; the Chinese twin covers current zh sessions.
+// The cutoffs carry the same duality.
+const COMPACT_SUMMARY_PREFIXES = [
+  COMPACT_SUMMARY_PREFIX,
+  '本会话由一段超出上下文的先前对话继续而来。下方摘要覆盖了对话较早的部分。',
+]
 const COMPACT_SUMMARY_CUTOFFS = [
   '\n\nIf you need specific details from before compaction',
   '\n\nContinue the conversation from where it left off',
   '\nContinue the conversation from where it left off',
+  '\n\n若你需要压缩前的具体细节',
+  '\n\n从上次中断处继续对话',
+  '\n从上次中断处继续对话',
 ]
+
+function stripCompactSummaryWrappers(summary: string): string {
+  let result = summary
+  for (const marker of COMPACT_SUMMARY_CUTOFFS) {
+    const index = result.indexOf(marker)
+    if (index >= 0) {
+      result = result.slice(0, index).trim()
+    }
+  }
+  return result
+}
+
+/**
+ * `isCompactSummary` (the message flag) wins when present — the head sentence
+ * is localized and therefore not a stable anchor. The English/Chinese prefixes
+ * are the fallback for transcripts that predate the flag.
+ */
+function extractCompactSummaryContent(
+  content: unknown,
+  hasFlag?: boolean,
+): string | null {
+  if (typeof content !== 'string') return null
+  const trimmed = content.trim()
+
+  if (hasFlag === true) {
+    let summary = trimmed
+    for (const prefix of COMPACT_SUMMARY_PREFIXES) {
+      if (summary.startsWith(prefix)) {
+        summary = summary.slice(prefix.length).trim()
+        break
+      }
+    }
+    return stripCompactSummaryWrappers(summary) || null
+  }
+
+  for (const prefix of COMPACT_SUMMARY_PREFIXES) {
+    if (trimmed.startsWith(prefix)) {
+      return (
+        stripCompactSummaryWrappers(trimmed.slice(prefix.length).trim()) || null
+      )
+    }
+  }
+  return null
+}
 
 let msgCounter = 0
 const nextId = () => `msg-${++msgCounter}-${Date.now()}`
@@ -1621,19 +1675,9 @@ function appendAssistantTextMessage(
   ]
 }
 
-function extractCompactSummaryContent(content: unknown): string | null {
-  if (typeof content !== 'string') return null
-  const trimmed = content.trim()
-  if (!trimmed.startsWith(COMPACT_SUMMARY_PREFIX)) return null
-
-  let summary = trimmed.slice(COMPACT_SUMMARY_PREFIX.length).trim()
-  for (const marker of COMPACT_SUMMARY_CUTOFFS) {
-    const index = summary.indexOf(marker)
-    if (index >= 0) {
-      summary = summary.slice(0, index).trim()
-    }
-  }
-  return summary || null
+/** The SDK user frame carries the summary identity; text anchors are only fallback. */
+function isCompactSummaryFrame(msg: unknown): boolean {
+  return isRecord(msg) && msg.isCompactSummary === true
 }
 
 function compactMetadataFromUnknown(data: unknown): Pick<CompactSummaryMessage, 'trigger' | 'preTokens' | 'messagesSummarized'> {
@@ -6392,7 +6436,10 @@ export const useChatStore = create<ChatStore>((setState, get) => {
           }))
         }
         if (msg.subtype === 'compact_summary') {
-          const summary = extractCompactSummaryContent(msg.message)
+          const summary = extractCompactSummaryContent(
+            msg.message,
+            isCompactSummaryFrame(msg),
+          )
           if (summary) {
             update((session) => ({
               messages: appendOrUpdateTailCompactSummary(
@@ -8662,7 +8709,10 @@ export function mapHistoryMessagesToUiMessages(
         continue
       }
 
-      const compactSummary = extractCompactSummaryContent(msg.content)
+      const compactSummary = extractCompactSummaryContent(
+        msg.content,
+        msg.isCompactSummary === true,
+      )
       if (compactSummary) {
         const compactMessages = appendOrUpdateTailCompactSummary(
           uiMessages,
