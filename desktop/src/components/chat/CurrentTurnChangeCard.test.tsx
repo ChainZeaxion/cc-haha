@@ -108,6 +108,7 @@ vi.mock('../../i18n', () => ({
 // ──────────────────────────────────────────────────────────────────────────────
 import { CurrentTurnChangeCard } from './CurrentTurnChangeCard'
 import { localFileUrl } from '../../lib/handlePreviewLink'
+import { useWorkspaceContentStore } from '../../stores/workspaceContentStore'
 import type { SessionTurnCheckpoint } from '../../api/sessions'
 import { en } from '../../i18n/locales/en'
 import { zh } from '../../i18n/locales/zh'
@@ -466,6 +467,28 @@ describe('CurrentTurnChangeCard – a document the workspace can draw', () => {
     expect(openPreviewSpy).toHaveBeenCalledWith('s1', 'out/thesis.docx', 'file', expect.objectContaining({ sourceTurnKey: 'msg-1' }))
     expect(reviewOpenSpy).not.toHaveBeenCalled()
     expect(openSystemFileSpy).not.toHaveBeenCalled()
+  })
+
+  it('falls back to a plain preview when the session is over the history budget', () => {
+    // The turn-diff routes read the whole transcript and answer 413 for an
+    // oversized session, which used to leave the opened tab on an error. The
+    // tap was after the file; the bounded file route still serves it.
+    useWorkspaceContentStore.setState({
+      statusBySession: {
+        s1: {
+          state: 'error', workDir: '/w/proj', repoName: null, branch: null,
+          isGitRepo: false, changedFiles: [], error: 'HISTORY_WORKSPACE_LIMIT',
+        },
+      },
+    })
+
+    renderExpandedCard(['/w/proj/src/report.md'])
+    fireEvent.click(screen.getByRole('button', { name: /turnChangesOpenInWorkspaceAria/ }))
+
+    expect(openPreviewSpy).toHaveBeenCalledWith('s1', 'src/report.md', 'file', expect.objectContaining({ sourceTurnKey: 'msg-1' }))
+    expect(reviewOpenSpy).not.toHaveBeenCalled()
+
+    useWorkspaceContentStore.setState({ statusBySession: {} })
   })
 
   it.each(['out/budget.xlsx', 'out/legacy.xls'])('opens an Excel workbook (%s) itself too, not its diff', (relative) => {

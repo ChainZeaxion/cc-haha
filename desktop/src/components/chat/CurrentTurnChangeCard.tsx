@@ -17,6 +17,7 @@ import { workspaceOpen } from '../../lib/workspace/openTarget'
 import { isWorkspaceDocumentFile, isWorkspacePreviewableFile } from '../../lib/fileCapabilities'
 import { canOpenWithSystem, openFileWithSystemOrOfferSave } from '../../lib/systemFileOpen'
 import { openFileOutsideWorkspace } from '../../lib/openOutsideWorkspaceFile'
+import { useWorkspaceContentStore } from '../../stores/workspaceContentStore'
 
 type CurrentTurnChangeCardProps = {
   sessionId: string
@@ -111,6 +112,14 @@ export function CurrentTurnChangeCard({
     // A document has no line diff: the turn's recorded change for it is empty, so
     // the review view would open onto nothing. What was asked for is the document.
     if (isWorkspaceDocumentFile(fileEntry.displayPath)) {
+      workspaceOpen.file(sessionId, fileEntry.displayPath, { origin, requestedBy: 'user' })
+      return
+    }
+    // The turn-diff view reads the whole transcript through the checkpoint
+    // routes, so a session past the history budget serves it as a 413 and the
+    // tab opens onto an error. The file itself is served by bounded reads —
+    // fall back to a plain preview, which is what the tap was after anyway.
+    if (useWorkspaceContentStore.getState().isSessionOverHistoryBudget(sessionId)) {
       workspaceOpen.file(sessionId, fileEntry.displayPath, { origin, requestedBy: 'user' })
       return
     }

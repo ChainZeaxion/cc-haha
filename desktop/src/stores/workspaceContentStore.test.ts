@@ -9,6 +9,7 @@ const mocks = vi.hoisted(() => ({
   getWorkspaceFile: vi.fn(),
   getWorkspaceTree: vi.fn(),
   getWorkspaceStatus: vi.fn(),
+  getGitInfo: vi.fn(),
 }))
 
 vi.mock('../api/sessions', () => ({
@@ -16,6 +17,7 @@ vi.mock('../api/sessions', () => ({
     getWorkspaceFile: mocks.getWorkspaceFile,
     getWorkspaceTree: mocks.getWorkspaceTree,
     getWorkspaceStatus: mocks.getWorkspaceStatus,
+    getGitInfo: mocks.getGitInfo,
   },
 }))
 
@@ -25,6 +27,7 @@ import {
   peekDocumentBlob,
   resetDocumentBlobCacheForTests,
 } from '../lib/workspace/documentBlobCache'
+import { ApiError } from '../api/client'
 import { useWorkspaceContentStore, workspaceFileKey } from './workspaceContentStore'
 
 function deferred<T>() {
@@ -55,6 +58,7 @@ beforeEach(() => {
   mocks.getWorkspaceFile.mockReset()
   mocks.getWorkspaceTree.mockReset()
   mocks.getWorkspaceStatus.mockReset()
+  mocks.getGitInfo.mockReset()
 })
 
 describe('file content', () => {
@@ -313,6 +317,30 @@ describe('session lifetime', () => {
     mocks.getWorkspaceStatus.mockRejectedValue(new Error('offline'))
     await store().loadStatus(SESSION)
     expect(useWorkspaceContentStore.getState().statusBySession[SESSION]).toBeUndefined()
+  })
+
+  it('degrades a 413 budget refusal to an error status that still carries the workdir', async () => {
+    mocks.getWorkspaceStatus.mockRejectedValue(new ApiError(413, { error: 'HISTORY_WORKSPACE_LIMIT' }))
+    mocks.getGitInfo.mockResolvedValue({
+      branch: 'main', repoName: 'big-repo', workDir: '/repo', changedFiles: 0, worktree: null,
+    })
+
+    await store().loadStatus(SESSION)
+
+    const status = useWorkspaceContentStore.getState().statusBySession[SESSION]
+    expect(status).toMatchObject({ state: 'error', workDir: '/repo', error: 'HISTORY_WORKSPACE_LIMIT' })
+    expect(status?.changedFiles).toHaveLength(0)
+    expect(store().isSessionOverHistoryBudget(SESSION)).toBe(true)
+    // The bounded git-info fallback is what keeps the file-tree menu alive.
+    expect(mocks.getGitInfo).toHaveBeenCalledWith(SESSION)
+  })
+
+  it('reports a non-budget session as not over the history budget', async () => {
+    mocks.getWorkspaceStatus.mockResolvedValue({
+      state: 'ok', workDir: '/repo', repoName: null, branch: null, isGitRepo: false, changedFiles: [],
+    })
+    await store().loadStatus(SESSION)
+    expect(store().isSessionOverHistoryBudget(SESSION)).toBe(false)
   })
 })
 

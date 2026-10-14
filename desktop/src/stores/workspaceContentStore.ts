@@ -5,6 +5,7 @@ import {
   type WorkspaceStatusResult,
   type WorkspaceTreeResult,
 } from '../api/sessions'
+import { ApiError } from '../api/client'
 import { forgetDocumentBlobs } from '../lib/workspace/documentBlobCache'
 
 /**
@@ -87,6 +88,8 @@ type WorkspaceContentStore = {
   getTree: (sessionId: string, path: string) => WorkspaceTreeResult | undefined
   isTreeLoading: (sessionId: string, path: string) => boolean
   isExpanded: (sessionId: string, path: string) => boolean
+  /** Whether the last status probe refused this session's transcript (413 budget). */
+  isSessionOverHistoryBudget: (sessionId: string) => boolean
 
   loadStatus: (sessionId: string, options?: { force?: boolean; signal?: AbortSignal }) => Promise<void>
   loadFile: (sessionId: string, path: string, options?: { force?: boolean; signal?: AbortSignal }) => Promise<void>
@@ -179,6 +182,12 @@ export const useWorkspaceContentStore = create<WorkspaceContentStore>((set, get)
   isTreeLoading: (sessionId, path) => get().treeLoadingByKey[key(sessionId, path)] === true,
   isExpanded: (sessionId, path) => (get().expandedBySession[sessionId] ?? []).includes(path),
 
+  /** Whether the last status probe refused this session's transcript (413 budget). */
+  isSessionOverHistoryBudget: (sessionId) => {
+    const status = get().statusBySession[sessionId]
+    return status?.state === 'error' && status.error === 'HISTORY_WORKSPACE_LIMIT'
+  },
+
   loadStatus: async (sessionId, options) => {
     if (options?.signal?.aborted) return
     const key = `${sessionId}::status`
@@ -192,9 +201,34 @@ export const useWorkspaceContentStore = create<WorkspaceContentStore>((set, get)
       const result = await sessionsApi.getWorkspaceStatus(sessionId, options?.signal)
       if (options?.signal?.aborted || !isCurrent(fileRequests, key, request)) return
       set((state) => ({ statusBySession: { ...state.statusBySession, [sessionId]: result } }))
-    } catch {
+    } catch (error) {
       // The launcher only needs this to explain why review is unavailable; a
       // failed probe leaves the entry enabled rather than blaming the folder.
+      //
+      // A transcript past the history budget (413) is different: the status call
+      // is the client's only source of `workDir`, and the file-tree open-with
+      // menu, downloads and absolute-path previews all read it. Bounded reads
+      // like `git-info` still answer, so a budget refusal degrades to an error
+      // status carrying just the workdir — the changed-file list is the part
+      // that was too expensive anyway.
+      if (error instanceof ApiError && error.status === 413 && !options?.signal?.aborted) {
+        try {
+          const gitInfo = await sessionsApi.getGitInfo(sessionId)
+          if (options?.signal?.aborted || !isCurrent(fileRequests, key, request)) return
+          set((state) => ({ statusBySession: { ...state.statusBySession, [sessionId]: {
+            state: 'error',
+            workDir: gitInfo.workDir,
+            repoName: gitInfo.repoName,
+            branch: gitInfo.branch,
+            isGitRepo: gitInfo.branch !== null,
+            changedFiles: [],
+            error: 'HISTORY_WORKSPACE_LIMIT',
+          } } }))
+          return
+        } catch {
+          // Fall through: leave the entry unset so a later retry is not blocked.
+        }
+      }
     }
   },
 
