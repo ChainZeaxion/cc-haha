@@ -108,3 +108,11 @@ patches/usage/usage-context-estimation-patch1.patch
 # 正确、replay 不泄漏、promptLanguage=en 时思考回英文（联动链闭合）。
 # 9 文件（7 src/ + 2 desktop/）。干净 `54ae13c69` 上 apply ⇒ 9 文件逐字节一致 ✅ 2026-10-14 已实测。
 patches/compact/compact-summary-anchor-patch1.patch
+
+# 43：⚠️ 基座 = `d240afe84`（0.6.7 血缘）—— **独立应用**。
+# 流式指示器吃引擎真值（2026-10-14）：`tps_tokens` 已喂 TPS 米表与思考徽章，但 StreamingIndicator 的
+# 「本轮 N tokens」仍走四类字符估算。新增会话态 `streamingResponseExactTokens`（tps_tokens 逐批累加，
+# attempt 边界镜像——失败且无副作用的流尝试回滚与字符计数同规），`estimateStreamingTokens` 真值优先、
+# ids 通路不可用时回落估算（行为不变）。依赖 ids 通路（onecat 侧 token_ids 透传修复，见 WORK-HANDOFF）。
+# 2 文件（chatStore.ts + 测试）。干净 `d240afe84` 上 apply ⇒ 2 文件逐字节一致 ✅ 2026-10-14 已实测。
+patches/tps/tps-streaming-exact-patch1.patch
