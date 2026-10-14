@@ -124,3 +124,10 @@ patches/tps/tps-streaming-exact-patch1.patch
 # ② 密度池拟合加指数新近权重（halfLife = 池一半）——分词器/引擎更新时拟合跟随漂移而非跨缝平均，
 #   halfLife 0 = 旧等权拟合。6 文件。干净 `7d70a15c3` 上 apply ⇒ 6 文件逐字节一致 ✅ 2026-10-14 已实测。
 patches/tps/tps-density-unification-patch1.patch
+
+# 45：⚠️ 基座 = `c18d4228`（0.6.7 血缘）—— **独立应用**。
+# TPS 工具期静默读数修复 + ids 模式回落（2026-10-14）：工具调用超 1.5s 后指示器冻结在工具前速率——静默
+# 隐式判停区分不了「回合已结束」与「引擎在执行工具」。修复：value() 仅在 callOpen=false 时冻结，回合中途
+# 静默回落零桶平均（读数落 0）；ids 模式防饿死——tps_tokens 断供而流帧持续到达超 10s 时回落字符采样。
+# 4 文件。干净 `c18d4228` 上 apply ⇒ 4 文件逐字节一致 ✅ 2026-10-14 已实测。
+patches/tps/tps-midturn-silence-patch1.patch

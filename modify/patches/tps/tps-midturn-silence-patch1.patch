@@ -1,0 +1,192 @@
+# patch 45：⚠️ 基座 = `c18d4228`（0.6.7 血缘）—— **独立应用**。
+# TPS 工具期静默读数修复 + ids 模式回落（2026-10-14）：工具调用（Write/Edit 等）超过 LIVE_GAP_MS=1.5s 后
+# 指示器冻结在工具前速率——静默隐式判停区分不了「回合已结束」（保持末速）与「引擎在执行工具」（空桶即真
+# 实读数）。修复：① value() 仅在 callOpen=false（call 已对账/endStream）时冻结，回合中途静默回落零桶平均
+# （读数落 0，近零 hold 挡边界抖动），下一帧 clearGrid 重新计量；② ids 模式防饿死——tps_tokens 断供（探针
+# 拉黑/中继重启）而流帧持续到达超 10s 时，回落字符采样（reset 网格），不再永久 touch 丢弃。
+# 4 文件（tpsMeter.ts/test、chatStore.ts/test）。干净 `c18d4228` 上 apply ⇒ 4 文件逐字节一致。
+diff --git a/desktop/src/lib/tpsMeter.test.ts b/desktop/src/lib/tpsMeter.test.ts
+index ac5a51f35..c64747386 100644
+--- a/desktop/src/lib/tpsMeter.test.ts
++++ b/desktop/src/lib/tpsMeter.test.ts
+@@ -229,6 +229,37 @@ describe('closing the stream', () => {
+     clock.advance(2000)
+     expect(meter.value()).toBeCloseTo(104, 0)
+   })
++
++  it('reads zero through a mid-call silence instead of freezing the old rate', () => {
++    const clock = arrivalClock()
++    const meter = new TpsMeter('arrival')
++    const gen = { at: 0 }
++    steady(meter, clock, 16, 13, gen)
++    // A tool call starts executing: the call window is open (no endCall yet) and
++    // no tokens arrive while the engine runs it. The honest reading is "nothing
++    // is decoding right now" — holding the pre-tool speed here is what read as a
++    // stuck indicator for the whole tool call.
++    meter.ensureCall()
++    clock.advance(2000)
++    expect(meter.value()).toBe(0)
++
++    // And the reading recovers as soon as tokens flow again (the grid restarts
++    // on the first frame after the gap).
++    steady(meter, clock, 8, 13, gen)
++    expect(meter.value()).toBeCloseTo(104, 0)
++  })
++
++  it('keeps the end-of-call rate once the call has been reconciled', () => {
++    const clock = arrivalClock()
++    const meter = new TpsMeter('arrival')
++    const gen = { at: 0 }
++    steady(meter, clock, 16, 13, gen)
++    // endCall closed the window: a silence now is a finished turn, and the last
++    // real rate is what the readout should hold.
++    meter.endCall(156, 1500)
++    clock.advance(2000)
++    expect(meter.value()).toBeCloseTo(156 / 1.5, 5)
++  })
+ })
+ 
+ describe('clock discipline', () => {
+diff --git a/desktop/src/lib/tpsMeter.ts b/desktop/src/lib/tpsMeter.ts
+index 3f304d654..8181143bb 100644
+--- a/desktop/src/lib/tpsMeter.ts
++++ b/desktop/src/lib/tpsMeter.ts
+@@ -920,13 +920,22 @@ export class TpsMeter {
+   value(): number {
+     if (!this.everStreamed) return 0
+     const now = performance.now()
+-    // A silence past LIVE_GAP_MS means the stream has stopped, so there is no
+-    // live speed left to report — show what the last one was. Settling here as
+-    // well as in endStream() is what makes the implicit end a real one: a
+-    // finished run's terminal notice arrives as a task event, not as a frame, so
+-    // this read is the only close its meter ever sees. This is the same
+-    // threshold at which placeFrame drops the grid, so the two agree.
+-    if (this.ended || (this.lastPushAt > 0 && now - this.lastPushAt > LIVE_GAP_MS)) {
++    // A silence past LIVE_GAP_MS means no tokens have arrived for a while. What
++    // that *means* depends on whether the call is still open:
++    //  - Call closed (the turn's usage reconciled in endCall) or explicitly
++    //    ended: the stream has stopped for good, so show the last real rate.
++    //    Settling here as well as in endStream() is what makes the implicit end
++    //    a real one: a finished run's terminal notice arrives as a task event,
++    //    not as a frame, so this read is the only close its meter ever sees.
++    //    This is the same threshold at which placeFrame drops the grid, so the
++    //    two agree.
++    //  - Call still open (mid-turn — the engine is executing a tool, or the
++    //    exact-count feed dropped out): the silence is a real pause in
++    //    generation, and the buckets say so — an empty window averages to zero.
++    //    Freezing the pre-pause rate here is what read as "stuck" whenever a
++    //    Write/Edit ran longer than the gap: the display held a speed the engine
++    //    was no longer producing.
++    if (this.ended || (!this.callOpen && this.lastPushAt > 0 && now - this.lastPushAt > LIVE_GAP_MS)) {
+       if (!this.settled) this.settle()
+       return this.held()
+     }
+diff --git a/desktop/src/stores/chatStore.test.ts b/desktop/src/stores/chatStore.test.ts
+index 77dbdb742..732bb6845 100644
+--- a/desktop/src/stores/chatStore.test.ts
++++ b/desktop/src/stores/chatStore.test.ts
+@@ -11028,6 +11028,32 @@ describe('chatStore history mapping', () => {
+     }
+   })
+ 
++  it('falls back to sampling when the exact feed goes silent while frames keep arriving', () => {
++    const sessionId = '__tps-ids-fallback'
++    useChatStore.setState({ sessions: { [sessionId]: makeSession() } })
++    let now = 2_000_000
++    const nowSpy = vi.spyOn(performance, 'now').mockImplementation(() => now)
++
++    // The relay speaks once: the session locks onto exact counts.
++    useChatStore.getState().handleServerMessage(sessionId, { type: 'tps_tokens', tokens: 40, kind: 'content' })
++    useChatStore.getState().handleServerMessage(sessionId, { type: 'content_delta', text: 'x'.repeat(200) })
++    const meter = getSessionTpsMeter(sessionId)
++    expect(meter.source()).toBe('ids')
++
++    // Then the feed stops (probe blacklisted the origin, relay restarted), but
++    // the engine keeps producing and the frames keep arriving. Past the silence
++    // bound a frame must fall back to character sampling — the touched-away
++    // path would starve the meter forever.
++    now += 10_500
++    useChatStore.getState().handleServerMessage(sessionId, { type: 'content_delta', text: 'y'.repeat(350) })
++    now += 125 // let the bucket it landed in complete
++    expect(meter.source()).toBe('char')
++    // 350 ASCII chars / 3.5 = 100 sampled tokens (the relaying tier is gone).
++    expect(meter.windowTokens()).toBeCloseTo(100, 0)
++
++    nowSpy.mockRestore()
++  })
++
+   it('drops the sampling window when the transport reconnects', () => {
+     clearTpsCalibration()
+     const sessionId = '__tps-reconnect'
+diff --git a/desktop/src/stores/chatStore.ts b/desktop/src/stores/chatStore.ts
+index 9fbd1af05..30a3fff61 100644
+--- a/desktop/src/stores/chatStore.ts
++++ b/desktop/src/stores/chatStore.ts
+@@ -1143,6 +1143,25 @@ const tpsCalibrationModelBySession = new Map<string, string | undefined>()
+  */
+ const tpsIdsModeBySession = new Map<string, boolean>()
+ 
++/** The wall-clock moment a session's `tps_tokens` feed last spoke. */
++const lastTpsTokensAtBySession = new Map<string, number>()
++
++/**
++ * How long the exact-count feed may stay silent while stream frames keep
++ * arriving before a session falls back to character sampling.
++ *
++ * The `tps_tokens` feed is sticky once it has spoken (the meter resets its grid
++ * on the tier switch, so flickering between modes would corrupt the window), but
++ * stickiness assumes the feed stays alive. It can stop mid-session — the probe
++ * blacklists an origin after two silent requests, a relay restarts, an engine
++ * stops attaching ids — and then the session would sample nothing forever: text
++ * frames keep arriving only to be touched away, and the meter starves. Ten
++ * seconds of frames-without-counts is far past any real batching gap (the relay
++ * flushes every 200 ms) and still brief enough that the readout recovers within
++ * a turn.
++ */
++const IDS_FALLBACK_SILENCE_MS = 10_000
++
+ /**
+  * Feed one of a session's own streamed frames into its TPS meter, opening the
+  * call window on the first frame so endCall() can reconcile it afterwards.
+@@ -1155,9 +1174,22 @@ function pushTpsFrame(
+   if (!isTpsEnabled()) return
+   const meter = getSessionTpsMeter(sessionId)
+   if (tpsIdsModeBySession.get(sessionId)) {
+-    // The relay already counted these tokens exactly; keep liveness only.
+-    meter.touch()
+-    return
++    // The relay already counted these tokens exactly; keep liveness only —
++    // unless the counts have stopped coming while frames keep arriving. A frame
++    // is itself proof the engine is producing, so a silence this long means the
++    // exact feed is broken, not busy: fall back to sampling this frame.
++    const last = lastTpsTokensAtBySession.get(sessionId) ?? 0
++    if (last > 0 && performance.now() - last > IDS_FALLBACK_SILENCE_MS) {
++      tpsIdsModeBySession.delete(sessionId)
++      lastTpsTokensAtBySession.delete(sessionId)
++      // The units switch mid-stream (exact ids → sampled characters); the grid
++      // restarts rather than averaging two incomparable halves, same as the
++      // tier switch on the way up.
++      meter.reset()
++    } else {
++      meter.touch()
++      return
++    }
+   }
+   meter.ensureCall()
+   meter.push(text, options)
+@@ -1166,6 +1198,7 @@ function pushTpsFrame(
+ /** Drop a session's sampling window (reconnect / retry replays a prefix). */
+ function resetTpsWindow(sessionId: string): void {
+   tpsIdsModeBySession.delete(sessionId)
++  lastTpsTokensAtBySession.delete(sessionId)
+   tpsMeterBySession.get(sessionId)?.reset()
+ }
+ 
+@@ -6075,6 +6108,7 @@ export const useChatStore = create<ChatStore>((setState, get) => {
+           meter.reset()
+           tpsIdsModeBySession.set(sessionId, true)
+         }
++        lastTpsTokensAtBySession.set(sessionId, performance.now())
+         meter.ensureCall()
+         meter.pushTokens(msg.tokens, { generatedAt: msg.serverTs })
+         break
