@@ -87,10 +87,15 @@ export function loadTpsSamples(model: string | null | undefined): DensitySample[
 
 /**
  * The density to estimate with right now: the learned fit once the pool is
- * mature (see `densityForSamples`), the prior before that.
+ * mature (see `densityForSamples`), the prior before that. Recent samples
+ * outweigh old ones (half-life of half the window): a tokenizer or engine
+ * update shifts the real densities, and the fit should follow rather than
+ * average across the seam.
  */
 export function currentTpsDensity(model: string | null | undefined): Density {
-  return densityForSamples(loadTpsSamples(model), PRIOR_DENSITY)
+  return densityForSamples(loadTpsSamples(model), PRIOR_DENSITY, {
+    halfLife: TPS_DENSITY_POOL_MAX / 2,
+  })
 }
 
 /** Record one completed response: what it held by class, and its real token cost. */

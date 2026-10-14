@@ -155,6 +155,7 @@ export function learnDensity(
   samples: DensitySample[],
   prior: Density = PRIOR_DENSITY,
   lambda = DEFAULT_RIDGE_LAMBDA,
+  options: { halfLife?: number } = {},
 ): Density {
   const xtx: number[][] = [
     [0, 0, 0, 0],
@@ -163,15 +164,26 @@ export function learnDensity(
     [0, 0, 0, 0],
   ]
   const xty = [0, 0, 0, 0]
+  // Exponential recency weighting: the newest sample counts fully, each step
+  // back through the (oldest-first) list halves the weight every `halfLife`
+  // samples. A tokenizer or engine update shifts the true densities, and an
+  // equally-weighted window keeps averaging across the seam long after; the
+  // decay lets the fit follow the drift while old samples still anchor the
+  // sparse classes. Omitted weight = every sample equal, as before.
+  const halfLife = options.halfLife ?? 0
+  const oldest = samples.length - 1
+  let sampleIndex = -1
   for (const sample of samples) {
+    sampleIndex += 1
     if (!(sample.tokens > 0)) continue
+    const weight = halfLife > 0 ? Math.pow(0.5, (oldest - sampleIndex) / halfLife) : 1
     const x = [sample.counts.cjk, sample.counts.latin, sample.counts.digit, sample.counts.sym]
     for (let i = 0; i < 4; i++) {
       const xi = x[i] ?? 0
       if (xi === 0) continue
       const row = xtx[i] as number[]
-      for (let j = 0; j < 4; j++) row[j] = (row[j] ?? 0) + xi * (x[j] ?? 0)
-      xty[i] = (xty[i] ?? 0) + xi * sample.tokens
+      for (let j = 0; j < 4; j++) row[j] = (row[j] ?? 0) + weight * xi * (x[j] ?? 0)
+      xty[i] = (xty[i] ?? 0) + weight * xi * sample.tokens
     }
   }
   const priorVector = [prior.cjk, prior.latin, prior.digit, prior.sym]
@@ -193,13 +205,19 @@ export function learnDensity(
  * The density to estimate with, given the samples seen so far: the prior until
  * the pool is mature, the learned fit after. The caller keeps the pool capped
  * (a rolling window), so `samples.length` doubles as the pool size.
+ *
+ * The fit weights recent samples exponentially (`halfLife` in samples — the
+ * rolling window renews at its tail, so half the window's weight sits on the
+ * freshest half). Pass `halfLife: 0` for the old equally-weighted fit.
  */
 export function densityForSamples(
   samples: DensitySample[],
   prior: Density = PRIOR_DENSITY,
-  options: { minSamples?: number; lambda?: number } = {},
+  options: { minSamples?: number; lambda?: number; halfLife?: number } = {},
 ): Density {
   const min = options.minSamples ?? MIN_SAMPLES_TO_LEARN
   if (samples.length < min) return { ...prior }
-  return learnDensity(samples, prior, options.lambda ?? DEFAULT_RIDGE_LAMBDA)
+  return learnDensity(samples, prior, options.lambda ?? DEFAULT_RIDGE_LAMBDA, {
+    halfLife: options.halfLife,
+  })
 }

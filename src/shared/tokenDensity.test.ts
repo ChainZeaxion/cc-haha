@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 import {
   classifyChars,
+  DEFAULT_RIDGE_LAMBDA,
   densityForSamples,
   estimateTokens,
   learnDensity,
@@ -92,5 +93,39 @@ describe('densityForSamples maturity gate', () => {
 
   test('at the floor the learned fit takes over', () => {
     expect(densityForSamples(samples.slice(0, 10))).not.toEqual(PRIOR_DENSITY)
+  })
+})
+
+describe('learnDensity recency weighting', () => {
+  // Pure cjk+latin samples at a fixed ratio: cjk solves to ~1, latin to ~ratio
+  // (both pulled slightly toward the prior by the ridge term, and toward each
+  // other by the collinearity of the 50/50 mix).
+  const make = (ratio: number): DensitySample[] => Array.from({ length: 10 }, () => ({
+    counts: { cjk: 100, latin: 100, digit: 0, sym: 0 },
+    tokens: 100 + 100 * ratio,
+  }))
+
+  test('recent samples outweigh old ones when the true density drifts', () => {
+    const old = 0.2
+    const drifted = 0.8
+    const combined = [...make(old), ...make(drifted)]
+    // halfLife 5: the five newest samples alone carry >96% of the weight.
+    const learned = learnDensity(combined, PRIOR_DENSITY, DEFAULT_RIDGE_LAMBDA, { halfLife: 5 })
+    const equal = learnDensity(combined, PRIOR_DENSITY, DEFAULT_RIDGE_LAMBDA, { halfLife: 0 })
+    // The decayed fit tracks the recent regime; the equal one straddles both.
+    // (Ridge shrinkage and the collinear cjk term keep both well under the
+    // regime's nominal 0.8 — the point is the separation, not the absolute.)
+    expect(learned.latin).toBeGreaterThan(equal.latin)
+    expect(learned.latin).toBeGreaterThan(0.45)
+    expect(equal.latin).toBeLessThan(learned.latin - 0.05)
+  })
+
+  test('halfLife 0 keeps the old equally-weighted fit', () => {
+    const combined = [...make(0.2), ...make(0.8)]
+    const learned = learnDensity(combined, PRIOR_DENSITY, DEFAULT_RIDGE_LAMBDA, { halfLife: 0 })
+    // Equal weights: the fit sits between the two regimes (ridge and the
+    // collinear cjk term pull it below the arithmetic midpoint).
+    expect(learned.latin).toBeGreaterThan(0.2)
+    expect(learned.latin).toBeLessThan(0.5)
   })
 })

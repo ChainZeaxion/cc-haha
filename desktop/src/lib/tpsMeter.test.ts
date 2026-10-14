@@ -5,6 +5,7 @@ import {
   aggregateMeterReadings,
   estimateTokens,
   setEstimationCalibration,
+  setEstimationDensity,
   type TpsClock,
 } from './tpsMeter'
 
@@ -306,6 +307,25 @@ describe('token estimation', () => {
     setEstimationCalibration({ kCjk: 0, kAscii: 1.5 })
     expect(estimateTokens('你好世界，')).toBeCloseTo(5, 5)
     setEstimationCalibration(undefined)
+    expect(estimateTokens('abcdefg')).toBeCloseTo(2, 5)
+  })
+
+  it('prefers the four-class density pool over the two-term calibration', () => {
+    // The pool keeps learning from `usage` even when the meter runs on exact
+    // engine counts and stops fitting its own coefficients — pointing the
+    // estimates at it keeps them current in both modes.
+    setEstimationCalibration({ kCjk: 0.8, kAscii: 1.6 })
+    setEstimationDensity({ cjk: 1.2, latin: 0.25, digit: 0.5, sym: 0.5 })
+    // 4 CJK + 1 full-width comma, all cjk class → 5 × 1.2.
+    expect(estimateTokens('你好世界，')).toBeCloseTo(5 * 1.2, 5)
+    // 7 latin letters → 7 × 0.25.
+    expect(estimateTokens('abcdefg')).toBeCloseTo(7 * 0.25, 5)
+    // Digits follow their own class instead of the ASCII average.
+    expect(estimateTokens('1234567890')).toBeCloseTo(10 * 0.5, 5)
+
+    setEstimationDensity(null)
+    expect(estimateTokens('你好世界，')).toBeCloseTo(5 * 0.8, 5)
+    setEstimationCalibration(null)
     expect(estimateTokens('abcdefg')).toBeCloseTo(2, 5)
   })
 })

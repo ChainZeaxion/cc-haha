@@ -23,7 +23,7 @@ import { randomSpinnerVerb } from '../config/spinnerVerbs'
 import { notifyDesktop } from '../lib/desktopNotifications'
 import { createAsyncRefreshCoalescer } from '../lib/asyncRefreshCoalescer'
 import { deriveSessionTitle, isPlaceholderSessionTitle } from '../lib/sessionTitle'
-import { TpsMeter, isTpsEnabled, setEstimationCalibration } from '../lib/tpsMeter'
+import { TpsMeter, isTpsEnabled, setEstimationCalibration, setEstimationDensity } from '../lib/tpsMeter'
 import { loadTpsCalibration, saveTpsCalibration } from '../lib/tpsCalibration'
 import { currentTpsDensity, recordTpsSample } from '../lib/tpsDensityStore'
 import {
@@ -1110,8 +1110,11 @@ export function getSessionTpsMeter(sessionId: string): TpsMeter {
     const seeded = loadTpsCalibration(model)
     meter.setCalibration(seeded)
     // The badge/digest estimate from characters, so they want the same learned
-    // coefficients the meter reads its rate with.
+    // coefficients the meter reads its rate with. The four-class density pool
+    // takes precedence: it keeps learning from `usage` even when this meter
+    // runs on exact engine counts and stops fitting its own.
     setEstimationCalibration(seeded)
+    setEstimationDensity(currentTpsDensity(model))
     tpsCalibrationModelBySession.set(sessionId, model)
     tpsMeterBySession.set(sessionId, meter)
   }
@@ -5440,6 +5443,7 @@ export const useChatStore = create<ChatStore>((setState, get) => {
           const next = loadTpsCalibration(msg.modelId)
           meter.setCalibration(next)
           setEstimationCalibration(next)
+          setEstimationDensity(currentTpsDensity(msg.modelId))
           tpsCalibrationModelBySession.set(sessionId, msg.modelId)
         }
         const selected = useSessionRuntimeStore.getState().selections[sessionId]
@@ -6103,7 +6107,12 @@ export const useChatStore = create<ChatStore>((setState, get) => {
           const outputTokens = msg.usage?.output_tokens
           const anyCounted = counts && counts.cjk + counts.latin + counts.digit + counts.sym > 0
           if (anyCounted && typeof outputTokens === 'number' && outputTokens > 0) {
-            recordTpsSample(tpsCalibrationModelBySession.get(sessionId), counts, outputTokens)
+            const model = tpsCalibrationModelBySession.get(sessionId)
+            recordTpsSample(model, counts, outputTokens)
+            // The pool just moved, so the badge/digest estimates can sharpen —
+            // this is also the only learning path left once the meter runs on
+            // exact engine counts and stops fitting its own coefficients.
+            setEstimationDensity(currentTpsDensity(model))
           }
         }
         if (consumeAllPendingTaskToolUseIds(sessionId)) {

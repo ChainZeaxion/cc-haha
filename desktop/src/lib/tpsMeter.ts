@@ -1,3 +1,9 @@
+import {
+  classifyChars,
+  tokensFromCounts,
+  type Density,
+} from '../../../src/shared/tokenDensity'
+
 /**
  * Real-time decode-speed (TPS) meter.
  *
@@ -1116,7 +1122,25 @@ export function setEstimationCalibration(calibration: TpsCalibration | null | un
     : null
 }
 
+/**
+ * The four-class density the content-based estimates use, once the density pool
+ * has learned one for the model in play. Preferred over the two-term
+ * {@link estimationCalibration} — four classes separate prose from code and
+ * JSON, which no two-coefficient fit can — and, crucially, the pool keeps
+ * learning from `usage` even when the meter runs on exact engine counts and
+ * stops fitting its own coefficients (endCall skips learning once `tps_tokens`
+ * is flowing). Pointing the estimates at the pool therefore keeps them current
+ * in both modes, and makes them agree with the live streaming estimator, which
+ * reads the same pool.
+ */
+let estimationDensity: Density | null = null
+
+export function setEstimationDensity(density: Density | null | undefined): void {
+  estimationDensity = density ?? null
+}
+
 export function estimateTokens(text: string): number {
+  if (estimationDensity) return tokensFromCounts(classifyChars(text), estimationDensity)
   const { cjk, ascii } = textUnits(text)
   // Same shape, and the same neutral default, the meter uses — so a learned
   // calibration means the same thing in both places.
