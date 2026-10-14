@@ -69,7 +69,13 @@ patches/vcc/vcc-compaction-retention-budget-patch1.patch
 #   `1cat-vllm-v130/patches/1cat-vllm优化文档.md` §opt26（chat template 中文思考预填种子，7 词随机）；
 #   两者缺一不可——本 patch 提供中文标记，引擎 patch 据此预填。引擎改后需 `POST :8000/v1/internal/reload`。
 # 实测定稿：多轮连续 40/40、长会话 24 轮与 20 轮、工具穿插、子代理带工具 —— 全 100% 中文思考；英文会话零回归。
-# 47 文件（39 src/ + 8 desktop/）。独立应用（干净 `cb7065b1e` 上 apply ⇒ 47 文件逐字节一致）。
+# 2026-10-14 增补：**系统提示词语言**三档开关 promptLanguage（auto/zh/en，与界面语言解耦）——
+#   promptLanguage.ts setting 解析 + preferences promptLanguage 字段 + /api/desktop-ui/preferences/prompt-language
+#   端点 + 设置页新 section + 四语言 i18n 键；thinkingLanguage 的 auto 档改跟随 getPromptLanguage()（联动闭合：
+#   promptLanguage=en → lead 不注入 → 引擎预填不触发）；顺带 localize ExitPlanMode 的 transcriptHint。
+#   ⚠️ 修复既有缺失：patch 原漏 promptLanguage.ts / i18n/index.ts / i18n.test.ts 三段（上轮 git diff 未收 untracked），
+#   本轮以 add -N 重生成补回。
+# 48 文件（39 src/ + 9 desktop/）。独立应用（干净 `cb7065b1e` 上 apply ⇒ 48 文件逐字节一致 ✅ 2026-10-14 重验）。
 patches/prompt/prompt-i18n-localization-patch1.patch
 
 # 40：⚠️ 基座 = `53199e3f7`（0.6.7 血缘）—— **独立应用**。
@@ -91,3 +97,14 @@ patches/h5/h5-provider-test-buttons-patch1.patch
 # 刻意未做：用引擎 usage 对本地估算做 EMA 校准 —— 会在引擎少报时拉低估算、掩盖该触发的情形。
 # 4 源码 + 6 测试（10 文件）。干净 `c71ce319d` 上 apply ⇒ 10 文件逐字节一致 ✅ 已实测。
 patches/usage/usage-context-estimation-patch1.patch
+
+# 42：⚠️ 基座 = `54ae13c69`（0.6.7 血缘）—— **独立应用**。
+# 压缩摘要身份锚点（2026-10-14）：摘要头部句中文化后，WS 桥/历史装载/desktop 折叠的英文前缀匹配失效——
+# 中文摘要在实时视图被静默丢弃、历史重放时以全文用户气泡暴露（设计契约：摘要注入引擎上下文但不在用户
+# 消息流出现）。修复：isCompactSummary 旗标贯通 SDK 帧（toSDKMessages，protobuf catchall）→ SDK schema
+# （coreSchemas）→ JSONL 顶层（sessionService entryToMessage）→ MessageEntry → WS 桥（cliMessageParsing
+# 旗标优先 + 中英前缀兜底、extractReplayUserText 过滤）→ desktop（chatStore 提取/去重 + MessageEntry 折叠）；
+# looksLikeCompactSummaryContent 锚定 section 标题（语言无关）。dev 端到端实测：/compact 中文摘要折叠卡
+# 正确、replay 不泄漏、promptLanguage=en 时思考回英文（联动链闭合）。
+# 9 文件（7 src/ + 2 desktop/）。干净 `54ae13c69` 上 apply ⇒ 9 文件逐字节一致 ✅ 2026-10-14 已实测。
+patches/compact/compact-summary-anchor-patch1.patch

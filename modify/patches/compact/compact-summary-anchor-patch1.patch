@@ -1,0 +1,377 @@
+# patch 42：⚠️ 基座 = `54ae13c69`（0.6.7 血缘）—— **独立应用**。
+# 压缩摘要身份锚点（2026-10-14）：摘要头部句中文化后，WS 桥/历史装载/desktop 折叠的英文前缀匹配失效——
+# 中文摘要在实时视图被静默丢弃、历史重放时以全文用户气泡暴露。修复：isCompactSummary 旗标贯通
+# SDK 帧（toSDKMessages）→ JSONL 顶层（sessionService entryToMessage）→ MessageEntry → WS 桥/desktop 折叠；
+# 旗标优先于文本锚（中英前缀仅作旧帧兜底）；coreSchemas 放行 SDK user 消息字段；cliMessageParsing 认旗标+
+# 双语前缀；looksLikeCompactSummaryContent 锚定 section 标题（语言无关）；chatStore 提取/去重/持久化跟随。
+# 9 文件（7 src/ + 2 desktop/）+1 新测试。干净 `54ae13c69` 上 apply ⇒ 9 文件逐字节一致。
+diff --git a/desktop/src/stores/chatStore.test.ts b/desktop/src/stores/chatStore.test.ts
+index 57e4a74de..8efec2c7a 100644
+--- a/desktop/src/stores/chatStore.test.ts
++++ b/desktop/src/stores/chatStore.test.ts
+@@ -1181,6 +1181,52 @@ describe('chatStore history mapping', () => {
+     ])
+   })
+ 
++  it('folds a Chinese-headed compact summary into the compact card via the flag', () => {
++    // The head sentence is localized; without the flag the text anchors miss
++    // and the whole summary renders as a user bubble (the reported bug).
++    const messages: MessageEntry[] = [
++      {
++        id: 'zh-summary',
++        type: 'user',
++        isCompactSummary: true,
++        content: [
++          '本会话由一段超出上下文的先前对话继续而来。下方摘要覆盖了对话较早的部分。',
++          '',
++          '[Session Goal]',
++          '- 修复摘要识别',
++          '',
++          '若你需要压缩前的具体细节（如确切的代码片段、报错信息或你生成的内容），请阅读完整实录：/tmp/transcript.jsonl',
++        ].join('\n'),
++        timestamp: '2026-10-14T10:00:01.000Z',
++      },
++    ]
++
++    const mapped = mapHistoryMessagesToUiMessages(messages)
++
++    expect(mapped).toHaveLength(1)
++    expect(mapped[0]).toMatchObject({
++      type: 'compact_summary',
++      title: 'Context compacted',
++      summary: '[Session Goal]\n- 修复摘要识别',
++    })
++  })
++
++  it('folds a Chinese-headed compact summary by text anchor when the flag is absent', () => {
++    const messages: MessageEntry[] = [
++      {
++        id: 'zh-summary-legacy',
++        type: 'user',
++        content: '本会话由一段超出上下文的先前对话继续而来。下方摘要覆盖了对话较早的部分。\n\n[Session Goal]\n- 修复摘要识别',
++        timestamp: '2026-10-14T10:00:01.000Z',
++      },
++    ]
++
++    const mapped = mapHistoryMessagesToUiMessages(messages)
++
++    expect(mapped).toHaveLength(1)
++    expect(mapped[0]).toMatchObject({ type: 'compact_summary', summary: '[Session Goal]\n- 修复摘要识别' })
++  })
++
+   it('drops compact local command stdout after mapping compact history', () => {
+     const messages: MessageEntry[] = [
+       {
+diff --git a/desktop/src/stores/chatStore.ts b/desktop/src/stores/chatStore.ts
+index 6d903e8e3..fa7cd628b 100644
+--- a/desktop/src/stores/chatStore.ts
++++ b/desktop/src/stores/chatStore.ts
+@@ -916,12 +916,66 @@ function clearPendingToolParentUseIds(sessionId: string): void {
+ const AGENT_COMPLETION_NOTIFICATION_PREVIEW_CHARS = 160
+ const COMPACT_SUMMARY_PREFIX =
+   'This session is being continued from a previous conversation that ran out of context. The summary below covers the earlier portion of the conversation.'
++// The head sentence is localized (prompt-i18n), so the English prefix only
++// covers legacy transcripts; the Chinese twin covers current zh sessions.
++// The cutoffs carry the same duality.
++const COMPACT_SUMMARY_PREFIXES = [
++  COMPACT_SUMMARY_PREFIX,
++  '本会话由一段超出上下文的先前对话继续而来。下方摘要覆盖了对话较早的部分。',
++]
+ const COMPACT_SUMMARY_CUTOFFS = [
+   '\n\nIf you need specific details from before compaction',
+   '\n\nContinue the conversation from where it left off',
+   '\nContinue the conversation from where it left off',
++  '\n\n若你需要压缩前的具体细节',
++  '\n\n从上次中断处继续对话',
++  '\n从上次中断处继续对话',
+ ]
+ 
++function stripCompactSummaryWrappers(summary: string): string {
++  let result = summary
++  for (const marker of COMPACT_SUMMARY_CUTOFFS) {
++    const index = result.indexOf(marker)
++    if (index >= 0) {
++      result = result.slice(0, index).trim()
++    }
++  }
++  return result
++}
++
++/**
++ * `isCompactSummary` (the message flag) wins when present — the head sentence
++ * is localized and therefore not a stable anchor. The English/Chinese prefixes
++ * are the fallback for transcripts that predate the flag.
++ */
++function extractCompactSummaryContent(
++  content: unknown,
++  hasFlag?: boolean,
++): string | null {
++  if (typeof content !== 'string') return null
++  const trimmed = content.trim()
++
++  if (hasFlag === true) {
++    let summary = trimmed
++    for (const prefix of COMPACT_SUMMARY_PREFIXES) {
++      if (summary.startsWith(prefix)) {
++        summary = summary.slice(prefix.length).trim()
++        break
++      }
++    }
++    return stripCompactSummaryWrappers(summary) || null
++  }
++
++  for (const prefix of COMPACT_SUMMARY_PREFIXES) {
++    if (trimmed.startsWith(prefix)) {
++      return (
++        stripCompactSummaryWrappers(trimmed.slice(prefix.length).trim()) || null
++      )
++    }
++  }
++  return null
++}
++
+ let msgCounter = 0
+ const nextId = () => `msg-${++msgCounter}-${Date.now()}`
+ 
+@@ -1621,19 +1675,9 @@ function appendAssistantTextMessage(
+   ]
+ }
+ 
+-function extractCompactSummaryContent(content: unknown): string | null {
+-  if (typeof content !== 'string') return null
+-  const trimmed = content.trim()
+-  if (!trimmed.startsWith(COMPACT_SUMMARY_PREFIX)) return null
+-
+-  let summary = trimmed.slice(COMPACT_SUMMARY_PREFIX.length).trim()
+-  for (const marker of COMPACT_SUMMARY_CUTOFFS) {
+-    const index = summary.indexOf(marker)
+-    if (index >= 0) {
+-      summary = summary.slice(0, index).trim()
+-    }
+-  }
+-  return summary || null
++/** The SDK user frame carries the summary identity; text anchors are only fallback. */
++function isCompactSummaryFrame(msg: unknown): boolean {
++  return isRecord(msg) && msg.isCompactSummary === true
+ }
+ 
+ function compactMetadataFromUnknown(data: unknown): Pick<CompactSummaryMessage, 'trigger' | 'preTokens' | 'messagesSummarized'> {
+@@ -6392,7 +6436,10 @@ export const useChatStore = create<ChatStore>((setState, get) => {
+           }))
+         }
+         if (msg.subtype === 'compact_summary') {
+-          const summary = extractCompactSummaryContent(msg.message)
++          const summary = extractCompactSummaryContent(
++            msg.message,
++            isCompactSummaryFrame(msg),
++          )
+           if (summary) {
+             update((session) => ({
+               messages: appendOrUpdateTailCompactSummary(
+@@ -8662,7 +8709,10 @@ export function mapHistoryMessagesToUiMessages(
+         continue
+       }
+ 
+-      const compactSummary = extractCompactSummaryContent(msg.content)
++      const compactSummary = extractCompactSummaryContent(
++        msg.content,
++        msg.isCompactSummary === true,
++      )
+       if (compactSummary) {
+         const compactMessages = appendOrUpdateTailCompactSummary(
+           uiMessages,
+diff --git a/desktop/src/types/session.ts b/desktop/src/types/session.ts
+index a6fe46c34..90f0d90fd 100644
+--- a/desktop/src/types/session.ts
++++ b/desktop/src/types/session.ts
+@@ -71,6 +71,8 @@ export type MessageEntry = {
+   parentUuid?: string
+   parentToolUseId?: string
+   isSidechain?: boolean
++  /** Post-compaction summary message; fold it into a compact card, not a user bubble. */
++  isCompactSummary?: true
+ }
+ 
+ export type SessionDetail = SessionListItem & {
+diff --git a/src/entrypoints/sdk/coreSchemas.ts b/src/entrypoints/sdk/coreSchemas.ts
+index 858e2f8f8..24eda0da8 100644
+--- a/src/entrypoints/sdk/coreSchemas.ts
++++ b/src/entrypoints/sdk/coreSchemas.ts
+@@ -1310,6 +1310,9 @@ const SDKUserMessageContentSchema = lazySchema(() =>
+     message: APIUserMessagePlaceholder(),
+     parent_tool_use_id: z.string().nullable(),
+     isSynthetic: z.boolean().optional(),
++    // Marks a post-compaction summary message. Consumers must anchor on this
++    // flag rather than the summary's first line, which is localized.
++    isCompactSummary: z.boolean().optional(),
+     tool_use_result: z.unknown().optional(),
+     priority: z.enum(['now', 'next', 'later']).optional(),
+     timestamp: z
+diff --git a/src/server/__tests__/translateCliMessage.compactSummary.test.ts b/src/server/__tests__/translateCliMessage.compactSummary.test.ts
+new file mode 100644
+index 000000000..40721f5c4
+--- /dev/null
++++ b/src/server/__tests__/translateCliMessage.compactSummary.test.ts
+@@ -0,0 +1,52 @@
++import { expect, test } from 'bun:test'
++import {
++  isCompactSummaryMessageContent,
++  looksLikeCompactSummaryContent,
++} from '../ws/cliMessageParsing.js'
++import { translateCliMessage } from '../ws/handler.js'
++
++const EN_PREFIX =
++  'This session is being continued from a previous conversation that ran out of context. The summary below covers the earlier portion of the conversation.'
++const ZH_PREFIX = '本会话由一段超出上下文的先前对话继续而来。下方摘要覆盖了对话较早的部分。'
++
++test('isCompactSummaryMessageContent recognizes both head sentences', () => {
++  expect(isCompactSummaryMessageContent(`${EN_PREFIX}\n\n[Session Goal]`)).toBe(true)
++  expect(isCompactSummaryMessageContent(`${ZH_PREFIX}\n\n[Session Goal]\n- ...`)).toBe(true)
++  expect(isCompactSummaryMessageContent('regular user prompt')).toBe(false)
++})
++
++test('the flag beats the text anchor regardless of head language', () => {
++  // A future head sentence in yet another locale must still be recognized.
++  expect(isCompactSummaryMessageContent('Résumé de la session…', true)).toBe(true)
++  expect(isCompactSummaryMessageContent('Résumé de la session…')).toBe(false)
++})
++
++test('section headers anchor a summary whose head sentence is unknown', () => {
++  expect(looksLikeCompactSummaryContent('[Session Goal]\n- ship it')).toBe(true)
++  expect(looksLikeCompactSummaryContent('[Files And Changes]\n- adapter.ts')).toBe(true)
++  expect(looksLikeCompactSummaryContent('plain text mentioning [Session Goal] inline')).toBe(false)
++})
++
++test('translateCliMessage turns a Chinese summary frame into a compact_summary card', () => {
++  const messages = translateCliMessage(
++    {
++      type: 'user',
++      isCompactSummary: true,
++      message: { role: 'user', content: `${ZH_PREFIX}\n\n[Session Goal]\n- 修复摘要识别` },
++    },
++    'summary-session',
++  )
++  expect(messages).toHaveLength(1)
++  expect(messages[0]).toMatchObject({ type: 'system_notification', subtype: 'compact_summary' })
++})
++
++test('translateCliMessage without the flag still recognizes the Chinese head', () => {
++  const messages = translateCliMessage(
++    {
++      type: 'user',
++      message: { role: 'user', content: `${ZH_PREFIX}\n\n[Session Goal]\n- 修复摘要识别` },
++    },
++    'summary-session',
++  )
++  expect(messages.some(m => (m as { subtype?: string }).subtype === 'compact_summary')).toBe(true)
++})
+diff --git a/src/server/services/sessionService.ts b/src/server/services/sessionService.ts
+index bebf6d871..18294cd06 100644
+--- a/src/server/services/sessionService.ts
++++ b/src/server/services/sessionService.ts
+@@ -395,6 +395,7 @@ export type RawEntry = {
+   parent_tool_use_id?: string | null
+   isSidechain?: boolean
+   isMeta?: boolean
++  isCompactSummary?: boolean
+   forkedFrom?: unknown
+   cwd?: string
+   message?: {
+@@ -2193,6 +2194,7 @@ export class SessionService {
+       parentUuid: entry.parentUuid ?? undefined,
+       parentToolUseId,
+       isSidechain: entry.isSidechain,
++      ...(entry.isCompactSummary === true ? { isCompactSummary: true } : {}),
+       ...(typeof entry.cwd === 'string' && entry.cwd.trim() ? { cwd: entry.cwd } : {}),
+     }
+   }
+diff --git a/src/server/ws/cliMessageParsing.ts b/src/server/ws/cliMessageParsing.ts
+index bcd7c8aef..797e0efd6 100644
+--- a/src/server/ws/cliMessageParsing.ts
++++ b/src/server/ws/cliMessageParsing.ts
+@@ -320,12 +320,43 @@ export function getCompactBoundaryMessage(cliMsg: any): string {
+   return 'Context compacted'
+ }
+ 
+-export function isCompactSummaryMessageContent(content: unknown): content is string {
++// The summary's first line is localized (prompt-i18n), so text anchors can
++// only ever be a fallback. Prefer the isCompactSummary flag riding the SDK
++// frame; these constants exist for older transcripts and bridges that predate
++// the flag.
++const COMPACT_SUMMARY_PREFIXES = [
++  'This session is being continued from a previous conversation that ran out of context. The summary below covers the earlier portion of the conversation.',
++  '本会话由一段超出上下文的先前对话继续而来。下方摘要覆盖了对话较早的部分。',
++]
++
++export function isCompactSummaryMessageContent(
++  content: unknown,
++  hasFlag?: boolean,
++): content is string {
++  // The flag rides the SDK frame (set by toSDKMessages) — authoritative and
++  // language-independent. The prefixes are the fallback for frames that
++  // predate it.
++  if (hasFlag === true) return typeof content === 'string'
++  if (typeof content !== 'string') return false
++  const trimmed = content.trim()
++  return COMPACT_SUMMARY_PREFIXES.some(prefix => trimmed.startsWith(prefix))
++}
++
++/**
++ * Anchor that works regardless of the head sentence's language: the section
++ * headers are code-generated English in every locale.
++ */
++export function looksLikeCompactSummaryContent(content: unknown): content is string {
++  if (typeof content !== 'string') return false
++  const trimmed = content.trim()
++  if (isCompactSummaryMessageContent(trimmed)) return true
++  // A summary always opens with at least one generated section header.
+   return (
+-    typeof content === 'string' &&
+-    content.trim().startsWith(
+-      'This session is being continued from a previous conversation that ran out of context. The summary below covers the earlier portion of the conversation.',
+-    )
++    trimmed.startsWith('[Session Goal]') ||
++    trimmed.startsWith('[Files And Changes]') ||
++    trimmed.startsWith('[Outstanding Context]') ||
++    trimmed.startsWith('[Preferences Observed]') ||
++    trimmed.startsWith('[Notable Exchange]')
+   )
+ }
+ 
+@@ -343,6 +374,7 @@ export function extractReplayUserText(cliMsg: any): string | null {
+   const commandDisplayText = getCommandMetadataDisplayText(content)
+   if (commandDisplayText) return commandDisplayText
+   if (shouldHideCommandMetadataContent(content)) return null
++  if (cliMsg.isCompactSummary === true) return null
+   if (isCompactSummaryMessageContent(content)) return null
+   if (hasToolResultBlock(content)) return null
+   if (extractLocalCommandOutput(content)) return null
+diff --git a/src/server/ws/handler.ts b/src/server/ws/handler.ts
+index dca0474fe..eb2f1d70f 100644
+--- a/src/server/ws/handler.ts
++++ b/src/server/ws/handler.ts
+@@ -3504,7 +3504,7 @@ export function translateCliMessage(cliMsg: any, sessionId: string): ServerMessa
+       // CLI 发送 type:'user' 消息，其中 content 包含 tool_result 块
+       const messages: ServerMessage[] = []
+ 
+-      if (isCompactSummaryMessageContent(cliMsg.message?.content)) {
++      if (isCompactSummaryMessageContent(cliMsg.message?.content, cliMsg.isCompactSummary)) {
+         messages.push({
+           type: 'system_notification',
+           subtype: 'compact_summary',
+diff --git a/src/utils/messages/mappers.ts b/src/utils/messages/mappers.ts
+index aaa3168a2..5925ed73c 100644
+--- a/src/utils/messages/mappers.ts
++++ b/src/utils/messages/mappers.ts
+@@ -136,6 +136,11 @@ export function toSDKMessages(messages: Message[]): SDKMessage[] {
+             uuid: message.uuid,
+             timestamp: message.timestamp,
+             isSynthetic: message.isMeta || message.isVisibleInTranscriptOnly,
++            // Compact summaries must keep their identity across the bridge:
++            // downstream consumers (WS compact_summary cards, desktop folding)
++            // anchor on this flag, not on the summary's first line — which is
++            // localized and therefore not a stable anchor.
++            ...(message.isCompactSummary ? { isCompactSummary: true } : {}),
+             // Structured tool output (not the string content sent to the
+             // model — the full Output object). Rides the protobuf catchall
+             // so web viewers can read things like BriefTool's file_uuid

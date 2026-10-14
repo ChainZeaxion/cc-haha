@@ -2,7 +2,7 @@
 
 结构：`patches/<主题>/<主题>-<优化项>-patch<N>.patch`（一个优化项一个 patch；拆不开才 patch2/3）。
 
-**应用顺序 = `ORDER.md` 自上而下**（41 个 patch；项按最小链位排序，见下）。
+**应用顺序 = `ORDER.md` 自上而下**（42 个 patch；项按最小链位排序，见下）。
 
 ```bash
 while read -r p; do git apply -p1 "$p"; done < modify/patches/ORDER.md
@@ -92,6 +92,18 @@ while read -r p; do git apply -p1 "$p"; done < modify/patches/ORDER.md
 | `thinking-subagent-thinking-tool-timing-patch1.patch` | 21,21,28,29,39,41,43,49,61 |
 | `thinking-subagent-split-no-double-count-patch1.patch` | 52,52 |
 | `thinking-subagent-subagent-usage-cross-client-patch1.patch` | 63,63 |
+
+## prompt/ — 内置提示词中文化与语言开关
+
+| 优化项 patch | 原链位 |
+|---|---|
+| `prompt-i18n-localization-patch1.patch` | 2026-10-12 起累计（⚠️ 基座 = 067 `cb7065b1e`，独立应用；提示词全量中文化 + 中文思考三层注入 + thinkingLanguage/promptLanguage 双开关 + 引擎预填标记联动 + ExitPlanMode transcriptHint，48 文件；2026-10-14 重生成修复上轮漏掉的 3 个 untracked 新文件段） |
+
+## compact/ — 压缩链路与摘要呈现
+
+| 优化项 patch | 原链位 |
+|---|---|
+| `compact-summary-anchor-patch1.patch` | 2026-10-14 新增（⚠️ 基座 = 067 `54ae13c69`，独立应用；摘要身份锚点改 `isCompactSummary` 旗标贯通 SDK 帧/JSONL/desktop——修中文摘要头部句中文化后穿透英文前缀过滤、以全文气泡泄漏进消息流；旗标优先 + 中英前缀兜底 + section 标题锚，9 文件） |
 
 > 主题 = 上游 PR 的 8 个功能域（h5 / session / tps / usage / test / vcc / computer-use / thinking-subagent）。
 > 优化项与链位的对应依据 `pr-prepare/00-overview.md` 的「链位→PR 组」表。
