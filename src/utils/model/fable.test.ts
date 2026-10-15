@@ -1,4 +1,12 @@
 import { afterEach, beforeEach, describe, expect, test } from 'bun:test'
+
+// The language layer reads desktop-ui.json for the persisted locale and
+// prompt-language settings. Point CLAUDE_CONFIG_DIR at an empty directory
+// before the modules are imported so a developer's real preferences (e.g.
+// promptLanguage: 'zh') cannot localize the env-info assertions below.
+process.env.CLAUDE_CONFIG_DIR = '/tmp/fable-model-test-empty-config'
+
+import { resetPromptLanguageCacheForTests } from '../../prompts/i18n/index.js'
 import { getContextWindowForModel, modelSupports1M } from '../context.js'
 import { computeSimpleEnvInfo } from '../../constants/prompts.js'
 import { SKILL_MODEL_VARS } from '../../skills/bundled/claudeApiContent.js'
@@ -48,6 +56,8 @@ beforeEach(() => {
     ENV_KEYS.map(key => [key, process.env[key]]),
   ) as typeof originalEnv
   for (const key of ENV_KEYS) delete process.env[key]
+  // Forget any prompt-language cached from another file's config dir.
+  resetPromptLanguageCacheForTests()
   clearCapabilityCache()
 })
 

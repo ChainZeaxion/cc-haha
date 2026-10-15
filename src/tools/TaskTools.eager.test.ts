@@ -63,7 +63,12 @@ describe('Task tool execution ordering', () => {
       inbox: { messages: [] },
     }
     const context = {
-      options: { mainLoopModel: 'fixture-model' },
+      options: {
+        mainLoopModel: 'fixture-model',
+        // snapshotTeamAgents reads this when CC_HAHA_TEAM_REVIEW_REQUIRED=1
+        // leaks into the test process; keep the fixture review-safe.
+        agentDefinitions: { activeAgents: [], allAgents: [] },
+      },
       abortController: new AbortController(),
       getAppState: () => appState,
       setAppState: (update: (prev: Record<string, unknown>) => Record<string, unknown>) => {
@@ -167,7 +172,12 @@ describe('Task tool execution ordering', () => {
       { expandedView: undefined, inbox: { messages: [] } },
     ]
     const contextFor = (index: number) => ({
-      options: { mainLoopModel: 'fixture-model' },
+      options: {
+        mainLoopModel: 'fixture-model',
+        // snapshotTeamAgents reads this when CC_HAHA_TEAM_REVIEW_REQUIRED=1
+        // leaks into the test process; keep the fixture review-safe.
+        agentDefinitions: { activeAgents: [], allAgents: [] },
+      },
       abortController: new AbortController(),
       getAppState: () => states[index],
       setAppState: (
@@ -240,7 +250,12 @@ describe('Task tool execution ordering', () => {
       inbox: { messages: [] },
     }
     const context = {
-      options: { mainLoopModel: 'fixture-model' },
+      options: {
+        mainLoopModel: 'fixture-model',
+        // snapshotTeamAgents reads this when CC_HAHA_TEAM_REVIEW_REQUIRED=1
+        // leaks into the test process; keep the fixture review-safe.
+        agentDefinitions: { activeAgents: [], allAgents: [] },
+      },
       abortController: new AbortController(),
       getAppState: () => appState,
       setAppState: (update: (prev: Record<string, unknown>) => Record<string, unknown>) => {
