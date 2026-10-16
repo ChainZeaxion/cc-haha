@@ -64,3 +64,15 @@ patches/tps/tps-estimation-unified-patch1.patch
 # 15：workspace-history-budget-degrade（4 文件）。超预算会话（transcript 413）的工作区降级——
 #    loadStatus 回落 git-info 保住 workDir，轮次文件卡点行改开文件预览。
 patches/workspace/workspace-history-budget-degrade-patch1.patch
+
+# 16：usage-private-engine-attribution-cache（2026-10-17，5 文件）。自托管引擎
+#    （loopback/RFC 1918/localhost）请求不带走归因头——billing header 对自托管无意义，
+#    且向自托管引擎泄露客户端指纹（fingerprint+entrypoint+cch 占位）。isAttributionHeaderEnabled
+#    在 isLocalEngineUrl(ANTHROPIC_BASE_URL) 时短路返空串，线上路径零变化。
+#    缓存 TTL 私网放宽到 6h：claude.ts 拆出 resolveCacheTtl，私网先短路返 "6h"（经 SDK
+#    "5m | 1h" 枚举 cast，vLLM 忽略不识别的 TTL），跳过 1h 资格判定；线上仍走原 1h 门。
+#    收益：冷启动子代理批次的重复 prefill 从 5m 边界拉长到 6h 内命中，主会话共享系统前缀
+#    跨子代理批次保持 warm。claudeRequiredThinking 的 loopback fixture 顺带断言 cc_version，
+#    因归因头在私网被关而失败，已改为接受 loopback 无归因头的新行为。
+#    干净 fef605601 上 apply 后这 5 文件 = 064f6c594 同文件内容 ✅ 逐字节一致。
+patches/usage/usage-private-engine-attribution-cache-patch1.patch

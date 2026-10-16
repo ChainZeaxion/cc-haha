@@ -24,7 +24,7 @@
 
 ## 📦 联动 Patches
 
-**2026-10-14 重排：45 → 15**。原 45 个单优化项 patch 合并为两段式 15 个——段一 8 个域 bundle（基座 `068b3ebd`，PR 提交层），段二 7 个独立项（基座 `3a51ef84` 起，0.6.7 血缘）。应用顺序、收纳映射与权威校验见 `modify/patches/ORDER.md` 与 `modify/patches/README.md`；被合并的原文件归档于 `modify/archive/patches-merged-20261014/`。
+**2026-10-14 重排：45 → 15，2026-10-17 追加第 16 号**。原 45 个单优化项 patch 合并为两段式（段一 8 个域 bundle，基座 `068b3ebd`，PR 提交层；段二独立项，基座 `3a51ef84` 起，0.6.7 血缘），2026-10-17 段二追加第 16 号 `usage-private-engine-attribution-cache-patch1.patch`（原四十五，私网归因头关闭 + 缓存 TTL 6h），现共 16 个。应用顺序、收纳映射与权威校验见 `modify/patches/ORDER.md` 与 `modify/patches/README.md`；被合并的原文件归档于 `modify/archive/patches-merged-20261014/`。
 
 | 段 | patch | 收纳 |
 |---|---|---|
@@ -2093,7 +2093,7 @@ type DensitySample = { cjk: number; latin: number; digit: number; sym: number; t
 
 **验证**：system 3/3、claudeCacheTtl 3/3、claudeRequiredThinking 35/35；`src/services/api + constants + query + cli` 全量 **373 pass / 0 fail**；server 相关 7 文件 **404 pass / 0 fail**。线上路径（api.anthropic.com / Bedrock / Vertex）经 resolveCacheTtl 回落，行为零变化。
 
-**未做 patch 固化**：改动落盘于 `align-latest` 工作树，待用户确认是否纳入某段 patch 链。
+**patch 固化**：段二第 16 号 `patches/usage/usage-private-engine-attribution-cache-patch1.patch`（5 文件，基座 `fef605601`），干净基座 worktree apply 后逐字节一致 ✅。ORDER.md / README.md 已同步（16 patch 体系）。提交 `064f6c594`。
 
 ## 五、压缩链路与大会话
 

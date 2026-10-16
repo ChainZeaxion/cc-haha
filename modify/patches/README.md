@@ -1,8 +1,8 @@
-# modify/patches —— 两段式 15 patch 体系
+# modify/patches —— 两段式 16 patch 体系
 
 结构：`patches/<主题>/<主题>-bundle-patch1.patch`（段一，一域一文件）+ `patches/<主题>/<优化项>-patch1.patch`（段二，独立项）。
 
-**应用顺序 = `ORDER.md` 自上而下**（15 个 patch，两段）。
+**应用顺序 = `ORDER.md` 自上而下**（16 个 patch，两段）。
 
 ```bash
 while read -r p; do git apply -p1 "$p"; done < modify/patches/ORDER.md
@@ -10,7 +10,7 @@ while read -r p; do git apply -p1 "$p"; done < modify/patches/ORDER.md
 
 > ⚠️ **两个基座，两段平行，不要混用**（2026-10-14 重排后口径）
 > - **段一（前 8 条）**：基座 = 上游 `068b3ebd`（**0.6.6 血缘**），链终态 = `cchaha-06scode` 树。这 8 个域 bundle 是 **PR 提交层**（`pr-prepare/`）的来源，目标 `NanmiCoder/cc-haha`。
-> - **段二（后 7 条）**：基座 = `cchaha-067scode` 的 **`3a51ef84`（0.6.7 血缘）**，连续 apply 终态 = HEAD。**不可**接在段一终态之后（h5-file-open 的 66 文件中 56 个在 0.6.6 基座不存在或布局不同）。
+> - **段二（后 8 条）**：基座 = `cchaha-067scode` 的 **`3a51ef84`（0.6.7 血缘）**，连续 apply 终态 = HEAD。**不可**接在段一终态之后（h5-file-open 的 66 文件中 56 个在 0.6.6 基座不存在或布局不同）。第 16 号（usage-private-engine-attribution-cache）基座 `fef605601`，段二链终态之上独立 apply。
 > - 权威校验（2026-10-14）：段一终态树 = 原 36 条链终态树（`42905e42f`，diff 零字节）；段二终态树 = 原 9 条（旧 37-45）重放终态树（diff 零字节）。
 
 ## 2026-10-14 重排：45 → 15
@@ -43,8 +43,9 @@ while read -r p; do git apply -p1 "$p"; done < modify/patches/ORDER.md
 | `compact/compact-summary-anchor-patch1.patch` | 原 42 | 摘要身份锚点 isCompactSummary 贯通（9 文件） |
 | `tps/tps-estimation-unified-patch1.patch` | **原 43+45** | TPS 估算统一 + ids 探测/校准修复 + 在飞用量三缺口（密度池 counts 补喂/v2 清毒/4×units 护栏、stream_retry exact 回滚）（15 文件，同改 tpsMeter/chatStore） |
 | `workspace/workspace-history-budget-degrade-patch1.patch` | 原 44 | 超预算会话工作区降级（4 文件） |
+| `usage/usage-private-engine-attribution-cache-patch1.patch` | 原 45（2026-10-17 新增） | 自托管引擎归因头关闭 + 缓存 TTL 6h（5 文件，基座 `fef605601`） |
 
-> 段二各 patch 的基座原来各自独立（37/38=`3a51ef84`、39=`cb7065b1e`、40=`53199e3f7`、41=`c71ce319d`、42=`54ae13c69`、43=`d240afe84`、44=`dfbfe9dc5`、45=`782661ba7`，全在同一直线上）。合并后 10（38+41）统一基座 `3a51ef84`、14（43+45）统一基座 `d240afe84`，其余沿用原文件（基座即 `3a51ef84`，逐条 apply 已实测通过）。
+> 段二各 patch 的基座原来各自独立（37/38=`3a51ef84`、39=`cb7065b1e`、40=`53199e3f7`、41=`c71ce319d`、42=`54ae13c69`、43=`d240afe84`、44=`dfbfe9dc5`、45=`782661ba7`，全在同一直线上）。合并后 10（38+41）统一基座 `3a51ef84`、14（43+45）统一基座 `d240afe84`，其余沿用原文件（基座即 `3a51ef84`，逐条 apply 已实测通过）。新增第 16 号（原 45）基座 `fef605601`（段二链终态），干净基座 apply 后 5 文件逐字节一致 ✅。
 
 > 主题 = 上游 PR 的 8 个功能域（h5 / session / tps / usage / test / vcc / computer-use / thinking-subagent）。
 > 优化项与旧链位的对应依据 `pr-prepare/00-overview.md` 的「链位→PR 组」表。

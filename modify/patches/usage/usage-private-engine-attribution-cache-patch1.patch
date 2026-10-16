@@ -1,0 +1,200 @@
+diff --git a/src/constants/system.test.ts b/src/constants/system.test.ts
+index 1724de2b9..de06582da 100644
+--- a/src/constants/system.test.ts
++++ b/src/constants/system.test.ts
+@@ -10,11 +10,16 @@ describe('getAttributionHeader', () => {
+   test('uses Claude Code compatibility version and always includes CCH placeholder', () => {
+     const originalEntrypoint = process.env.CLAUDE_CODE_ENTRYPOINT
+     const originalAttribution = process.env.CLAUDE_CODE_ATTRIBUTION_HEADER
++    const originalBaseUrl = process.env.ANTHROPIC_BASE_URL
+     process.env.CLAUDE_CODE_ENTRYPOINT = 'cli'
+     // The desktop app exports CLAUDE_CODE_ATTRIBUTION_HEADER=0 into its
+     // processes; a falsy inherited value would disable the header and break
+     // this default-enabled assertion, so pin it on for the test.
+     process.env.CLAUDE_CODE_ATTRIBUTION_HEADER = '1'
++    // The desktop app also exports a loopback proxy as ANTHROPIC_BASE_URL;
++    // the private-network override would then suppress the header, so pin a
++    // non-local endpoint to keep testing the default-enabled path.
++    process.env.ANTHROPIC_BASE_URL = 'https://api.anthropic.com'
+ 
+     try {
+       expect(getAttributionHeader('abc')).toBe(
+@@ -25,6 +30,24 @@ describe('getAttributionHeader', () => {
+       else process.env.CLAUDE_CODE_ENTRYPOINT = originalEntrypoint
+       if (originalAttribution === undefined) delete process.env.CLAUDE_CODE_ATTRIBUTION_HEADER
+       else process.env.CLAUDE_CODE_ATTRIBUTION_HEADER = originalAttribution
++      if (originalBaseUrl === undefined) delete process.env.ANTHROPIC_BASE_URL
++      else process.env.ANTHROPIC_BASE_URL = originalBaseUrl
++    }
++  })
++
++  test('returns an empty header on a private-network endpoint even when enabled', () => {
++    const originalAttribution = process.env.CLAUDE_CODE_ATTRIBUTION_HEADER
++    const originalBaseUrl = process.env.ANTHROPIC_BASE_URL
++    process.env.CLAUDE_CODE_ATTRIBUTION_HEADER = '1'
++    process.env.ANTHROPIC_BASE_URL = 'http://192.168.1.50:8000/v1'
++
++    try {
++      expect(getAttributionHeader('abc')).toBe('')
++    } finally {
++      if (originalAttribution === undefined) delete process.env.CLAUDE_CODE_ATTRIBUTION_HEADER
++      else process.env.CLAUDE_CODE_ATTRIBUTION_HEADER = originalAttribution
++      if (originalBaseUrl === undefined) delete process.env.ANTHROPIC_BASE_URL
++      else process.env.ANTHROPIC_BASE_URL = originalBaseUrl
+     }
+   })
+ })
+diff --git a/src/constants/system.ts b/src/constants/system.ts
+index 9ef334c92..c5d449140 100644
+--- a/src/constants/system.ts
++++ b/src/constants/system.ts
+@@ -7,6 +7,7 @@ import { getAPIProvider } from '../utils/model/providers.js'
+ import { getWorkload } from '../utils/workloadContext.js'
+ import { localizedPrompt } from '../prompts/i18n/index.js'
+ import { formatClaudeCodeBillingHeader } from './claudeCodeCompatibility.js'
++import { isLocalEngineUrl } from '../server/services/api/localEngineHost.js'
+ 
+ // English sources of truth; the Chinese override lives in zh.ts.
+ const DEFAULT_PREFIX_EN = `You are Claude Code, Anthropic's official CLI for Claude.`
+@@ -62,11 +63,17 @@ export function getCLISyspromptPrefix(options?: {
+ /**
+  * Check if attribution header is enabled.
+  * Enabled by default, can be disabled via env var or GrowthBook killswitch.
++ * Always disabled when the target endpoint is a machine-local or LAN engine
++ * (loopback / RFC 1918 / localhost) — the billing header is meaningless
++ * there and only exposes the client fingerprint to the self-hosted engine.
+  */
+ function isAttributionHeaderEnabled(): boolean {
+   if (isEnvDefinedFalsy(process.env.CLAUDE_CODE_ATTRIBUTION_HEADER)) {
+     return false
+   }
++  if (process.env.ANTHROPIC_BASE_URL && isLocalEngineUrl(process.env.ANTHROPIC_BASE_URL)) {
++    return false
++  }
+   return getFeatureValue_CACHED_MAY_BE_STALE('tengu_attribution_header', true)
+ }
+ 
+diff --git a/src/services/api/claude.ts b/src/services/api/claude.ts
+index 1bd4829e0..c771dc5f7 100644
+--- a/src/services/api/claude.ts
++++ b/src/services/api/claude.ts
+@@ -30,6 +30,7 @@ import {
+   getAttributionHeader,
+   getCLISyspromptPrefix,
+ } from "../../constants/system.js";
++import { isLocalEngineUrl } from "../../server/services/api/localEngineHost.js";
+ import {
+   getEmptyToolPermissionContext,
+   type QueryChainTracking,
+@@ -403,13 +404,37 @@ export function getCacheControl({
+   ttl?: "1h";
+   scope?: CacheScope;
+ } {
++  const ttl = resolveCacheTtl(querySource);
+   return {
+     type: "ephemeral",
+-    ...(should1hCacheTTL(querySource) && { ttl: "1h" }),
++    ...(ttl && { ttl: ttl as "1h" }),
+     ...(scope === "global" && { scope }),
+   };
+ }
+ 
++/**
++ * Resolve the cache_control TTL for this request.
++ *
++ * On a self-hosted engine (machine-local loopback or LAN engine — RFC 1918
++ * plus localhost/127.x/::1/.local) the engine owns its KV cache and has no
++ * 5m/1h pricing tier, so we hold the breakpoint for 6 hours. That keeps the
++ * shared system prefix warm across the long gaps between bursts of subagent
++ * spawns, where a 5-minute TTL would otherwise force a full prefill on every
++ * cold start. The literal "6h" is not in the SDK's `5m | 1h` enum, so it is
++ * cast as "1h" — the SDK serializes the raw string without validating the
++ * enum, and a self-hosted engine (vLLM-family) ignores any ttl it does not
++ * recognize.
++ *
++ * Online (public API) the existing 1h-eligibility gate applies unchanged.
++ */
++function resolveCacheTtl(querySource?: QuerySource): "1h" | "6h" | undefined {
++  const baseUrl = process.env.ANTHROPIC_BASE_URL ?? "";
++  if (baseUrl && isLocalEngineUrl(baseUrl)) {
++    return "6h";
++  }
++  return should1hCacheTTL(querySource) ? "1h" : undefined;
++}
++
+ /**
+  * Determines if 1h TTL should be used for prompt caching.
+  *
+diff --git a/src/services/api/claudeCacheTtl.test.ts b/src/services/api/claudeCacheTtl.test.ts
+new file mode 100644
+index 000000000..8e03bff01
+--- /dev/null
++++ b/src/services/api/claudeCacheTtl.test.ts
+@@ -0,0 +1,49 @@
++import { describe, expect, test } from 'bun:test'
++import { getCacheControl } from './claude.js'
++
++describe('getCacheControl TTL resolution', () => {
++  test('returns a 6h TTL when the target endpoint sits on a private network', () => {
++    const originalBaseUrl = process.env.ANTHROPIC_BASE_URL
++    process.env.ANTHROPIC_BASE_URL = 'http://192.168.1.50:8000/v1'
++
++    try {
++      expect(getCacheControl({ querySource: 'repl_main_thread' })).toEqual({
++        type: 'ephemeral',
++        ttl: '6h',
++      })
++    } finally {
++      if (originalBaseUrl === undefined) delete process.env.ANTHROPIC_BASE_URL
++      else process.env.ANTHROPIC_BASE_URL = originalBaseUrl
++    }
++  })
++
++  test('returns a 6h TTL for a loopback local engine', () => {
++    const originalBaseUrl = process.env.ANTHROPIC_BASE_URL
++    process.env.ANTHROPIC_BASE_URL = 'http://127.0.0.1:8000/v1'
++
++    try {
++      expect(getCacheControl()).toEqual({ type: 'ephemeral', ttl: '6h' })
++    } finally {
++      if (originalBaseUrl === undefined) delete process.env.ANTHROPIC_BASE_URL
++      else process.env.ANTHROPIC_BASE_URL = originalBaseUrl
++    }
++  })
++
++  test('does not emit a TTL on a public endpoint without 1h eligibility', () => {
++    const originalBaseUrl = process.env.ANTHROPIC_BASE_URL
++    const originalUserType = process.env.USER_TYPE
++    process.env.ANTHROPIC_BASE_URL = 'https://api.anthropic.com'
++    process.env.USER_TYPE = ''
++
++    try {
++      expect(getCacheControl({ querySource: 'repl_main_thread' })).toEqual({
++        type: 'ephemeral',
++      })
++    } finally {
++      if (originalBaseUrl === undefined) delete process.env.ANTHROPIC_BASE_URL
++      else process.env.ANTHROPIC_BASE_URL = originalBaseUrl
++      if (originalUserType === undefined) delete process.env.USER_TYPE
++      else process.env.USER_TYPE = originalUserType
++    }
++  })
++})
+diff --git a/src/services/api/claudeRequiredThinking.test.ts b/src/services/api/claudeRequiredThinking.test.ts
+index 7966f359d..dfdc488e1 100644
+--- a/src/services/api/claudeRequiredThinking.test.ts
++++ b/src/services/api/claudeRequiredThinking.test.ts
+@@ -851,7 +851,12 @@ for (const disableAdaptive of [false, true]) {
+     expect(requests[0]?.output_config).toEqual({ effort: 'medium' })
+     expect(requestHeaders[0]?.get('anthropic-beta')).not.toContain('thinking-binding-controls-2026-08-01')
+     expect(requestHeaders[0]?.get('user-agent')).toContain('claude-cli/2.1.281')
+-    expect(JSON.stringify(requests[0]?.system)).toContain('cc_version=2.1.281')
++    // The fixture server binds to 127.0.0.1, which the private-network
++    // override suppresses — the billing header is meaningless to a
++    // self-hosted engine. So the system block carries only the agent-SDK
++    // prefix, not the cc_version attribution. (Attribution header format is
++    // asserted directly in constants/system.test.ts.)
++    expect(JSON.stringify(requests[0]?.system)).not.toContain('cc_version=')
+   }, 10_000)
+ }
+ 
