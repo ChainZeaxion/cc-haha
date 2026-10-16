@@ -30,6 +30,7 @@ import {
   getAttributionHeader,
   getCLISyspromptPrefix,
 } from "../../constants/system.js";
+import { isLocalEngineUrl } from "../../server/services/api/localEngineHost.js";
 import {
   getEmptyToolPermissionContext,
   type QueryChainTracking,
@@ -403,11 +404,35 @@ export function getCacheControl({
   ttl?: "1h";
   scope?: CacheScope;
 } {
+  const ttl = resolveCacheTtl(querySource);
   return {
     type: "ephemeral",
-    ...(should1hCacheTTL(querySource) && { ttl: "1h" }),
+    ...(ttl && { ttl: ttl as "1h" }),
     ...(scope === "global" && { scope }),
   };
+}
+
+/**
+ * Resolve the cache_control TTL for this request.
+ *
+ * On a self-hosted engine (machine-local loopback or LAN engine — RFC 1918
+ * plus localhost/127.x/::1/.local) the engine owns its KV cache and has no
+ * 5m/1h pricing tier, so we hold the breakpoint for 6 hours. That keeps the
+ * shared system prefix warm across the long gaps between bursts of subagent
+ * spawns, where a 5-minute TTL would otherwise force a full prefill on every
+ * cold start. The literal "6h" is not in the SDK's `5m | 1h` enum, so it is
+ * cast as "1h" — the SDK serializes the raw string without validating the
+ * enum, and a self-hosted engine (vLLM-family) ignores any ttl it does not
+ * recognize.
+ *
+ * Online (public API) the existing 1h-eligibility gate applies unchanged.
+ */
+function resolveCacheTtl(querySource?: QuerySource): "1h" | "6h" | undefined {
+  const baseUrl = process.env.ANTHROPIC_BASE_URL ?? "";
+  if (baseUrl && isLocalEngineUrl(baseUrl)) {
+    return "6h";
+  }
+  return should1hCacheTTL(querySource) ? "1h" : undefined;
 }
 
 /**

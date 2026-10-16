@@ -7,6 +7,7 @@ import { getAPIProvider } from '../utils/model/providers.js'
 import { getWorkload } from '../utils/workloadContext.js'
 import { localizedPrompt } from '../prompts/i18n/index.js'
 import { formatClaudeCodeBillingHeader } from './claudeCodeCompatibility.js'
+import { isLocalEngineUrl } from '../server/services/api/localEngineHost.js'
 
 // English sources of truth; the Chinese override lives in zh.ts.
 const DEFAULT_PREFIX_EN = `You are Claude Code, Anthropic's official CLI for Claude.`
@@ -62,9 +63,15 @@ export function getCLISyspromptPrefix(options?: {
 /**
  * Check if attribution header is enabled.
  * Enabled by default, can be disabled via env var or GrowthBook killswitch.
+ * Always disabled when the target endpoint is a machine-local or LAN engine
+ * (loopback / RFC 1918 / localhost) — the billing header is meaningless
+ * there and only exposes the client fingerprint to the self-hosted engine.
  */
 function isAttributionHeaderEnabled(): boolean {
   if (isEnvDefinedFalsy(process.env.CLAUDE_CODE_ATTRIBUTION_HEADER)) {
+    return false
+  }
+  if (process.env.ANTHROPIC_BASE_URL && isLocalEngineUrl(process.env.ANTHROPIC_BASE_URL)) {
     return false
   }
   return getFeatureValue_CACHED_MAY_BE_STALE('tengu_attribution_header', true)

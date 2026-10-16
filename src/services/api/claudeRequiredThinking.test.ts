@@ -851,7 +851,12 @@ for (const disableAdaptive of [false, true]) {
     expect(requests[0]?.output_config).toEqual({ effort: 'medium' })
     expect(requestHeaders[0]?.get('anthropic-beta')).not.toContain('thinking-binding-controls-2026-08-01')
     expect(requestHeaders[0]?.get('user-agent')).toContain('claude-cli/2.1.281')
-    expect(JSON.stringify(requests[0]?.system)).toContain('cc_version=2.1.281')
+    // The fixture server binds to 127.0.0.1, which the private-network
+    // override suppresses — the billing header is meaningless to a
+    // self-hosted engine. So the system block carries only the agent-SDK
+    // prefix, not the cc_version attribution. (Attribution header format is
+    // asserted directly in constants/system.test.ts.)
+    expect(JSON.stringify(requests[0]?.system)).not.toContain('cc_version=')
   }, 10_000)
 }
 

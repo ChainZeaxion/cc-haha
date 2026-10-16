@@ -14,7 +14,7 @@
 | 一、H5 远程访问与移动端 | ✅ | 一、九、十、十一、十四、十五、十七、三十三、三十五、三十八、四十 |
 | 二、会话与历史传输 | ✅（二十三 ⬜ 仅登记） | 二、三、五、六、八、二十、二十二、二十三、三十一、三十二 |
 | 三、TPS 指示器与速度估算 | ✅ | 四、二十八、二十九、三十、四十二、四十四 |
-| 四、用量计费与上下文估算 | ✅ | 七、十九、三十九 |
+| 四、用量计费与上下文估算 | ✅ | 七、十九、三十九、四十五 |
 | 五、压缩链路与大会话 | ✅ | 十三、二十四、二十四·补、四十一 |
 | 六、思考计时与子代理 | ✅（部分 ⬜） | 二十一、二十五、二十六、三十六 |
 | 七、提示词中文化与语言开关 | ✅ | 三十四、三十七 |
@@ -1920,7 +1920,7 @@ type DensitySample = { cjk: number; latin: number; digit: number; sym: number; t
 
 ## 四、用量计费与上下文估算
 
-> 本章收纳原第 七、十九、三十九 章（2026-10-14 按功能域重组；各原章降为小节，内容原样）。
+> 本章收纳原第 七、十九、三十九、四十五 章（2026-10-14 按功能域重组；各原章降为小节，内容原样）。
 
 ### 原七、上下文缓存与计费显示（源§十四，✅ 2026-09-25）
 
@@ -2074,6 +2074,26 @@ type DensitySample = { cjk: number; latin: number; digit: number; sym: number; t
 
 **patch 固化（2026-10-14）**：`patches/usage/usage-context-estimation-patch1.patch`（**链位 41**，⚠️ 基座 = `c71ce319d`，0.6.7 血缘，**独立应用**）。4 源码 + 6 测试（10 文件）。干净 `c71ce319d` 上 apply ⇒ 10 文件逐字节一致 ✅ 已实测。
 
+### 原四十五、私网段归因头关闭 + 系统/子代理提示词缓存 TTL 放宽至 6h（✅ 2026-10-17）
+
+**用户要求**（2026-10-17 verbatim）：「归因头，在本地引擎非线上的内网网段、私网网段上关掉。系统级提示词和子代理系统提示词的缓存 ttl 在内网网段、私网网段上改为默认 6 小时。」
+
+**动机**：自部署 vLLM 引擎跑在 loopback（127.0.0.1/::1）或 RFC 1918 局域网（10.x / 192.168.x / 172.16-31.x）上时，两件事都不该发生——
+1. **归因头**（`x-anthropic-billing-header`）是给线上 Anthropic 做计费溯源的，自部署引擎根本不消费它，白白多塞 15 token 进 system 块还暴露客户端指纹。
+2. **缓存 TTL**：线上有 5m/1h 付费档（5m 写入加价 25%、1h 加价 150%），但自部署引擎的 KV 驻留是显存成本而非账单成本。默认 5m TTL 在子代理批量冷启动场景下反复失效（同前缀组每次冷启动多花 ~15K prefill），放宽到 6h 让系统提示词/子代理提示词共享前缀在长时间窗口内保持 warm，代价趋近于零。
+
+**判定函数**：`isLocalEngineUrl(baseUrl)`（`src/server/services/api/localEngineHost.ts`，纯函数零依赖）——loopback（localhost / 127.x / ::1 / 0.0.0.0）+ RFC 1918（10.x / 192.168.x / 172.16-31.x）+ `.local` 域名。线上 api.anthropic.com 与 Bedrock/Vertex 不匹配，行为完全不变。
+
+**改动**（2 源码 + 3 测试）：
+- `src/constants/system.ts`：`isAttributionHeaderEnabled()` 在 env 开关与 GrowthBook killswitch 之后，增一道 `process.env.ANTHROPIC_BASE_URL && isLocalEngineUrl(...)` 短路——私网端点直接返回空串，归因头不拼进 system 块。
+- `src/services/api/claude.ts`：`getCacheControl()` 拆出 `resolveCacheTtl(querySource)`——先查 `ANTHROPIC_BASE_URL` 是否私网，命中则返回 `"6h"`（短路的 1h 资格判定完全跳过）；否则回落既有 `should1hCacheTTL`（线上逻辑零改动）。`"6h"` 不在 SDK 的 `'5m'|'1h'` 枚举内，返回类型保持 `ttl?: "1h"`、值用 `as "1h"` 断言承载——SDK 序列化原样透传字符串、不校验枚举，vLLM 引擎按自身策略消费不认识的 ttl。
+- `src/constants/system.test.ts`：既有「默认开启」断言补清 `ANTHROPIC_BASE_URL`（桌面宿主会导出 loopback proxy 作 base，否则被私网分支拦成空串）；新增「私网端点强制空串」用例。
+- `src/services/api/claudeCacheTtl.test.ts`（新增）：私网 base → `ttl: "6h"`、loopback → `ttl: "6h"`、线上 base + 无资格 → 无 ttl。
+- `src/services/api/claudeRequiredThinking.test.ts`：fixture server 绑 127.0.0.1，归因头被私网分支关掉，原断言 `system 含 cc_version` 改为 `不含 cc_version`（归因头格式另有 system.test.ts 专测）。
+
+**验证**：system 3/3、claudeCacheTtl 3/3、claudeRequiredThinking 35/35；`src/services/api + constants + query + cli` 全量 **373 pass / 0 fail**；server 相关 7 文件 **404 pass / 0 fail**。线上路径（api.anthropic.com / Bedrock / Vertex）经 resolveCacheTtl 回落，行为零变化。
+
+**未做 patch 固化**：改动落盘于 `align-latest` 工作树，待用户确认是否纳入某段 patch 链。
 
 ## 五、压缩链路与大会话
 
