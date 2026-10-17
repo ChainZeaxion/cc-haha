@@ -818,6 +818,32 @@ CC-HAHA 默认把上一轮 thinking 全文发回后端（Anthropic 格式原样�
 - **热更新**：开关在每次 API 请求时经 `getSettingsWithErrors` 读取（changeDetector 文件监听 + resetSettingsCache 既有机制），改完即对下一次请求生效，无需推控制消息。
 - **Patch**：`modify/patches/session/session-thinking-switch-patch1.patch`（19 文件 619 行，含 3 测试文件）。**11 patch 全链 `git apply` 干净（仅 h5-settings-parity 既有 EOF 空白 warning）且 thinking-switch 19 文件逐字节等于工作树（0 差异）**。
 
+### 原四十六、工具轮间思考开关：自托管引擎跳过工具推进段的思考前导（✅ 2026-10-17）
+
+**用户要求**（2026-10-17 verbatim）：「在设置-通用页内，作为启用思考的二级开关『是否需要工具轮间进行思考』去添加一个新的用户设置项。我也倾向 A 路径启发式判定。」
+
+**动机**：本地 vLLM 引擎（g29）启动参数 `enable_thinking=true` 让**每一轮**请求都带思考生成段。Claude Code 兼容层不消费 Anthropic 的 `thinking` 参数，所以 cc-haha 没法像官方那样「最后一轮才思考」。引擎侧已支持请求级 `chat_template_kwargs.enable_thinking=false` 覆盖默认值（线上实测：`reasoning=None`，零思考直接回答），引擎侧零改动。问题在助手侧——工具调用之间（上一轮 assistant 消息只有 `tool_use` 没有 `text`）是纯机械推进，模型不需要深思，跳过思考段可省工具间隔 1-2 秒。最终回答轮（上一轮带 `text`，模型在解释/收尾）保留完整思考。
+
+**与「思考回传」（原八）的异同**：两者同为「启用思考模式」下的二级开关、同改 claude.ts 请求层，但语义不同——原八控制**把已生成的 thinking block 是否发回后端**（省 prefill 重复传输）；本项控制**引擎这一轮要不要生成思考**（省思考生成段本身的耗时）。一个管「回传」，一个管「生成」，故相邻收纳于「思考」主题下。
+
+**判定协议（A 路径，启发式）**：发起下一轮请求前看上一轮 assistant 消息的 content 块——
+- `content.some(b => b.type === 'tool_use') && !content.some(b => b.type === 'text')` → 纯工具推进轮，下一轮关思考
+- 否则（有 text）→ 保留思考
+
+**改动**（sidecar 5 + desktop 8 + 测试 2，15 文件）：
+- `src/prompts/i18n/promptLanguage.ts`：新增 `getToolTurnThinking()` / `setToolTurnThinkingPreference()` / `resolveToolTurnThinkingSetting()`（`raw === true` 才为真，缺省/无效值一律 false = 跳过）。复用 `readPersistedRaw`（同步 readFileSync 读 desktop-ui.json），首次读一次进进程内缓存，PUT 写路径直接调 setter 刷缓存（同一 sidecar 进程处理 UI 请求，无 mtime 检查）。`resetPromptLanguageCacheForTests` 一并重置新缓存。
+- `src/server/services/desktopUiPreferencesService.ts`：`toolTurnThinking: boolean` 字段 + 默认 `false` + 归一化 + `updateToolTurnThinking` 写路径（锁内读改写 + 调 setter）。
+- `src/server/api/desktop-ui.ts`：`detail === 'tool-turn-thinking'` 的 GET/PUT 分支。
+- `src/services/api/claude.ts`：`Options.disableToolTurnThinking?: boolean`；`paramsFromContext` 返回对象处 `...(options.disableToolTurnThinking && isLocalEngineUrl(process.env.ANTHROPIC_BASE_URL) && { chat_template_kwargs: { enable_thinking: false } })`，注入在 `...extraBodyParams` 之前，用户显式 `CLAUDE_CODE_EXTRA_BODY` 可覆盖。非流式 fallback 走同一 paramsFromContext，自动覆盖。线上 api.anthropic.com 不命中 `isLocalEngineUrl`，请求体零变化。
+- `src/query.ts`：组装 Options 处算判据——`[...messagesForQuery].reverse().find(m => m.type === 'assistant')` 取上一轮 assistant，纯 tool_use + `getToolTurnThinking() === false` → 置 `disableToolTurnThinking: true`。
+- desktop 侧：`desktopUiPreferences.ts` 的 get/update、`settingsStore.ts` 的 state 字段（默认 false）+ load/set action（乐观更新+回滚）、`GeneralSettings.tsx` 在「启用思考模式」下的二级 checkbox「工具轮间进行思考」。
+- i18n 五份 locale（zh/zh-TW/en/jp/kr）：`toolTurnThinkingTitle` / `toolTurnThinkingHint`。
+- 测试：`claudeToolTurnThinking.test.ts`（新增，7 用例）——`resolveToolTurnThinkingSetting` 只认真布尔、缺省 false、读存储 true、setter 刷缓存、loopback + flag 注入 `enable_thinking:false`、无 flag 不注入、public base 不注入。`desktop-ui-preferences.test.ts` 的 6 处断言补 `toolTurnThinking: false`。
+
+**验证**：`bun test` 新测试 7/7 + i18n + desktop-ui-preferences + claudeCacheTtl 共 67 pass；claudeRequiredThinking 35/35 回归无破坏；`tsc --noEmit` 干净。线上路径（api.anthropic.com / Bedrock / Vertex）经 `isLocalEngineUrl` 门控，请求体零变化。
+
+**patch 固化**：段二第 17 号 `patches/usage/usage-tool-turn-thinking-skip-patch1.patch`（15 文件，基座 `bef0fad55`），干净基座 worktree apply 后逐字节一致 ✅。ORDER.md / README.md 已同步（17 patch 体系）。提交 `fb8f91468`。
+
 ---
 
 ### 原二十、H5 远端 API 响应 gzip 压缩传输（非本机默认开启）（✅ 2026-09-26）
@@ -2094,30 +2120,6 @@ type DensitySample = { cjk: number; latin: number; digit: number; sym: number; t
 **验证**：system 3/3、claudeCacheTtl 3/3、claudeRequiredThinking 35/35；`src/services/api + constants + query + cli` 全量 **373 pass / 0 fail**；server 相关 7 文件 **404 pass / 0 fail**。线上路径（api.anthropic.com / Bedrock / Vertex）经 resolveCacheTtl 回落，行为零变化。
 
 **patch 固化**：段二第 16 号 `patches/usage/usage-private-engine-attribution-cache-patch1.patch`（5 文件，基座 `fef605601`），干净基座 worktree apply 后逐字节一致 ✅。ORDER.md / README.md 已同步（16 patch 体系）。提交 `064f6c594`。
-
-### 原四十六、工具轮间思考开关：自托管引擎跳过工具推进段的思考前导（✅ 2026-10-17）
-
-**用户要求**（2026-10-17 verbatim）：「在设置-通用页内，作为启用思考的二级开关『是否需要工具轮间进行思考』去添加一个新的用户设置项。我也倾向 A 路径启发式判定。」
-
-**动机**：本地 vLLM 引擎（g29）启动参数 `enable_thinking=true` 让**每一轮**请求都带思考生成段。Claude Code 兼容层不消费 Anthropic 的 `thinking` 参数，所以 cc-haha 没法像官方那样「最后一轮才思考」。引擎侧已支持请求级 `chat_template_kwargs.enable_thinking=false` 覆盖默认值（线上实测：`reasoning=None`，零思考直接回答），引擎侧零改动。问题在助手侧——工具调用之间（上一轮 assistant 消息只有 `tool_use` 没有 `text`）是纯机械推进，模型不需要深思，跳过思考段可省工具间隔 1-2 秒。最终回答轮（上一轮带 `text`，模型在解释/收尾）保留完整思考。
-
-**判定协议（A 路径，启发式）**：发起下一轮请求前看上一轮 assistant 消息的 content 块——
-- `content.some(b => b.type === 'tool_use') && !content.some(b => b.type === 'text')` → 纯工具推进轮，下一轮关思考
-- 否则（有 text）→ 保留思考
-
-**改动**（sidecar 5 + desktop 8 + 测试 2，15 文件）：
-- `src/prompts/i18n/promptLanguage.ts`：新增 `getToolTurnThinking()` / `setToolTurnThinkingPreference()` / `resolveToolTurnThinkingSetting()`（`raw === true` 才为真，缺省/无效值一律 false = 跳过）。复用 `readPersistedRaw`（同步 readFileSync 读 desktop-ui.json），首次读一次进进程内缓存，PUT 写路径直接调 setter 刷缓存（同一 sidecar 进程处理 UI 请求，无 mtime 检查）。`resetPromptLanguageCacheForTests` 一并重置新缓存。
-- `src/server/services/desktopUiPreferencesService.ts`：`toolTurnThinking: boolean` 字段 + 默认 `false` + 归一化 + `updateToolTurnThinking` 写路径（锁内读改写 + 调 setter）。
-- `src/server/api/desktop-ui.ts`：`detail === 'tool-turn-thinking'` 的 GET/PUT 分支。
-- `src/services/api/claude.ts`：`Options.disableToolTurnThinking?: boolean`；`paramsFromContext` 返回对象处 `...(options.disableToolTurnThinking && isLocalEngineUrl(process.env.ANTHROPIC_BASE_URL) && { chat_template_kwargs: { enable_thinking: false } })`，注入在 `...extraBodyParams` 之前，用户显式 `CLAUDE_CODE_EXTRA_BODY` 可覆盖。非流式 fallback 走同一 paramsFromContext，自动覆盖。线上 api.anthropic.com 不命中 `isLocalEngineUrl`，请求体零变化。
-- `src/query.ts`：组装 Options 处算判据——`[...messagesForQuery].reverse().find(m => m.type === 'assistant')` 取上一轮 assistant，纯 tool_use + `getToolTurnThinking() === false` → 置 `disableToolTurnThinking: true`。
-- desktop 侧：`desktopUiPreferences.ts` 的 get/update、`settingsStore.ts` 的 state 字段（默认 false）+ load/set action（乐观更新+回滚）、`GeneralSettings.tsx` 在「启用思考模式」下的二级 checkbox「工具轮间进行思考」。
-- i18n 五份 locale（zh/zh-TW/en/jp/kr）：`toolTurnThinkingTitle` / `toolTurnThinkingHint`。
-- 测试：`claudeToolTurnThinking.test.ts`（新增，7 用例）——`resolveToolTurnThinkingSetting` 只认真布尔、缺省 false、读存储 true、setter 刷缓存、loopback + flag 注入 `enable_thinking:false`、无 flag 不注入、public base 不注入。`desktop-ui-preferences.test.ts` 的 6 处断言补 `toolTurnThinking: false`。
-
-**验证**：`bun test` 新测试 7/7 + i18n + desktop-ui-preferences + claudeCacheTtl 共 67 pass；claudeRequiredThinking 35/35 回归无破坏；`tsc --noEmit` 干净。线上路径（api.anthropic.com / Bedrock / Vertex）经 `isLocalEngineUrl` 门控，请求体零变化。
-
-**patch 固化**：段二第 17 号 `patches/usage/usage-tool-turn-thinking-skip-patch1.patch`（15 文件，基座 `bef0fad55`），干净基座 worktree apply 后逐字节一致 ✅。ORDER.md / README.md 已同步（17 patch 体系）。提交 `fb8f91468`。
 
 ## 五、压缩链路与大会话
 
