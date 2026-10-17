@@ -44,6 +44,7 @@ while read -r p; do git apply -p1 "$p"; done < modify/patches/ORDER.md
 | `tps/tps-estimation-unified-patch1.patch` | **原 43+45** | TPS 估算统一 + ids 探测/校准修复 + 在飞用量三缺口（密度池 counts 补喂/v2 清毒/4×units 护栏、stream_retry exact 回滚）（15 文件，同改 tpsMeter/chatStore） |
 | `workspace/workspace-history-budget-degrade-patch1.patch` | 原 44 | 超预算会话工作区降级（4 文件） |
 | `usage/usage-private-engine-attribution-cache-patch1.patch` | 原 45（2026-10-17 新增） | 自托管引擎归因头关闭 + 缓存 TTL 6h（5 文件，基座 `fef605601`） |
+| `usage/usage-tool-turn-thinking-skip-patch1.patch` | 2026-10-17 新增 | 工具轮间思考开关——设置页二级开关 + 纯工具轮 `enable_thinking=false` 注入 + 引擎门控（15 文件，基座 `bef0fad55`） |
 
 > 段二各 patch 的基座原来各自独立（37/38=`3a51ef84`、39=`cb7065b1e`、40=`53199e3f7`、41=`c71ce319d`、42=`54ae13c69`、43=`d240afe84`、44=`dfbfe9dc5`、45=`782661ba7`，全在同一直线上）。合并后 10（38+41）统一基座 `3a51ef84`、14（43+45）统一基座 `d240afe84`，其余沿用原文件（基座即 `3a51ef84`，逐条 apply 已实测通过）。新增第 16 号（原 45）基座 `fef605601`（段二链终态），干净基座 apply 后 5 文件逐字节一致 ✅。
 

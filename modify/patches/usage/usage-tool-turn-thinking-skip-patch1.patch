@@ -1,0 +1,728 @@
+diff --git a/desktop/src/api/desktopUiPreferences.ts b/desktop/src/api/desktopUiPreferences.ts
+index 1c7da6195..5f915efe4 100644
+--- a/desktop/src/api/desktopUiPreferences.ts
++++ b/desktop/src/api/desktopUiPreferences.ts
+@@ -105,6 +105,24 @@ export const desktopUiPreferencesApi = {
+     )
+   },
+ 
++  /**
++   * Whether tool-continuation turns think on a self-hosted engine. `false`
++   * (default) sends `enable_thinking: false` on those turns to skip the
++   * thinking preamble; `true` keeps the engine default.
++   */
++  getToolTurnThinking() {
++    return api.get<{ exists: boolean; toolTurnThinking: boolean }>(
++      '/api/desktop-ui/preferences/tool-turn-thinking',
++    )
++  },
++
++  updateToolTurnThinking(toolTurnThinking: boolean) {
++    return api.put<{ ok: true; toolTurnThinking: boolean; locale: string | null }>(
++      '/api/desktop-ui/preferences/tool-turn-thinking',
++      { toolTurnThinking },
++    )
++  },
++
+   /** The language the built-in model prompts render in, independent of the UI. */
+   getPromptLanguage() {
+     return api.get<{ exists: boolean; promptLanguage: PromptLanguageSetting }>(
+diff --git a/desktop/src/i18n/locales/en.ts b/desktop/src/i18n/locales/en.ts
+index b3c509d9b..52a8d43e2 100644
+--- a/desktop/src/i18n/locales/en.ts
++++ b/desktop/src/i18n/locales/en.ts
+@@ -2405,6 +2405,8 @@ Row 9, all 8 cells: continuing from straight down, turning left through lower-le
+   'settings.general.thinkingHint': 'Turn this off to start new sessions with --thinking disabled; useful for DeepSeek V4 Flash/Pro and other non-thinking workflows.',
+   'settings.general.thinkingSendBackTitle': 'Send thinking history to the backend API',
+   'settings.general.thinkingSendBackHint': 'When off, prior thinking blocks are stripped from API requests only; they stay in your local session history and remain viewable in the conversation.',
++  'settings.general.toolTurnThinkingTitle': 'Think Between Tool Turns',
++  'settings.general.toolTurnThinkingHint': 'Self-hosted engines only. When off, mid-tool turns send enable_thinking=false to skip the thinking preamble and shorten the gap between tools; the final answer turn still thinks in full.',
+   'settings.general.compactionTitle': 'Context compaction',
+   'settings.general.sessionExtendedInfoTitle': 'Session detail readouts',
+   'settings.general.sessionExtendedInfoDescription': 'Controls the usage and timing readouts in the session UI. Off keeps only the usage in the turn footer.',
+diff --git a/desktop/src/i18n/locales/jp.ts b/desktop/src/i18n/locales/jp.ts
+index e572f2897..6ec794486 100644
+--- a/desktop/src/i18n/locales/jp.ts
++++ b/desktop/src/i18n/locales/jp.ts
+@@ -2404,6 +2404,8 @@ export const jp: Record<TranslationKey, string> = {
+   'settings.general.thinkingHint': '新しいセッションを --thinking 無効で開始するにはこれをオフにします。DeepSeek V4 Flash/Pro やその他の非思考ワークフローに便利です。',
+   'settings.general.thinkingSendBackTitle': '思考履歴をバックエンド API に送信する',
+   'settings.general.thinkingSendBackHint': 'オフの場合、直前の思考ブロックは API リクエストからのみ除去されます。ローカルのセッション履歴には保存され、会話内で引き続き閲覧できます。',
++  'settings.general.toolTurnThinkingTitle': 'ツール呼び出しの間思考する',
++  'settings.general.toolTurnThinkingHint': 'セルフホストのエンジンでのみ有効。オフにすると、ツール実行の途中ラウンドは enable_thinking=false を付けて思考の導入部をスキップし、ツール間の遅延を短縮します。最終回答ラウンドでは従来どおり完全な思考を行います。',
+   'settings.general.compactionTitle': 'コンテキスト圧縮',
+   'settings.general.sessionExtendedInfoTitle': 'セッション拡張情報',
+   'settings.general.sessionExtendedInfoDescription': 'セッション画面の使用量・所要時間の表示を切り替えます。オフではターンフッターの使用量のみ残ります。',
+diff --git a/desktop/src/i18n/locales/kr.ts b/desktop/src/i18n/locales/kr.ts
+index 8b10aa6f7..40e2894aa 100644
+--- a/desktop/src/i18n/locales/kr.ts
++++ b/desktop/src/i18n/locales/kr.ts
+@@ -2406,6 +2406,8 @@ export const kr: Record<TranslationKey, string> = {
+   'settings.general.thinkingHint': '새 세션을 --thinking 비활성화로 시작하려면 이를 끄세요. DeepSeek V4 Flash/Pro 및 기타 비사고 워크플로에 유용합니다.',
+   'settings.general.thinkingSendBackTitle': '사고 기록을 백엔드 API로 보내기',
+   'settings.general.thinkingSendBackHint': '끄면 이전 사고 블록이 API 요청에서만 제거됩니다. 로컬 세션 기록에는 그대로 보관되어 대화에서 계속 볼 수 있습니다.',
++  'settings.general.toolTurnThinkingTitle': '도구 턴 사이에 사고 사용',
++  'settings.general.toolTurnThinkingHint': '자체 호스팅 엔진에만 적용됩니다. 끌 경우 도구 실행 중간 턴은 enable_thinking=false를 붙여 사고 서론을 건너뛰고 도구 간 지연을 줄이며, 최종 답변 턴은 여전히 전체적으로 사고합니다.',
+   'settings.general.compactionTitle': '컨텍스트 압축',
+   'settings.general.sessionExtendedInfoTitle': '세션 확장 정보',
+   'settings.general.sessionExtendedInfoDescription': '세션 화면의 사용량·소요 시간 표시를 제어합니다. 끄면 턴 하단의 사용량만 남습니다.',
+diff --git a/desktop/src/i18n/locales/zh-TW.ts b/desktop/src/i18n/locales/zh-TW.ts
+index df8b2b2f8..0c6d5309c 100644
+--- a/desktop/src/i18n/locales/zh-TW.ts
++++ b/desktop/src/i18n/locales/zh-TW.ts
+@@ -2402,6 +2402,8 @@ export const zh: Record<TranslationKey, string> = {
+   'settings.general.thinkingHint': '關閉後會以 --thinking disabled 啟動新會話；適合 DeepSeek V4 Flash/Pro 等需要非思考模式的模型。',
+   'settings.general.thinkingSendBackTitle': '將思考內容回傳後端 API',
+   'settings.general.thinkingSendBackHint': '關閉後，歷史中的思考內容只從發給後端的請求中剝離；本地會話歷史完整保留，仍可在會話中回看。',
++  'settings.general.toolTurnThinkingTitle': '工具輪間進行思考',
++  'settings.general.toolTurnThinkingHint': '僅對自託管引擎生效。關閉後，工具推進的中段輪會帶 enable_thinking=false，跳過思考生成段以縮短工具間隔；最終回答輪仍保留完整思考。',
+   'settings.general.compactionTitle': '上下文壓縮',
+   'settings.general.sessionExtendedInfoTitle': '會話擴展資訊',
+   'settings.general.sessionExtendedInfoDescription': '控制會話介面中用量與耗時資訊的顯示，關閉後只保留輪次頁腳的用量。',
+diff --git a/desktop/src/i18n/locales/zh.ts b/desktop/src/i18n/locales/zh.ts
+index c0cf14e56..3b2e3b3e0 100644
+--- a/desktop/src/i18n/locales/zh.ts
++++ b/desktop/src/i18n/locales/zh.ts
+@@ -2402,6 +2402,8 @@ export const zh: Record<TranslationKey, string> = {
+   'settings.general.thinkingHint': '关闭后会以 --thinking disabled 启动新会话；适合 DeepSeek V4 Flash/Pro 等需要非思考模式的模型。',
+   'settings.general.thinkingSendBackTitle': '将思考内容回传后端 API',
+   'settings.general.thinkingSendBackHint': '关闭后，历史中的思考内容只从发给后端的请求中剥离；本地会话历史完整保留，仍可在会话中回看。',
++  'settings.general.toolTurnThinkingTitle': '工具轮间进行思考',
++  'settings.general.toolTurnThinkingHint': '仅对自托管引擎生效。关闭后，工具推进的中段轮会带 enable_thinking=false，跳过思考生成段以缩短工具间隔；最终回答轮仍保留完整思考。',
+   'settings.general.compactionTitle': '上下文压缩',
+   'settings.general.sessionExtendedInfoTitle': '会话扩展信息',
+   'settings.general.sessionExtendedInfoDescription': '控制会话界面中用量与耗时信息的显示，关闭后只保留轮次页脚的用量。',
+diff --git a/desktop/src/pages/settings/GeneralSettings.tsx b/desktop/src/pages/settings/GeneralSettings.tsx
+index 279499a56..7bc95ff0f 100644
+--- a/desktop/src/pages/settings/GeneralSettings.tsx
++++ b/desktop/src/pages/settings/GeneralSettings.tsx
+@@ -96,6 +96,9 @@ export function GeneralSettings() {
+     thinkingLanguage,
+     setThinkingLanguage,
+     loadThinkingLanguage,
++    toolTurnThinking,
++    setToolTurnThinking,
++    loadToolTurnThinking,
+     setTheme,
+     chatSendBehavior,
+     setChatSendBehavior,
+@@ -270,6 +273,10 @@ export function GeneralSettings() {
+     void loadPromptLanguage()
+   }, [loadPromptLanguage])
+ 
++  useEffect(() => {
++    void loadToolTurnThinking()
++  }, [loadToolTurnThinking])
++
+   const LANGUAGES: Array<{ value: Locale; label: string }> = [
+     { value: 'en', label: 'English' },
+     { value: 'zh', label: '简体中文' },
+@@ -1180,12 +1187,32 @@ export function GeneralSettings() {
+               <div className="text-sm font-medium text-[var(--color-text-primary)]">
+                 {t('settings.general.thinkingSendBackTitle')}
+               </div>
+-              <div className="text-xs text-[var(--color-text-tertiary)] mt-1 leading-5">
++            <div className="text-xs text-[var(--color-text-tertiary)] mt-1 leading-5">
+                 {t('settings.general.thinkingSendBackHint')}
+               </div>
+             </div>
+           </label>
+         )}
++        {thinkingEnabled && (
++          <label className="relative flex items-start gap-3 rounded-[var(--radius-xl)] border border-[var(--color-border)] bg-[var(--color-surface-container-low)] px-4 py-3 mt-3 cursor-pointer hover:border-[var(--color-border-focus)] transition-colors">
++            <input
++              type="checkbox"
++              aria-label={t('settings.general.toolTurnThinkingTitle')}
++              checked={toolTurnThinking}
++              onChange={(e) => void setToolTurnThinking(e.target.checked)}
++              className={SETTINGS_CHECKBOX_INPUT_CLASS}
++            />
++            <SettingsCheckboxMark checked={toolTurnThinking} />
++            <div className="min-w-0">
++              <div className="text-sm font-medium text-[var(--color-text-primary)]">
++                {t('settings.general.toolTurnThinkingTitle')}
++              </div>
++              <div className="text-xs text-[var(--color-text-tertiary)] mt-1 leading-5">
++                {t('settings.general.toolTurnThinkingHint')}
++              </div>
++            </div>
++          </label>
++        )}
+       </div>
+ 
+       <div className="mt-8">
+diff --git a/desktop/src/stores/settingsStore.ts b/desktop/src/stores/settingsStore.ts
+index 2bd0b2c9d..5d23734e5 100644
+--- a/desktop/src/stores/settingsStore.ts
++++ b/desktop/src/stores/settingsStore.ts
+@@ -105,6 +105,7 @@ type SettingsStore = {
+   responseLanguage: string
+   promptLanguage: PromptLanguageSetting
+   thinkingLanguage: ThinkingLanguageSetting
++  toolTurnThinking: boolean
+   uiZoom: number
+   isLoading: boolean
+   error: string | null
+@@ -133,6 +134,8 @@ type SettingsStore = {
+   loadPromptLanguage: () => Promise<void>
+   setThinkingLanguage: (setting: ThinkingLanguageSetting) => Promise<void>
+   loadThinkingLanguage: () => Promise<void>
++  setToolTurnThinking: (value: boolean) => Promise<void>
++  loadToolTurnThinking: () => Promise<void>
+   setTheme: (theme: ThemeMode) => Promise<void>
+   setChatSendBehavior: (behavior: ChatSendBehavior) => Promise<void>
+   fetchOutputStyles: (workDir?: string | null) => Promise<void>
+@@ -253,6 +256,7 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
+   activeProviderName: null,
+   locale: initialLocale,
+   thinkingLanguage: 'auto',
++  toolTurnThinking: false,
+   promptLanguage: 'auto',
+   chatSendBehavior: 'enter',
+   outputStyle: DEFAULT_OUTPUT_STYLE,
+@@ -557,6 +561,27 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
+     }
+   },
+ 
++  loadToolTurnThinking: async () => {
++    try {
++      const { toolTurnThinking } = await desktopUiPreferencesApi.getToolTurnThinking()
++      set({ toolTurnThinking })
++    } catch (error) {
++      console.error('[desktop] Failed to load tool-turn thinking', error)
++    }
++  },
++
++  setToolTurnThinking: async (value: boolean) => {
++    const prev = get().toolTurnThinking
++    set({ toolTurnThinking: value })
++    try {
++      await desktopUiPreferencesApi.updateToolTurnThinking(value)
++    } catch (error) {
++      set({ toolTurnThinking: prev })
++      console.error('[desktop] Failed to persist tool-turn thinking', error)
++      throw error
++    }
++  },
++
+   // Kept as the Settings page's entry point; uiStore owns the state.
+   setTheme: async (theme) => {
+     useUIStore.getState().setTheme(theme)
+diff --git a/src/prompts/i18n/promptLanguage.ts b/src/prompts/i18n/promptLanguage.ts
+index 387c679d4..980863c2f 100644
+--- a/src/prompts/i18n/promptLanguage.ts
++++ b/src/prompts/i18n/promptLanguage.ts
+@@ -41,19 +41,23 @@ function localePreferencesPath(): string {
+  * service: prompt builders run deep inside request handling, and one small
+  * synchronous read at most once per process keeps that path free of new awaits.
+  */
+-function readPersistedPreference(field: string): string | null {
++function readPersistedRaw(field: string): unknown {
+   try {
+     const parsed = JSON.parse(
+       fs.readFileSync(localePreferencesPath(), 'utf8'),
+     ) as Record<string, unknown> | null
+-    const value = parsed?.[field]
+-    return typeof value === 'string' && value.trim() ? value : null
++    return parsed?.[field] ?? null
+   } catch {
+     // No preferences yet, or unreadable: English, which needs no override.
+     return null
+   }
+ }
+ 
++function readPersistedPreference(field: string): string | null {
++  const value = readPersistedRaw(field)
++  return typeof value === 'string' && value.trim() ? value : null
++}
++
+ let cached: PromptLanguage | null = null
+ /** The locale a write path last set — mirrors `locale` without a file read. */
+ let localeOverride: PromptLanguage | null = null
+@@ -119,6 +123,7 @@ export function setPromptLanguageSetting(raw: unknown): PromptLanguage {
+ export function resetPromptLanguageCacheForTests(): void {
+   cached = null
+   cachedThinking = null
++  cachedToolTurnThinking = null
+   localeOverride = null
+   settingOverride = null
+ }
+@@ -161,3 +166,38 @@ export function setThinkingLanguagePreference(raw: unknown): PromptLanguage {
+   cachedThinking = setting === 'auto' ? getPromptLanguage() : setting
+   return cachedThinking
+ }
++
++// ── Tool-turn thinking (enable_thinking skip) ───────────────────────────────
++//
++// Whether the assistant keeps thinking between tool turns on a self-hosted
++// engine. OFF (the default) sends `chat_template_kwargs.enable_thinking=false`
++// on tool-continuation turns so the engine skips its thinking preamble; ON
++// keeps the engine default and the request carries no such field.
++
++const TOOL_TURN_FIELD = 'toolTurnThinking'
++
++/** `true` only when the stored value is the literal boolean true. */
++export function resolveToolTurnThinkingSetting(raw: unknown): boolean {
++  return raw === true
++}
++
++let cachedToolTurnThinking: boolean | null = null
++
++/**
++ * Whether tool-continuation turns should think. The default is `false` (skip):
++ * a missing or invalid stored value means skip thinking between tools.
++ */
++export function getToolTurnThinking(): boolean {
++  if (cachedToolTurnThinking === null) {
++    cachedToolTurnThinking = resolveToolTurnThinkingSetting(
++      readPersistedRaw(TOOL_TURN_FIELD),
++    )
++  }
++  return cachedToolTurnThinking
++}
++
++/** Record a tool-turn-thinking change (the write path, like the language ones). */
++export function setToolTurnThinkingPreference(raw: unknown): boolean {
++  cachedToolTurnThinking = resolveToolTurnThinkingSetting(raw)
++  return cachedToolTurnThinking
++}
+diff --git a/src/query.ts b/src/query.ts
+index 42620c43d..a2957d4f6 100644
+--- a/src/query.ts
++++ b/src/query.ts
+@@ -41,6 +41,7 @@ import type {
+   TombstoneMessage,
+ } from './types/message.js'
+ import { logError } from './utils/log.js'
++import { getToolTurnThinking } from './prompts/i18n/promptLanguage.js'
+ import {
+   PROMPT_TOO_LONG_ERROR_MESSAGE,
+   isPromptTooLongMessage,
+@@ -663,6 +664,20 @@ async function* queryLoop(
+ 
+     let attemptWithFallback = true
+ 
++    // Tool-continuation turn detection: when the previous assistant message
++    // carried only tool_use blocks (no text), and the user has the tool-turn
++    // thinking switch off, the next request skips the engine's thinking
++    // preamble via `chat_template_kwargs.enable_thinking: false`.
++    const lastAssistantMsg = [...messagesForQuery].reverse().find(
++      (m): m is AssistantMessage => m.type === 'assistant',
++    )
++    const prevTurnPureToolUse =
++      lastAssistantMsg !== undefined &&
++      lastAssistantMsg.message.content.some(b => b.type === 'tool_use') &&
++      !lastAssistantMsg.message.content.some(b => b.type === 'text')
++    const disableToolTurnThinking =
++      !getToolTurnThinking() && prevTurnPureToolUse
++
+     queryCheckpoint('query_api_loop_start')
+     try {
+       while (attemptWithFallback) {
+@@ -685,6 +700,7 @@ async function* queryLoop(
+               ...(config.gates.fastModeEnabled && {
+                 fastMode: appState.fastMode,
+               }),
++              ...(disableToolTurnThinking && { disableToolTurnThinking }),
+               toolChoice: undefined,
+               isNonInteractiveSession:
+                 toolUseContext.options.isNonInteractiveSession,
+diff --git a/src/server/__tests__/desktop-ui-preferences.test.ts b/src/server/__tests__/desktop-ui-preferences.test.ts
+index 6201d8aac..de0fa1839 100644
+--- a/src/server/__tests__/desktop-ui-preferences.test.ts
++++ b/src/server/__tests__/desktop-ui-preferences.test.ts
+@@ -77,6 +77,7 @@ describe('DesktopUiPreferencesService', () => {
+       locale: null,
+       promptLanguage: 'auto',
+       thinkingLanguage: 'auto',
++      toolTurnThinking: false,
+       profile: {
+         displayName: 'cc-haha',
+         subtitle: 'github.com/NanmiCoder/cc-haha',
+@@ -135,6 +136,7 @@ describe('DesktopUiPreferencesService', () => {
+       locale: null,
+       promptLanguage: 'auto',
+       thinkingLanguage: 'auto',
++      toolTurnThinking: false,
+       futureField: { keep: true },
+       profile: {
+         displayName: 'cc-haha',
+@@ -160,6 +162,7 @@ describe('DesktopUiPreferencesService', () => {
+       locale: null,
+       promptLanguage: 'auto',
+       thinkingLanguage: 'auto',
++      toolTurnThinking: false,
+       futureField: { keep: true },
+       profile: {
+         displayName: 'cc-haha',
+@@ -505,6 +508,7 @@ describe('DesktopUiPreferencesService', () => {
+       locale: null,
+       promptLanguage: 'auto',
+       thinkingLanguage: 'auto',
++      toolTurnThinking: false,
+       profile: {
+         displayName: 'Claude Captain',
+         subtitle: 'local.example/profile',
+@@ -630,6 +634,7 @@ describe('desktop UI preferences API', () => {
+         locale: null,
+         promptLanguage: 'auto',
+       thinkingLanguage: 'auto',
++      toolTurnThinking: false,
+         profile: {
+           displayName: 'cc-haha',
+           subtitle: 'github.com/NanmiCoder/cc-haha',
+@@ -661,6 +666,7 @@ describe('desktop UI preferences API', () => {
+         locale: null,
+         promptLanguage: 'auto',
+       thinkingLanguage: 'auto',
++      toolTurnThinking: false,
+         profile: {
+           displayName: 'cc-haha',
+           subtitle: 'github.com/NanmiCoder/cc-haha',
+diff --git a/src/server/api/desktop-ui.ts b/src/server/api/desktop-ui.ts
+index c9296fc0e..69b27df2a 100644
+--- a/src/server/api/desktop-ui.ts
++++ b/src/server/api/desktop-ui.ts
+@@ -122,6 +122,23 @@ export async function handleDesktopUiApi(
+       return Response.json({ ok: true, thinkingLanguage, locale: preferences.locale })
+     }
+ 
++    if (detail === 'tool-turn-thinking') {
++      if (req.method === 'GET') {
++        const result = await desktopUiPreferencesService.readPreferences()
++        return Response.json({
++          exists: result.exists,
++          toolTurnThinking: result.preferences.toolTurnThinking,
++        })
++      }
++      if (req.method !== 'PUT') throw methodNotAllowed(req.method)
++      const body = await parseJsonBody(req)
++      const { preferences, toolTurnThinking } =
++        await desktopUiPreferencesService.updateToolTurnThinking(
++          (body as { toolTurnThinking?: unknown } | null)?.toolTurnThinking,
++        )
++      return Response.json({ ok: true, toolTurnThinking, locale: preferences.locale })
++    }
++
+     if (detail === 'profile') {
+       const action = segments[4]
+ 
+diff --git a/src/server/services/desktopUiPreferencesService.ts b/src/server/services/desktopUiPreferencesService.ts
+index 4cbc2eb8d..480028af3 100644
+--- a/src/server/services/desktopUiPreferencesService.ts
++++ b/src/server/services/desktopUiPreferencesService.ts
+@@ -10,9 +10,11 @@ import { DEFAULT_VOICE_PREFERENCES, type VoicePreferences } from './voice/types.
+ import {
+   resolveThinkingLanguageSetting,
+   resolvePromptLanguageSetting,
++  resolveToolTurnThinkingSetting,
+   setPromptLanguage,
+   setPromptLanguageSetting,
+   setThinkingLanguagePreference,
++  setToolTurnThinkingPreference,
+   type PromptLanguage,
+   type PromptLanguageSetting,
+   type ThinkingLanguageSetting,
+@@ -97,6 +99,12 @@ export type DesktopUiPreferences = {
+    * Chinese.
+    */
+   thinkingLanguage: ThinkingLanguageSetting
++  /**
++   * Whether tool-continuation turns think on a self-hosted engine. `true` keeps
++   * thinking between tool turns; `false` (the default) sends
++   * `chat_template_kwargs.enable_thinking=false` on those turns.
++   */
++  toolTurnThinking: boolean
+   [key: string]: unknown
+ }
+ 
+@@ -145,6 +153,7 @@ function defaultPreferences(): DesktopUiPreferences {
+     locale: null,
+     promptLanguage: 'auto',
+     thinkingLanguage: 'auto',
++    toolTurnThinking: false,
+   }
+ }
+ 
+@@ -392,6 +401,7 @@ function normalizeDesktopUiPreferences(value: unknown): DesktopUiPreferences | n
+     locale: normalizeLocalePreference(record.locale),
+     promptLanguage: resolvePromptLanguageSetting(record.promptLanguage),
+     thinkingLanguage: resolveThinkingLanguageSetting(record.thinkingLanguage),
++    toolTurnThinking: resolveToolTurnThinkingSetting(record.toolTurnThinking),
+   }
+ }
+ 
+@@ -562,6 +572,30 @@ export class DesktopUiPreferencesService {
+     })
+   }
+ 
++  /**
++   * Persist whether tool-continuation turns think. Like the language writes,
++   * the in-process setting updates immediately so a running sidecar follows on
++   * the very next request.
++   */
++  async updateToolTurnThinking(raw: unknown): Promise<{
++    preferences: DesktopUiPreferences
++    toolTurnThinking: boolean
++  }> {
++    const filePath = this.getPreferencesPath()
++    return this.withWriteLock(filePath, async () => {
++      const { preferences } = await this.readPreferences()
++      const setting = resolveToolTurnThinkingSetting(raw)
++      const nextPreferences: DesktopUiPreferences = {
++        ...preferences,
++        schemaVersion: preferences.schemaVersion,
++        toolTurnThinking: setting,
++      }
++      await this.writePreferences(nextPreferences)
++      setToolTurnThinkingPreference(setting)
++      return { preferences: nextPreferences, toolTurnThinking: setting }
++    })
++  }
++
+   /**
+    * Persist the system-prompt language. `auto` defers to `locale`. Like the
+    * other language writes, the in-process setting updates immediately so a
+diff --git a/src/services/api/claude.ts b/src/services/api/claude.ts
+index c771dc5f7..bafc5b5e8 100644
+--- a/src/services/api/claude.ts
++++ b/src/services/api/claude.ts
+@@ -810,6 +810,11 @@ export type Options = {
+   outputFormat?: BetaJSONOutputFormat;
+   fastMode?: boolean;
+   advisorModel?: string;
++  // Set by the query loop for a tool-continuation turn (the previous assistant
++  // message was tool-use only) when the user keeps the tool-turn-thinking
++  // switch off. Injected as `chat_template_kwargs.enable_thinking: false` on
++  // self-hosted engines so they skip the thinking preamble for that turn.
++  disableToolTurnThinking?: boolean;
+   addNotification?: (notif: Notification) => void;
+   // API-side task budget (output_config.task_budget). Distinct from the
+   // tokenBudget.ts +500k auto-continue feature — this one is sent to the API
+@@ -1967,6 +1972,10 @@ async function* queryModel(
+         betasParams.includes(CONTEXT_MANAGEMENT_BETA_HEADER) && {
+           context_management: contextManagement,
+         }),
++      ...(options.disableToolTurnThinking &&
++        isLocalEngineUrl(process.env.ANTHROPIC_BASE_URL) && {
++          chat_template_kwargs: { enable_thinking: false },
++        }),
+       ...extraBodyParams,
+       ...(Object.keys(outputConfig).length > 0 && {
+         output_config: outputConfig,
+diff --git a/src/services/api/claudeToolTurnThinking.test.ts b/src/services/api/claudeToolTurnThinking.test.ts
+new file mode 100644
+index 000000000..94e9bf189
+--- /dev/null
++++ b/src/services/api/claudeToolTurnThinking.test.ts
+@@ -0,0 +1,210 @@
++import { describe, expect, test } from 'bun:test'
++import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
++import { tmpdir } from 'node:os'
++import { join } from 'node:path'
++import { getIsInteractive, setIsInteractive } from '../../bootstrap/state.js'
++import { enableConfigs } from '../../utils/config.js'
++import {
++  getToolTurnThinking,
++  resetPromptLanguageCacheForTests,
++  setToolTurnThinkingPreference,
++  resolveToolTurnThinkingSetting,
++} from '../../prompts/i18n/promptLanguage.js'
++import { queryModelWithStreaming } from './claude.js'
++import { createUserMessage } from '../../utils/messages.js'
++import { asSystemPrompt } from '../../utils/systemPromptType.js'
++import { getEmptyToolPermissionContext } from '../../Tool.js'
++
++function textSSE(): string {
++  return [
++    'event: message_start\n',
++    'data: {"type":"message_start","message":{"id":"m1","type":"message","role":"assistant","model":"loopback-model","content":[],"stop_reason":null,"stop_sequence":null,"usage":{"input_tokens":1,"output_tokens":0}}}\n\n',
++    'event: content_block_start\n',
++    'data: {"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}\n\n',
++    'event: content_block_delta\n',
++    'data: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"OK"}}\n\n',
++    'event: content_block_stop\n',
++    'data: {"type":"content_block_stop","index":0}\n\n',
++    'event: message_delta\n',
++    'data: {"type":"message_delta","delta":{"stop_reason":"end_turn","stop_sequence":null},"usage":{"output_tokens":1}}\n\n',
++    'event: message_stop\n',
++    'data: {"type":"message_stop"}\n\n',
++  ].join('')
++}
++
++/**
++ * Run one queryModelWithStreaming with a `fetchOverride` that captures the
++ * serialized request body and answers with a minimal text SSE stream. No real
++ * network is involved, so the loopback/public distinction is tested purely by
++ * which ANTHROPIC_BASE_URL we point at.
++ */
++async function captureRequestBody(
++  baseUrl: string,
++  disableToolTurnThinking?: boolean,
++): Promise<Record<string, unknown>> {
++  const bodies: Array<Record<string, unknown>> = []
++  const fetchOverride: typeof fetch = async (input, init) => {
++    const raw = init?.body
++    if (typeof raw === 'string') bodies.push(JSON.parse(raw))
++    else if (raw instanceof Uint8Array) {
++      bodies.push(JSON.parse(new TextDecoder().decode(raw)))
++    }
++    return new Response(textSSE(), {
++      status: 200,
++      headers: { 'content-type': 'text/event-stream' },
++    })
++  }
++
++  const configDir = await mkdtemp(join(tmpdir(), 'cc-haha-tool-turn-thinking-'))
++  const globals = globalThis as typeof globalThis & { MACRO?: { BUILD_TIME: string } }
++  const originalMacro = globals.MACRO
++  const originalIsInteractive = getIsInteractive()
++  const originalBaseUrl = process.env.ANTHROPIC_BASE_URL
++  const originalHome = process.env.HOME
++  const originalConfigDir = process.env.CLAUDE_CONFIG_DIR
++  const originalApiKey = process.env.ANTHROPIC_API_KEY
++
++  try {
++    globals.MACRO = { BUILD_TIME: '' }
++    setIsInteractive(false)
++    process.env.NODE_ENV = 'production'
++    process.env.HOME = configDir
++    process.env.CLAUDE_CONFIG_DIR = configDir
++    process.env.ANTHROPIC_BASE_URL = baseUrl
++    process.env.ANTHROPIC_API_KEY = 'loopback-test-key'
++    delete process.env.CLAUDE_CODE_USE_BEDROCK
++    delete process.env.CLAUDE_CODE_USE_VERTEX
++    delete process.env.CLAUDE_CODE_USE_FOUNDRY
++    enableConfigs()
++
++    for await (const _ of queryModelWithStreaming({
++      messages: [createUserMessage({ content: 'Hello' })],
++      systemPrompt: asSystemPrompt(''),
++      thinkingConfig: { type: 'disabled' },
++      tools: [],
++      signal: new AbortController().signal,
++      options: {
++        model: 'loopback-model',
++        querySource: 'insights',
++        agents: [],
++        isNonInteractiveSession: true,
++        hasAppendSystemPrompt: false,
++        mcpTools: [],
++        getToolPermissionContext: async () => getEmptyToolPermissionContext(),
++        fetchOverride,
++        ...(disableToolTurnThinking !== undefined && { disableToolTurnThinking }),
++      },
++    })) {
++      // drain the stream
++    }
++    return bodies[0] ?? {}
++  } finally {
++    if (originalMacro === undefined) delete globals.MACRO
++    else globals.MACRO = originalMacro
++    setIsInteractive(originalIsInteractive)
++    if (originalBaseUrl === undefined) delete process.env.ANTHROPIC_BASE_URL
++    else process.env.ANTHROPIC_BASE_URL = originalBaseUrl
++    if (originalHome === undefined) delete process.env.HOME
++    else process.env.HOME = originalHome
++    if (originalConfigDir === undefined) delete process.env.CLAUDE_CONFIG_DIR
++    else process.env.CLAUDE_CONFIG_DIR = originalConfigDir
++    if (originalApiKey === undefined) delete process.env.ANTHROPIC_API_KEY
++    else process.env.ANTHROPIC_API_KEY = originalApiKey
++    await rm(configDir, { recursive: true, force: true })
++  }
++}
++
++describe('toolTurnThinking preference resolution', () => {
++  test('resolveToolTurnThinkingSetting returns true only for the literal boolean', () => {
++    expect(resolveToolTurnThinkingSetting(true)).toBe(true)
++    expect(resolveToolTurnThinkingSetting(false)).toBe(false)
++    expect(resolveToolTurnThinkingSetting('true')).toBe(false)
++    expect(resolveToolTurnThinkingSetting(1)).toBe(false)
++    expect(resolveToolTurnThinkingSetting(null)).toBe(false)
++    expect(resolveToolTurnThinkingSetting(undefined)).toBe(false)
++  })
++
++  test('getToolTurnThinking defaults to false when no preference is stored', async () => {
++    const configDir = await mkdtemp(join(tmpdir(), 'cc-haha-tool-turn-thinking-default-'))
++    const originalConfigDir = process.env.CLAUDE_CONFIG_DIR
++    const originalHome = process.env.HOME
++    process.env.CLAUDE_CONFIG_DIR = configDir
++    process.env.HOME = configDir
++    resetPromptLanguageCacheForTests()
++    try {
++      expect(getToolTurnThinking()).toBe(false)
++    } finally {
++      if (originalConfigDir === undefined) delete process.env.CLAUDE_CONFIG_DIR
++      else process.env.CLAUDE_CONFIG_DIR = originalConfigDir
++      if (originalHome === undefined) delete process.env.HOME
++      else process.env.HOME = originalHome
++      await rm(configDir, { recursive: true, force: true })
++    }
++  })
++
++  test('getToolTurnThinking reads the stored true value from desktop-ui.json', async () => {
++    const configDir = await mkdtemp(join(tmpdir(), 'cc-haha-tool-turn-thinking-stored-'))
++    await mkdir(join(configDir, 'cc-haha'), { recursive: true })
++    await writeFile(
++      join(configDir, 'cc-haha', 'desktop-ui.json'),
++      JSON.stringify({ toolTurnThinking: true }),
++    )
++    const originalConfigDir = process.env.CLAUDE_CONFIG_DIR
++    const originalHome = process.env.HOME
++    process.env.CLAUDE_CONFIG_DIR = configDir
++    process.env.HOME = configDir
++    resetPromptLanguageCacheForTests()
++    try {
++      expect(getToolTurnThinking()).toBe(true)
++    } finally {
++      if (originalConfigDir === undefined) delete process.env.CLAUDE_CONFIG_DIR
++      else process.env.CLAUDE_CONFIG_DIR = originalConfigDir
++      if (originalHome === undefined) delete process.env.HOME
++      else process.env.HOME = originalHome
++      await rm(configDir, { recursive: true, force: true })
++    }
++  })
++
++  test('setToolTurnThinkingPreference updates the in-process cache', () => {
++    resetPromptLanguageCacheForTests()
++    expect(setToolTurnThinkingPreference(true)).toBe(true)
++    expect(getToolTurnThinking()).toBe(true)
++    expect(setToolTurnThinkingPreference(false)).toBe(false)
++    expect(getToolTurnThinking()).toBe(false)
++  })
++})
++
++describe('chat_template_kwargs enable_thinking injection', () => {
++  test('injects enable_thinking=false on a loopback engine when the flag is set', async () => {
++    resetPromptLanguageCacheForTests()
++    try {
++      setToolTurnThinkingPreference(false)
++      const body = await captureRequestBody('http://127.0.0.1:8000/v1', true)
++      expect(body.chat_template_kwargs).toEqual({ enable_thinking: false })
++    } finally {
++      setToolTurnThinkingPreference(false)
++    }
++  }, 15_000)
++
++  test('does not inject chat_template_kwargs when the flag is not set', async () => {
++    resetPromptLanguageCacheForTests()
++    try {
++      setToolTurnThinkingPreference(false)
++      const body = await captureRequestBody('http://127.0.0.1:8000/v1', undefined)
++      expect(body.chat_template_kwargs).toBeUndefined()
++    } finally {
++      setToolTurnThinkingPreference(false)
++    }
++  }, 15_000)
++
++  test('does not inject chat_template_kwargs on a public endpoint even when the flag is set', async () => {
++    resetPromptLanguageCacheForTests()
++    try {
++      setToolTurnThinkingPreference(false)
++      const body = await captureRequestBody('https://api.anthropic.com', true)
++      expect(body.chat_template_kwargs).toBeUndefined()
++    } finally {
++      setToolTurnThinkingPreference(false)
++    }
++  }, 15_000)
++})

@@ -76,3 +76,12 @@ patches/workspace/workspace-history-budget-degrade-patch1.patch
 #    因归因头在私网被关而失败，已改为接受 loopback 无归因头的新行为。
 #    干净 fef605601 上 apply 后这 5 文件 = 064f6c594 同文件内容 ✅ 逐字节一致。
 patches/usage/usage-private-engine-attribution-cache-patch1.patch
+
+# 17：usage-tool-turn-thinking-skip（2026-10-17，15 文件）。自托管引擎「工具轮间思考」开关。
+#    设置-通用页加二级开关「工具轮间进行思考」（默认关）。query.ts 判定上一轮 assistant
+#    消息是否只有 tool_use 没有 text（纯工具推进轮），开关关时在下一轮请求注入
+#    chat_template_kwargs.enable_thinking=false，引擎跳过思考生成段（省工具间隔 1-2s）。
+#    最终回答轮（上一轮带 text）保留完整思考。isLocalEngineUrl 门控，线上零影响。
+#    设置走 desktop-ui.json 持久化 + 进程内缓存（promptLanguage.ts），sidecar 零重启。
+#    干净 bef0fad55 上 apply 后这 15 文件 = fb8f91468 同文件内容 ✅ 逐字节一致。
+patches/usage/usage-tool-turn-thinking-skip-patch1.patch
