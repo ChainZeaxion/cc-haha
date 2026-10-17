@@ -41,17 +41,21 @@ function localePreferencesPath(): string {
  * service: prompt builders run deep inside request handling, and one small
  * synchronous read at most once per process keeps that path free of new awaits.
  */
-function readPersistedPreference(field: string): string | null {
+function readPersistedRaw(field: string): unknown {
   try {
     const parsed = JSON.parse(
       fs.readFileSync(localePreferencesPath(), 'utf8'),
     ) as Record<string, unknown> | null
-    const value = parsed?.[field]
-    return typeof value === 'string' && value.trim() ? value : null
+    return parsed?.[field] ?? null
   } catch {
     // No preferences yet, or unreadable: English, which needs no override.
     return null
   }
+}
+
+function readPersistedPreference(field: string): string | null {
+  const value = readPersistedRaw(field)
+  return typeof value === 'string' && value.trim() ? value : null
 }
 
 let cached: PromptLanguage | null = null
@@ -119,6 +123,7 @@ export function setPromptLanguageSetting(raw: unknown): PromptLanguage {
 export function resetPromptLanguageCacheForTests(): void {
   cached = null
   cachedThinking = null
+  cachedToolTurnThinking = null
   localeOverride = null
   settingOverride = null
 }
@@ -160,4 +165,39 @@ export function setThinkingLanguagePreference(raw: unknown): PromptLanguage {
   const setting = resolveThinkingLanguageSetting(raw)
   cachedThinking = setting === 'auto' ? getPromptLanguage() : setting
   return cachedThinking
+}
+
+// ── Tool-turn thinking (enable_thinking skip) ───────────────────────────────
+//
+// Whether the assistant keeps thinking between tool turns on a self-hosted
+// engine. OFF (the default) sends `chat_template_kwargs.enable_thinking=false`
+// on tool-continuation turns so the engine skips its thinking preamble; ON
+// keeps the engine default and the request carries no such field.
+
+const TOOL_TURN_FIELD = 'toolTurnThinking'
+
+/** `true` only when the stored value is the literal boolean true. */
+export function resolveToolTurnThinkingSetting(raw: unknown): boolean {
+  return raw === true
+}
+
+let cachedToolTurnThinking: boolean | null = null
+
+/**
+ * Whether tool-continuation turns should think. The default is `false` (skip):
+ * a missing or invalid stored value means skip thinking between tools.
+ */
+export function getToolTurnThinking(): boolean {
+  if (cachedToolTurnThinking === null) {
+    cachedToolTurnThinking = resolveToolTurnThinkingSetting(
+      readPersistedRaw(TOOL_TURN_FIELD),
+    )
+  }
+  return cachedToolTurnThinking
+}
+
+/** Record a tool-turn-thinking change (the write path, like the language ones). */
+export function setToolTurnThinkingPreference(raw: unknown): boolean {
+  cachedToolTurnThinking = resolveToolTurnThinkingSetting(raw)
+  return cachedToolTurnThinking
 }

@@ -2406,6 +2406,8 @@ export const kr: Record<TranslationKey, string> = {
   'settings.general.thinkingHint': '새 세션을 --thinking 비활성화로 시작하려면 이를 끄세요. DeepSeek V4 Flash/Pro 및 기타 비사고 워크플로에 유용합니다.',
   'settings.general.thinkingSendBackTitle': '사고 기록을 백엔드 API로 보내기',
   'settings.general.thinkingSendBackHint': '끄면 이전 사고 블록이 API 요청에서만 제거됩니다. 로컬 세션 기록에는 그대로 보관되어 대화에서 계속 볼 수 있습니다.',
+  'settings.general.toolTurnThinkingTitle': '도구 턴 사이에 사고 사용',
+  'settings.general.toolTurnThinkingHint': '자체 호스팅 엔진에만 적용됩니다. 끌 경우 도구 실행 중간 턴은 enable_thinking=false를 붙여 사고 서론을 건너뛰고 도구 간 지연을 줄이며, 최종 답변 턴은 여전히 전체적으로 사고합니다.',
   'settings.general.compactionTitle': '컨텍스트 압축',
   'settings.general.sessionExtendedInfoTitle': '세션 확장 정보',
   'settings.general.sessionExtendedInfoDescription': '세션 화면의 사용량·소요 시간 표시를 제어합니다. 끄면 턴 하단의 사용량만 남습니다.',

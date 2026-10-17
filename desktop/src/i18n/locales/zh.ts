@@ -2402,6 +2402,8 @@ export const zh: Record<TranslationKey, string> = {
   'settings.general.thinkingHint': '关闭后会以 --thinking disabled 启动新会话；适合 DeepSeek V4 Flash/Pro 等需要非思考模式的模型。',
   'settings.general.thinkingSendBackTitle': '将思考内容回传后端 API',
   'settings.general.thinkingSendBackHint': '关闭后，历史中的思考内容只从发给后端的请求中剥离；本地会话历史完整保留，仍可在会话中回看。',
+  'settings.general.toolTurnThinkingTitle': '工具轮间进行思考',
+  'settings.general.toolTurnThinkingHint': '仅对自托管引擎生效。关闭后，工具推进的中段轮会带 enable_thinking=false，跳过思考生成段以缩短工具间隔；最终回答轮仍保留完整思考。',
   'settings.general.compactionTitle': '上下文压缩',
   'settings.general.sessionExtendedInfoTitle': '会话扩展信息',
   'settings.general.sessionExtendedInfoDescription': '控制会话界面中用量与耗时信息的显示，关闭后只保留轮次页脚的用量。',

@@ -10,9 +10,11 @@ import { DEFAULT_VOICE_PREFERENCES, type VoicePreferences } from './voice/types.
 import {
   resolveThinkingLanguageSetting,
   resolvePromptLanguageSetting,
+  resolveToolTurnThinkingSetting,
   setPromptLanguage,
   setPromptLanguageSetting,
   setThinkingLanguagePreference,
+  setToolTurnThinkingPreference,
   type PromptLanguage,
   type PromptLanguageSetting,
   type ThinkingLanguageSetting,
@@ -97,6 +99,12 @@ export type DesktopUiPreferences = {
    * Chinese.
    */
   thinkingLanguage: ThinkingLanguageSetting
+  /**
+   * Whether tool-continuation turns think on a self-hosted engine. `true` keeps
+   * thinking between tool turns; `false` (the default) sends
+   * `chat_template_kwargs.enable_thinking=false` on those turns.
+   */
+  toolTurnThinking: boolean
   [key: string]: unknown
 }
 
@@ -145,6 +153,7 @@ function defaultPreferences(): DesktopUiPreferences {
     locale: null,
     promptLanguage: 'auto',
     thinkingLanguage: 'auto',
+    toolTurnThinking: false,
   }
 }
 
@@ -392,6 +401,7 @@ function normalizeDesktopUiPreferences(value: unknown): DesktopUiPreferences | n
     locale: normalizeLocalePreference(record.locale),
     promptLanguage: resolvePromptLanguageSetting(record.promptLanguage),
     thinkingLanguage: resolveThinkingLanguageSetting(record.thinkingLanguage),
+    toolTurnThinking: resolveToolTurnThinkingSetting(record.toolTurnThinking),
   }
 }
 
@@ -559,6 +569,30 @@ export class DesktopUiPreferencesService {
       await this.writePreferences(nextPreferences)
       setThinkingLanguagePreference(setting)
       return { preferences: nextPreferences, thinkingLanguage: setting }
+    })
+  }
+
+  /**
+   * Persist whether tool-continuation turns think. Like the language writes,
+   * the in-process setting updates immediately so a running sidecar follows on
+   * the very next request.
+   */
+  async updateToolTurnThinking(raw: unknown): Promise<{
+    preferences: DesktopUiPreferences
+    toolTurnThinking: boolean
+  }> {
+    const filePath = this.getPreferencesPath()
+    return this.withWriteLock(filePath, async () => {
+      const { preferences } = await this.readPreferences()
+      const setting = resolveToolTurnThinkingSetting(raw)
+      const nextPreferences: DesktopUiPreferences = {
+        ...preferences,
+        schemaVersion: preferences.schemaVersion,
+        toolTurnThinking: setting,
+      }
+      await this.writePreferences(nextPreferences)
+      setToolTurnThinkingPreference(setting)
+      return { preferences: nextPreferences, toolTurnThinking: setting }
     })
   }
 

@@ -77,6 +77,7 @@ describe('DesktopUiPreferencesService', () => {
       locale: null,
       promptLanguage: 'auto',
       thinkingLanguage: 'auto',
+      toolTurnThinking: false,
       profile: {
         displayName: 'cc-haha',
         subtitle: 'github.com/NanmiCoder/cc-haha',
@@ -135,6 +136,7 @@ describe('DesktopUiPreferencesService', () => {
       locale: null,
       promptLanguage: 'auto',
       thinkingLanguage: 'auto',
+      toolTurnThinking: false,
       futureField: { keep: true },
       profile: {
         displayName: 'cc-haha',
@@ -160,6 +162,7 @@ describe('DesktopUiPreferencesService', () => {
       locale: null,
       promptLanguage: 'auto',
       thinkingLanguage: 'auto',
+      toolTurnThinking: false,
       futureField: { keep: true },
       profile: {
         displayName: 'cc-haha',
@@ -505,6 +508,7 @@ describe('DesktopUiPreferencesService', () => {
       locale: null,
       promptLanguage: 'auto',
       thinkingLanguage: 'auto',
+      toolTurnThinking: false,
       profile: {
         displayName: 'Claude Captain',
         subtitle: 'local.example/profile',
@@ -630,6 +634,7 @@ describe('desktop UI preferences API', () => {
         locale: null,
         promptLanguage: 'auto',
       thinkingLanguage: 'auto',
+      toolTurnThinking: false,
         profile: {
           displayName: 'cc-haha',
           subtitle: 'github.com/NanmiCoder/cc-haha',
@@ -661,6 +666,7 @@ describe('desktop UI preferences API', () => {
         locale: null,
         promptLanguage: 'auto',
       thinkingLanguage: 'auto',
+      toolTurnThinking: false,
         profile: {
           displayName: 'cc-haha',
           subtitle: 'github.com/NanmiCoder/cc-haha',

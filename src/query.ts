@@ -41,6 +41,7 @@ import type {
   TombstoneMessage,
 } from './types/message.js'
 import { logError } from './utils/log.js'
+import { getToolTurnThinking } from './prompts/i18n/promptLanguage.js'
 import {
   PROMPT_TOO_LONG_ERROR_MESSAGE,
   isPromptTooLongMessage,
@@ -663,6 +664,20 @@ async function* queryLoop(
 
     let attemptWithFallback = true
 
+    // Tool-continuation turn detection: when the previous assistant message
+    // carried only tool_use blocks (no text), and the user has the tool-turn
+    // thinking switch off, the next request skips the engine's thinking
+    // preamble via `chat_template_kwargs.enable_thinking: false`.
+    const lastAssistantMsg = [...messagesForQuery].reverse().find(
+      (m): m is AssistantMessage => m.type === 'assistant',
+    )
+    const prevTurnPureToolUse =
+      lastAssistantMsg !== undefined &&
+      lastAssistantMsg.message.content.some(b => b.type === 'tool_use') &&
+      !lastAssistantMsg.message.content.some(b => b.type === 'text')
+    const disableToolTurnThinking =
+      !getToolTurnThinking() && prevTurnPureToolUse
+
     queryCheckpoint('query_api_loop_start')
     try {
       while (attemptWithFallback) {
@@ -685,6 +700,7 @@ async function* queryLoop(
               ...(config.gates.fastModeEnabled && {
                 fastMode: appState.fastMode,
               }),
+              ...(disableToolTurnThinking && { disableToolTurnThinking }),
               toolChoice: undefined,
               isNonInteractiveSession:
                 toolUseContext.options.isNonInteractiveSession,

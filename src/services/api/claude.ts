@@ -810,6 +810,11 @@ export type Options = {
   outputFormat?: BetaJSONOutputFormat;
   fastMode?: boolean;
   advisorModel?: string;
+  // Set by the query loop for a tool-continuation turn (the previous assistant
+  // message was tool-use only) when the user keeps the tool-turn-thinking
+  // switch off. Injected as `chat_template_kwargs.enable_thinking: false` on
+  // self-hosted engines so they skip the thinking preamble for that turn.
+  disableToolTurnThinking?: boolean;
   addNotification?: (notif: Notification) => void;
   // API-side task budget (output_config.task_budget). Distinct from the
   // tokenBudget.ts +500k auto-continue feature — this one is sent to the API
@@ -1966,6 +1971,10 @@ async function* queryModel(
       ...(contextManagement &&
         betasParams.includes(CONTEXT_MANAGEMENT_BETA_HEADER) && {
           context_management: contextManagement,
+        }),
+      ...(options.disableToolTurnThinking &&
+        isLocalEngineUrl(process.env.ANTHROPIC_BASE_URL) && {
+          chat_template_kwargs: { enable_thinking: false },
         }),
       ...extraBodyParams,
       ...(Object.keys(outputConfig).length > 0 && {

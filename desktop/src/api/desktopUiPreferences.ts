@@ -105,6 +105,24 @@ export const desktopUiPreferencesApi = {
     )
   },
 
+  /**
+   * Whether tool-continuation turns think on a self-hosted engine. `false`
+   * (default) sends `enable_thinking: false` on those turns to skip the
+   * thinking preamble; `true` keeps the engine default.
+   */
+  getToolTurnThinking() {
+    return api.get<{ exists: boolean; toolTurnThinking: boolean }>(
+      '/api/desktop-ui/preferences/tool-turn-thinking',
+    )
+  },
+
+  updateToolTurnThinking(toolTurnThinking: boolean) {
+    return api.put<{ ok: true; toolTurnThinking: boolean; locale: string | null }>(
+      '/api/desktop-ui/preferences/tool-turn-thinking',
+      { toolTurnThinking },
+    )
+  },
+
   /** The language the built-in model prompts render in, independent of the UI. */
   getPromptLanguage() {
     return api.get<{ exists: boolean; promptLanguage: PromptLanguageSetting }>(

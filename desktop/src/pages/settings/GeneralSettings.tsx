@@ -96,6 +96,9 @@ export function GeneralSettings() {
     thinkingLanguage,
     setThinkingLanguage,
     loadThinkingLanguage,
+    toolTurnThinking,
+    setToolTurnThinking,
+    loadToolTurnThinking,
     setTheme,
     chatSendBehavior,
     setChatSendBehavior,
@@ -269,6 +272,10 @@ export function GeneralSettings() {
   useEffect(() => {
     void loadPromptLanguage()
   }, [loadPromptLanguage])
+
+  useEffect(() => {
+    void loadToolTurnThinking()
+  }, [loadToolTurnThinking])
 
   const LANGUAGES: Array<{ value: Locale; label: string }> = [
     { value: 'en', label: 'English' },
@@ -1180,8 +1187,28 @@ export function GeneralSettings() {
               <div className="text-sm font-medium text-[var(--color-text-primary)]">
                 {t('settings.general.thinkingSendBackTitle')}
               </div>
-              <div className="text-xs text-[var(--color-text-tertiary)] mt-1 leading-5">
+            <div className="text-xs text-[var(--color-text-tertiary)] mt-1 leading-5">
                 {t('settings.general.thinkingSendBackHint')}
+              </div>
+            </div>
+          </label>
+        )}
+        {thinkingEnabled && (
+          <label className="relative flex items-start gap-3 rounded-[var(--radius-xl)] border border-[var(--color-border)] bg-[var(--color-surface-container-low)] px-4 py-3 mt-3 cursor-pointer hover:border-[var(--color-border-focus)] transition-colors">
+            <input
+              type="checkbox"
+              aria-label={t('settings.general.toolTurnThinkingTitle')}
+              checked={toolTurnThinking}
+              onChange={(e) => void setToolTurnThinking(e.target.checked)}
+              className={SETTINGS_CHECKBOX_INPUT_CLASS}
+            />
+            <SettingsCheckboxMark checked={toolTurnThinking} />
+            <div className="min-w-0">
+              <div className="text-sm font-medium text-[var(--color-text-primary)]">
+                {t('settings.general.toolTurnThinkingTitle')}
+              </div>
+              <div className="text-xs text-[var(--color-text-tertiary)] mt-1 leading-5">
+                {t('settings.general.toolTurnThinkingHint')}
               </div>
             </div>
           </label>

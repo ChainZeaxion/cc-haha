@@ -122,6 +122,23 @@ export async function handleDesktopUiApi(
       return Response.json({ ok: true, thinkingLanguage, locale: preferences.locale })
     }
 
+    if (detail === 'tool-turn-thinking') {
+      if (req.method === 'GET') {
+        const result = await desktopUiPreferencesService.readPreferences()
+        return Response.json({
+          exists: result.exists,
+          toolTurnThinking: result.preferences.toolTurnThinking,
+        })
+      }
+      if (req.method !== 'PUT') throw methodNotAllowed(req.method)
+      const body = await parseJsonBody(req)
+      const { preferences, toolTurnThinking } =
+        await desktopUiPreferencesService.updateToolTurnThinking(
+          (body as { toolTurnThinking?: unknown } | null)?.toolTurnThinking,
+        )
+      return Response.json({ ok: true, toolTurnThinking, locale: preferences.locale })
+    }
+
     if (detail === 'profile') {
       const action = segments[4]
 

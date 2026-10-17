@@ -105,6 +105,7 @@ type SettingsStore = {
   responseLanguage: string
   promptLanguage: PromptLanguageSetting
   thinkingLanguage: ThinkingLanguageSetting
+  toolTurnThinking: boolean
   uiZoom: number
   isLoading: boolean
   error: string | null
@@ -133,6 +134,8 @@ type SettingsStore = {
   loadPromptLanguage: () => Promise<void>
   setThinkingLanguage: (setting: ThinkingLanguageSetting) => Promise<void>
   loadThinkingLanguage: () => Promise<void>
+  setToolTurnThinking: (value: boolean) => Promise<void>
+  loadToolTurnThinking: () => Promise<void>
   setTheme: (theme: ThemeMode) => Promise<void>
   setChatSendBehavior: (behavior: ChatSendBehavior) => Promise<void>
   fetchOutputStyles: (workDir?: string | null) => Promise<void>
@@ -253,6 +256,7 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
   activeProviderName: null,
   locale: initialLocale,
   thinkingLanguage: 'auto',
+  toolTurnThinking: false,
   promptLanguage: 'auto',
   chatSendBehavior: 'enter',
   outputStyle: DEFAULT_OUTPUT_STYLE,
@@ -553,6 +557,27 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
     } catch (error) {
       set({ thinkingLanguage: prev })
       console.error('[desktop] Failed to persist thinking language', error)
+      throw error
+    }
+  },
+
+  loadToolTurnThinking: async () => {
+    try {
+      const { toolTurnThinking } = await desktopUiPreferencesApi.getToolTurnThinking()
+      set({ toolTurnThinking })
+    } catch (error) {
+      console.error('[desktop] Failed to load tool-turn thinking', error)
+    }
+  },
+
+  setToolTurnThinking: async (value: boolean) => {
+    const prev = get().toolTurnThinking
+    set({ toolTurnThinking: value })
+    try {
+      await desktopUiPreferencesApi.updateToolTurnThinking(value)
+    } catch (error) {
+      set({ toolTurnThinking: prev })
+      console.error('[desktop] Failed to persist tool-turn thinking', error)
       throw error
     }
   },

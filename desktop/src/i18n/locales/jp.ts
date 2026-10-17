@@ -2404,6 +2404,8 @@ export const jp: Record<TranslationKey, string> = {
   'settings.general.thinkingHint': '新しいセッションを --thinking 無効で開始するにはこれをオフにします。DeepSeek V4 Flash/Pro やその他の非思考ワークフローに便利です。',
   'settings.general.thinkingSendBackTitle': '思考履歴をバックエンド API に送信する',
   'settings.general.thinkingSendBackHint': 'オフの場合、直前の思考ブロックは API リクエストからのみ除去されます。ローカルのセッション履歴には保存され、会話内で引き続き閲覧できます。',
+  'settings.general.toolTurnThinkingTitle': 'ツール呼び出しの間思考する',
+  'settings.general.toolTurnThinkingHint': 'セルフホストのエンジンでのみ有効。オフにすると、ツール実行の途中ラウンドは enable_thinking=false を付けて思考の導入部をスキップし、ツール間の遅延を短縮します。最終回答ラウンドでは従来どおり完全な思考を行います。',
   'settings.general.compactionTitle': 'コンテキスト圧縮',
   'settings.general.sessionExtendedInfoTitle': 'セッション拡張情報',
   'settings.general.sessionExtendedInfoDescription': 'セッション画面の使用量・所要時間の表示を切り替えます。オフではターンフッターの使用量のみ残ります。',

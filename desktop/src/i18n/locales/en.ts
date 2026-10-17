@@ -2405,6 +2405,8 @@ Row 9, all 8 cells: continuing from straight down, turning left through lower-le
   'settings.general.thinkingHint': 'Turn this off to start new sessions with --thinking disabled; useful for DeepSeek V4 Flash/Pro and other non-thinking workflows.',
   'settings.general.thinkingSendBackTitle': 'Send thinking history to the backend API',
   'settings.general.thinkingSendBackHint': 'When off, prior thinking blocks are stripped from API requests only; they stay in your local session history and remain viewable in the conversation.',
+  'settings.general.toolTurnThinkingTitle': 'Think Between Tool Turns',
+  'settings.general.toolTurnThinkingHint': 'Self-hosted engines only. When off, mid-tool turns send enable_thinking=false to skip the thinking preamble and shorten the gap between tools; the final answer turn still thinks in full.',
   'settings.general.compactionTitle': 'Context compaction',
   'settings.general.sessionExtendedInfoTitle': 'Session detail readouts',
   'settings.general.sessionExtendedInfoDescription': 'Controls the usage and timing readouts in the session UI. Off keeps only the usage in the turn footer.',
